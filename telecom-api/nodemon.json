@@ -1,0 +1,15 @@
+{
+  "watch": [
+    "server.js",
+    "looker_alert_service.js",
+    "db.js"
+  ],
+  "ignore": [
+    "chrome_looker_profile/*",
+    "chrome_session/*",
+    "uploads/*",
+    "*.json",
+    "*.log"
+  ],
+  "ext": "js"
+}

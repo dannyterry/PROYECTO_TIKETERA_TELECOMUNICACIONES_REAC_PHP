@@ -1,0 +1,29 @@
+# Dependencias
+node_modules/
+*/node_modules/
+
+# Perfiles y temporales de Chrome / Puppeteer
+chrome_looker_profile/
+*/chrome_looker_profile/
+chrome_session/
+*/chrome_session/
+
+# Subidas y Archivos Grandes
+uploads/
+*/uploads/
+*.zip
+*.sql
+*.log
+
+# Entornos y Sesiones
+.env
+.env.local
+looker_session.json
+*/looker_session.json
+
+# Builds
+dist/
+dist_react/
+build/
+.DS_Store
+Thumbs.db

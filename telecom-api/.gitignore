@@ -1,0 +1,15 @@
+# Dependencias
+node_modules/
+
+# Perfiles y temporales de Chrome / Puppeteer
+chrome_looker_profile/
+chrome_session/
+
+# Subidas de personal y archivos pesados
+uploads/
+*.zip
+*.log
+
+# Archivos de sesión temporal
+looker_session.json
+.env

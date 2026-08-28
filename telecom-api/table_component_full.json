@@ -1,0 +1,688 @@
+{
+  "datasourceId": "c7ce1418-b217-40bf-b71a-feca7098ee4a",
+  "componentId": "cd-jfut5i1r5d",
+  "type": "simple-table",
+  "behavior": {
+    "mapValue": {
+      "entry": [
+        {
+          "key": "onDrillsSelected",
+          "value": {
+            "arrayValue": {
+              "value": [
+                {
+                  "mapValue": {
+                    "entry": [
+                      {
+                        "key": "action",
+                        "value": {
+                          "strValue": "drill-selector"
+                        }
+                      },
+                      {
+                        "key": "isControl",
+                        "value": {
+                          "boolValue": false
+                        }
+                      },
+                      {
+                        "key": "value",
+                        "value": {
+                          "mapValue": {
+                            "entry": [
+                              {
+                                "key": "drills",
+                                "value": {
+                                  "arrayValue": {
+                                    "value": []
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "key": "onSort",
+          "value": {
+            "arrayValue": {
+              "value": [
+                {
+                  "mapValue": {
+                    "entry": [
+                      {
+                        "key": "action",
+                        "value": {
+                          "strValue": "sort"
+                        }
+                      },
+                      {
+                        "key": "isControl",
+                        "value": {
+                          "boolValue": false
+                        }
+                      },
+                      {
+                        "key": "init",
+                        "value": {
+                          "mapValue": {
+                            "entry": [
+                              {
+                                "key": "sortOptions",
+                                "value": {
+                                  "mapValue": {
+                                    "entry": [
+                                      {
+                                        "key": "sortData",
+                                        "value": {
+                                          "arrayValue": {
+                                            "value": [
+                                              {
+                                                "mapValue": {
+                                                  "entry": [
+                                                    {
+                                                      "key": "sortDir",
+                                                      "value": {
+                                                        "int64Value": "0"
+                                                      }
+                                                    },
+                                                    {
+                                                      "key": "sortColumn",
+                                                      "value": {
+                                                        "mapValue": {
+                                                          "entry": [
+                                                            {
+                                                              "key": "name",
+                                                              "value": {
+                                                                "strValue": "qt_hh7ye78r5d"
+                                                              }
+                                                            },
+                                                            {
+                                                              "key": "datasetNs",
+                                                              "value": {
+                                                                "strValue": "d0"
+                                                              }
+                                                            },
+                                                            {
+                                                              "key": "tableNs",
+                                                              "value": {
+                                                                "strValue": "t0"
+                                                              }
+                                                            },
+                                                            {
+                                                              "key": "dataTransformation",
+                                                              "value": {
+                                                                "mapValue": {
+                                                                  "entry": [
+                                                                    {
+                                                                      "key": "sourceFieldName",
+                                                                      "value": {
+                                                                        "strValue": "_n1522618073_"
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              },
+                                              {
+                                                "mapValue": {
+                                                  "entry": [
+                                                    {
+                                                      "key": "sortDir",
+                                                      "value": {
+                                                        "int64Value": "0"
+                                                      }
+                                                    },
+                                                    {
+                                                      "key": "sortColumn",
+                                                      "value": {
+                                                        "mapValue": {
+                                                          "entry": [
+                                                            {
+                                                              "key": "name",
+                                                              "value": {
+                                                                "strValue": "qt_f97ye78r5d"
+                                                              }
+                                                            },
+                                                            {
+                                                              "key": "datasetNs",
+                                                              "value": {
+                                                                "strValue": "d0"
+                                                              }
+                                                            },
+                                                            {
+                                                              "key": "tableNs",
+                                                              "value": {
+                                                                "strValue": "t0"
+                                                              }
+                                                            },
+                                                            {
+                                                              "key": "dataTransformation",
+                                                              "value": {
+                                                                "mapValue": {
+                                                                  "entry": [
+                                                                    {
+                                                                      "key": "sourceFieldName",
+                                                                      "value": {
+                                                                        "strValue": "_2791368_"
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "key": "isNewSortConfig",
+                                        "value": {
+                                          "boolValue": true
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "key": "onPaginate",
+          "value": {
+            "arrayValue": {
+              "value": [
+                {
+                  "mapValue": {
+                    "entry": [
+                      {
+                        "key": "action",
+                        "value": {
+                          "strValue": "paginate"
+                        }
+                      },
+                      {
+                        "key": "isControl",
+                        "value": {
+                          "boolValue": false
+                        }
+                      },
+                      {
+                        "key": "init",
+                        "value": {
+                          "mapValue": {
+                            "entry": [
+                              {
+                                "key": "rowsCount",
+                                "value": {
+                                  "int64Value": "100"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "key": "onTableFreezingColumn",
+          "value": {
+            "arrayValue": {
+              "value": [
+                {
+                  "mapValue": {
+                    "entry": [
+                      {
+                        "key": "action",
+                        "value": {
+                          "strValue": "table-freezing-column"
+                        }
+                      },
+                      {
+                        "key": "isControl",
+                        "value": {
+                          "boolValue": false
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "componentConfig": [],
+  "preset": "default",
+  "attributeConfig": {
+    "componentAttribute": {
+      "datasourceConfigVersion": 2,
+      "displayConfigVersion": 0,
+      "height": 414,
+      "width": 1445,
+      "top": 836,
+      "left": 7,
+      "rotation": 0
+    }
+  },
+  "propertyConfig": {
+    "componentProperty": {
+      "dataset": {
+        "datasetType": 1,
+        "datasetId": "c7ce1418-b217-40bf-b71a-feca7098ee4a"
+      },
+      "dimensions": {
+        "labeledConcepts": [
+          {
+            "key": "primary",
+            "value": {
+              "conceptNames": [
+                "qt_hh7ye78r5d",
+                "qt_hzrit9as5d",
+                "qt_f97ye78r5d",
+                "qt_uejyhabs5d",
+                "qt_rgjh6qau5d",
+                "qt_f5pg0kbs5d",
+                "qt_ybyxfc7t5d",
+                "qt_op6ye78r5d",
+                "qt_2d9467as5d",
+                "qt_n5zpfvau5d"
+              ]
+            }
+          }
+        ]
+      },
+      "metrics": {
+        "labeledConcepts": [
+          {
+            "key": "primary",
+            "value": {
+              "conceptNames": []
+            }
+          }
+        ]
+      },
+      "row": 100,
+      "sort": [
+        {
+          "sortDir": 0,
+          "sortColumn": "qt_hh7ye78r5d"
+        },
+        {
+          "sortDir": 0,
+          "sortColumn": "qt_f97ye78r5d"
+        }
+      ],
+      "breakdownConfig": [],
+      "dateRangeDimension": "qt_zlkze78r5d",
+      "compareDateDuration": {
+        "anchorType": 0,
+        "config": {}
+      },
+      "filters": [
+        "filter5qiqso2r5d",
+        "filterigdegr7r5d"
+      ],
+      "inheritFilters": true,
+      "dsRequiredFilters": [],
+      "tableProperty": {
+        "headerColor": {
+          "color": "#FF8F00",
+          "opacity": 1
+        },
+        "compactPagination": false,
+        "headerFontColor": {
+          "color": "#FFFFFF",
+          "opacity": 1
+        },
+        "showTotals": true,
+        "footerBorderColor": {
+          "color": "#eee",
+          "opacity": 1
+        },
+        "footerBorderWeight": 0,
+        "tableDimensionProperty": [
+          {
+            "dimAlignment": 2
+          },
+          {
+            "dimAlignment": 2
+          },
+          {
+            "dimAlignment": 2
+          },
+          {
+            "dimAlignment": 2
+          },
+          {
+            "dimAlignment": 2
+          },
+          {
+            "dimAlignment": 2
+          },
+          {
+            "dimAlignment": 2
+          },
+          {
+            "dimAlignment": 2
+          },
+          {
+            "dimAlignment": 2
+          },
+          {
+            "dimAlignment": 2
+          },
+          {
+            "dimAlignment": 2
+          },
+          {
+            "dimAlignment": 2
+          },
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {}
+        ],
+        "tableMetricProperty": [],
+        "columnsWidth": [
+          36.349609375,
+          79.81,
+          153.34999999999997,
+          80.39999999999998,
+          148.90999999999997,
+          426.81000000000006,
+          106.12000000000012,
+          103.47999999999979,
+          66.6099999999999,
+          112.42000000000007,
+          130.74039062500015
+        ],
+        "rowsHeight": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ]
+      },
+      "componentPropertyMigrationStatus": 2
+    }
+  },
+  "conceptDefs": [
+    {
+      "id": "t0.qt_op6ye78r5d",
+      "name": "qt_op6ye78r5d",
+      "namespace": "t0",
+      "queryTimeTransformation": {
+        "dataTransformation": {
+          "sourceFieldName": "_82184_"
+        }
+      }
+    },
+    {
+      "id": "t0.qt_hh7ye78r5d",
+      "name": "qt_hh7ye78r5d",
+      "namespace": "t0",
+      "queryTimeTransformation": {
+        "dataTransformation": {
+          "sourceFieldName": "_n1522618073_"
+        }
+      }
+    },
+    {
+      "id": "t0.qt_f97ye78r5d",
+      "name": "qt_f97ye78r5d",
+      "namespace": "t0",
+      "queryTimeTransformation": {
+        "dataTransformation": {
+          "sourceFieldName": "_2791368_"
+        }
+      }
+    },
+    {
+      "id": "t0.qt_zlkze78r5d",
+      "name": "qt_zlkze78r5d",
+      "namespace": "t0",
+      "queryTimeTransformation": {
+        "dataTransformation": {
+          "sourceFieldName": "_14122113_"
+        }
+      }
+    },
+    {
+      "id": "t0.qt_2d9467as5d",
+      "name": "qt_2d9467as5d",
+      "namespace": "t0",
+      "queryTimeTransformation": {
+        "dataTransformation": {
+          "sourceFieldName": "_3355_"
+        },
+        "displayTransformation": {
+          "displayName": "Ticket"
+        }
+      },
+      "resultTransformation": {
+        "analyticalFunction": 0,
+        "isRelativeToBase": false,
+        "bypassCanvasFilters": false
+      }
+    },
+    {
+      "id": "t0.qt_hzrit9as5d",
+      "name": "qt_hzrit9as5d",
+      "namespace": "t0",
+      "queryTimeTransformation": {
+        "dataTransformation": {
+          "sourceFieldName": "_2091842744_"
+        }
+      }
+    },
+    {
+      "id": "t0.qt_uejyhabs5d",
+      "name": "qt_uejyhabs5d",
+      "namespace": "t0",
+      "queryTimeTransformation": {
+        "dataTransformation": {
+          "sourceFieldName": "_353606072_"
+        }
+      }
+    },
+    {
+      "id": "t0.qt_f5pg0kbs5d",
+      "name": "qt_f5pg0kbs5d",
+      "namespace": "t0",
+      "queryTimeTransformation": {
+        "dataTransformation": {
+          "sourceFieldName": "qt_9piuojbs5d",
+          "textFormula": "CASE WHEN t0._n1273805513_ = \"0\" THEN \"Multifamiliar\" ELSE t0._n1273805513_ END",
+          "sourceType": 1,
+          "frontendTextFormula": "CASE\n  WHEN t0._n1273805513_ = \"0\" THEN \"Multifamiliar\"\n  ELSE t0._n1273805513_\nEND",
+          "formulaOutputDataType": 0
+        },
+        "displayTransformation": {
+          "displayName": "Tipo vivienda",
+          "outputSemanticInfo": {
+            "semanticConfig": [
+              {
+                "semanticType": 32
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "t0.qt_ybyxfc7t5d",
+      "name": "qt_ybyxfc7t5d",
+      "namespace": "t0",
+      "queryTimeTransformation": {
+        "dataTransformation": {
+          "sourceFieldName": "_n350971185_"
+        },
+        "displayTransformation": {
+          "displayName": "Vehículo sugerido"
+        }
+      },
+      "resultTransformation": {
+        "analyticalFunction": 0,
+        "isRelativeToBase": false,
+        "bypassCanvasFilters": false
+      }
+    },
+    {
+      "id": "t0.qt_rgjh6qau5d",
+      "name": "qt_rgjh6qau5d",
+      "namespace": "t0",
+      "queryTimeTransformation": {
+        "dataTransformation": {
+          "sourceFieldName": "_n1389458739_"
+        },
+        "displayTransformation": {
+          "displayName": "Dirección"
+        }
+      },
+      "resultTransformation": {
+        "analyticalFunction": 0,
+        "isRelativeToBase": false,
+        "bypassCanvasFilters": false
+      }
+    },
+    {
+      "id": "t0.qt_n5zpfvau5d",
+      "name": "qt_n5zpfvau5d",
+      "namespace": "t0",
+      "queryTimeTransformation": {
+        "dataTransformation": {
+          "sourceFieldName": "_98846_"
+        }
+      }
+    }
+  ]
+}
