@@ -48,9 +48,15 @@ const pool = mysql.createPool({
   queueLimit: 0
 });
 
+// 🇵🇪 Asegurar que cada conexión ejecute la zona horaria oficial de Perú (-05:00)
+pool.pool.on('connection', (connection) => {
+  connection.query("SET time_zone = '-05:00'");
+});
+
 // Prueba de conexión automática y optimización de índices al iniciar
 pool.getConnection()
   .then(async (connection) => {
+    await connection.query("SET time_zone = '-05:00'");
     console.log(`✅ [DB] ¡Conexión establecida correctamente con MySQL! (${currentConfig.host}:${currentConfig.port || 3306})`);
 
     // Crear índices de alta velocidad para fechas y búsquedas instantáneas

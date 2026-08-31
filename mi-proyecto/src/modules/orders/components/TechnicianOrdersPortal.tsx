@@ -20,6 +20,8 @@ import {
   Copy,
   Check,
   TrendingUp,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { Order } from "../types/Order";
 import { getOrders } from "../services/orderService";
@@ -67,6 +69,21 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName }) =>
 
   // Estado para expandir/ocultar dirección por orden
   const [direccionesVisibles, setDireccionesVisibles] = useState<Record<string | number, boolean>>({});
+  const [isFullScreen, setIsFullScreen] = useState(false);
+
+  const toggleFullScreen = () => {
+    if (!document.fullscreenElement) {
+      if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
+      setIsFullScreen(true);
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
+      setIsFullScreen(false);
+    }
+  };
 
   const toggleDireccion = (orderId: string | number) => {
     setDireccionesVisibles((prev) => ({
@@ -74,6 +91,71 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName }) =>
       [orderId]: !prev[orderId],
     }));
   };
+
+  // 📱 MANEJADORES DE NAVEGACIÓN (Para que el botón "Atrás" del celular cierre modales en vez de salir de la web)
+  const abrirActa = (ord: Order) => {
+    window.history.pushState({ modal: "acta" }, "");
+    setOrdenParaActa(ord);
+  };
+
+  const abrirChecklist = () => {
+    window.history.pushState({ modal: "checklist" }, "");
+    setMostrarChecklist(true);
+  };
+
+  const alternarStock = () => {
+    if (!mostrarStock) {
+      window.history.pushState({ modal: "stock" }, "");
+      setMostrarStock(true);
+    } else {
+      setMostrarStock(false);
+    }
+  };
+
+  const cambiarVista = (vista: "hoy" | "dashboard") => {
+    if (vista === "dashboard") {
+      window.history.pushState({ tab: "dashboard" }, "");
+    }
+    setVistaActual(vista);
+  };
+
+  // 📱 INTERCEPTOR DEL BOTÓN "ATRÁS" DEL CELULAR (Hardware / Gesture Back Button)
+  useEffect(() => {
+    // Empujar estado inicial para que el primer botón "atrás" no cierre la página
+    window.history.pushState({ page: "portal-tecnico" }, "", window.location.href);
+
+    const handlePopState = () => {
+      // 1. Si el modal de Acta WIN está abierto, cerrarlo
+      if (ordenParaActa) {
+        setOrdenParaActa(null);
+        return;
+      }
+      // 2. Si el Checklist diario está abierto, cerrarlo
+      if (mostrarChecklist) {
+        setMostrarChecklist(false);
+        return;
+      }
+      // 3. Si el desplegable de stock está abierto, cerrarlo
+      if (mostrarStock) {
+        setMostrarStock(false);
+        return;
+      }
+      // 4. Si está en Dashboard, volver a Hoy
+      if (vistaActual === "dashboard") {
+        setVistaActual("hoy");
+        return;
+      }
+
+      // 5. Si ya está en la pantalla principal sin modales abiertos:
+      // Re-empujamos el estado para evitar que el botón atrás del celular lo saque de la web
+      window.history.pushState({ page: "portal-tecnico" }, "", window.location.href);
+      setCopiadoMsg("ℹ️ Para salir de la app, usa la opción de Cerrar Sesión");
+      setTimeout(() => setCopiadoMsg(null), 2500);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [ordenParaActa, mostrarChecklist, mostrarStock, vistaActual]);
 
   // 1. Cargar Técnicos & Asociar Usuario Actual
   useEffect(() => {
@@ -171,13 +253,12 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName }) =>
         if (res && res.permitido === false) {
           setPermiteVerStock(false);
           setMostrarStock(false);
-          setMiStock([]);
-          setMisSeries([]);
         } else {
           setPermiteVerStock(true);
-          setMiStock(res.materiales || []);
-          setMisSeries(res.seriesAsignadas || []);
         }
+        // Siempre almacenamos los materiales y series para que el modal de liquidación pueda descontar
+        setMiStock(res.materiales || []);
+        setMisSeries(res.seriesAsignadas || []);
       })
       .catch(console.error)
       .finally(() => setCargandoStock(false));
@@ -308,35 +389,54 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName }) =>
   };
 
   return (
-    <div className="min-h-screen bg-slate-100/90 p-3 sm:p-5 max-w-lg mx-auto space-y-4 font-sans text-slate-800">
+    <div 
+      className="min-h-screen bg-slate-100/90 p-3 sm:p-5 max-w-lg mx-auto space-y-4 font-sans text-slate-800"
+      style={{
+        paddingBottom: "max(env(safe-area-inset-bottom, 24px), 140px)",
+        paddingTop: "max(env(safe-area-inset-top, 8px), 12px)",
+      }}
+    >
       
       {/* ─────────────────────────────────────────────────────────────
           1. HEADER MÓVIL DEL TÉCNICO
       ───────────────────────────────────────────────────────────── */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-4.5 shadow-xl border border-slate-800 space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-indigo-500/30 text-indigo-300 border border-indigo-400/40 flex items-center justify-center font-black">
-              <Car size={22} />
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-3.5 sm:p-4.5 shadow-xl border border-slate-800 space-y-2.5">
+        <div className="flex items-center justify-between gap-2">
+          {/* Lado izquierdo: Avatar + Nombre con min-w-0 para evitar empujar la derecha */}
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-indigo-500/30 text-indigo-300 border border-indigo-400/40 flex items-center justify-center font-black shrink-0">
+              <Car size={18} />
             </div>
-            <div>
-              <span className="text-[10px] uppercase font-bold text-indigo-300 tracking-wider block">
+            <div className="min-w-0 flex-1">
+              <span className="text-[9px] sm:text-[10px] uppercase font-bold text-indigo-300 tracking-wider block truncate">
                 Portal de Campo • Técnico
               </span>
-              <h1 className="text-sm font-black text-white truncate max-w-[200px]">
+              <h1 className="text-xs sm:text-sm font-black text-white truncate">
                 {trabajadorActual?.nombre_completo || "Técnico de Campo"}
               </h1>
             </div>
           </div>
 
-          <span className="px-2.5 py-1 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 text-xs font-mono font-bold">
-            🚗 {trabajadorActual?.vehiculo_placa || "Sin auto"}
-          </span>
+          {/* Lado derecho: Botón fullscreen + Placa compacta protegida con shrink-0 */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={toggleFullScreen}
+              className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-indigo-200 border border-white/15 text-xs font-bold flex items-center justify-center cursor-pointer transition-all shrink-0"
+              title={isFullScreen ? "Salir de pantalla completa" : "Pantalla completa (Modo App)"}
+            >
+              {isFullScreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            </button>
+
+            <span className="px-2 py-1 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 text-[11px] font-mono font-bold whitespace-nowrap shrink-0">
+              🚗 {trabajadorActual?.vehiculo_placa || "Sin auto"}
+            </span>
+          </div>
         </div>
 
         {trabajadorActual?.cuadrilla && (
-          <div className="pt-0.5 pb-1">
-            <span className="text-[11px] font-bold text-indigo-200 bg-indigo-900/40 px-2.5 py-1 rounded-xl border border-indigo-400/20 inline-block truncate max-w-full">
+          <div className="pt-0.5">
+            <span className="text-[10px] sm:text-[11px] font-bold text-indigo-200 bg-indigo-900/40 px-2.5 py-1 rounded-xl border border-indigo-400/20 inline-block truncate max-w-full">
               📍 Cuadrilla: {(() => {
                 const c = trabajadorActual.cuadrilla.trim();
                 const n = (trabajadorActual.nombre_completo || "").trim();
@@ -357,11 +457,11 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName }) =>
           </div>
         )}
 
-        {/* Acciones Rápidas del Técnico */}
-        <div className="grid grid-cols-2 gap-2 pt-1">
+        {/* Acciones Rápidas del Técnico: 1 columna si solo está checklist, 2 si tiene stock */}
+        <div className={`grid gap-2 pt-0.5 ${permiteVerStock ? "grid-cols-2" : "grid-cols-1"}`}>
           <button
-            onClick={() => setMostrarChecklist(true)}
-            className="py-2.5 px-3 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white rounded-2xl font-black text-xs shadow-md shadow-amber-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            onClick={abrirChecklist}
+            className="w-full py-2.5 px-3 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white rounded-2xl font-black text-xs shadow-md shadow-amber-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
           >
             <FileText size={15} />
             Checklist Diario
@@ -369,8 +469,8 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName }) =>
 
           {permiteVerStock && (
             <button
-              onClick={() => setMostrarStock(!mostrarStock)}
-              className={`py-2.5 px-3 rounded-2xl font-bold text-xs border transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 ${
+              onClick={alternarStock}
+              className={`w-full py-2.5 px-3 rounded-2xl font-bold text-xs border transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 ${
                 mostrarStock
                   ? "bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/30"
                   : "bg-white/10 hover:bg-white/20 text-white border-white/15"
@@ -529,11 +629,11 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName }) =>
       <div className="grid grid-cols-2 gap-1.5 bg-slate-200/90 p-1.5 rounded-2xl border border-slate-300/60 shadow-2xs">
         <button
           type="button"
-          onClick={() => setVistaActual("hoy")}
+          onClick={() => cambiarVista("hoy")}
           className={`py-2 px-3 rounded-xl font-black text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
             vistaActual === "hoy"
-              ? "bg-white text-indigo-950 shadow-sm"
-              : "text-slate-600 hover:text-slate-900"
+               ? "bg-white text-indigo-950 shadow-sm"
+               : "text-slate-600 hover:text-slate-900"
           }`}
         >
           <Clock size={14} className={vistaActual === "hoy" ? "text-indigo-600" : "text-slate-400"} />
@@ -542,7 +642,7 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName }) =>
 
         <button
           type="button"
-          onClick={() => setVistaActual("dashboard")}
+          onClick={() => cambiarVista("dashboard")}
           className={`py-2 px-3 rounded-xl font-black text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
             vistaActual === "dashboard"
               ? "bg-white text-indigo-950 shadow-sm"
@@ -714,7 +814,7 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName }) =>
                   {/* 4. Botón Principal: Llenar Acta WIN / Liquidar (Habilitado SOLO cuando está Finalizada) */}
                   {isFinalizada ? (
                     <button
-                      onClick={() => setOrdenParaActa(ord)}
+                      onClick={() => abrirActa(ord)}
                       className="w-full py-2.5 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-2xl font-black text-xs shadow-md shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
                     >
                       <FileText size={16} />
@@ -742,7 +842,7 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName }) =>
       {vistaActual === "dashboard" && (
         <TechnicianDashboardTab
           trabajador={trabajadorActual}
-          onSelectOrderForActa={(ord) => setOrdenParaActa(ord)}
+          onSelectOrderForActa={(ord) => abrirActa(ord)}
         />
       )}
 

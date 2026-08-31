@@ -32,6 +32,7 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
 
   useEffect(() => {
     const timer = setInterval(() => {
+      if (document.hidden) return;
       setCountdown((prev) => {
         if (prev <= 1) {
           onSync();
@@ -51,8 +52,17 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
   };
 
   const getTodayStr = () => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    try {
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Lima",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date());
+    } catch {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    }
   };
 
   // Estado local para el texto del buscador (permite escribir con 0 lag y sin congelamientos)

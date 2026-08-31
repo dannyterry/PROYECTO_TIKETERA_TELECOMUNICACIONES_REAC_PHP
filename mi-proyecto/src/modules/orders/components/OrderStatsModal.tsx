@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
   X,
   Clock,
@@ -217,11 +217,15 @@ export const OrderStatsModal: React.FC<OrderStatsModalProps> = ({
     }
   }, [order]);
 
-  // Hora actual en vivo con actualización automática cada 10 segundos
+  // Hora actual en vivo con actualización automática cada 60 segundos
   const [now, setNow] = useState(new Date());
   useEffect(() => {
     if (!isOpen) return;
-    const clockInterval = setInterval(() => setNow(new Date()), 10000);
+    const clockInterval = setInterval(() => {
+      if (!document.hidden) {
+        setNow(new Date());
+      }
+    }, 60000); // ⚡ Actualización del reloj cada 60 segundos
     return () => clearInterval(clockInterval);
   }, [isOpen]);
 
@@ -320,19 +324,25 @@ export const OrderStatsModal: React.FC<OrderStatsModalProps> = ({
     }
   }, [initialTasksProgress]);
 
+  const timelineOrdersRef = useRef<Order[]>(timelineOrders);
   useEffect(() => {
-    if (!isOpen || timelineOrders.length === 0) return;
+    timelineOrdersRef.current = timelineOrders;
+  }, [timelineOrders]);
 
-    let isMounted = true;
-    const fetchTasksProgress = () => {
-      const activeOrders = timelineOrders.filter((o) => {
-        const st = (o.status || "").toLowerCase();
-        return st.includes("inicia") || st.includes("camino") || st.includes("proceso") || st.includes("finaliz");
-      });
+  const fetchTasksProgress = useCallback(async () => {
+    if (document.hidden) return;
+    const currentOrders = timelineOrdersRef.current;
+    if (!currentOrders || currentOrders.length === 0) return;
 
-      if (activeOrders.length === 0) return;
+    const activeOrders = currentOrders.filter((o) => {
+      const st = (o.status || "").toLowerCase();
+      return st.includes("inicia") || st.includes("camino") || st.includes("proceso") || st.includes("finaliz");
+    });
 
-      Promise.allSettled(
+    if (activeOrders.length === 0) return;
+
+    try {
+      const results = await Promise.allSettled(
         activeOrders.map(async (o) => {
           // En Fénix, la búsqueda de tareas funciona por número de orden / OT
           const orderNum = o.numeroOrden || o.ot || o.ticket;
@@ -351,33 +361,30 @@ export const OrderStatsModal: React.FC<OrderStatsModalProps> = ({
             return null;
           }
         })
-      ).then((results) => {
-        if (!isMounted) return;
-        const newMap: Record<string, { total: number; done: number; pct: number }> = {};
-        results.forEach((r) => {
-          if (r.status === "fulfilled" && r.value) {
-            const v = r.value;
-            if (v.id) newMap[String(v.id)] = v.data;
-            if (v.ot) newMap[String(v.ot)] = v.data;
-            if (v.ticket) newMap[String(v.ticket)] = v.data;
-            if (v.numeroOrden) newMap[String(v.numeroOrden)] = v.data;
-          }
-        });
-        setTasksProgressMap((prev) => ({ ...prev, ...newMap }));
+      );
+
+      const newMap: Record<string, { total: number; done: number; pct: number }> = {};
+      results.forEach((r) => {
+        if (r.status === "fulfilled" && r.value) {
+          const v = r.value;
+          if (v.id) newMap[String(v.id)] = v.data;
+          if (v.ot) newMap[String(v.ot)] = v.data;
+          if (v.ticket) newMap[String(v.ticket)] = v.data;
+          if (v.numeroOrden) newMap[String(v.numeroOrden)] = v.data;
+        }
       });
-    };
+      setTasksProgressMap((prev) => ({ ...prev, ...newMap }));
+    } catch {
+      // Silencioso
+    }
+  }, []);
 
-    // Carga inmediata
+  useEffect(() => {
+    if (!isOpen) return;
+
+    // Carga única al abrir el modal
     fetchTasksProgress();
-
-    // ⚡ Sondeo automático cada 30 segundos para mantener el % y las tareas siempre al día
-    const progressInterval = setInterval(fetchTasksProgress, 30000);
-
-    return () => {
-      isMounted = false;
-      clearInterval(progressInterval);
-    };
-  }, [isOpen, timelineOrders]);
+  }, [isOpen, fetchTasksProgress]);
 
   if (!isOpen || (!activeOrder && !order)) return null;
 

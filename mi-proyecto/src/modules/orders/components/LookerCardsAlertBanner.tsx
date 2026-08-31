@@ -97,7 +97,9 @@ export const LookerCardsAlertBanner: React.FC = () => {
   useEffect(() => {
     fetchLookerData();
     const interval = setInterval(() => {
-      fetchLookerData();
+      if (!document.hidden) {
+        fetchLookerData();
+      }
     }, 30000);
     return () => clearInterval(interval);
   }, [fetchLookerData]);

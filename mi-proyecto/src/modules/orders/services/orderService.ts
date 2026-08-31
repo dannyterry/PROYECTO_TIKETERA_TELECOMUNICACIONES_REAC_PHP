@@ -543,6 +543,28 @@ export interface TaskDetail {
 const tasksCache = new Map<string, { ordeVisiId: string | null; tareas: OrderTask[]; timestamp: number }>();
 const historyCache = new Map<string, { historial: OrderStatusHistoryItem[]; timestamp: number }>();
 
+const PROGRESS_STORAGE_KEY = "fenix_tasks_progress_map";
+
+export const getStoredTasksProgressMap = (): Record<string, { total: number; done: number; pct: number }> => {
+  try {
+    const raw = sessionStorage.getItem(PROGRESS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
+export const saveTaskProgress = (key: string, progress: { total: number; done: number; pct: number }) => {
+  try {
+    if (!key) return;
+    const current = getStoredTasksProgressMap();
+    current[String(key)] = progress;
+    sessionStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(current));
+  } catch {
+    // Silencioso
+  }
+};
+
 export const getCachedOrderTasks = (numeroTicket: string): { ordeVisiId: string | null; tareas: OrderTask[] } | null => {
   if (!numeroTicket) return null;
   const cached = tasksCache.get(String(numeroTicket));
@@ -557,7 +579,7 @@ export const getCachedOrderStatusHistory = (numeroTicket: string): OrderStatusHi
 
 export const getOrderTasks = async (
   numeroTicket: string,
-  options?: { forceFresh?: boolean }
+  options?: { forceFresh?: boolean; signal?: AbortSignal }
 ): Promise<{ ordeVisiId: string | null; tareas: OrderTask[] }> => {
   const key = String(numeroTicket);
   const cached = tasksCache.get(key);
@@ -568,7 +590,9 @@ export const getOrderTasks = async (
   }
 
   try {
-    const response = await fetch(`${API_URL}/ordenes/${numeroTicket}/tareas`);
+    const response = await fetch(`${API_URL}/ordenes/${numeroTicket}/tareas`, {
+      signal: options?.signal,
+    });
     if (!response.ok) {
       if (cached) return { ordeVisiId: cached.ordeVisiId, tareas: cached.tareas };
       throw new Error("Error al obtener las tareas de la orden");
@@ -581,7 +605,7 @@ export const getOrderTasks = async (
 
     tasksCache.set(key, { ...result, timestamp: Date.now() });
     return result;
-  } catch (err) {
+  } catch (err: any) {
     if (cached) return { ordeVisiId: cached.ordeVisiId, tareas: cached.tareas };
     throw err;
   }
@@ -634,7 +658,7 @@ export interface OrderStatusHistoryItem {
 
 export const getOrderStatusHistory = async (
   numeroTicket: string,
-  options?: { forceFresh?: boolean }
+  options?: { forceFresh?: boolean; signal?: AbortSignal }
 ): Promise<OrderStatusHistoryItem[]> => {
   const key = String(numeroTicket);
   const cached = historyCache.get(key);
@@ -644,7 +668,9 @@ export const getOrderStatusHistory = async (
   }
 
   try {
-    const response = await fetch(`${API_URL}/ordenes/${numeroTicket}/historial-estados`);
+    const response = await fetch(`${API_URL}/ordenes/${numeroTicket}/historial-estados`, {
+      signal: options?.signal,
+    });
     if (!response.ok) return cached ? cached.historial : [];
     const data = await response.json();
     const list = data.historial || [];
@@ -661,6 +687,8 @@ export const getOrderStatusHistory = async (
 export const registrarLogAuditoria = async (data: {
   id_usuario?: string | number | null;
   usuario_nombre?: string;
+  rol_nombre?: string;
+  area?: string;
   modulo: string;
   accion: string;
   id_referencia?: string | number;

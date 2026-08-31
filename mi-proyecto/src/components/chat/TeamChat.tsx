@@ -71,6 +71,11 @@ export const TeamChat: React.FC<TeamChatProps> = ({ userId, userName, userRol, r
   const [nuevoMensaje, setNuevoMensaje] = useState("");
   const [enviando, setEnviando] = useState(false);
 
+  // 🟢 Sistema de Mensajes No Leídos (Alerta Verde Resaltante)
+  const [noLeidosPorUsuario, setNoLeidosPorUsuario] = useState<Record<number, number>>({});
+  const [totalNoLeidos, setTotalNoLeidos] = useState<number>(0);
+  const [ultimoEmisorNotificacion, setUltimoEmisorNotificacion] = useState<string | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Autoscroll
@@ -78,35 +83,93 @@ export const TeamChat: React.FC<TeamChatProps> = ({ userId, userName, userRol, r
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // 1. Cargar usuarios online periódicamente (cada 10s)
+  // 🛡️ Abrir chat con validación de auto-chat (Early return si es el mismo usuario logueado)
+  const handleAbrirChat = (user: OnlineUser) => {
+    if (!user || !user.id_usuario) return;
+    const currentUid = userId || (typeof window !== "undefined" && window.self === window.top ? "59" : "");
+    if (String(user.id_usuario) === String(currentUid)) return;
+
+    setActiveTab(user.id_usuario);
+    setTargetUser(user);
+    setIsOpen(true);
+    setIsMinimized(false);
+
+    // Limpiar contador local de este usuario
+    const cantNoLeidos = noLeidosPorUsuario[user.id_usuario] || 0;
+    if (cantNoLeidos > 0) {
+      setNoLeidosPorUsuario((prev) => {
+        const next = { ...prev };
+        delete next[user.id_usuario];
+        return next;
+      });
+      setTotalNoLeidos((prev) => Math.max(0, prev - cantNoLeidos));
+    }
+  };
+
+  // 1. Cargar usuarios online periódicamente (cada 15s)
   useEffect(() => {
     const fetchOnline = () => {
+      if (document.hidden) return;
       fetch(`${API_URL}/api/auditoria/usuarios-online`)
         .then((r) => r.json())
         .then((data) => {
           if (Array.isArray(data)) {
             setUsuariosOnline(data);
-            // Si el usuario es de gestión y no tiene target seleccionado, preseleccionar al primer admin o rrhh
             if (!canUseGroupChat && !targetUser && data.length > 0) {
-              const otro = data.find((u) => String(u.id_usuario) !== String(userId)) || data[0];
-              setTargetUser(otro);
-              setActiveTab(otro.id_usuario);
+              const currentUid = userId || (typeof window !== "undefined" && window.self === window.top ? "59" : "");
+              const otro = data.find((u) => String(u.id_usuario) !== String(currentUid));
+              if (otro) {
+                setTargetUser(otro);
+                setActiveTab(otro.id_usuario);
+              }
             }
           }
         })
         .catch(() => {});
     };
     fetchOnline();
-    const interval = setInterval(fetchOnline, 10000);
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        fetchOnline();
+      }
+    }, 15000);
     return () => clearInterval(interval);
-  }, [canUseGroupChat, userId, targetUser]);
+  }, [canUseGroupChat, userId]);
 
-  // 2. Cargar mensajes del canal o chat privado activo (cada 3s si está abierto)
+  // 🔔 1.1 Polling continuo de mensajes no leídos (cada 30s con validación de visibilidad)
+  useEffect(() => {
+    const fetchNoLeidos = () => {
+      if (document.hidden) return;
+      const currentUid = userId || (typeof window !== "undefined" && window.self === window.top ? "59" : "");
+      if (!currentUid) return;
+
+      fetch(`${API_URL}/api/chat/noleidos?id_usuario=${currentUid}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data && typeof data.total === "number") {
+            setTotalNoLeidos(data.total);
+            setNoLeidosPorUsuario(data.por_usuario || {});
+          }
+        })
+        .catch(() => {});
+    };
+
+    fetchNoLeidos();
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        fetchNoLeidos();
+      }
+    }, 30000); // Consulta cada 30 segundos
+    return () => clearInterval(interval);
+  }, [userId]);
+
+  // 2. Cargar mensajes del canal o chat privado activo (cada 5s si está abierto)
   useEffect(() => {
     if (!isOpen || isMinimized) return;
     if (!activeTab && activeTab !== 0) return;
 
     const fetchMensajes = () => {
+      if (document.hidden) return;
       const conUsuarioParam = activeTab === "general" ? "general" : activeTab;
       if (conUsuarioParam === 0) return;
 
@@ -123,7 +186,11 @@ export const TeamChat: React.FC<TeamChatProps> = ({ userId, userName, userRol, r
     };
 
     fetchMensajes();
-    const interval = setInterval(fetchMensajes, 3000);
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        fetchMensajes();
+      }
+    }, 5000);
     return () => clearInterval(interval);
   }, [isOpen, isMinimized, activeTab, userId]);
 
@@ -230,41 +297,54 @@ export const TeamChat: React.FC<TeamChatProps> = ({ userId, userName, userRol, r
           const isOnline = user.esta_online === 1;
           const isMe = String(user.id_usuario) === String(userId);
           const isCurrentActive = isOpen && activeTab === user.id_usuario;
+          const cantNoLeidos = noLeidosPorUsuario[user.id_usuario] || 0;
+          const hasUnread = cantNoLeidos > 0 && !isMe;
 
           return (
             <button
               key={user.id_usuario}
               onClick={() => {
                 if (!isMe) {
-                  setActiveTab(user.id_usuario);
-                  setTargetUser(user);
-                  setIsOpen(true);
-                  setIsMinimized(false);
+                  handleAbrirChat(user);
                 }
               }}
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer border ${
-                isCurrentActive
+                hasUnread
+                  ? "bg-emerald-500 hover:bg-emerald-600 text-white font-black border-emerald-300 ring-4 ring-emerald-400/80 shadow-lg shadow-emerald-500/50 animate-bounce scale-105"
+                  : isCurrentActive
                   ? "bg-purple-600 text-white border-purple-400 shadow-md shadow-purple-600/30"
                   : isOnline
                   ? "bg-slate-800 hover:bg-slate-700 text-slate-200 border-emerald-500/40 shadow-xs"
                   : "bg-slate-900/60 text-slate-400 border-slate-800 opacity-60"
               }`}
-              title={isMe ? "Tu usuario (Conectado)" : `Click para chatear en privado con ${user.nombre_completo}`}
+              title={
+                hasUnread
+                  ? `¡${user.nombre_completo} te envió ${cantNoLeidos} mensaje(s)! Haz clic para leer.`
+                  : isMe
+                  ? "Tu usuario (Conectado)"
+                  : `Click para chatear en privado con ${user.nombre_completo}`
+              }
             >
               <span className="relative flex h-2 w-2">
-                {isOnline && (
+                {(isOnline || hasUnread) && (
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 )}
                 <span
                   className={`relative inline-flex rounded-full h-2 w-2 ${
-                    isOnline ? "bg-emerald-500" : "bg-slate-500"
+                    hasUnread ? "bg-white" : isOnline ? "bg-emerald-500" : "bg-slate-500"
                   }`}
                 ></span>
               </span>
               <span className="truncate max-w-[120px]">{user.nombre_completo.split(" ")[0]}</span>
-              <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-mono">
-                {user.rol_nombre || "Personal"}
-              </span>
+              {hasUnread ? (
+                <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-white text-emerald-800 font-black shadow-xs animate-pulse">
+                  📩 {cantNoLeidos} {cantNoLeidos === 1 ? "nuevo" : "nuevos"}
+                </span>
+              ) : (
+                <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-mono">
+                  {user.rol_nombre || "Personal"}
+                </span>
+              )}
             </button>
           );
         })}
@@ -367,8 +447,7 @@ export const TeamChat: React.FC<TeamChatProps> = ({ userId, userName, userRol, r
                       onChange={(e) => {
                         const sel = usuariosOnline.find((u) => String(u.id_usuario) === e.target.value);
                         if (sel) {
-                          setTargetUser(sel);
-                          setActiveTab(sel.id_usuario);
+                          handleAbrirChat(sel);
                         }
                       }}
                       className="bg-slate-800 text-white text-[11px] font-bold px-2 py-1 rounded-lg border border-slate-700 focus:outline-none cursor-pointer"
@@ -401,7 +480,7 @@ export const TeamChat: React.FC<TeamChatProps> = ({ userId, userName, userRol, r
                   mensajes.map((msg) => {
                     const isMe = String(msg.id_emisor) === String(userId) || msg.emisor_nombre === userName;
                     const hora = msg.fecha_envio
-                      ? msg.fecha_envio.split("T")[1]?.substring(0, 5) || msg.fecha_envio.substring(11, 16)
+                        ? msg.fecha_envio.split("T")[1]?.substring(0, 5) || msg.fecha_envio.substring(11, 16)
                       : "";
 
                     return (
@@ -471,6 +550,51 @@ export const TeamChat: React.FC<TeamChatProps> = ({ userId, userName, userRol, r
               </form>
             </>
           )}
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          3. 🟢 ALERTA FLOTANTE VERDE RADIANTE (CUANDO ALGUIEN TE ESCRIBE)
+      ───────────────────────────────────────────────────────────── */}
+      {totalNoLeidos > 0 && (!isOpen || isMinimized) && (
+        <div
+          onClick={() => {
+            const currentUid = userId || (typeof window !== "undefined" && window.self === window.top ? "59" : "");
+            const primerEmisorId = Object.keys(noLeidosPorUsuario).find(
+              (k) => (noLeidosPorUsuario[Number(k)] || 0) > 0 && String(k) !== String(currentUid)
+            );
+            if (primerEmisorId) {
+              const u = usuariosOnline.find((usr) => usr.id_usuario === Number(primerEmisorId));
+              if (u) {
+                handleAbrirChat(u);
+                return;
+              }
+            }
+            setIsOpen(true);
+            setIsMinimized(false);
+          }}
+          className="fixed bottom-6 right-6 z-50 bg-gradient-to-r from-emerald-500 via-green-500 to-emerald-600 hover:from-emerald-600 hover:to-green-700 text-white px-5 py-3.5 rounded-3xl shadow-2xl shadow-emerald-500/60 border-2 border-emerald-300 flex items-center gap-3.5 cursor-pointer animate-bounce ring-4 ring-emerald-400/70 transition-all select-none scale-105"
+        >
+          <div className="relative">
+            <div className="w-10 h-10 rounded-2xl bg-white/20 flex items-center justify-center border border-white/40">
+              <MessageSquare className="w-5 h-5 text-white animate-pulse" />
+            </div>
+            <span className="absolute -top-1.5 -right-1.5 bg-white text-emerald-800 text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center shadow-md animate-ping">
+              {totalNoLeidos}
+            </span>
+            <span className="absolute -top-1.5 -right-1.5 bg-white text-emerald-800 text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center shadow-md">
+              {totalNoLeidos}
+            </span>
+          </div>
+          <div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-white animate-ping"></span>
+              <p className="text-xs font-black uppercase tracking-wider text-white">¡Tienes un nuevo mensaje!</p>
+            </div>
+            <p className="text-[11px] font-bold text-emerald-100 mt-0.5">
+              {ultimoEmisorNotificacion ? `Mensaje de ${ultimoEmisorNotificacion}` : "Haz clic aquí para responder al instante"}
+            </p>
+          </div>
         </div>
       )}
     </>

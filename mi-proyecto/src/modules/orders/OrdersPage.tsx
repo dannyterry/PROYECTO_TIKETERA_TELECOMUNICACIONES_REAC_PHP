@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Order, OrderFilters } from "./types/Order";
 import { OrdersToolbar } from "./components/OrdersToolbar";
 import { OrdersTable } from "./components/OrdersTable";
@@ -16,9 +16,10 @@ import {
   updateOrderTecnico,
   updateOrderTipoTrabajo,
   syncOrdersFromWin,
-  getOrderTasks,
   registrarLogAuditoria,
   TecnicoOption,
+  getStoredTasksProgressMap,
+  saveTaskProgress,
 } from "./services/orderService";
 import { extractCuadrillaKey, getUniqueCuadrillas, getUniqueCuadrillasWithOptions, extractCuadrillaMemberName } from "./utils/cuadrillaUtils";
 import { deduplicateTechnicians } from "./utils/nameNormalizer";
@@ -27,14 +28,23 @@ import { API_URL } from "../../config/api";
 import { Loader2, AlertCircle, RefreshCw } from "lucide-react";
 
 /**
- * Obtiene la fecha local actual en formato YYYY-MM-DD
+ * Obtiene la fecha local actual de Perú (America/Lima) en formato YYYY-MM-DD
  */
 const getTodayLocal = (): string => {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Lima",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+  } catch {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
 };
 
 /**
@@ -61,10 +71,10 @@ export const OrdersPage: React.FC = () => {
   const [selectedOrderForStats, setSelectedOrderForStats] = useState<Order | null>(null);
   const [selectedOrderForActa, setSelectedOrderForActa] = useState<Order | null>(null);
 
-  // 🚀 POR DEFECTO: Mostrar todas las órdenes disponibles
+  // 🚀 POR DEFECTO: Filtrar por la fecha de hoy (Perú / America/Lima)
   const [filters, setFilters] = useState<OrderFilters>({
-    fechaDesde: "",
-    fechaHasta: "",
+    fechaDesde: todayStr,
+    fechaHasta: todayStr,
     status: "Todos",
     tecnico: "Todos",
     cuadrilla: "Todos",
@@ -109,21 +119,29 @@ export const OrdersPage: React.FC = () => {
     [filters.fechaDesde, filters.fechaHasta]
   );
 
-  // 👤 Datos del usuario / gestor actual desde sesión o URL
+  // 👤 Datos del usuario / gestor actual desde sesión o URL (con soporte standalone)
+  const isStandalone = typeof window !== "undefined" && window.self === window.top;
+
   const currentUserId = useMemo(() => {
     const p = new URLSearchParams(window.location.search);
-    return p.get("userId") || localStorage.getItem("userId") || "";
-  }, []);
+    return p.get("userId") || localStorage.getItem("userId") || (isStandalone ? "59" : "");
+  }, [isStandalone]);
 
   const currentUserName = useMemo(() => {
     const p = new URLSearchParams(window.location.search);
-    return p.get("userName") || localStorage.getItem("userName") || "";
-  }, []);
+    return p.get("userName") || localStorage.getItem("userName") || (isStandalone ? "DANNY ALEJANDRO MAMANI TORRES" : "Gestor de Órdenes");
+  }, [isStandalone]);
+
+  const currentRolNombre = useMemo(() => {
+    const p = new URLSearchParams(window.location.search);
+    return p.get("rolNombre") || localStorage.getItem("rolNombre") || (isStandalone ? "ADMINISTRACION" : "GESTION");
+  }, [isStandalone]);
 
   // 🟢 Heartbeat en vivo para marcar usuario como ONLINE en el Dashboard
   useEffect(() => {
     if (!currentUserId && !currentUserName) return;
     const sendPulse = () => {
+      if (document.hidden) return;
       fetch(`${API_URL}/api/auditoria/heartbeat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -132,17 +150,27 @@ export const OrdersPage: React.FC = () => {
           usuario_nombre: currentUserName || "Gestor de Órdenes",
           modulo: "ORDENES",
         }),
-      }).catch(() => {});
+      }).catch(() => { });
     };
     sendPulse();
-    const interval = setInterval(sendPulse, 20000); // Cada 20 segundos
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        sendPulse();
+      }
+    }, 60000); // ⚡ Cada 60 segundos
     return () => clearInterval(interval);
   }, [currentUserId, currentUserName]);
 
-  // Carga inicial y recarga cuando cambian los filtros de fecha
+  // Carga inicial y recarga periódica segura en tiempo real cada 60s
   useEffect(() => {
-    loadData(false);
-  }, [loadData]);
+    loadData(false); // Carga inicial
+    const intervaloOrdenes = setInterval(() => {
+      if (!document.hidden) {
+        loadData(true);
+      }
+    }, 60000); // Refresco cada 1 minuto
+    return () => clearInterval(intervaloOrdenes);
+  }, []);
 
   // Lista consolidada y homologada de técnicos (sin duplicados ni errores de tipeo de Fénix)
   const tecnicosDisponibles = useMemo(() => {
@@ -344,21 +372,17 @@ export const OrdersPage: React.FC = () => {
     });
   }, [baseFilteredOrders, filters.status]);
 
-  // Alternar Inconcert con persistencia en Base de Datos
+  // Alternar Inconcert con persistencia en Base de Datos (Optimizado 0ms)
   const handleToggleInconcert = async (orderId: number) => {
     const targetOrder = orders.find((o) => o.id === orderId);
     if (!targetOrder) return;
     const nextVal = !targetOrder.inconcert;
-
-    setOrders((prev) =>
-      prev.map((o) => (o.id === orderId ? { ...o, inconcert: nextVal } : o))
-    );
-
     try {
       await updateOrderInconcert(targetOrder.id, nextVal ? "Si" : "No", targetOrder.numeroOrden);
       registrarLogAuditoria({
-        id_usuario: currentUserId || null,
+        id_usuario: currentUserId ? Number(currentUserId) : null,
         usuario_nombre: currentUserName || "Gestor de Órdenes",
+        rol_nombre: currentRolNombre,
         modulo: "ORDENES",
         accion: "INCONCERT_TOGGLE",
         id_referencia: targetOrder.ticket || orderId,
@@ -366,6 +390,7 @@ export const OrdersPage: React.FC = () => {
       });
     } catch (err) {
       console.error("Error al actualizar Inconcert en BD:", err);
+      targetOrder.inconcert = !nextVal;
       setOrders((prev) =>
         prev.map((o) => (o.id === orderId ? { ...o, inconcert: !nextVal } : o))
       );
@@ -383,8 +408,9 @@ export const OrdersPage: React.FC = () => {
       await updateOrderObservacionLlamada(orderId, value, targetOrder?.numeroOrden);
       if (value && value.trim().length > 0) {
         registrarLogAuditoria({
-          id_usuario: currentUserId || null,
+          id_usuario: currentUserId ? Number(currentUserId) : null,
           usuario_nombre: currentUserName || "Gestor de Órdenes",
+          rol_nombre: currentRolNombre,
           modulo: "ORDENES",
           accion: "OBSERVACION_LLAMADA",
           id_referencia: targetOrder?.ticket || orderId,
@@ -413,7 +439,7 @@ export const OrdersPage: React.FC = () => {
   // Asignar Técnico (1 o 2 técnicos / Pareja de Cuadrilla) con persistencia en Base de Datos
   const handleAssignTechnician = async (orderId: number, technicianName: string) => {
     const targetOrder = orders.find((o) => o.id === orderId);
-    
+
     // Si contiene múltiples técnicos (ej: "CARLOS MARRUFO / JUAN PEREZ"), buscar el T1 principal para el id_tecnico
     const firstTechName = technicianName.split(/\s*[\/,+]\s*|\s+y\s+/i)[0]?.trim() || technicianName.trim();
     const targetTech = tecnicosList.find(
@@ -426,11 +452,11 @@ export const OrdersPage: React.FC = () => {
       prev.map((o) =>
         o.id === orderId
           ? {
-              ...o,
-              tecnico: technicianName,
-              idTecnico: newIdTecnico,
-              cuadrilla: targetTech?.cuadrilla || o.cuadrilla,
-            }
+            ...o,
+            tecnico: technicianName,
+            idTecnico: newIdTecnico,
+            cuadrilla: targetTech?.cuadrilla || o.cuadrilla,
+          }
           : o
       )
     );
@@ -438,12 +464,13 @@ export const OrdersPage: React.FC = () => {
     try {
       await updateOrderTecnico(orderId, technicianName, newIdTecnico, targetOrder?.numeroOrden);
       registrarLogAuditoria({
-        id_usuario: currentUserId || null,
+        id_usuario: currentUserId ? Number(currentUserId) : null,
         usuario_nombre: currentUserName || "Gestor de Órdenes",
+        rol_nombre: currentRolNombre,
         modulo: "ORDENES",
         accion: "ASIGNACION_TECNICO",
         id_referencia: targetOrder?.ticket || orderId,
-        descripcion: `Asignó técnico '${technicianName}' a Ticket ${targetOrder?.ticket || orderId}`,
+        descripcion: `Asignó técnico/cuadrilla: ${technicianName} en Ticket ${targetOrder?.ticket || orderId}`,
       });
     } catch (err) {
       console.error("Error al asignar técnico en BD:", err);
@@ -468,9 +495,11 @@ export const OrdersPage: React.FC = () => {
 
   // Sincronización manual con Fénix
   const [isSyncingFenix, setIsSyncingFenix] = useState<boolean>(false);
+  const isSyncingFenixRef = useRef<boolean>(false);
 
-  const handleSync = async () => {
-    if (isSyncingFenix) return;
+  const handleSync = useCallback(async () => {
+    if (isSyncingFenixRef.current) return;
+    isSyncingFenixRef.current = true;
     setIsSyncingFenix(true);
     try {
       // 1. Invoca el scraper en el backend para hoy / últimos 3 días (rápido y liviano)
@@ -480,70 +509,26 @@ export const OrdersPage: React.FC = () => {
     } finally {
       // 2. Recarga los datos actualizados desde MySQL según el filtro activo
       await loadData(true);
+      isSyncingFenixRef.current = false;
       setIsSyncingFenix(false);
     }
-  };
+  }, [loadData]);
 
   // Estado para el modal de tareas en tiempo real de Fénix
   const [selectedOrderForTasks, setSelectedOrderForTasks] = useState<Order | null>(null);
 
-  // 🚀 Pre-carga global y actualización periódica en segundo plano de tareas activas
-  const [tasksProgressMap, setTasksProgressMap] = useState<Record<string, { total: number; done: number; pct: number }>>({});
+  // ⚡ Tareas en vivo bajo demanda: el progreso de tareas se carga y persiste orden por orden al interactuar con el modal
+  const [tasksProgressMap, setTasksProgressMap] = useState<Record<string, { total: number; done: number; pct: number }>>(
+    () => getStoredTasksProgressMap()
+  );
 
-  useEffect(() => {
-    if (orders.length === 0) return;
-
-    let isMounted = true;
-    const fetchActiveTasks = () => {
-      const activeOrders = orders.filter((o) => {
-        const st = (o.status || "").toLowerCase();
-        return st.includes("inicia") || st.includes("camino") || st.includes("proceso");
-      });
-
-      if (activeOrders.length === 0) return;
-
-      Promise.allSettled(
-        activeOrders.map(async (o) => {
-          const orderNum = o.numeroOrden || o.ot || o.ticket;
-          if (!orderNum) return null;
-          try {
-            const res = await getOrderTasks(orderNum);
-            const tareas = res.tareas || [];
-            const done = tareas.filter((t) => {
-              const raw = (t.estado || "").toLowerCase().trim();
-              return raw.includes("finaliz") || raw.includes("realiz") || raw.includes("complet");
-            }).length;
-            const total = tareas.length;
-            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-            return { id: o.id, ot: o.ot, ticket: o.ticket, numeroOrden: o.numeroOrden, data: { total, done, pct } };
-          } catch {
-            return null;
-          }
-        })
-      ).then((results) => {
-        if (!isMounted) return;
-        const newMap: Record<string, { total: number; done: number; pct: number }> = {};
-        results.forEach((r) => {
-          if (r.status === "fulfilled" && r.value) {
-            const v = r.value;
-            if (v.id) newMap[String(v.id)] = v.data;
-            if (v.ot) newMap[String(v.ot)] = v.data;
-            if (v.ticket) newMap[String(v.ticket)] = v.data;
-            if (v.numeroOrden) newMap[String(v.numeroOrden)] = v.data;
-          }
-        });
-        setTasksProgressMap((prev) => ({ ...prev, ...newMap }));
-      });
-    };
-
-    fetchActiveTasks();
-    const interval = setInterval(fetchActiveTasks, 60000); // ⚡ Refresco continuo cada 1 minuto
-
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, [orders]);
+  const handleTaskProgressUpdate = useCallback((key: string, progress: { total: number; done: number; pct: number }) => {
+    saveTaskProgress(key, progress);
+    setTasksProgressMap((prev) => ({
+      ...prev,
+      [key]: progress,
+    }));
+  }, []);
 
   return (
     <div className="w-full h-full flex flex-col min-h-0 gap-2.5 overflow-hidden">
@@ -657,6 +642,7 @@ export const OrdersPage: React.FC = () => {
           orderClient={selectedOrderForTasks.cliente}
           orderCuadrilla={selectedOrderForTasks.cuadrilla}
           orderEstado={selectedOrderForTasks.status}
+          onProgressUpdate={handleTaskProgressUpdate}
         />
       )}
     </div>

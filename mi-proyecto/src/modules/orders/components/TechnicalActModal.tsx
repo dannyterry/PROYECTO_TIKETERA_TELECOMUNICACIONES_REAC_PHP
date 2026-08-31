@@ -154,6 +154,17 @@ export const TechnicalActModal: React.FC<Props> = ({
     setScannerOpen(true);
   };
 
+  // 📱 Si el escáner de cámara está abierto, el botón atrás del celular solo cierra la cámara
+  useEffect(() => {
+    if (!scannerOpen) return;
+    window.history.pushState({ modal: "scanner" }, "");
+    const onPopScanner = () => {
+      setScannerOpen(false);
+    };
+    window.addEventListener("popstate", onPopScanner);
+    return () => window.removeEventListener("popstate", onPopScanner);
+  }, [scannerOpen]);
+
   const handleScanResult = (code: string) => {
     const clean = code.trim().toUpperCase();
     if (scannerTarget === "ont_instalado") {

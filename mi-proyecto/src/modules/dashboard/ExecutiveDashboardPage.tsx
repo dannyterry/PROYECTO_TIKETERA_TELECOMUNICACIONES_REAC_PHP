@@ -131,6 +131,25 @@ const NOMBRES_MESES = [
 
 const NOMBRES_MESES_CORTO = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
+// 🇵🇪 Formateador de hora oficial de Perú
+const formatearHoraPE = (fechaStr?: string | null) => {
+  if (!fechaStr) return "";
+  try {
+    const raw = String(fechaStr).trim();
+    const dateObj = new Date(raw.includes("T") || raw.includes("Z") ? raw : raw.replace(" ", "T"));
+    if (isNaN(dateObj.getTime())) {
+      return raw.split(" ")[1]?.substring(0, 5) || raw.substring(11, 16);
+    }
+    return dateObj.toLocaleTimeString("es-PE", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  } catch {
+    return String(fechaStr).split(" ")[1]?.substring(0, 5) || "";
+  }
+};
+
 // Tooltip oscuro personalizado para Recharts
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
@@ -298,7 +317,9 @@ export const ExecutiveDashboardPage: React.FC = () => {
       if (Array.isArray(resOnline)) setUsuariosOnline(resOnline);
 
       // 3. Métricas de Gestores
-      const resMetricas = await fetch(`${API_URL}/auditoria/metricas-gestores?fecha=${targetPeriod?.desde || hoy}`).then((r) => r.json());
+      const resMetricas = await fetch(
+        `${API_URL}/auditoria/metricas-gestores?fecha=${targetPeriod?.desde || hoy}&desde=${targetPeriod?.desde || ""}&hasta=${targetPeriod?.hasta || ""}`
+      ).then((r) => r.json());
       if (Array.isArray(resMetricas)) setMetricasGestores(resMetricas);
 
       // 4. Logs de Auditoría
@@ -320,7 +341,9 @@ export const ExecutiveDashboardPage: React.FC = () => {
   // Polling automático cada 20 segundos para el monitor de usuarios online y auditoría
   useEffect(() => {
     const interval = setInterval(() => {
-      cargarDashboard(true);
+      if (!document.hidden) {
+        cargarDashboard(true);
+      }
     }, 20000);
     return () => clearInterval(interval);
   }, [cargarDashboard]);
@@ -832,7 +855,7 @@ export const ExecutiveDashboardPage: React.FC = () => {
                       </span>
                       {u.ultimo_acceso && (
                         <span className="block text-[10px] text-slate-500 font-mono mt-1">
-                          {u.ultimo_acceso.split(" ")[1]?.substring(0, 5) || u.ultimo_acceso.substring(11, 16)}
+                          {formatearHoraPE(u.ultimo_acceso)}
                         </span>
                       )}
                     </div>
@@ -878,7 +901,7 @@ export const ExecutiveDashboardPage: React.FC = () => {
                         </span>
                       </div>
                       <span className="text-[10px] text-slate-400">
-                        Última acción: {g.ultima_actividad ? new Date(g.ultima_actividad).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Sin registro"}
+                        Última acción: {g.ultima_actividad ? formatearHoraPE(g.ultima_actividad) : "Sin registro"}
                       </span>
                     </div>
                   </div>

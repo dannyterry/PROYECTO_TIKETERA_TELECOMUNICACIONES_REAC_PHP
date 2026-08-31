@@ -50,6 +50,45 @@ const generarPlantillaOrden = (order: Order): string => {
   ].join("\n");
 };
 
+/**
+ * ⚡ Botón de cambio instantáneo de llamada Inconcert (0ms lag)
+ */
+const InconcertToggleButton: React.FC<{
+  orderId: number;
+  inconcert?: boolean | string;
+  onToggle?: (id: number) => void;
+}> = React.memo(({ orderId, inconcert = false, onToggle }) => {
+  const isBool = Boolean(inconcert === true || inconcert === "Si" || inconcert === "Sí" || inconcert === "SI" || inconcert === "1" || (inconcert as any) === 1);
+  const [localVal, setLocalVal] = useState(isBool);
+
+  React.useEffect(() => {
+    const b = Boolean(inconcert === true || inconcert === "Si" || inconcert === "Sí" || inconcert === "SI" || inconcert === "1" || (inconcert as any) === 1);
+    setLocalVal(b);
+  }, [inconcert]);
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setLocalVal((prev) => !prev);
+    if (onToggle) onToggle(orderId);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black transition-all cursor-pointer shadow-2xs active:scale-90 select-none ${
+        localVal
+          ? "bg-emerald-500 text-white hover:bg-emerald-600 shadow-emerald-500/30"
+          : "bg-rose-500 text-white hover:bg-rose-600 shadow-rose-500/30"
+      }`}
+      title="Alternar estado de llamada Inconcert (Sí / No)"
+    >
+      <span className="w-1.5 h-1.5 bg-white rounded-full shrink-0"></span>
+      <span>{localVal ? "Sí" : "No"}</span>
+    </button>
+  );
+});
+
 export const OrdersTable: React.FC<OrdersTableProps> = ({
   orders,
   isSearching = false,
@@ -330,20 +369,13 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                       </div>
                     </td>
 
-                    {/* 3. Llamada Inconcert (Switch Interactivo) */}
+                    {/* 3. Llamada Inconcert (Switch Interactivo Ultra Rápido 0ms) */}
                     <td className="py-1 px-2 text-center border-b border-slate-950" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        onClick={() => onToggleInconcert && onToggleInconcert(order.id)}
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black transition-all cursor-pointer shadow-2xs ${order.inconcert
-                          ? "bg-emerald-500 text-white hover:bg-emerald-600"
-                          : "bg-rose-500 text-white hover:bg-rose-600"
-                          }`}
-                        title="Alternar estado de Inconcert (Sí / No)"
-                      >
-                        <span className="w-1.5 h-1.5 bg-white rounded-full shrink-0"></span>
-                        <span>{order.inconcert ? "Sí" : "No"}</span>
-                      </button>
+                      <InconcertToggleButton
+                        orderId={order.id}
+                        inconcert={order.inconcert}
+                        onToggle={onToggleInconcert}
+                      />
                     </td>
 
                     {/* 4. Observación de Llamada (Caja para llenar) */}

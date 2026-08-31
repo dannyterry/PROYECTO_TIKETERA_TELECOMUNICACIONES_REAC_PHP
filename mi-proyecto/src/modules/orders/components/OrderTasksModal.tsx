@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   X,
   Loader2,
@@ -20,24 +20,29 @@ import {
   getOrderStatusHistory,
   getCachedOrderTasks,
   getCachedOrderStatusHistory,
+  saveTaskProgress,
 } from "../services/orderService";
 
 interface OrderTasksModalProps {
   isOpen: boolean;
   onClose: () => void;
   orderNumber: string;
+  orderId?: number | string;
   orderClient?: string;
   orderCuadrilla?: string;
   orderEstado?: string;
+  onProgressUpdate?: (key: string, progress: { total: number; done: number; pct: number }) => void;
 }
 
 export const OrderTasksModal: React.FC<OrderTasksModalProps> = ({
   isOpen,
   onClose,
   orderNumber,
+  orderId,
   orderClient,
   orderCuadrilla,
   orderEstado,
+  onProgressUpdate,
 }) => {
   const [activeTab, setActiveTab] = useState<"tareas" | "historial">("tareas");
   const [tasks, setTasks] = useState<OrderTask[]>([]);
@@ -46,54 +51,110 @@ export const OrderTasksModal: React.FC<OrderTasksModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [searchTask, setSearchTask] = useState<string>("");
 
-  // Cargar lista de tareas e historial al abrir el modal (Apertura Instantánea a 0ms con Stale-While-Revalidate)
-  const loadData = async (isManual = false) => {
-    if (!orderNumber) return;
+  const onProgressUpdateRef = useRef(onProgressUpdate);
+  useEffect(() => {
+    onProgressUpdateRef.current = onProgressUpdate;
+  });
 
-    // ⚡ 1. Comprobar caché inmediato: si ya existen en memoria, mostrarlas AHORA MISMO
-    const cachedTasks = getCachedOrderTasks(orderNumber);
-    const cachedHistory = getCachedOrderStatusHistory(orderNumber);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-    if (cachedTasks && cachedTasks.tareas.length > 0) {
-      setTasks(cachedTasks.tareas);
-      if (cachedHistory) setHistory(cachedHistory);
-      setLoading(false); // 🚀 ¡Cero spinner, renderizado instantáneo!
-    } else if (!isManual) {
-      setLoading(true);
-    }
+  const notifyProgress = useCallback(
+    (taskList: OrderTask[]) => {
+      const done = taskList.filter((t) => {
+        const raw = (t.estado || "").toLowerCase().trim();
+        return raw.includes("finaliz") || raw.includes("realiz") || raw.includes("complet");
+      }).length;
+      const total = taskList.length;
+      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+      const prog = { total, done, pct };
 
-    setError(null);
-    try {
-      const [tasksRes, historyRes] = await Promise.allSettled([
-        getOrderTasks(orderNumber, { forceFresh: isManual }),
-        getOrderStatusHistory(orderNumber, { forceFresh: isManual }),
-      ]);
-
-      if (tasksRes.status === "fulfilled") {
-        setTasks(tasksRes.value.tareas);
+      if (orderNumber) {
+        saveTaskProgress(String(orderNumber), prog);
+        onProgressUpdateRef.current?.(String(orderNumber), prog);
       }
-      if (historyRes.status === "fulfilled") {
-        setHistory(historyRes.value);
+      if (orderId) {
+        saveTaskProgress(String(orderId), prog);
+        onProgressUpdateRef.current?.(String(orderId), prog);
       }
-    } catch (err: any) {
-      if (!cachedTasks) {
-        setError(err?.message || "Error al obtener la información de Fénix.");
+    },
+    [orderNumber, orderId]
+  );
+
+  // Cargar lista de tareas e historial al abrir el modal (Apertura Instantánea con Stale-While-Revalidate)
+  const loadData = useCallback(
+    async (isManual = false) => {
+      if (!orderNumber) return;
+
+      // Cancelar petición anterior si estuviera en curso
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
       }
-    } finally {
-      setLoading(false);
-    }
-  };
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      // ⚡ 1. Comprobar caché inmediato: si ya existen en memoria, mostrarlas AHORA MISMO
+      const cachedTasks = getCachedOrderTasks(orderNumber);
+      const cachedHistory = getCachedOrderStatusHistory(orderNumber);
+
+      if (cachedTasks && cachedTasks.tareas.length > 0) {
+        setTasks(cachedTasks.tareas);
+        notifyProgress(cachedTasks.tareas);
+        if (cachedHistory) setHistory(cachedHistory);
+        setLoading(false); // 🚀 Cero spinner, renderizado instantáneo
+      } else if (!isManual) {
+        setLoading(true);
+      }
+
+      setError(null);
+
+      try {
+        const [tasksRes, historyRes] = await Promise.allSettled([
+          getOrderTasks(orderNumber, { forceFresh: isManual, signal: controller.signal }),
+          getOrderStatusHistory(orderNumber, { forceFresh: isManual, signal: controller.signal }),
+        ]);
+
+        if (tasksRes.status === "fulfilled") {
+          const loadedTasks = tasksRes.value.tareas || [];
+          setTasks(loadedTasks);
+          notifyProgress(loadedTasks);
+        }
+        if (historyRes.status === "fulfilled") {
+          setHistory(historyRes.value);
+        }
+
+        if (tasksRes.status === "rejected" && !cachedTasks) {
+          if (tasksRes.reason?.name !== "AbortError") {
+            setError(tasksRes.reason?.message || "Error al obtener las tareas de la orden.");
+          }
+        }
+      } catch (err: any) {
+        if (!cachedTasks && err?.name !== "AbortError") {
+          setError(err?.message || "Error al obtener la información de Fénix.");
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    [orderNumber, notifyProgress]
+  );
 
   useEffect(() => {
     if (isOpen && orderNumber) {
-      loadData();
+      // ⚡ Carga única exclusiva al abrir el modal (cero ráfagas ni intervalos)
+      loadData(false);
     } else if (!isOpen) {
+      abortControllerRef.current?.abort();
       setTasks([]);
       setHistory([]);
       setActiveTab("tareas");
       setSearchTask("");
+      setError(null);
     }
-  }, [isOpen, orderNumber]);
+
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, [isOpen, orderNumber, loadData]);
 
   // Helper para asignar icono según el nombre de la tarea
   const getTaskIcon = (titulo: string) => {
@@ -279,11 +340,43 @@ export const OrderTasksModal: React.FC<OrderTasksModalProps> = ({
         {/* CONTENIDO PRINCIPAL */}
         <div className="flex-1 overflow-y-auto p-6">
           {loading && tasks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-3 text-slate-500">
-              <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
-              <span className="text-xs font-medium">
-                Consultando datos en tiempo real desde Fénix...
-              </span>
+            /* ⚡ SKELETON UI FLUIDO MIENTRAS CARGAN ÓRDENES GRANDES */
+            <div className="space-y-4 animate-pulse">
+              {/* Skeleton Banner de Progreso */}
+              <div className="p-4 bg-slate-900 rounded-2xl border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-2">
+                    <div className="h-3.5 bg-slate-700 rounded-md w-48"></div>
+                    <div className="h-2.5 bg-slate-800 rounded-md w-36"></div>
+                  </div>
+                  <div className="h-6 w-14 bg-slate-700 rounded-lg"></div>
+                </div>
+                <div className="h-2.5 bg-slate-800 rounded-full w-full"></div>
+              </div>
+
+              {/* Skeleton Listado de Tareas */}
+              <div className="grid grid-cols-1 gap-2.5">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between p-3.5 bg-slate-50 border border-slate-200 rounded-xl"
+                  >
+                    <div className="flex items-center gap-3 flex-1">
+                      <div className="w-9 h-9 rounded-xl bg-slate-200 shrink-0"></div>
+                      <div className="space-y-1.5 flex-1">
+                        <div className="h-3 bg-slate-200 rounded-md w-3/4"></div>
+                        <div className="h-2 bg-slate-100 rounded-md w-1/3"></div>
+                      </div>
+                    </div>
+                    <div className="h-6 w-20 bg-slate-200 rounded-full shrink-0"></div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-center gap-2 pt-2 text-slate-400 text-xs">
+                <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
+                <span>Consultando datos en tiempo real desde Fénix...</span>
+              </div>
             </div>
           ) : error ? (
             <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs">

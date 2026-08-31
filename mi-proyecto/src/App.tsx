@@ -13,10 +13,18 @@ import { TeamChat } from "./components/chat/TeamChat";
 import { API_URL } from "./config/api";
 
 export default function App() {
-  // 1. Detección de vista según el hash de la URL (#ordenes, #personal, #movilidad, #almacen, #portal-tecnico, #dashboard)
-  const [currentView, setCurrentView] = useState<string>(() => {
-    return window.location.hash.replace("#", "") || "ordenes";
-  });
+  // 1. Detección de vista flexible según el hash o parámetro (?view=... o #...)
+  const getViewFromLocation = () => {
+    const params = new URLSearchParams(window.location.search);
+    const paramView = params.get("view") || params.get("modulo") || params.get("tab");
+    const hashView = window.location.hash.replace("#", "").split("?")[0];
+    return hashView || paramView || "ordenes";
+  };
+
+  const [currentView, setCurrentView] = useState<string>(getViewFromLocation);
+
+  // Detección de modo independiente (para pruebas directas en navegador)
+  const isStandalone = typeof window !== "undefined" && window.self === window.top;
 
   // Parámetros de sesión pasados por URL
   const searchParams = new URLSearchParams(window.location.search);
@@ -39,15 +47,18 @@ export default function App() {
   const [empleados, setEmpleados] = useState<Employee[]>([]);
   const [empleadoSeleccionado, setEmpleadoSeleccionado] = useState<Employee | null>(null);
 
-  // Escuchar cambios de hash en la URL (ej: al hacer clic en enlaces de PHP)
+  // Escuchar cambios de hash o popstate en la URL
   useEffect(() => {
-    const handleHash = () => {
-      const hash = window.location.hash.replace("#", "") || "ordenes";
-      setCurrentView(hash);
+    const handleLocationChange = () => {
+      setCurrentView(getViewFromLocation());
     };
 
-    window.addEventListener("hashchange", handleHash);
-    return () => window.removeEventListener("hashchange", handleHash);
+    window.addEventListener("hashchange", handleLocationChange);
+    window.addEventListener("popstate", handleLocationChange);
+    return () => {
+      window.removeEventListener("hashchange", handleLocationChange);
+      window.removeEventListener("popstate", handleLocationChange);
+    };
   }, []);
 
   // 🛰️ Detección en vivo de Ubicación / Distrito de Conexión (GPS / IP)
@@ -112,7 +123,11 @@ export default function App() {
       }).catch(() => {});
     };
     sendPulse();
-    const interval = setInterval(sendPulse, 20000);
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        sendPulse();
+      }
+    }, 20000);
     return () => clearInterval(interval);
   }, [userId, userName, currentView]);
 
@@ -179,6 +194,72 @@ export default function App() {
   return (
     <div className="w-full h-screen bg-slate-100/80 flex flex-col overflow-hidden">
       
+      {/* ─────────────────────────────────────────────────────────────
+          🧭 BARRA DE NAVEGACIÓN RÁPIDA (Solo visible al probar React directo en navegador)
+      ───────────────────────────────────────────────────────────── */}
+      {isStandalone && (
+        <div className="bg-slate-900 text-white px-4 py-2 flex items-center justify-between border-b border-slate-800 shrink-0 z-50 flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-black text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+              <span>🚀 Modo Vista Directa</span>
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              onClick={() => { window.location.hash = "dashboard"; setCurrentView("dashboard"); }}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                isExecutiveDashboard ? "bg-indigo-600 text-white shadow-xs" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+              }`}
+            >
+              📊 Dashboard
+            </button>
+            <button
+              onClick={() => { window.location.hash = "ordenes"; setCurrentView("ordenes"); }}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                !isPersonalView && !isMobilityView && !isInventoryView && !isExecutiveDashboard && !isTechnicianPortal
+                  ? "bg-indigo-600 text-white shadow-xs"
+                  : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+              }`}
+            >
+              📋 Órdenes
+            </button>
+            <button
+              onClick={() => { window.location.hash = "portal-tecnico"; setCurrentView("portal-tecnico"); }}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                isTechnicianPortal ? "bg-indigo-600 text-white shadow-xs" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+              }`}
+            >
+              🚗 Portal Técnico
+            </button>
+            <button
+              onClick={() => { window.location.hash = "personal"; setCurrentView("personal"); }}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                isPersonalView ? "bg-indigo-600 text-white shadow-xs" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+              }`}
+            >
+              👥 Personal
+            </button>
+            <button
+              onClick={() => { window.location.hash = "inventario"; setCurrentView("inventario"); }}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                isInventoryView ? "bg-indigo-600 text-white shadow-xs" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+              }`}
+            >
+              📦 Almacén
+            </button>
+            <button
+              onClick={() => { window.location.hash = "movilidad"; setCurrentView("movilidad"); }}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                isMobilityView ? "bg-indigo-600 text-white shadow-xs" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+              }`}
+            >
+              🚙 Movilidad
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ─────────────────────────────────────────────────────────────
           💬 BARRA SUPERIOR DE PERSONAL ONLINE Y CHAT DE EQUIPO 24/7
       ───────────────────────────────────────────────────────────── */}
