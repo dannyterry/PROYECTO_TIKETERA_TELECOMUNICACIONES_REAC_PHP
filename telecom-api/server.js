@@ -591,44 +591,67 @@ const {
 // --- 1. OBTENER TODAS LAS ÓRDENES (CON NOMBRE DE TÉCNICO VINCULADO Y FILTRO DE FECHAS) ---
 app.get('/ordenes', async (req, res) => {
   try {
-    const { fechaDesde, fechaHasta } = req.query;
+    const { fechaDesde, fechaHasta, cliente, search } = req.query;
 
     let whereClause = "";
     const params = [];
 
-    if (fechaDesde && fechaHasta) {
+    if (cliente && cliente.trim()) {
+      const cleanCli = cliente.trim();
+      whereClause = `WHERE (o.cliente = ? OR o.cliente LIKE ? OR o.numero_documento = ?)`;
+      params.push(cleanCli, `%${cleanCli}%`, cleanCli);
+    } else if (search && search.trim()) {
+      const q = `%${search.trim()}%`;
+      const dateFilters = [];
+      const dateParams = [];
+
+      if (fechaDesde && fechaHasta) {
+        dateFilters.push(`(
+          (o.fecha_solicitud >= ? AND o.fecha_solicitud <= ?)
+          OR (o.fecha_solicitud IS NULL AND o.fecha_visita >= ? AND o.fecha_visita <= ?)
+          OR (o.fecha_solicitud IS NULL AND o.fecha_visita IS NULL AND o.fecha_creacion >= ? AND o.fecha_creacion <= ?)
+        )`);
+        dateParams.push(
+          `${fechaDesde} 00:00:00`, `${fechaHasta} 23:59:59`,
+          `${fechaDesde} 00:00:00`, `${fechaHasta} 23:59:59`,
+          `${fechaDesde} 00:00:00`, `${fechaHasta} 23:59:59`
+        );
+      } else if (fechaDesde) {
+        dateFilters.push(`(
+          o.fecha_solicitud >= ? 
+          OR (o.fecha_solicitud IS NULL AND o.fecha_visita >= ?)
+          OR (o.fecha_solicitud IS NULL AND o.fecha_visita IS NULL AND o.fecha_creacion >= ?)
+        )`);
+        dateParams.push(
+          `${fechaDesde} 00:00:00`,
+          `${fechaDesde} 00:00:00`,
+          `${fechaDesde} 00:00:00`
+        );
+      }
+
       whereClause = `WHERE (
-        (o.fecha_solicitud >= ? AND o.fecha_solicitud <= ?)
-        OR (o.fecha_solicitud IS NULL AND o.fecha_visita >= ? AND o.fecha_visita <= ?)
-        OR (o.fecha_solicitud IS NULL AND o.fecha_visita IS NULL AND o.fecha_creacion >= ? AND o.fecha_creacion <= ?)
+        o.cliente LIKE ? 
+        OR o.numero_documento LIKE ? 
+        OR o.numero LIKE ? 
+        OR o.codigo_seguimiento LIKE ? 
+        OR o.cod_seguimiento_cliente LIKE ? 
+        OR o.tecnico_asignado LIKE ?
+      ) ${dateFilters.length > 0 ? `AND ${dateFilters.join(' AND ')}` : ""}`;
+      params.push(q, q, q, q, q, q, ...dateParams);
+    } else if (fechaDesde && fechaHasta) {
+      whereClause = `WHERE (
+        COALESCE(o.fecha_solicitud, o.fecha_visita, o.hora_asignacion, o.inicio_visita, o.fecha_creacion) >= ?
+        AND COALESCE(o.fecha_solicitud, o.fecha_visita, o.hora_asignacion, o.inicio_visita, o.fecha_creacion) <= ?
       )`;
       params.push(
-        `${fechaDesde} 00:00:00`, `${fechaHasta} 23:59:59`,
-        `${fechaDesde} 00:00:00`, `${fechaHasta} 23:59:59`,
         `${fechaDesde} 00:00:00`, `${fechaHasta} 23:59:59`
       );
     } else if (fechaDesde) {
-      whereClause = `WHERE (
-        o.fecha_solicitud >= ? 
-        OR (o.fecha_solicitud IS NULL AND o.fecha_visita >= ?)
-        OR (o.fecha_solicitud IS NULL AND o.fecha_visita IS NULL AND o.fecha_creacion >= ?)
-      )`;
-      params.push(
-        `${fechaDesde} 00:00:00`,
-        `${fechaDesde} 00:00:00`,
-        `${fechaDesde} 00:00:00`
-      );
+      whereClause = `WHERE COALESCE(o.fecha_solicitud, o.fecha_visita, o.hora_asignacion, o.inicio_visita, o.fecha_creacion) >= ?`;
+      params.push(`${fechaDesde} 00:00:00`);
     } else if (fechaHasta) {
-      whereClause = `WHERE (
-        o.fecha_solicitud <= ? 
-        OR (o.fecha_solicitud IS NULL AND o.fecha_visita <= ?)
-        OR (o.fecha_solicitud IS NULL AND o.fecha_visita IS NULL AND o.fecha_creacion <= ?)
-      )`;
-      params.push(
-        `${fechaHasta} 23:59:59`,
-        `${fechaHasta} 23:59:59`,
-        `${fechaHasta} 23:59:59`
-      );
+      whereClause = `WHERE COALESCE(o.fecha_solicitud, o.fecha_visita, o.hora_asignacion, o.inicio_visita, o.fecha_creacion) <= ?`;
+      params.push(`${fechaHasta} 23:59:59`);
     }
 
     const query = `
@@ -642,7 +665,10 @@ app.get('/ordenes', async (req, res) => {
       FROM ordenes o
       LEFT JOIN usuarios u ON o.id_tecnico = u.id_usuario
       ${whereClause}
-      ORDER BY o.id_orden DESC
+      ORDER BY 
+        CASE WHEN nombre_tecnico IS NULL OR TRIM(nombre_tecnico) = '' THEN 1 ELSE 0 END,
+        nombre_tecnico ASC, 
+        o.id_orden DESC
     `;
 
     const [rows] = await pool.query(query, params);

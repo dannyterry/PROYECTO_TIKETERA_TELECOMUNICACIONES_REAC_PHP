@@ -148,11 +148,22 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
         if (comp !== 0) return comp;
       }
 
-      // Desempate secundario por cuadrilla o cliente
-      const cuadA = (a.cuadrilla || "").trim();
-      const cuadB = (b.cuadrilla || "").trim();
-      const cuadComp = cuadA.localeCompare(cuadB, "es", { numeric: true });
-      if (cuadComp !== 0) return cuadComp;
+      // Dentro del mismo técnico: Orden cronológico por Tramo / Horario (8am -> 12pm -> 4pm)
+      const tramoA = (a.tramo || "").trim();
+      const tramoB = (b.tramo || "").trim();
+      if (tramoA && tramoB && tramoA !== tramoB) {
+        if (tramoA === "-") return 1;
+        if (tramoB === "-") return -1;
+        const tramoComp = tramoA.localeCompare(tramoB, "es", { numeric: true });
+        if (tramoComp !== 0) return tramoComp;
+      }
+
+      // Si tienen el mismo tramo o no tienen tramo, desempate por hora de inicio / asignación
+      const horaA = (a.horaInicio || a.horaEnCamino || a.horaAsignacion || "").trim();
+      const horaB = (b.horaInicio || b.horaEnCamino || b.horaAsignacion || "").trim();
+      if (horaA && horaB && horaA !== horaB) {
+        return horaA.localeCompare(horaB);
+      }
 
       return (a.cliente || "").localeCompare(b.cliente || "", "es");
     });
@@ -207,39 +218,39 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
               <th className="sticky top-0 left-0 z-40 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950 border-r border-blue-900 min-w-[85px] w-[85px]">
                 Fecha
               </th>
-              {/* 2 */}
+              {/* 2. CELULAR */}
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
                 Celular
               </th>
-              {/* 3 */}
+              {/* 3. LLAMADA */}
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
                 Llamada
               </th>
-              {/* 4 */}
+              {/* 4. OBSERVACIÓN DE LLAMADA */}
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
                 Observación de Llamada
               </th>
-              {/* 5 */}
+              {/* 5. DNI */}
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
                 DNI
               </th>
-              {/* 7 */}
+              {/* 6. ACTA */}
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
                 Acta
               </th>
-              {/* 8 - Tareas */}
+              {/* 7. TAREAS */}
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-1.5 text-center border-b-2 border-slate-950">
                 Tareas
               </th>
-              {/* 9 */}
+              {/* 8. NÚMERO DE TICKET */}
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
                 Número de Ticket
               </th>
-              {/* 10. CLIENTE (Fija en Scroll Horizontal a left-[85px]) */}
-              <th className="sticky top-0 left-[85px] z-40 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2.5 text-left border-b-2 border-slate-950 border-r border-blue-800 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.3)] min-w-[200px]">
+              {/* 9. CLIENTE (Se pega a la fecha a left-[85px] solo al hacer scroll) */}
+              <th className="sticky top-0 left-[85px] z-40 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2.5 text-left border-b-2 border-slate-950 border-r border-blue-900 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.3)] min-w-[210px] max-w-[210px] w-[210px]">
                 Cliente
               </th>
-              {/* 11 */}
+              {/* 10. DIRECCIÓN */}
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
                 Dirección
               </th>
@@ -522,10 +533,10 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                       </div>
                     </td>
 
-                    {/* 10. Cliente (Fija en Scroll Horizontal a left-[85px]) */}
-                    <td className={`sticky left-[85px] z-20 py-1 px-2.5 uppercase tracking-tight max-w-[260px] min-w-[200px] ${rowColorClass} border-b border-slate-950 border-r border-slate-300/80 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.12)]`}>
-                      <div className="flex items-center justify-between gap-1.5">
-                        <div className="flex items-center gap-1.5 truncate">
+                    {/* 9. Cliente (Se pega a la fecha a left-[85px] solo al hacer scroll - Tamaño fijo tipo Excel) */}
+                    <td className={`sticky left-[85px] z-20 py-1 px-2.5 uppercase tracking-tight min-w-[210px] max-w-[210px] w-[210px] ${rowColorClass} border-b border-slate-950 border-r border-slate-300/80 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.12)]`}>
+                      <div className="w-full flex items-center justify-between gap-1.5 overflow-hidden">
+                        <div className="flex items-center gap-1.5 truncate min-w-0 flex-1">
                           {order.esReiterada ? (
                             <div
                               onClick={(e) => {
@@ -599,7 +610,7 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                       </div>
                     </td>
 
-                    {/* 11. Dirección con botón de copiar */}
+                    {/* 10. Dirección con botón de copiar */}
                     <td className="py-1 px-2 max-w-[260px] text-slate-700 border-b border-slate-950" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-between gap-1">
                         <span className="truncate text-slate-800 font-medium" title={order.direccion}>
@@ -872,7 +883,14 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                       title={order.tipoLiquidacion || order.motivoLiquidacion || order.motivoFinalizacion || order.motivoCancelacion || order.motivoRegestion || order.motivoAnulacion || ""}
                     >
                       {(() => {
-                        const liq = order.tipoLiquidacion || order.motivoLiquidacion || order.motivoFinalizacion || order.motivoCancelacion || order.motivoRegestion || order.motivoAnulacion || "";
+                        const isGPS = (v: any) => v && /^-?\d{1,3}\.\d+.*,\s*-?\d{1,3}\.\d+/.test(String(v).trim());
+                        const cleanVal = (v: any) => (!v || isGPS(v) ? "" : String(v).trim());
+                        const liq = cleanVal(order.tipoLiquidacion) ||
+                                    cleanVal(order.motivoLiquidacion) ||
+                                    cleanVal(order.motivoFinalizacion) ||
+                                    cleanVal(order.motivoCancelacion) ||
+                                    cleanVal(order.motivoRegestion) ||
+                                    cleanVal(order.motivoAnulacion) || "";
                         return liq ? (
                           <span className="text-slate-900 font-bold tracking-tight">{liq}</span>
                         ) : (

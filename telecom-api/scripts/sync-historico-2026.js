@@ -23,9 +23,17 @@ const getTodayISO = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-// Lotes a sincronizar: Desde el 10 de Agosto 2026 hasta la actualidad
+// Lotes a sincronizar: Desde el 01 de Enero 2026 hasta la actualidad
 const LOTES_2026 = [
-  { nombre: "Agosto 2026 (10/08/2026 al presente)", desde: "2026-08-10", hasta: getTodayISO() },
+  { nombre: "Enero 2026", desde: "2026-01-01", hasta: "2026-01-31" },
+  { nombre: "Febrero 2026", desde: "2026-02-01", hasta: "2026-02-28" },
+  { nombre: "Marzo 2026", desde: "2026-03-01", hasta: "2026-03-31" },
+  { nombre: "Abril 2026", desde: "2026-04-01", hasta: "2026-04-30" },
+  { nombre: "Mayo 2026", desde: "2026-05-01", hasta: "2026-05-31" },
+  { nombre: "Junio 2026", desde: "2026-06-01", hasta: "2026-06-30" },
+  { nombre: "Julio 2026", desde: "2026-07-01", hasta: "2026-07-31" },
+  { nombre: "Agosto 2026", desde: "2026-08-01", hasta: "2026-08-31" },
+  { nombre: "Septiembre 2026 (Actualidad)", desde: "2026-09-01", hasta: getTodayISO() },
 ];
 
 async function contarOrdenesTotales() {

@@ -184,12 +184,19 @@ export const calculateTramo = (val?: any): string => {
 /**
  * 🚀 1. Obtener lista completa de órdenes desde la API
  */
-export const getOrders = async (filters?: { fechaDesde?: string; fechaHasta?: string }): Promise<Order[]> => {
+export const getOrders = async (filters?: {
+  fechaDesde?: string;
+  fechaHasta?: string;
+  cliente?: string;
+  search?: string;
+}): Promise<Order[]> => {
   try {
     const params = new URLSearchParams();
     params.set("t", String(new Date().getTime()));
     if (filters?.fechaDesde) params.set("fechaDesde", filters.fechaDesde);
     if (filters?.fechaHasta) params.set("fechaHasta", filters.fechaHasta);
+    if (filters?.cliente) params.set("cliente", filters.cliente);
+    if (filters?.search) params.set("search", filters.search);
 
     const response = await fetch(`${API_URL}/ordenes?${params.toString()}`, {
       cache: "no-store",
@@ -225,7 +232,10 @@ export const getOrders = async (filters?: { fechaDesde?: string; fechaHasta?: st
       const orderId = Number(raw.id_orden || raw.id || raw.ID || index + 1);
       const numeroOrden = String(raw.numero || raw.ticket || raw.numero_orden || raw.id_orden || `ORD-${orderId}`);
       // N° Ticket = Código de seguimiento (VT-46635497, AT-46606997, WN-22N-1340431)
-      const ticket = String(raw.codigo_seguimiento || raw.codigoSeguimiento || raw.ot || numeroOrden);
+      const rawSeg = String(raw.codigo_seguimiento || raw.codigoSeguimiento || "").trim();
+      const ticket = rawSeg && !/(Residencial|Condominio|Edificio)/i.test(rawSeg) && rawSeg !== "null"
+        ? rawSeg
+        : (String(raw.ot || numeroOrden));
       // OT = Número numérico de la orden (3367633, 3367728)
       const ot = numeroOrden;
       
@@ -248,7 +258,17 @@ export const getOrders = async (filters?: { fechaDesde?: string; fechaHasta?: st
       const totalOrdenes = Math.max(countDB, countMemory);
       const esReiterada = (totalOrdenes > 1 || Boolean(raw.es_reiterada)) && clientKey !== "sin cliente" && clientKey !== "";
 
-        const rawMotivoLiq = String(raw.motivo_liquidacion || raw.tipo_liquidacion || raw.motivo_finalizacion || raw.motivo_de_finalizacion || raw.motivo_cancelacion || raw.motivo_regestion || raw.motivo_anulacion || "").trim();
+        // Función para limpiar campos si contienen coordenadas GPS en lugar de texto
+        const isGPS = (v: any) => v && /^-?\d{1,3}\.\d+.*,\s*-?\d{1,3}\.\d+/.test(String(v).trim());
+        const cleanText = (v: any) => (!v || isGPS(v) ? "" : String(v).trim());
+
+        const rawMotivoLiq = cleanText(raw.motivo_liquidacion) ||
+                             cleanText(raw.tipo_liquidacion) ||
+                             cleanText(raw.motivo_finalizacion) ||
+                             cleanText(raw.motivo_de_finalizacion) ||
+                             cleanText(raw.motivo_cancelacion) ||
+                             cleanText(raw.motivo_regestion) ||
+                             cleanText(raw.motivo_anulacion) || "";
         const rawTipoTrabajo = String(raw.tipo_trabajo || "").trim();
         const rawTipoTrabajoAsignado = String(raw.tipo_trabajo_asignado || "").trim();
         const rawAveria = String(raw.motivo_trabajo || raw.tipo_averia || raw.motivo || raw.averia || "").trim();
@@ -278,10 +298,29 @@ export const getOrders = async (filters?: { fechaDesde?: string; fechaHasta?: st
         return {
           id: orderId,
           fecha: formatFechaOrden(rawDate),
-          celular: String(raw.movil || raw.celular || raw.telefono || raw.telefono_cliente || raw.telefono1 || ""),
+          celular: (() => {
+            let m = String(raw.movil || raw.celular || raw.telefono || raw.telefono_cliente || raw.telefono1 || "").trim();
+            if (!m || /^(AVERIAS|MOTOWIN|POSTVENTA|REITERADA|PLANTA EXTERNA)/i.test(m) || /[a-zA-Z]{3,}/.test(m)) {
+              m = "";
+            }
+            if (!m && raw.datos_tecnicos) {
+              const dtMatch = String(raw.datos_tecnicos).match(/MOVIL\s+(?:ULTIMO\s+CONTACTO|REFERENCIA)[^\/]*\/[^\/]*\/(\d{7,11})/i) ||
+                              String(raw.datos_tecnicos).match(/MOVIL[^\/]*\/[^\/]*\/(\d{7,11})/i);
+              if (dtMatch && dtMatch[1]) {
+                m = dtMatch[1];
+              }
+            }
+            return m;
+          })(),
           inconcert: isInconcert,
           ticket: ticket,
-          codigoPedido: String(raw.cod_seguimiento_cliente || raw.codigo_pedido || raw.codSeguimientoCliente || raw.codigoPedido || "").trim(),
+          codigoPedido: (() => {
+            const cp = String(raw.cod_seguimiento_cliente || raw.codigo_pedido || raw.codSeguimientoCliente || raw.codigoPedido || "").trim();
+            if (/(WI-NET|Perú|Peru|TELECOM)/i.test(cp)) {
+              return "";
+            }
+            return cp;
+          })(),
           ot: ot,
           numeroOrden: numeroOrden,
           cliente: String(raw.cliente || raw.nombre_cliente || raw.razon_social || "Sin Cliente").toUpperCase(),
@@ -306,7 +345,13 @@ export const getOrders = async (filters?: { fechaDesde?: string; fechaHasta?: st
           tipoAveria: String(raw.motivo_trabajo || raw.tipo_averia || raw.motivo || raw.averia || ""),
           tipoTrabajoAsignado: rawTipoTrabajoAsignado || autoPairedTipoTrabajo || "",
           tipoTrabajo: finalTipoTrabajo,
-          dni: String(raw.numero_documento || raw.dni || raw.documento || raw.ruc || ""),
+          dni: (() => {
+            const d = String(raw.numero_documento || raw.dni || raw.documento || raw.ruc || "").trim();
+            if (/(CESPEDES|SGA|^[KO]\s*\d+)/i.test(d)) {
+              return "";
+            }
+            return d;
+          })(),
           direccion: String(raw.direccion || raw.direccion_instalacion || ""),
           distrito: cleanDistrito(raw.region_zona || raw.distrito || raw.localidad || ""),
           cto: extractCTO(raw.datos_tecnicos) || String(raw.cto || ""),

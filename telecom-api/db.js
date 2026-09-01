@@ -15,7 +15,7 @@ const localConfig = {
   port: 3306,
   user: 'root',
   password: '',
-  database: 'corporacionescepe_cespedes'
+  database: 'corporacioncespe_cespedes'
 };
 
 // ============================================================

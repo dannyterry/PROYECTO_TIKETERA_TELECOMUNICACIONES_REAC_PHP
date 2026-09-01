@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Order } from "../types/Order";
 import { getBadgeColorByStatus, getRowColorByStatus } from "../utils/statusColors";
 import {
@@ -14,14 +14,16 @@ import {
   AlertTriangle,
   Clock,
   Search,
-  ExternalLink
+  ExternalLink,
+  Loader2
 } from "lucide-react";
+import { getOrders } from "../services/orderService";
 
 interface ClientHistoryModalProps {
   isOpen: boolean;
   onClose: () => void;
   clientName: string;
-  orders: Order[]; // Todas las órdenes en memoria/BD
+  orders: Order[]; // Órdenes precargadas en memoria
   onViewTasks?: (order: Order) => void;
 }
 
@@ -33,8 +35,8 @@ export const ClientHistoryModal: React.FC<ClientHistoryModalProps> = ({
   onViewTasks,
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
-
-  if (!isOpen || !clientName) return null;
+  const [dbOrders, setDbOrders] = useState<Order[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
 
   // Normalizar nombre para coincidencia exacta
   const normalize = (str?: string) =>
@@ -47,14 +49,56 @@ export const ClientHistoryModal: React.FC<ClientHistoryModalProps> = ({
 
   const targetKey = normalize(clientName);
 
-  // Filtrar todas las órdenes históricas que correspondan a este cliente
-  const clientOrders = orders
-    .filter((o) => normalize(o.cliente) === targetKey)
-    .sort((a, b) => {
+  // 🚀 Consultar historial completo del cliente directamente en MySQL
+  useEffect(() => {
+    if (!isOpen || !clientName) return;
+    let isMounted = true;
+    setIsLoadingHistory(true);
+
+    getOrders({ cliente: clientName })
+      .then((res) => {
+        if (isMounted && Array.isArray(res)) {
+          setDbOrders(res);
+        }
+      })
+      .catch((err) => {
+        console.error("Error al consultar historial de cliente en BD:", err);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingHistory(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, clientName]);
+
+  // Combinar órdenes locales con las obtenidas de la base de datos (sin duplicados)
+  const clientOrders = useMemo(() => {
+    const map = new Map<string | number, Order>();
+
+    // 1. Agregar órdenes locales que coincidan con el cliente
+    orders
+      .filter((o) => normalize(o.cliente) === targetKey)
+      .forEach((o) => {
+        const key = o.id || o.ticket || o.ot || Math.random();
+        map.set(key, o);
+      });
+
+    // 2. Agregar órdenes traídas directamente de la base de datos
+    dbOrders.forEach((o) => {
+      const key = o.id || o.ticket || o.ot || Math.random();
+      map.set(key, o);
+    });
+
+    return Array.from(map.values()).sort((a, b) => {
       const dateA = new Date(a.fecha || 0).getTime();
       const dateB = new Date(b.fecha || 0).getTime();
       return dateB - dateA; // Más recientes primero
     });
+  }, [orders, dbOrders, targetKey]);
+
+  if (!isOpen || !clientName) return null;
 
   // Datos representativos del cliente
   const latestOrder = clientOrders[0] || {};
@@ -102,11 +146,15 @@ export const ClientHistoryModal: React.FC<ClientHistoryModalProps> = ({
                 <h3 className="text-lg font-black tracking-tight text-white uppercase">
                   {clientName}
                 </h3>
-                {totalVisitas > 1 && (
+                {isLoadingHistory ? (
+                  <span className="bg-white/20 text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1.5 animate-pulse">
+                    <Loader2 size={12} className="animate-spin" /> Buscando en base de datos...
+                  </span>
+                ) : totalVisitas > 1 ? (
                   <span className="bg-pink-500/30 text-pink-200 border border-pink-400/40 text-[11px] font-black px-2.5 py-0.5 rounded-full">
                     {totalVisitas} Atenciones Registradas
                   </span>
-                )}
+                ) : null}
               </div>
               <p className="text-xs text-blue-200 flex items-center gap-3 mt-0.5 font-medium">
                 {latestOrder.dni && <span>DNI / RUC: <strong className="text-white">{latestOrder.dni}</strong></span>}

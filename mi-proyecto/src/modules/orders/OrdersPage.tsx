@@ -71,10 +71,10 @@ export const OrdersPage: React.FC = () => {
   const [selectedOrderForStats, setSelectedOrderForStats] = useState<Order | null>(null);
   const [selectedOrderForActa, setSelectedOrderForActa] = useState<Order | null>(null);
 
-  // 🚀 POR DEFECTO: Filtrar por la fecha de hoy (Perú / America/Lima)
+  // 🚀 POR DEFECTO: Fechas vacías visualmente (pero consulta el día de hoy por defecto)
   const [filters, setFilters] = useState<OrderFilters>({
-    fechaDesde: todayStr,
-    fechaHasta: todayStr,
+    fechaDesde: "",
+    fechaHasta: "",
     status: "Todos",
     tecnico: "Todos",
     cuadrilla: "Todos",
@@ -89,8 +89,20 @@ export const OrdersPage: React.FC = () => {
       setError(null);
 
       try {
+        const isCustomDateRange = Boolean(filters.fechaDesde || filters.fechaHasta);
+        const queryDesde = isCustomDateRange 
+          ? (filters.fechaDesde || undefined) 
+          : (!filters.search ? todayStr : undefined);
+        const queryHasta = isCustomDateRange 
+          ? (filters.fechaHasta || undefined) 
+          : (!filters.search ? todayStr : undefined);
+
         const [ordersResult, tecnicosResult, tiposResult] = await Promise.allSettled([
-          getOrders({ fechaDesde: filters.fechaDesde, fechaHasta: filters.fechaHasta }),
+          getOrders({
+            fechaDesde: queryDesde,
+            fechaHasta: queryHasta,
+            search: filters.search ? filters.search.trim() : undefined,
+          }),
           getTecnicos(),
           getTiposTrabajo(),
         ]);
@@ -116,7 +128,7 @@ export const OrdersPage: React.FC = () => {
         setLoading(false);
       }
     },
-    [filters.fechaDesde, filters.fechaHasta]
+    [filters.fechaDesde, filters.fechaHasta, filters.search, todayStr]
   );
 
   // 👤 Datos del usuario / gestor actual desde sesión o URL (con soporte standalone)
@@ -161,16 +173,20 @@ export const OrdersPage: React.FC = () => {
     return () => clearInterval(interval);
   }, [currentUserId, currentUserName]);
 
-  // Carga inicial y recarga periódica segura en tiempo real cada 60s
+  // Carga inicial y cuando cambian las fechas o se ejecuta una búsqueda (se trae desde la base de datos)
   useEffect(() => {
-    loadData(false); // Carga inicial
+    loadData(false);
+  }, [filters.fechaDesde, filters.fechaHasta, filters.search]);
+
+  // Recarga periódica segura en tiempo real cada 60s
+  useEffect(() => {
     const intervaloOrdenes = setInterval(() => {
       if (!document.hidden) {
         loadData(true);
       }
     }, 60000); // Refresco cada 1 minuto
     return () => clearInterval(intervaloOrdenes);
-  }, []);
+  }, [loadData]);
 
   // Lista consolidada y homologada de técnicos (sin duplicados ni errores de tipeo de Fénix)
   const tecnicosDisponibles = useMemo(() => {
@@ -228,8 +244,6 @@ export const OrdersPage: React.FC = () => {
 
   // 1. Filtrado base (Fechas + Búsqueda de Texto + Técnico + Cuadrilla + Inconcert)
   const baseFilteredOrders = useMemo(() => {
-    const hoy = new Date();
-    const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
     const hasSearch = Boolean(filters.search && filters.search.trim().length > 0);
 
     return orders.filter((order) => {
@@ -239,7 +253,7 @@ export const OrdersPage: React.FC = () => {
         fechaTabla = fechaTabla.split(" ")[0].split("T")[0];
 
         if (!filters.fechaDesde && !filters.fechaHasta) {
-          if (!hasSearch && fechaTabla !== hoyStr) {
+          if (!hasSearch && fechaTabla !== todayStr) {
             return false;
           }
         } else {
@@ -285,7 +299,7 @@ export const OrdersPage: React.FC = () => {
 
       return true;
     });
-  }, [orders, filters.fechaDesde, filters.fechaHasta, filters.search, filters.tecnico, filters.cuadrilla, filters.inconcert]);
+  }, [orders, filters.fechaDesde, filters.fechaHasta, filters.search, filters.tecnico, filters.cuadrilla, filters.inconcert, todayStr]);
 
   // 2. Estadísticas reactivas calculadas dinámicamente sobre los resultados filtrados
   const stats = useMemo(() => {
@@ -502,8 +516,10 @@ export const OrdersPage: React.FC = () => {
     isSyncingFenixRef.current = true;
     setIsSyncingFenix(true);
     try {
-      // 1. Invoca el scraper en el backend para hoy / últimos 3 días (rápido y liviano)
-      await syncOrdersFromWin();
+      // 1. Invoca el scraper en el backend usando el rango seleccionado o por defecto hoy
+      const syncDesde = filters.fechaDesde || todayStr;
+      const syncHasta = filters.fechaHasta || todayStr;
+      await syncOrdersFromWin(syncDesde, syncHasta);
     } catch (err: any) {
       console.error("Aviso al sincronizar Fénix:", err.message);
     } finally {
@@ -512,7 +528,7 @@ export const OrdersPage: React.FC = () => {
       isSyncingFenixRef.current = false;
       setIsSyncingFenix(false);
     }
-  }, [loadData]);
+  }, [loadData, filters.fechaDesde, filters.fechaHasta, todayStr]);
 
   // Estado para el modal de tareas en tiempo real de Fénix
   const [selectedOrderForTasks, setSelectedOrderForTasks] = useState<Order | null>(null);
