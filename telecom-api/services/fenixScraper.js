@@ -1,6 +1,7 @@
 const https = require('https');
 const fs = require('fs');
 const pool = require('../db');
+const { resolverTipoTrabajoOficial } = require('./tipoTrabajoHelper');
 
 // URLs del servicio WIN / Fénix
 const TR_URL_LOGIN = 'https://winbo-phx.azurewebsites.net/login.aspx/IniciarSesion';
@@ -634,8 +635,7 @@ async function guardarOrdenesEnBD(ordenes) {
   try {
     const [rows] = await pool.query(
       `SELECT id_usuario, nombres, apellidos, primer_apellido, segundo_apellido, cuadrilla 
-       FROM usuarios 
-       WHERE rol = 'tecnico' OR estado = 'Activo' OR id_rol = (SELECT id_rol FROM roles WHERE nombre LIKE '%Tecnico%' LIMIT 1)`
+       FROM usuarios`
     );
     techUsers = rows || [];
   } catch (errTech) {
@@ -712,8 +712,8 @@ async function guardarOrdenesEnBD(ordenes) {
           direccion = COALESCE(?, direccion),
           estado = COALESCE(?, estado),
           cuadrilla = COALESCE(?, cuadrilla),
-          id_tecnico = COALESCE(id_tecnico, ?),
-          tecnico_asignado = COALESCE(tecnico_asignado, ?),
+          id_tecnico = COALESCE(?, id_tecnico),
+          tecnico_asignado = COALESCE(?, tecnico_asignado),
           tipo_orden = COALESCE(?, tipo_orden),
           motivo = COALESCE(?, motivo),
           ubicacion = COALESCE(?, ubicacion),

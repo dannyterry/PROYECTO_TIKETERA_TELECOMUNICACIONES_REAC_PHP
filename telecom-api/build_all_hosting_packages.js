@@ -53,8 +53,7 @@ for (const file of apiFiles) {
 // Copiar services
 const apiServicesDir = path.join(stagingApiDir, 'services');
 fs.mkdirSync(apiServicesDir, { recursive: true });
-const fenixSrc = path.join('d:', 'proyecrh', 'telecom-api', 'services', 'fenixScraper.js');
-if (fs.existsSync(fenixSrc)) fs.copyFileSync(fenixSrc, path.join(apiServicesDir, 'fenixScraper.js'));
+copyRecursiveSync(path.join('d:', 'proyecrh', 'telecom-api', 'services'), apiServicesDir);
 
 const zipApi = path.join('d:', 'proyecrh', 'telecom_api_listo_hosting.zip');
 try { if (fs.existsSync(zipApi)) fs.unlinkSync(zipApi); } catch (e) {}
