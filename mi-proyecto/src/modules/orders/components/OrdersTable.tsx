@@ -859,23 +859,31 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                       </span>
                     </td>
 
-                    {/* 23. Cuadrilla con botón de copiar (1 Sola Línea) */}
-                    <td className="py-1 px-2 text-slate-800 font-medium max-w-[240px] border-b border-slate-950">
+                    {/* 23. Cuadrilla con botón de copiar y asignación de técnicos */}
+                    <td
+                      className="py-1 px-2 text-slate-800 font-medium max-w-[240px] border-b border-slate-950 cursor-pointer hover:bg-indigo-50/70 transition-colors"
+                      onClick={() => openAssignModal(order)}
+                      title="Clic para asignar o cambiar técnicos (T1 / T2)"
+                    >
                       <div className="flex items-center justify-between gap-1">
                         {order.cuadrilla && order.cuadrilla !== "-" ? (
                           <div className="flex items-center gap-1 truncate min-w-0 pr-1 text-[11px]" title={order.cuadrilla}>
                             <span className="truncate font-black text-slate-950 uppercase tracking-tight shrink-0">
                               {extractCuadrillaKey(order.cuadrilla) || order.cuadrilla}
                             </span>
-                            {extractCuadrillaMemberName(order.cuadrilla, order.tecnico) && (
+                            {(order.tecnico || extractCuadrillaMemberName(order.cuadrilla)) && (
                               <span
                                 className="truncate text-[10px] font-bold text-slate-700 tracking-tight"
-                                title={`Técnico: ${extractCuadrillaMemberName(order.cuadrilla, order.tecnico)}`}
+                                title={`Técnico: ${order.tecnico || extractCuadrillaMemberName(order.cuadrilla)}`}
                               >
-                                &bull; {extractCuadrillaMemberName(order.cuadrilla, order.tecnico)}
+                                &bull; {order.tecnico || extractCuadrillaMemberName(order.cuadrilla)}
                               </span>
                             )}
                           </div>
+                        ) : order.tecnico ? (
+                          <span className="truncate text-[10px] font-bold text-slate-700 tracking-tight" title={`Técnico: ${order.tecnico}`}>
+                            {order.tecnico}
+                          </span>
                         ) : (
                           <span className="text-slate-400 text-xs">-</span>
                         )}

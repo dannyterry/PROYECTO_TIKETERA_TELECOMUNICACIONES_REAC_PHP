@@ -18,7 +18,7 @@ try {
 // 1.1 Zipear dist_react
 const distReactDir = 'C:\\xampp\\htdocs\\corporacionescepe\\public\\dist_react';
 const zipReact = path.join('d:', 'proyecrh', 'dist_react_listo_hosting.zip');
-if (fs.existsSync(zipReact)) fs.unlinkSync(zipReact);
+try { if (fs.existsSync(zipReact)) fs.unlinkSync(zipReact); } catch (e) {}
 
 if (fs.existsSync(distReactDir)) {
   execSync(`powershell -Command "Compress-Archive -Path '${distReactDir}\\*' -DestinationPath '${zipReact}' -Force"`);
@@ -57,7 +57,7 @@ const fenixSrc = path.join('d:', 'proyecrh', 'telecom-api', 'services', 'fenixSc
 if (fs.existsSync(fenixSrc)) fs.copyFileSync(fenixSrc, path.join(apiServicesDir, 'fenixScraper.js'));
 
 const zipApi = path.join('d:', 'proyecrh', 'telecom_api_listo_hosting.zip');
-if (fs.existsSync(zipApi)) fs.unlinkSync(zipApi);
+try { if (fs.existsSync(zipApi)) fs.unlinkSync(zipApi); } catch (e) {}
 execSync(`powershell -Command "Compress-Archive -Path '${stagingApiDir}\\*' -DestinationPath '${zipApi}' -Force"`);
 console.log('📦 Paquete Node API generado:', zipApi);
 

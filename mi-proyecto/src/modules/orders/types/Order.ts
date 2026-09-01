@@ -18,6 +18,8 @@ export interface Order {
   cajaPosicionPasivo?: string;
   tecnico?: string; // Nombre del técnico o "Seleccione"
   idTecnico?: number | string;
+  idTecnicoReemplazo?: number | string;
+  nombreTecnico2?: string;
   horaAsignacion?: string;
   horaEnCamino?: string;
   horaInicio?: string;

@@ -332,14 +332,22 @@ export const getOrders = async (filters?: {
           numeroOrden: numeroOrden,
           cliente: String(raw.cliente || raw.nombre_cliente || raw.razon_social || "Sin Cliente").toUpperCase(),
           tecnico: (() => {
-            const rawTec = String(raw.nombre_tecnico || raw.tecnico || raw.tecnico_asignado || raw.nombre_tecnico_usuario || "").trim();
-            if (rawTec && rawTec !== "-" && rawTec !== "-- Seleccione --" && rawTec !== "-- Seleccionar --") {
-              return rawTec;
+            const rawTec1 = String(raw.nombre_tecnico || raw.tecnico || raw.tecnico_asignado || raw.nombre_tecnico_usuario || "").trim();
+            const rawTec2 = String(raw.nombre_tecnico_2 || raw.tecnico2 || "").trim();
+
+            if (rawTec1 && rawTec1 !== "-" && rawTec1 !== "-- Seleccione --" && rawTec1 !== "-- Seleccionar --") {
+              if (rawTec2 && rawTec2 !== "-" && rawTec2 !== "-- Seleccione --" && rawTec2 !== rawTec1) {
+                if (!rawTec1.includes(" / ") && !rawTec1.includes("/")) {
+                  return `${rawTec1} / ${rawTec2}`;
+                }
+              }
+              return rawTec1;
             }
             const rawCuad = String(raw.cuadrilla || raw.nombre_cuadrilla || "").trim();
             return extractCuadrillaMemberName(rawCuad) || "";
           })(),
           idTecnico: raw.id_tecnico || raw.id_trabajador || undefined,
+          idTecnicoReemplazo: raw.id_tecnico_reemplazo || undefined,
           horaAsignacion: formatHora(raw.hora_asignacion || raw.fecha_solicitud),
           horaEnCamino: formatHora(raw.hora_en_camino),
           horaInicio: formatHora(raw.inicio_visita || raw.hora_inicio),

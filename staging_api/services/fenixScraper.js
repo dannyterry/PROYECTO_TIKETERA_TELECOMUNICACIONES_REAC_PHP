@@ -628,11 +628,59 @@ async function guardarOrdenesEnBD(ordenes) {
   } catch (e) {}
 
   let guardadas = 0;
+
+  // Cargar usuarios para mapeo automático de técnicos desde cuadrilla
+  let techUsers = [];
+  try {
+    const [uRows] = await pool.query("SELECT id_usuario, nombres, apellidos, primer_apellido, segundo_apellido FROM usuarios");
+    techUsers = uRows || [];
+  } catch (e) {}
+
+  const findTechMatch = (cuadStr) => {
+    if (!cuadStr || cuadStr === '-' || !techUsers.length) return null;
+    let str = String(cuadStr).trim();
+    const sgaMatch = str.match(/\bSGA[\s-_:•|/\\]+(.+)$/i);
+    if (sgaMatch && sgaMatch[1] && sgaMatch[1].trim().length > 2) {
+      str = sgaMatch[1].trim();
+    }
+    const rawName = str
+      .replace(/^(?:[A-Z]\s*\d+\s*(?:MOTOWIN|CESPEDES|TRASLADO|SGA|WIN)?|CESPEDES|SGA|MOTOWIN|WIN|CONTRATISTA|MIGRACION|TRASLADO|INSTALACION)[\s-_:•|/\\]+/gi, '')
+      .replace(/^(?:CESPEDES|SGA|MOTOWIN|WIN|CONTRATISTA|MIGRACION|TRASLADO|INSTALACION)[\s-_:•|/\\]+/gi, '')
+      .replace(/^[-_:•|/\\.\s]+/, '')
+      .replace(/[-_:•|/\\.\s]+$/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!rawName || rawName.length < 3) return null;
+    const normRaw = rawName.toUpperCase();
+
+    const found = techUsers.find((u) => {
+      const full1 = `${u.nombres || ''} ${u.apellidos || ''}`.toUpperCase().trim();
+      const full2 = `${u.nombres || ''} ${u.primer_apellido || ''} ${u.segundo_apellido || ''}`.toUpperCase().trim();
+      if (full1 && normRaw === full1) return true;
+      if (full2 && normRaw === full2) return true;
+      if (full1 && (normRaw.includes(full1) || full1.includes(normRaw))) return true;
+
+      const nameParts = (u.nombres || '').toUpperCase().split(/\s+/).filter(p => p.length > 2);
+      const apeParts = (u.apellidos || u.primer_apellido || '').toUpperCase().split(/\s+/).filter(p => p.length > 2);
+
+      const hasName = nameParts.some(p => normRaw.includes(p));
+      const hasApe = apeParts.some(p => normRaw.includes(p));
+      return hasName && hasApe;
+    });
+
+    return found ? { id: found.id_usuario, nombre: `${found.nombres} ${found.apellidos || found.primer_apellido || ''}`.trim() } : (rawName.length > 3 ? { id: null, nombre: rawName } : null);
+  };
+
   for (const o of ordenes) {
     if (!o.numero) continue;
 
     try {
-      // 1. Intentar UPDATE
+      const techInfo = findTechMatch(o.cuadrilla);
+      const autoIdTecnico = techInfo?.id || null;
+      const autoNombreTecnico = techInfo?.nombre || null;
+
+      // 1. Intentar UPDATE (preservando id_tecnico / tecnico_asignado si gestión ya lo asignó manualmente)
       const [updateRes] = await pool.query(
         `UPDATE ordenes SET
           fecha_solicitud = COALESCE(?, fecha_solicitud),
@@ -656,6 +704,8 @@ async function guardarOrdenesEnBD(ordenes) {
           direccion = COALESCE(?, direccion),
           estado = COALESCE(?, estado),
           cuadrilla = COALESCE(?, cuadrilla),
+          id_tecnico = COALESCE(id_tecnico, ?),
+          tecnico_asignado = COALESCE(tecnico_asignado, ?),
           tipo_orden = COALESCE(?, tipo_orden),
           motivo = COALESCE(?, motivo),
           ubicacion = COALESCE(?, ubicacion),
@@ -685,7 +735,7 @@ async function guardarOrdenesEnBD(ordenes) {
           o.motivo_finalizacion, o.datos_tecnicos, o.tipo_trabajo, o.tipo_trabajo, o.georeferencia,
           o.motivo_cancelacion, o.numero_documento, o.movil, o.codigo_seguimiento,
           o.region_zona, o.fecha_visita, o.cod_seguimiento_cliente, o.direccion,
-          o.estado, o.cuadrilla, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
+          o.estado, o.cuadrilla, autoIdTecnico, autoNombreTecnico, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
           o.motivo_anulacion, o.motivo_regestion, o.motivo_suspension, o.pais_empresa,
           o.email, o.tipo_ubicacion, o.codigo_postal, o.tipo_documento, o.producto,
           o.id_proyecto, o.proveedor, o.localidad, o.motivo_trabajo, o.prioridad,
@@ -694,7 +744,7 @@ async function guardarOrdenesEnBD(ordenes) {
         ]
       );
 
-      // 2. Si no existía fila afectada, INSERTAR
+      // 2. Si no existía fila afectada, INSERTAR con el técnico auto-vinculado
       if (updateRes.affectedRows === 0) {
         await pool.query(
           `INSERT INTO ordenes (
@@ -703,19 +753,19 @@ async function guardarOrdenesEnBD(ordenes) {
             motivo_finalizacion, datos_tecnicos, tipo_trabajo, tipo_trabajo_asignado, georeferencia,
             motivo_cancelacion, numero_documento, movil, codigo_seguimiento,
             region_zona, fecha_visita, cod_seguimiento_cliente, direccion,
-            estado, cuadrilla, tipo_orden, motivo, ubicacion, fecha_estado,
+            estado, cuadrilla, id_tecnico, tecnico_asignado, tipo_orden, motivo, ubicacion, fecha_estado,
             motivo_anulacion, motivo_regestion, motivo_suspension, pais_empresa,
             email, tipo_ubicacion, codigo_postal, tipo_documento, producto,
             id_proyecto, proveedor, localidad, motivo_trabajo, prioridad,
             historial_estados, fijo, sector_operativo, suscripcion, fecha_creacion
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
           [
             o.numero, o.fecha_solicitud, o.cliente, o.inicio_visita, o.fin_visita,
             o.hora_en_camino, o.hora_asignacion,
             o.motivo_finalizacion, o.datos_tecnicos, o.tipo_trabajo, o.tipo_trabajo, o.georeferencia,
             o.motivo_cancelacion, o.numero_documento, o.movil, o.codigo_seguimiento,
             o.region_zona, o.fecha_visita, o.cod_seguimiento_cliente, o.direccion,
-            o.estado, o.cuadrilla, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
+            o.estado, o.cuadrilla, autoIdTecnico, autoNombreTecnico, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
             o.motivo_anulacion, o.motivo_regestion, o.motivo_suspension, o.pais_empresa,
             o.email, o.tipo_ubicacion, o.codigo_postal, o.tipo_documento, o.producto,
             o.id_proyecto, o.proveedor, o.localidad, o.motivo_trabajo, o.prioridad,

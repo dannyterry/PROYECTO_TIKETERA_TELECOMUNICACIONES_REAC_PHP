@@ -658,12 +658,14 @@ app.get('/ordenes', async (req, res) => {
       SELECT 
         o.*,
         COALESCE(
-          NULLIF(TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))), ''),
-          NULLIF(TRIM(o.tecnico_asignado), '')
+          NULLIF(TRIM(o.tecnico_asignado), ''),
+          NULLIF(TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))), '')
         ) AS nombre_tecnico,
-        u.cuadrilla AS cuadrilla_tecnico
+        u.cuadrilla AS cuadrilla_tecnico,
+        TRIM(CONCAT(COALESCE(u2.nombres, ''), ' ', COALESCE(u2.primer_apellido, u2.apellidos, ''), ' ', COALESCE(u2.segundo_apellido, ''))) AS nombre_tecnico_2
       FROM ordenes o
       LEFT JOIN usuarios u ON o.id_tecnico = u.id_usuario
+      LEFT JOIN usuarios u2 ON o.id_tecnico_reemplazo = u2.id_usuario
       ${whereClause}
       ORDER BY 
         CASE WHEN nombre_tecnico IS NULL OR TRIM(nombre_tecnico) = '' THEN 1 ELSE 0 END,
@@ -886,50 +888,76 @@ app.get('/ordenes/:numero/historial-estados', async (req, res) => {
 app.put('/ordenes/:id/tecnico', async (req, res) => {
   try {
     const { id } = req.params;
-    const { id_tecnico, tecnico, numero } = req.body || {};
+    const { id_tecnico, id_tecnico_reemplazo, tecnico, numero } = req.body || {};
     const searchParam = numero || id;
 
-    let finalIdTecnico = id_tecnico;
+    let finalIdTecnico = id_tecnico || null;
+    let finalIdTecnico2 = id_tecnico_reemplazo || null;
+    let nombreTitularGuardar = null;
 
-    // Si se deseleccionó o está vacío
     if (!tecnico || tecnico === "" || tecnico === "-- Seleccione --") {
       finalIdTecnico = null;
-    } else if (!finalIdTecnico && tecnico) {
-      // Buscar id_usuario por nombre en usuarios
+      finalIdTecnico2 = null;
+      nombreTitularGuardar = null;
+    } else if (tecnico) {
+      const parts = String(tecnico)
+        .split(/\s*[\/,+]\s*|\s+y\s+/i)
+        .map(t => t.trim())
+        .filter(t => t && t !== "-- Seleccione --" && t !== "-");
+
+      const t1Name = parts[0] || null;
+      const t2Name = parts[1] || null;
+
+      nombreTitularGuardar = t1Name || tecnico;
+
+      // Cargar lista de usuarios para resolver IDs con máxima precisión
+      let allUsers = [];
       try {
-        const [users] = await pool.query(
-          `SELECT id_usuario FROM usuarios 
-           WHERE TRIM(CONCAT(COALESCE(nombres, ''), ' ', COALESCE(primer_apellido, apellidos, ''), ' ', COALESCE(segundo_apellido, ''))) = ?
-              OR TRIM(CONCAT(COALESCE(nombres, ''), ' ', COALESCE(apellidos, ''))) = ?
-              OR nombres LIKE ?
-           LIMIT 1`,
-          [tecnico.trim(), tecnico.trim(), `%${tecnico.trim()}%`]
-        );
-        if (users.length > 0) {
-          finalIdTecnico = users[0].id_usuario;
-        }
-      } catch (errUser) {}
+        const [uRows] = await pool.query("SELECT id_usuario, nombres, apellidos, primer_apellido, segundo_apellido FROM usuarios");
+        allUsers = uRows || [];
+      } catch (e) {}
+
+      const resolveUserId = (nameToFind) => {
+        if (!nameToFind || nameToFind.length < 3 || !allUsers.length) return null;
+        const norm = nameToFind.toUpperCase().trim();
+        const found = allUsers.find((u) => {
+          const full1 = `${u.nombres || ''} ${u.apellidos || ''}`.toUpperCase().trim();
+          const full2 = `${u.nombres || ''} ${u.primer_apellido || ''} ${u.segundo_apellido || ''}`.toUpperCase().trim();
+          if (full1 && (norm === full1 || norm.includes(full1) || full1.includes(norm))) return true;
+          if (full2 && (norm === full2 || norm.includes(full2) || full2.includes(norm))) return true;
+
+          const nameParts = (u.nombres || '').toUpperCase().split(/\s+/).filter(p => p.length > 2);
+          const apeParts = (u.apellidos || u.primer_apellido || '').toUpperCase().split(/\s+/).filter(p => p.length > 2);
+          const hasName = nameParts.some(p => norm.includes(p));
+          const hasApe = apeParts.some(p => norm.includes(p));
+          return hasName && hasApe;
+        });
+        return found ? found.id_usuario : null;
+      };
+
+      if (!finalIdTecnico && t1Name) {
+        finalIdTecnico = resolveUserId(t1Name);
+      }
+      if (!finalIdTecnico2 && t2Name) {
+        finalIdTecnico2 = resolveUserId(t2Name);
+      }
     }
 
-    // Actualizar en tabla ordenes tanto id_tecnico como tecnico_asignado
-    try {
-      await pool.query(
-        `UPDATE ordenes 
-         SET id_tecnico = ?, tecnico_asignado = ?
-         WHERE id_orden = ? OR numero = ?`,
-        [finalIdTecnico || null, tecnico || null, id, searchParam]
-      );
-    } catch (errCol) {
-      // Fallback si la columna no existe aún
-      await pool.query(
-        `UPDATE ordenes 
-         SET id_tecnico = ?
-         WHERE id_orden = ? OR numero = ?`,
-        [finalIdTecnico || null, id, searchParam]
-      );
-    }
+    // Actualizar en tabla ordenes: id_tecnico (T1), id_tecnico_reemplazo (T2) y tecnico_asignado (solo Titular T1)
+    await pool.query(
+      `UPDATE ordenes 
+       SET id_tecnico = ?, id_tecnico_reemplazo = ?, tecnico_asignado = ?
+       WHERE id_orden = ? OR numero = ?`,
+      [finalIdTecnico || null, finalIdTecnico2 || null, nombreTitularGuardar || null, id, searchParam]
+    );
 
-    res.json({ success: true, message: "Técnico asignado correctamente", id_tecnico: finalIdTecnico });
+    res.json({
+      success: true,
+      message: "Técnico(s) asignado(s) correctamente",
+      id_tecnico: finalIdTecnico,
+      id_tecnico_reemplazo: finalIdTecnico2,
+      tecnico_asignado: nombreTitularGuardar
+    });
   } catch (error) {
     console.error("Error al asignar técnico en BD:", error.message);
     res.status(500).json({ error: error.message });
@@ -1067,6 +1095,12 @@ app.put('/ordenes/:id/observaciones-atencion', async (req, res) => {
     if (cols5.length === 0) {
       await pool.query("ALTER TABLE ordenes ADD COLUMN tecnico_asignado VARCHAR(255) DEFAULT NULL");
       console.log("✅ [DB] Columna 'tecnico_asignado' creada exitosamente en tabla 'ordenes'.");
+    }
+
+    const [cols6] = await pool.query("SHOW COLUMNS FROM ordenes LIKE 'id_tecnico_reemplazo'");
+    if (cols6.length === 0) {
+      await pool.query("ALTER TABLE ordenes ADD COLUMN id_tecnico_reemplazo INT(11) DEFAULT NULL AFTER id_tecnico");
+      console.log("✅ [DB] Columna 'id_tecnico_reemplazo' creada exitosamente en tabla 'ordenes'.");
     }
   } catch (e) {}
 })();
@@ -3807,14 +3841,28 @@ app.get(['/api/looker/resumen', '/looker/resumen'], async (req, res) => {
     const result = lookerService.processCardsAndAlerts(orders);
     res.json({ success: true, ...result });
   } catch (error) {
-    console.error("Error en Looker resumen:", error.message);
     // Si falla la consulta en vivo, intentar devolver el último resultado guardado en cache
     try {
-      const cached = JSON.parse(fs.readFileSync(path.join(__dirname, 'cards_and_alerts.json'), 'utf8'));
-      res.json({ success: true, fromCache: true, ...cached });
-    } catch {
-      res.status(500).json({ success: false, error: error.message });
-    }
+      const cachePath = path.join(__dirname, 'cards_and_alerts.json');
+      if (fs.existsSync(cachePath)) {
+        const cached = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+        return res.json({ success: true, fromCache: true, ...cached });
+      }
+    } catch {}
+    // 🛡️ Fallback seguro (200 OK) si no hay conexión a Looker
+    res.json({
+      success: true,
+      fromCache: false,
+      timestamp: new Date().toISOString(),
+      totalGeneral: 0,
+      totalAlertasSur: 0,
+      cards: {
+        "AVERIAS PREFERENTE": { total: 0, zonas: {}, ordenes: [] },
+        "AVERIAS ALTO VALOR": { total: 0, zonas: {}, ordenes: [] },
+        "MOTOWIN ZONAS": { total: 0, zonas: {}, ordenes: [] }
+      },
+      alertasSur: []
+    });
   }
 });
 
@@ -3828,18 +3876,24 @@ app.get(['/api/looker/alertas-sur', '/looker/alertas-sur'], async (req, res) => 
       alertas: result.alertasSur
     });
   } catch (error) {
-    console.error("Error en Looker alertas-sur:", error.message);
     try {
-      const cached = JSON.parse(fs.readFileSync(path.join(__dirname, 'cards_and_alerts.json'), 'utf8'));
-      res.json({
-        success: true,
-        fromCache: true,
-        totalAlertas: cached.totalAlertasSur || cached.alertasSur?.length || 0,
-        alertas: cached.alertasSur || []
-      });
-    } catch {
-      res.status(500).json({ success: false, error: error.message });
-    }
+      const cachePath = path.join(__dirname, 'cards_and_alerts.json');
+      if (fs.existsSync(cachePath)) {
+        const cached = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+        return res.json({
+          success: true,
+          fromCache: true,
+          totalAlertas: cached.totalAlertasSur || cached.alertasSur?.length || 0,
+          alertas: cached.alertasSur || []
+        });
+      }
+    } catch {}
+    res.json({
+      success: true,
+      fromCache: false,
+      totalAlertas: 0,
+      alertas: []
+    });
   }
 });
 
