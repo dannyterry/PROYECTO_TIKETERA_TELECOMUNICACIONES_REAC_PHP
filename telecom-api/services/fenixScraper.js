@@ -629,13 +629,20 @@ async function guardarOrdenesEnBD(ordenes) {
 
   let guardadas = 0;
 
-  // Cargar usuarios para mapeo automático de técnicos desde cuadrilla
+  // Cargar lista de técnicos activos desde la BD para auto-vincular id_tecnico
   let techUsers = [];
   try {
-    const [uRows] = await pool.query("SELECT id_usuario, nombres, apellidos, primer_apellido, segundo_apellido FROM usuarios");
-    techUsers = uRows || [];
-  } catch (e) {}
+    const [rows] = await pool.query(
+      `SELECT id_usuario, nombres, apellidos, primer_apellido, segundo_apellido, cuadrilla 
+       FROM usuarios 
+       WHERE rol = 'tecnico' OR estado = 'Activo' OR id_rol = (SELECT id_rol FROM roles WHERE nombre LIKE '%Tecnico%' LIMIT 1)`
+    );
+    techUsers = rows || [];
+  } catch (errTech) {
+    console.error("⚠️ [Fénix Scraper] No se pudo cargar lista de técnicos para auto-matching:", errTech.message);
+  }
 
+  // Función inteligente para encontrar coincidencia de técnico desde el texto de la cuadrilla
   const findTechMatch = (cuadStr) => {
     if (!cuadStr || cuadStr === '-' || !techUsers.length) return null;
     let str = String(cuadStr).trim();
@@ -679,6 +686,7 @@ async function guardarOrdenesEnBD(ordenes) {
       const techInfo = findTechMatch(o.cuadrilla);
       const autoIdTecnico = techInfo?.id || null;
       const autoNombreTecnico = techInfo?.nombre || null;
+      const autoTipoTrabajo = resolverTipoTrabajoOficial(o.motivo_finalizacion, o.tipo_trabajo || o.motivo_trabajo, o.estado);
 
       // 1. Intentar UPDATE (preservando id_tecnico / tecnico_asignado si gestión ya lo asignó manualmente)
       const [updateRes] = await pool.query(
@@ -691,7 +699,7 @@ async function guardarOrdenesEnBD(ordenes) {
           hora_asignacion = COALESCE(?, hora_asignacion),
           motivo_finalizacion = COALESCE(?, motivo_finalizacion),
           datos_tecnicos = COALESCE(?, datos_tecnicos),
-          tipo_trabajo_asignado = COALESCE(?, tipo_trabajo_asignado),
+          tipo_trabajo_asignado = COALESCE(tipo_trabajo_asignado, ?),
           tipo_trabajo = COALESCE(tipo_trabajo, ?),
           georeferencia = COALESCE(?, georeferencia),
           motivo_cancelacion = COALESCE(?, motivo_cancelacion),
@@ -732,19 +740,19 @@ async function guardarOrdenesEnBD(ordenes) {
         [
           o.fecha_solicitud, o.cliente, o.inicio_visita, o.fin_visita,
           o.hora_en_camino, o.hora_asignacion,
-          o.motivo_finalizacion, o.datos_tecnicos, o.tipo_trabajo, o.tipo_trabajo, o.georeferencia,
+          o.motivo_finalizacion, o.datos_tecnicos, autoTipoTrabajo || o.tipo_trabajo, autoTipoTrabajo, o.georeferencia,
           o.motivo_cancelacion, o.numero_documento, o.movil, o.codigo_seguimiento,
           o.region_zona, o.fecha_visita, o.cod_seguimiento_cliente, o.direccion,
           o.estado, o.cuadrilla, autoIdTecnico, autoNombreTecnico, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
           o.motivo_anulacion, o.motivo_regestion, o.motivo_suspension, o.pais_empresa,
           o.email, o.tipo_ubicacion, o.codigo_postal, o.tipo_documento, o.producto,
-          o.id_proyecto, o.proveedor, o.localidad, o.motivo_trabajo, o.prioridad,
+          o.id_proyecto, o.proveedor, o.localidad, o.tipo_trabajo || o.motivo_trabajo, o.prioridad,
           o.historial_estados, o.fijo, o.sector_operativo, o.suscripcion,
           o.numero
         ]
       );
 
-      // 2. Si no existía fila afectada, INSERTAR con el técnico auto-vinculado
+      // 2. Si no existía fila afectada, INSERTAR con el técnico auto-vinculado y tipo de trabajo oficial
       if (updateRes.affectedRows === 0) {
         await pool.query(
           `INSERT INTO ordenes (
@@ -762,13 +770,13 @@ async function guardarOrdenesEnBD(ordenes) {
           [
             o.numero, o.fecha_solicitud, o.cliente, o.inicio_visita, o.fin_visita,
             o.hora_en_camino, o.hora_asignacion,
-            o.motivo_finalizacion, o.datos_tecnicos, o.tipo_trabajo, o.tipo_trabajo, o.georeferencia,
+            o.motivo_finalizacion, o.datos_tecnicos, autoTipoTrabajo, autoTipoTrabajo || o.tipo_trabajo, o.georeferencia,
             o.motivo_cancelacion, o.numero_documento, o.movil, o.codigo_seguimiento,
             o.region_zona, o.fecha_visita, o.cod_seguimiento_cliente, o.direccion,
             o.estado, o.cuadrilla, autoIdTecnico, autoNombreTecnico, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
             o.motivo_anulacion, o.motivo_regestion, o.motivo_suspension, o.pais_empresa,
             o.email, o.tipo_ubicacion, o.codigo_postal, o.tipo_documento, o.producto,
-            o.id_proyecto, o.proveedor, o.localidad, o.motivo_trabajo, o.prioridad,
+            o.id_proyecto, o.proveedor, o.localidad, o.tipo_trabajo || o.motivo_trabajo, o.prioridad,
             o.historial_estados, o.fijo, o.sector_operativo, o.suscripcion
           ]
         );
