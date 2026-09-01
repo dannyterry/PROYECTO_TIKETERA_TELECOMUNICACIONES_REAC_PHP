@@ -5,8 +5,6 @@ if (!empty($_SESSION['auth']['apellidos'])) {
     $userName .= ' ' . $_SESSION['auth']['apellidos'];
 }
 $userRol = (string)($_SESSION['auth']['id_rol'] ?? '');
-$rolNombre = strtoupper(trim($_SESSION['auth']['rol'] ?? ''));
-
 $idRol = (int)($_SESSION['auth']['id_rol'] ?? 0);
 $rolNombre = strtoupper(trim($_SESSION['auth']['rol'] ?? ''));
 $esTecnico = ($idRol === 2 || stripos($rolNombre, 'TECNIC') !== false);

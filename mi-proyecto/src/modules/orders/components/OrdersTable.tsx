@@ -114,20 +114,42 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
   const [selectedT2, setSelectedT2] = useState<string>("");
 
   // 🚀 Lógica de Ordenamiento Inteligente:
-  // 1. Si hay una BÚSQUEDA activa: Ordenar cronológicamente (Fecha y Hora: Antiguo arriba ➔ Más reciente abajo)
-  // 2. Si es la vista NORMAL del grid: Mantener el orden alfabético por Técnico A-Z
+  // 1. Si hay una BÚSQUEDA o RANGO DE FECHAS activo:
+  //    Ordenar cronológicamente por Fecha (más antiguo arriba ➔ más reciente abajo: 30/08 -> 31/08 -> 01/09)
+  //    y dentro de la misma fecha por Técnico (A-Z) y Tramo / Horario.
+  // 2. Si es la vista NORMAL del grid (hoy): Mantener el orden alfabético por Técnico A-Z
   const sortedOrders = useMemo(() => {
     return [...orders].sort((a, b) => {
       if (isSearching) {
-        // Modo Búsqueda: Antiguo arriba ➔ Actual abajo (Fecha ASC, Hora ASC)
+        // Modo Búsqueda / Rango de Fechas: Cronológico (Fecha ASC: más antiguo arriba ➔ más reciente abajo)
         const fechaA = (a.fecha || "").trim();
         const fechaB = (b.fecha || "").trim();
         if (fechaA && fechaB && fechaA !== fechaB) {
           return fechaA.localeCompare(fechaB);
         }
 
-        const horaA = (a.horaInicio || a.horaAsignacion || a.horaEnCamino || a.tramo || "").trim();
-        const horaB = (b.horaInicio || b.horaAsignacion || b.horaEnCamino || b.tramo || "").trim();
+        // Dentro del mismo día: Ordenar por Técnico (A-Z)
+        const tecA = (a.tecnico || "").trim();
+        const tecB = (b.tecnico || "").trim();
+        if (tecA && !tecB) return -1;
+        if (!tecA && tecB) return 1;
+        if (tecA && tecB) {
+          const comp = tecA.localeCompare(tecB, "es", { sensitivity: "base", numeric: true });
+          if (comp !== 0) return comp;
+        }
+
+        // Dentro del mismo técnico y fecha: por Tramo / Horario
+        const tramoA = (a.tramo || "").trim();
+        const tramoB = (b.tramo || "").trim();
+        if (tramoA && tramoB && tramoA !== tramoB) {
+          if (tramoA === "-") return 1;
+          if (tramoB === "-") return -1;
+          const tramoComp = tramoA.localeCompare(tramoB, "es", { numeric: true });
+          if (tramoComp !== 0) return tramoComp;
+        }
+
+        const horaA = (a.horaInicio || a.horaAsignacion || a.horaEnCamino || "").trim();
+        const horaB = (b.horaInicio || b.horaAsignacion || b.horaEnCamino || "").trim();
         if (horaA && horaB && horaA !== horaB) {
           return horaA.localeCompare(horaB);
         }
@@ -135,7 +157,7 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
         return (a.cliente || "").localeCompare(b.cliente || "", "es");
       }
 
-      // Modo Normal (Grid): Alfabético por Técnico (A-Z)
+      // Modo Normal (Grid del día): Alfabético por Técnico (A-Z)
       const tecA = (a.tecnico || "").trim();
       const tecB = (b.tecnico || "").trim();
 
@@ -884,7 +906,14 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                     >
                       {(() => {
                         const isGPS = (v: any) => v && /^-?\d{1,3}\.\d+.*,\s*-?\d{1,3}\.\d+/.test(String(v).trim());
-                        const cleanVal = (v: any) => (!v || isGPS(v) ? "" : String(v).trim());
+                        const isInvalid = (v: any) => {
+                          if (!v) return true;
+                          const s = String(v).trim();
+                          if (isGPS(s)) return true;
+                          const lower = s.toLowerCase();
+                          return lower === "técnica" || lower === "tecnica" || lower === "comercial" || lower === "null" || lower === "undefined" || lower === "-";
+                        };
+                        const cleanVal = (v: any) => (isInvalid(v) ? "" : String(v).trim());
                         const liq = cleanVal(order.tipoLiquidacion) ||
                                     cleanVal(order.motivoLiquidacion) ||
                                     cleanVal(order.motivoFinalizacion) ||

@@ -258,9 +258,16 @@ export const getOrders = async (filters?: {
       const totalOrdenes = Math.max(countDB, countMemory);
       const esReiterada = (totalOrdenes > 1 || Boolean(raw.es_reiterada)) && clientKey !== "sin cliente" && clientKey !== "";
 
-        // Función para limpiar campos si contienen coordenadas GPS en lugar de texto
+        // Función para limpiar campos si contienen coordenadas GPS o tipos de orden genéricos ('Técnica')
         const isGPS = (v: any) => v && /^-?\d{1,3}\.\d+.*,\s*-?\d{1,3}\.\d+/.test(String(v).trim());
-        const cleanText = (v: any) => (!v || isGPS(v) ? "" : String(v).trim());
+        const isInvalidMotivo = (v: any) => {
+          if (!v) return true;
+          const s = String(v).trim();
+          if (isGPS(s)) return true;
+          const lower = s.toLowerCase();
+          return lower === "técnica" || lower === "tecnica" || lower === "comercial" || lower === "null" || lower === "undefined" || lower === "-";
+        };
+        const cleanText = (v: any) => (isInvalidMotivo(v) ? "" : String(v).trim());
 
         const rawMotivoLiq = cleanText(raw.motivo_liquidacion) ||
                              cleanText(raw.tipo_liquidacion) ||

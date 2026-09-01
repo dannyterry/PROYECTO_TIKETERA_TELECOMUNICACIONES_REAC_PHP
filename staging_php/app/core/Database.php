@@ -11,11 +11,11 @@ class Database
             // Configuración del DSN con el charset utf8mb4
             $dsn = 'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4';
 
-            // Opciones de PDO, incluyendo el atributo para establecer el charset y zona horaria de Perú
+            // Opciones de PDO, incluyendo el atributo para establecer el charset
             $options = [
                 PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_TIMEOUT            => 30,
-                PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4, time_zone = '-05:00'",
+                PDO::MYSQL_ATTR_INIT_COMMAND => 'SET NAMES utf8mb4',
                 PDO::ATTR_EMULATE_PREPARES => false, // Obliga a MySQL a enviar tipos nativos
                 PDO::ATTR_STRINGIFY_FETCHES => false
             ];

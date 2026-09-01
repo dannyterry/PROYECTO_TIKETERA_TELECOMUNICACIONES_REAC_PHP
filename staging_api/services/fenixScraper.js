@@ -363,24 +363,23 @@ let cachedTableHeaders = [
   'Móvil',
   'Número Documento',
   'Cliente',
-  'Dirección',
-  'Región / Zona',
-  'Tipo Orden',
   'Fecha Visita',
   'Inicio de Visita',
   'Fin de Visita',
-  'Tipo Trabajo',
   'Estado',
-  'Fecha Solicitud',
-  'Motivo Regestión',
+  'Dirección',
+  'Región / Zona',
   'Cuadrilla',
-  'Fecha Estado',
-  'Georeferencia',
-  'Motivo Trabajo',
-  'Producto',
   'Motivo de Finalización',
+  'Tipo Trabajo',
+  'Tipo Orden',
+  'Fecha Solicitud',
+  'Fecha Estado',
+  'Motivo Regestión',
   'Motivo de Cancelación',
   'Motivo de Anulación',
+  'Georeferencia',
+  'Producto',
   'Suscripción',
   'Prioridad',
   'Datos Técnicos'
@@ -494,34 +493,126 @@ function mapearOrden(f, rawTds = [], offset = 0) {
 
   const ticket = getVal('n_', 'n', 'numero') || getCol(0);
 
+  let rawMovil = getVal('movil', 'celular') || getCol(3);
+  let rawNumDoc = getVal('numero_documento', 'documento') || getCol(4);
+  let rawCodSeg = getVal('codigo_de_seguimiento', 'codigo_seguimiento') || getCol(2);
+  let rawCodSegCli = getVal('cod_seguimiento_cliente', 'cod_seguimiento') || getCol(1);
+  let rawCuadrilla = getVal('cuadrilla') || getCol(12);
+  let rawTipoOrden = getVal('tipo_orden', 'tipo_de_orden') || getCol(15);
+
+  const rawDatosTecnicos = getVal('datos_tecnicos') || getCol(25);
+
+  // 🛡️ Detección de grilla Fénix con columnas de avería/postventa desplazadas
+  if (rawMovil && /^(AVERIAS|MOTOWIN|POSTVENTA|REITERADA|PLANTA EXTERNA)/i.test(rawMovil.trim())) {
+    rawTipoOrden = rawMovil;
+    rawMovil = null;
+  }
+  // Si no hay móvil o vino desplazado, extraerlo de datos_tecnicos si existe
+  if (!rawMovil && rawDatosTecnicos) {
+    const dtMatch = rawDatosTecnicos.match(/MOVIL\s+(?:ULTIMO\s+CONTACTO|REFERENCIA)[^\/]*\/[^\/]*\/(\d{7,11})/i) ||
+                    rawDatosTecnicos.match(/MOVIL[^\/]*\/[^\/]*\/(\d{7,11})/i);
+    if (dtMatch && dtMatch[1]) {
+      rawMovil = dtMatch[1];
+    }
+  }
+  if (rawNumDoc && /(CESPEDES|SGA|^[KO]\s*\d+)/i.test(rawNumDoc.trim())) {
+    rawCuadrilla = rawNumDoc;
+    rawNumDoc = null;
+  }
+  if (rawCodSeg && /(Residencial|Condominio|Edificio)/i.test(rawCodSeg.trim())) {
+    rawCodSeg = ticket;
+  }
+  if (rawCodSegCli && /(WI-NET|Perú|Peru|TELECOM)/i.test(rawCodSegCli.trim())) {
+    rawCodSegCli = null;
+  }
+
+  // 🚀 Extracción inteligente de Suscripción (Ancho de Banda)
+  const rawSuscripcion = (() => {
+    const v = getVal('suscripcion', 'suscripci_n', 'plan', 'ancho_banda', 'ancho_de_banda') || getCol(23);
+    if (v && /(1GBPS|500MBPS|300\s*Mbps|650|1000\s*Mbps|WIN\s*PRO|RET|Up\s*To|\b\d+\s*Mbps|\b\d+\s*Gbps|PLANTA\s*EXTERNA)/i.test(String(v).trim())) {
+      return String(v).trim();
+    }
+    for (let i = 0; i < rawTds.length; i++) {
+      const clean = (rawTds[i] || '').replace(/<[^>]+>/g, '').trim();
+      if (/(1GBPS|500MBPS|300\s*Mbps|650|1000\s*Mbps|WIN\s*PRO|RET|Up\s*To|\b\d+\s*Mbps|\b\d+\s*Gbps)/i.test(clean)) {
+        return clean;
+      }
+    }
+    return v ? String(v).trim() : null;
+  })();
+
+  // 🚀 Extracción inteligente de Georeferencia
+  const rawGeo = (() => {
+    const v = getVal('georeferencia', 'coordenadas') || getCol(21);
+    if (v && /^-?\d{1,3}\.\d+.*,\s*-?\d{1,3}\.\d+/.test(String(v).trim())) {
+      return String(v).trim();
+    }
+    for (let i = 0; i < rawTds.length; i++) {
+      const clean = (rawTds[i] || '').replace(/<[^>]+>/g, '').trim();
+      if (/^-?\d{1,3}\.\d+.*,\s*-?\d{1,3}\.\d+/.test(clean)) {
+        return clean;
+      }
+    }
+    return v ? String(v).trim() : null;
+  })();
+
+  // 🚀 Extracción inteligente de Producto
+  const rawProducto = (() => {
+    const v = getVal('producto') || getCol(22);
+    if (v && !/(1GBPS|500MBPS|Mbps|Gbps|WIN PRO)/i.test(String(v).trim())) return String(v).trim();
+    for (let i = 0; i < rawTds.length; i++) {
+      const clean = (rawTds[i] || '').replace(/<[^>]+>/g, '').trim();
+      if (/^(AVERIAS|REITERADA|MOTOWIN|POSTVENTA|PLANTA EXTERNA|AVERIAS ALTO VALOR)$/i.test(clean)) {
+        return clean;
+      }
+    }
+    return v ? String(v).trim() : null;
+  })();
+
   return {
     numero: ticket,
-    cod_seguimiento_cliente: getVal('cod_seguimiento_cliente', 'cod_seguimiento') || getCol(1),
-    codigo_seguimiento: getVal('codigo_de_seguimiento', 'codigo_seguimiento') || getCol(2),
-    movil: getVal('movil', 'celular') || getCol(3),
-    numero_documento: getVal('numero_documento', 'documento') || getCol(4),
+    cod_seguimiento_cliente: rawCodSegCli,
+    codigo_seguimiento: rawCodSeg,
+    movil: rawMovil,
+    numero_documento: rawNumDoc,
     cliente: getVal('cliente') || getCol(5),
-    direccion: getVal('direccion') || getCol(6),
-    region_zona: getVal('region_zona', 'region', 'zona') || getCol(7),
-    tipo_orden: getVal('tipo_orden') || getCol(8),
-    fecha_visita: parseDateToMySQL(getVal('fecha_visita') || getCol(9)),
-    inicio_visita: parseDateToMySQL(getVal('inicio_de_visita', 'inicio_visita') || getCol(10)),
-    fin_visita: parseDateToMySQL(getVal('fin_de_visita', 'fin_visita') || getCol(11)),
-    tipo_trabajo: getVal('tipo_trabajo') || getCol(12),
-    estado: getVal('estado') || getCol(13) || 'Agendada',
-    fecha_solicitud: parseDateToMySQL(getVal('fecha_solicitud') || getCol(14)),
-    motivo_regestion: getVal('motivo_regestion', 'motivo_de_regestion') || getCol(15),
-    cuadrilla: getVal('cuadrilla') || getCol(16),
+    direccion: getVal('direccion') || getCol(10),
+    region_zona: getVal('region_zona', 'region', 'zona') || getCol(11),
+    tipo_orden: rawTipoOrden,
+    fecha_visita: parseDateToMySQL(getVal('fecha_visita') || getCol(6)),
+    inicio_visita: parseDateToMySQL(getVal('inicio_de_visita', 'inicio_visita') || getCol(7)),
+    fin_visita: parseDateToMySQL(getVal('fin_de_visita', 'fin_visita') || getCol(8)),
+    tipo_trabajo: getVal('tipo_trabajo') || getCol(14),
+    estado: getVal('estado') || getCol(9) || 'Agendada',
+    fecha_solicitud: parseDateToMySQL(getVal('fecha_solicitud') || getCol(16)),
+    motivo_regestion: (() => {
+      const v = getVal('motivo_regestion', 'motivo_de_regestion') || getCol(18);
+      if (!v || /^(Técnica|Tecnica|Comercial)$/i.test(String(v).trim()) || /^-?\d{1,3}\.\d+/.test(String(v).trim())) return null;
+      return String(v).trim();
+    })(),
+    cuadrilla: rawCuadrilla,
     fecha_estado: parseDateToMySQL(getVal('fecha_estado') || getCol(17)),
-    georeferencia: getVal('georeferencia', 'coordenadas') || getCol(18),
-    motivo_trabajo: getVal('motivo_trabajo', 'tipo_averia') || getCol(19),
-    producto: getVal('producto') || getCol(20),
-    motivo_finalizacion: getVal('motivo_de_finalizacion', 'motivo_finalizacion') || getCol(21),
-    motivo_cancelacion: getVal('motivo_de_cancelacion', 'motivo_cancelacion') || getCol(22),
-    motivo_anulacion: getVal('motivo_de_anulacion', 'motivo_anulacion') || getCol(23),
-    suscripcion: getVal('suscripcion') || getCol(24),
-    prioridad: getVal('prioridad') || getCol(25),
-    datos_tecnicos: getVal('datos_tecnicos') || getCol(26)
+    georeferencia: rawGeo,
+    motivo_trabajo: getVal('motivo_trabajo', 'tipo_averia') || getCol(14),
+    producto: rawProducto,
+    motivo_finalizacion: (() => {
+      const v = getVal('motivo_de_finalizacion', 'motivo_finalizacion') || getCol(13);
+      if (!v || /^-?\d{1,3}\.\d+/.test(String(v).trim())) return null;
+      return String(v).trim();
+    })(),
+    motivo_cancelacion: (() => {
+      const v = getVal('motivo_de_cancelacion', 'motivo_cancelacion') || getCol(19);
+      if (!v || /^-?\d{1,3}\.\d+/.test(String(v).trim())) return null;
+      return String(v).trim();
+    })(),
+    motivo_anulacion: (() => {
+      const v = getVal('motivo_de_anulacion', 'motivo_anulacion') || getCol(20);
+      if (!v || /^-?\d{1,3}\.\d+/.test(String(v).trim())) return null;
+      return String(v).trim();
+    })(),
+    suscripcion: rawSuscripcion,
+    prioridad: getVal('prioridad') || getCol(24),
+    datos_tecnicos: rawDatosTecnicos
   };
 }
 
@@ -756,6 +847,8 @@ async function sincronizarFenix({ fechaDesde = null, fechaHasta = null } = {}) {
         await Promise.all(
           batch.map(async (ord) => {
             if (!ord.numero) return;
+            // ⚡ Optimización: si ya cuenta con inicio y fin de visita, no saturar WIN con peticiones extra
+            if (ord.inicio_visita && ord.fin_visita) return;
             try {
               const hist = await obtenerHistorialEstados(ord.numero);
               if (hist && hist.length > 0) {

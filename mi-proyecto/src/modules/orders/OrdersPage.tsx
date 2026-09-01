@@ -592,7 +592,12 @@ export const OrdersPage: React.FC = () => {
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           <OrdersTable
             orders={filteredOrders}
-            isSearching={Boolean(filters.search && filters.search.trim() !== "")}
+            isSearching={Boolean(
+              (filters.search && filters.search.trim() !== "") ||
+              (filters.fechaDesde && filters.fechaHasta && filters.fechaDesde !== filters.fechaHasta) ||
+              (filters.fechaDesde && filters.fechaDesde !== todayStr) ||
+              (filters.fechaHasta && filters.fechaHasta !== todayStr)
+            )}
             tecnicosDisponibles={tecnicosDisponibles}
             tiposTrabajoDisponibles={tiposTrabajoDisponibles}
             tasksProgressMap={tasksProgressMap}

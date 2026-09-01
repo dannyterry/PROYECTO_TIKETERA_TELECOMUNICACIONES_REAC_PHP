@@ -6,7 +6,7 @@ $isLocal = (!isset($_SERVER['HTTP_HOST']) || $_SERVER['HTTP_HOST'] === 'localhos
 
 if ($isLocal) {
     define('DB_HOST',     'localhost');
-    define('DB_NAME',     'corporacioncespe_cespedes');
+    define('DB_NAME',     'corporacionescepe_cespedes');
     define('DB_USER',     'root');
     define('DB_PASSWORD', '');
     define('BASE_URL',    'http://localhost/corporacionescepe/');
