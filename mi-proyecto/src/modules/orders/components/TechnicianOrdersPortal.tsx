@@ -30,6 +30,7 @@ import { TechnicalActModal } from "./TechnicalActModal";
 import { TechnicianChecklistModal } from "../../mobility/components/TechnicianChecklistModal";
 import { TechnicianDashboardTab } from "./TechnicianDashboardTab";
 import { registrarLogGps } from "../../mobility/services/mobilityService";
+import { extractCuadrillaKey } from "../utils/cuadrillaUtils";
 import axios from "axios";
 import { API_URL } from "../../../config/api";
 
@@ -223,23 +224,29 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName }) =>
 
     getOrders({ fechaDesde: todayStr, fechaHasta: todayStr })
       .then((allOrders) => {
+        const targetId = Number(trabajadorActual.id_usuario || trabajadorActual.id_trabajador);
+        const targetName = (trabajadorActual.nombre_completo || "").toLowerCase().trim();
+
         const misOrdenes = allOrders.filter((ord) => {
           // 1. Filtrar estrictamente por fecha de hoy
           const fechaOrd = (ord.fecha || "").slice(0, 10);
           if (fechaOrd && fechaOrd !== todayStr) return false;
 
-          // 2. Filtrar por asignación al técnico o su cuadrilla
+          // 2. Filtrar por ID de técnico (Titular T1 o Acompañante T2)
+          const ordId1 = Number(ord.idTecnico);
+          const ordId2 = Number(ord.idTecnicoReemplazo);
+
+          if (targetId && (ordId1 === targetId || ordId2 === targetId)) {
+            return true;
+          }
+
+          // Fallback por coincidencia de nombre exacto si el ID no vino poblado en la orden
           const tecName = (ord.tecnico || "").toLowerCase();
-          const targetName = (trabajadorActual.nombre_completo || "").toLowerCase().trim();
-          const targetCuadrilla = (trabajadorActual.cuadrilla || "").toLowerCase().trim();
-          const ordCuadrilla = (ord.cuadrilla || "").toLowerCase().trim();
+          if (targetName && tecName && (tecName === targetName || tecName.includes(targetName))) {
+            return true;
+          }
 
-          const matchTec = targetName && tecName.includes(targetName);
-          const matchCuad = targetCuadrilla && ordCuadrilla && (ordCuadrilla === targetCuadrilla || ordCuadrilla.includes(targetCuadrilla));
-          const matchNameInCuad = targetName && ordCuadrilla && ordCuadrilla.includes(targetName);
-          const matchId = String(ord.idTecnico) === String(trabajadorActual.id_trabajador) || String(ord.idTecnico) === String(trabajadorActual.id_usuario);
-
-          return matchTec || matchCuad || matchNameInCuad || matchId;
+          return false;
         });
 
         setOrdenes(misOrdenes);
@@ -434,12 +441,16 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName }) =>
           </div>
         </div>
 
-        {trabajadorActual?.cuadrilla && (
+        {(ordenes.length > 0 && ordenes[0]?.cuadrilla) || trabajadorActual?.cuadrilla ? (
           <div className="pt-0.5">
             <span className="text-[10px] sm:text-[11px] font-bold text-indigo-200 bg-indigo-900/40 px-2.5 py-1 rounded-xl border border-indigo-400/20 inline-block truncate max-w-full">
               📍 Cuadrilla: {(() => {
-                const c = trabajadorActual.cuadrilla.trim();
-                const n = (trabajadorActual.nombre_completo || "").trim();
+                if (ordenes.length > 0 && ordenes[0]?.cuadrilla) {
+                  const key = extractCuadrillaKey(ordenes[0].cuadrilla);
+                  if (key) return key;
+                }
+                const c = (trabajadorActual?.cuadrilla || "").trim();
+                const n = (trabajadorActual?.nombre_completo || "").trim();
                 let clean = c;
                 if (n && clean.toUpperCase().includes(n.toUpperCase())) {
                   clean = clean.replace(new RegExp(n, "gi"), "").trim();
@@ -451,11 +462,11 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName }) =>
                   });
                 }
                 clean = clean.replace(/\s+/g, " ").replace(/^[-–—:\s]+|[-–—:\s]+$/g, "").trim();
-                return clean || c;
+                return clean || c || "Sin cuadrilla";
               })()}
             </span>
           </div>
-        )}
+        ) : null}
 
         {/* Acciones Rápidas del Técnico: 1 columna si solo está checklist, 2 si tiene stock */}
         <div className={`grid gap-2 pt-0.5 ${permiteVerStock ? "grid-cols-2" : "grid-cols-1"}`}>
