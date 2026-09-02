@@ -22,6 +22,7 @@ import {
   ClipboardList,
   Check,
   Clock,
+  Calendar,
   Copy,
   RefreshCw,
 } from "lucide-react";
@@ -89,6 +90,14 @@ export const StockOverviewTab: React.FC<Props> = ({
   const [filtroSerieTab, setFiltroSerieTab] = useState<"todas" | "almacen" | "tecnicos" | "defectuosos">("todas");
   const [copiadoSerie, setCopiadoSerie] = useState<string | null>(null);
   const [serieEditandoEstado, setSerieEditandoEstado] = useState<number | null>(null);
+  const [modoVistaSeries, setModoVistaSeries] = useState<"cards" | "table">("table");
+  const [filtroTecnicoModal, setFiltroTecnicoModal] = useState<string>("todos");
+  const [filtroFechaDesde, setFiltroFechaDesde] = useState<string>("");
+  const [filtroFechaHasta, setFiltroFechaHasta] = useState<string>("");
+
+  // Filtros de fecha para la pestaña de Stock en Camionetas (Móviles)
+  const [filtroFechaMovilDesde, setFiltroFechaMovilDesde] = useState<string>("");
+  const [filtroFechaMovilHasta, setFiltroFechaMovilHasta] = useState<string>("");
 
   // Modal de Series de Equipos asignadas a un Técnico específico
   const [modalSeriesTecnico, setModalSeriesTecnico] = useState<{
@@ -105,6 +114,9 @@ export const StockOverviewTab: React.FC<Props> = ({
     setCargandoSeries(true);
     setFiltroSerieTexto("");
     setFiltroSerieTab("todas");
+    setFiltroTecnicoModal("todos");
+    setFiltroFechaDesde("");
+    setFiltroFechaHasta("");
     setSerieEditandoEstado(null);
     getProductoSeries(prod.id_producto)
       .then((data) => setDetalleSeries(data))
@@ -183,7 +195,9 @@ export const StockOverviewTab: React.FC<Props> = ({
       (filtroCategoria === "ACTAS / GUÍAS"
         ? esCatActa(st.categoria) || st.producto_nombre.toUpperCase().includes("ACTA") || st.producto_nombre.toUpperCase().includes("GUIA")
         : st.categoria && st.categoria.toUpperCase() === filtroCategoria.toUpperCase());
-    return matchTxt && matchTec && matchCat;
+    const matchFechaDesde = !filtroFechaMovilDesde || (st.fecha_entrega && st.fecha_entrega.slice(0, 10) >= filtroFechaMovilDesde);
+    const matchFechaHasta = !filtroFechaMovilHasta || (st.fecha_entrega && st.fecha_entrega.slice(0, 10) <= filtroFechaMovilHasta);
+    return matchTxt && matchTec && matchCat && matchFechaDesde && matchFechaHasta;
   });
 
   const actasTecnicosFiltrados = actasTecnicos.filter((at) => {
@@ -609,7 +623,17 @@ export const StockOverviewTab: React.FC<Props> = ({
                     <tr key={p.id_producto} className="hover:bg-slate-50/60 transition-colors">
                       <td className="py-3.5 px-4">
                         <div className="font-extrabold text-slate-900">{p.nombre}</div>
-                        <span className="text-[10px] font-mono text-slate-400">{p.codigo}</span>
+                        <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400 mt-0.5">
+                          <span className="font-black text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                            {p.codigo}
+                          </span>
+                          {p.fecha_ingreso && (
+                            <span className="flex items-center gap-1 text-slate-400 font-sans">
+                              <Calendar size={11} className="text-slate-400" />
+                              <span>Ingreso: {new Date(p.fecha_ingreso).toLocaleDateString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric" })}</span>
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3.5 px-4">
                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${catInfo.bg}`}>
@@ -704,6 +728,59 @@ export const StockOverviewTab: React.FC<Props> = ({
                 Auditoría en tiempo real de números de serie, correlativos de actas y materiales asignados por técnico.
               </p>
             </div>
+
+            {/* Filtro de Rango de Fechas de Entrega */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5 bg-white border border-slate-200 px-3 py-1.5 rounded-xl shadow-2xs text-xs">
+                <Calendar size={13} className="text-cyan-600 shrink-0" />
+                <span className="text-[11px] font-bold text-slate-500">Entrega:</span>
+                <input
+                  type="date"
+                  value={filtroFechaMovilDesde}
+                  onChange={(e) => setFiltroFechaMovilDesde(e.target.value)}
+                  className="border-0 bg-transparent text-xs font-mono font-semibold p-0 text-slate-700 focus:ring-0"
+                  title="Fecha desde"
+                />
+                <span className="text-slate-400 font-bold">-</span>
+                <input
+                  type="date"
+                  value={filtroFechaMovilHasta}
+                  onChange={(e) => setFiltroFechaMovilHasta(e.target.value)}
+                  className="border-0 bg-transparent text-xs font-mono font-semibold p-0 text-slate-700 focus:ring-0"
+                  title="Fecha hasta"
+                />
+                {(filtroFechaMovilDesde || filtroFechaMovilHasta) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFiltroFechaMovilDesde("");
+                      setFiltroFechaMovilHasta("");
+                    }}
+                    className="text-[11px] text-rose-600 hover:text-rose-800 font-bold ml-1 cursor-pointer"
+                    title="Limpiar filtro de fechas"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              {/* Botón rápido: Hoy */}
+              <button
+                type="button"
+                onClick={() => {
+                  const hoy = new Date().toISOString().slice(0, 10);
+                  setFiltroFechaMovilDesde(hoy);
+                  setFiltroFechaMovilHasta(hoy);
+                }}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                  filtroFechaMovilDesde === new Date().toISOString().slice(0, 10) && filtroFechaMovilHasta === new Date().toISOString().slice(0, 10)
+                    ? "bg-cyan-600 text-white border-cyan-600 shadow-2xs"
+                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                }`}
+              >
+                📅 Entregas de Hoy
+              </button>
+            </div>
           </div>
 
           {(() => {
@@ -718,6 +795,7 @@ export const StockOverviewTab: React.FC<Props> = ({
                     <th className="py-3.5 px-4">Cuadrilla / Vehículo</th>
                     <th className="py-3.5 px-4">Material / Equipo</th>
                     <th className="py-3.5 px-4">Categoría</th>
+                    <th className="py-3.5 px-4">Fecha Entrega</th>
                     {mostrarColumnaSeries && <th className="py-3.5 px-4">Series / Rangos Asignados</th>}
                     <th className="py-3.5 px-4 text-right">Cantidad en Carro</th>
                   </tr>
@@ -725,7 +803,7 @@ export const StockOverviewTab: React.FC<Props> = ({
                 <tbody className="divide-y divide-slate-100">
                   {stockTecnicosFiltrado.length === 0 ? (
                     <tr>
-                      <td colSpan={mostrarColumnaSeries ? 6 : 5} className="py-12 text-center text-slate-400 text-xs font-bold">
+                      <td colSpan={mostrarColumnaSeries ? 7 : 6} className="py-12 text-center text-slate-400 text-xs font-bold">
                         No hay asignaciones registradas para el filtro seleccionado.
                       </td>
                     </tr>
@@ -776,6 +854,26 @@ export const StockOverviewTab: React.FC<Props> = ({
                             <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${catInfo.bg}`}>
                               {catInfo.text}
                             </span>
+                          </td>
+
+                          {/* COLUMNA: FECHA DE ENTREGA AL TÉCNICO */}
+                          <td className="py-3.5 px-4 whitespace-nowrap">
+                            {st.fecha_entrega ? (
+                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 font-mono text-[10px] font-semibold border border-slate-200">
+                                <Clock size={11} className="text-cyan-600 shrink-0" />
+                                <span>
+                                  {new Date(st.fecha_entrega).toLocaleDateString("es-PE", {
+                                    day: "2-digit",
+                                    month: "2-digit",
+                                    year: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </span>
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 italic">No registrada</span>
+                            )}
                           </td>
 
                           {/* COLUMNA CONDICIONAL: SERIES / RANGOS (SOLO ACTAS Y EQUIPOS) */}
@@ -1068,14 +1166,14 @@ export const StockOverviewTab: React.FC<Props> = ({
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          MODAL DE AUDITORÍA Y CONSULTA DE SERIES DEL EQUIPO
+          MODAL DE AUDITORÍA Y CONSULTA DE SERIES DEL EQUIPO (PANORÁMICO)
       ───────────────────────────────────────────────────────────── */}
       {modalSeries.isOpen && modalSeries.producto && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-4xl shadow-2xl border border-slate-100 space-y-5 animate-scale-up max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-3xl p-5 sm:p-6 w-full max-w-6xl shadow-2xl border border-slate-100 space-y-4 animate-scale-up max-h-[92vh] flex flex-col">
             
             {/* Header del Modal */}
-            <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+            <div className="flex items-start justify-between border-b border-slate-100 pb-3 shrink-0">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="p-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -1086,66 +1184,95 @@ export const StockOverviewTab: React.FC<Props> = ({
                       Series Registradas: {modalSeries.producto.nombre}
                     </h3>
                     <p className="text-xs text-slate-400 font-mono">
-                      Código SKU: <strong className="text-slate-700">{modalSeries.producto.codigo}</strong> • Categoría: <strong className="text-indigo-600 font-sans">{modalSeries.producto.categoria || "EQUIPOS"}</strong>
+                      Código Modelo: <strong className="text-slate-700">{modalSeries.producto.codigo}</strong> • Categoría: <strong className="text-indigo-600 font-sans">{modalSeries.producto.categoria || "EQUIPOS"}</strong>
                     </p>
                   </div>
                 </div>
               </div>
-              <button
-                onClick={() => setModalSeries({ isOpen: false, producto: null })}
-                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-              >
-                <X size={18} />
-              </button>
+
+              {/* Selector de Modo de Vista & Botón Cerrar */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setModoVistaSeries("table")}
+                    className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      modoVistaSeries === "table" ? "bg-white text-indigo-900 shadow-2xs" : "text-slate-500 hover:text-slate-800"
+                    }`}
+                    title="Vista Tabla / Grid Compacto"
+                  >
+                    <Layers size={13} />
+                    <span>Tabla Compacta</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModoVistaSeries("cards")}
+                    className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      modoVistaSeries === "cards" ? "bg-white text-indigo-900 shadow-2xs" : "text-slate-500 hover:text-slate-800"
+                    }`}
+                    title="Vista Tarjetas"
+                  >
+                    <Package size={13} />
+                    <span>Tarjetas</span>
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setModalSeries({ isOpen: false, producto: null })}
+                  className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
 
             {/* Métricas Resumen de Series */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              <div className="p-3 bg-emerald-50/80 rounded-2xl border border-emerald-200 text-center space-y-0.5">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 shrink-0">
+              <div className="p-2.5 bg-emerald-50/80 rounded-2xl border border-emerald-200 text-center space-y-0.5">
                 <span className="text-[10px] font-black text-emerald-800 uppercase tracking-wider block">
                   🏢 Disponibles
                 </span>
-                <span className="text-xl font-black text-emerald-950 font-mono">
+                <span className="text-lg font-black text-emerald-950 font-mono">
                   {detalleSeries?.disponibles_almacen ?? "..."}
                 </span>
                 <span className="text-[9px] text-emerald-600 block font-medium">Óptimos en almacén</span>
               </div>
 
-              <div className="p-3 bg-sky-50/80 rounded-2xl border border-sky-200 text-center space-y-0.5">
+              <div className="p-2.5 bg-sky-50/80 rounded-2xl border border-sky-200 text-center space-y-0.5">
                 <span className="text-[10px] font-black text-sky-800 uppercase tracking-wider block">
                   🚚 En Cuadrillas
                 </span>
-                <span className="text-xl font-black text-sky-950 font-mono">
+                <span className="text-lg font-black text-sky-950 font-mono">
                   {detalleSeries?.asignadas_tecnicos ?? "..."}
                 </span>
                 <span className="text-[9px] text-sky-600 block font-medium">En camionetas</span>
               </div>
 
-              <div className="p-3 bg-rose-50/80 rounded-2xl border border-rose-200 text-center space-y-0.5">
+              <div className="p-2.5 bg-rose-50/80 rounded-2xl border border-rose-200 text-center space-y-0.5">
                 <span className="text-[10px] font-black text-rose-800 uppercase tracking-wider block">
                   ⚠️ Defectuosos
                 </span>
-                <span className="text-xl font-black text-rose-950 font-mono">
+                <span className="text-lg font-black text-rose-950 font-mono">
                   {detalleSeries?.defectuosos ?? 0}
                 </span>
                 <span className="text-[9px] text-rose-600 block font-medium">Garantía / Avería</span>
               </div>
 
-              <div className="p-3 bg-slate-100/80 rounded-2xl border border-slate-200 text-center space-y-0.5">
+              <div className="p-2.5 bg-slate-100/80 rounded-2xl border border-slate-200 text-center space-y-0.5">
                 <span className="text-[10px] font-black text-slate-700 uppercase tracking-wider block">
                   📊 Total Series
                 </span>
-                <span className="text-xl font-black text-slate-900 font-mono">
+                <span className="text-lg font-black text-slate-900 font-mono">
                   {detalleSeries?.total_series ?? "..."}
                 </span>
                 <span className="text-[9px] text-slate-500 block font-medium">Global empresa</span>
               </div>
             </div>
 
-            {/* Barra de Búsqueda y Filtros de Ubicación */}
-            <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
+            {/* Barra de Filtros Avanzados (Ubicación, Técnico, Fechas, Búsqueda) */}
+            <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1 shrink-0">
               
-              {/* Tabs de Filtro */}
+              {/* Tabs de Filtro de Ubicación */}
               <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
                 <button
                   type="button"
@@ -1188,42 +1315,113 @@ export const StockOverviewTab: React.FC<Props> = ({
                 </button>
               </div>
 
+              {/* Filtro por Técnico si hay asignaciones */}
+              {(() => {
+                const tecnicosEnEsteEquipo = Array.from(
+                  new Set(
+                    (detalleSeries?.series || [])
+                      .map((s: any) => s.tecnico_nombre)
+                      .filter(Boolean)
+                  )
+                ).sort() as string[];
+
+                return (
+                  tecnicosEnEsteEquipo.length > 0 && (
+                    <select
+                      value={filtroTecnicoModal}
+                      onChange={(e) => setFiltroTecnicoModal(e.target.value)}
+                      className="p-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:bg-white cursor-pointer"
+                    >
+                      <option value="todos">👤 Todos los Técnicos ({tecnicosEnEsteEquipo.length})</option>
+                      {tecnicosEnEsteEquipo.map((tec: string) => (
+                        <option key={tec} value={tec}>
+                          {tec}
+                        </option>
+                      ))}
+                    </select>
+                  )
+                );
+              })()}
+
+              {/* Filtro por Rango de Fechas */}
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-xl text-xs">
+                <Calendar size={13} className="text-slate-400 shrink-0" />
+                <span className="text-[11px] font-bold text-slate-500">Fecha:</span>
+                <input
+                  type="date"
+                  value={filtroFechaDesde}
+                  onChange={(e) => setFiltroFechaDesde(e.target.value)}
+                  className="bg-transparent border-0 text-xs font-mono font-medium p-0 text-slate-700 focus:ring-0"
+                  title="Fecha desde"
+                />
+                <span className="text-slate-400 font-bold">-</span>
+                <input
+                  type="date"
+                  value={filtroFechaHasta}
+                  onChange={(e) => setFiltroFechaHasta(e.target.value)}
+                  className="bg-transparent border-0 text-xs font-mono font-medium p-0 text-slate-700 focus:ring-0"
+                  title="Fecha hasta"
+                />
+                {(filtroFechaDesde || filtroFechaHasta) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFiltroFechaDesde("");
+                      setFiltroFechaHasta("");
+                    }}
+                    className="text-[10px] text-rose-600 hover:text-rose-800 font-bold ml-1 cursor-pointer"
+                    title="Limpiar fechas"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
               {/* Input Buscador */}
-              <div className="relative min-w-[240px] flex-1 sm:flex-initial">
+              <div className="relative min-w-[200px] flex-1 sm:flex-initial">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                 <input
                   type="text"
                   value={filtroSerieTexto}
                   onChange={(e) => setFiltroSerieTexto(e.target.value)}
-                  placeholder="Buscar serie, técnico, placa..."
+                  placeholder="Buscar serie, código, técnico, placa..."
                   className="w-full pl-8.5 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none"
                 />
               </div>
             </div>
 
-            {/* Listado de Tarjetas de Series */}
-            <div className="space-y-2">
+            {/* Contenedor Principal: Tabla Compacta o Tarjetas */}
+            <div className="flex-1 overflow-hidden flex flex-col min-h-0">
               {cargandoSeries ? (
-                <div className="py-12 text-center text-slate-400 text-xs font-bold flex items-center justify-center gap-2">
+                <div className="py-16 text-center text-slate-400 text-xs font-bold flex items-center justify-center gap-2">
                   <RefreshCw size={16} className="animate-spin text-emerald-600" />
                   <span>Cargando series registradas del equipo...</span>
                 </div>
               ) : !detalleSeries || detalleSeries.series.length === 0 ? (
-                <div className="py-10 text-center text-slate-400 text-xs font-bold border border-dashed border-slate-200 rounded-2xl">
+                <div className="py-12 text-center text-slate-400 text-xs font-bold border border-dashed border-slate-200 rounded-2xl">
                   No hay series registradas para este producto actualmente.
                 </div>
               ) : (() => {
                 const seriesFiltradas = detalleSeries.series.filter((s: any) => {
-                  // Filtro por tab
+                  // Filtro por tab de ubicación
                   if (filtroSerieTab === "almacen" && s.estado_serie !== "DISPONIBLE") return false;
                   if (filtroSerieTab === "tecnicos" && !s.id_trabajador) return false;
                   if (filtroSerieTab === "defectuosos" && s.estado_serie !== "DEFECTUOSO") return false;
+
+                  // Filtro por técnico específico
+                  if (filtroTecnicoModal !== "todos" && s.tecnico_nombre !== filtroTecnicoModal) return false;
+
+                  // Filtro por fechas
+                  const fechaAValidar = (s.fecha_asignacion || s.fecha_ingreso || "").slice(0, 10);
+                  if (filtroFechaDesde && fechaAValidar && fechaAValidar < filtroFechaDesde) return false;
+                  if (filtroFechaHasta && fechaAValidar && fechaAValidar > filtroFechaHasta) return false;
 
                   // Filtro por texto
                   if (!filtroSerieTexto) return true;
                   const q = filtroSerieTexto.toLowerCase();
                   return (
                     s.numero_serie.toLowerCase().includes(q) ||
+                    (s.codigo_serie || "").toLowerCase().includes(q) ||
                     (s.tecnico_nombre || "").toLowerCase().includes(q) ||
                     (s.tecnico_cuadrilla || "").toLowerCase().includes(q) ||
                     (s.vehiculo_placa || "").toLowerCase().includes(q)
@@ -1232,14 +1430,131 @@ export const StockOverviewTab: React.FC<Props> = ({
 
                 if (seriesFiltradas.length === 0) {
                   return (
-                    <div className="py-8 text-center text-slate-400 text-xs font-bold border border-dashed border-slate-200 rounded-2xl">
-                      No se encontraron series que coincidan con la búsqueda o filtro.
+                    <div className="py-12 text-center text-slate-400 text-xs font-bold border border-dashed border-slate-200 rounded-2xl">
+                      No se encontraron series que coincidan con la búsqueda o filtros aplicados.
                     </div>
                   );
                 }
 
+                // VISTA 1: TABLA COMPACTA (ALTO VOLUMEN)
+                if (modoVistaSeries === "table") {
+                  return (
+                    <div className="border border-slate-200 rounded-2xl overflow-y-auto max-h-[420px] shadow-2xs">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 sticky top-0 z-10 text-slate-500 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
+                          <tr>
+                            <th className="py-2.5 px-3">#</th>
+                            <th className="py-2.5 px-3">Código Serie</th>
+                            <th className="py-2.5 px-3">Serie de Fábrica</th>
+                            <th className="py-2.5 px-3">Estado</th>
+                            <th className="py-2.5 px-3">Ubicación / Técnico</th>
+                            <th className="py-2.5 px-3">Cuadrilla / Placa</th>
+                            <th className="py-2.5 px-3">Fecha Ingreso</th>
+                            <th className="py-2.5 px-3">Fecha Entrega</th>
+                            <th className="py-2.5 px-3 text-center">Copiar</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {seriesFiltradas.map((s: any, idx: number) => {
+                            const esAlmacen = s.estado_serie === "DISPONIBLE";
+                            const esDefectuoso = s.estado_serie === "DEFECTUOSO";
+                            const esTecnico = Boolean(s.id_trabajador);
+
+                            return (
+                              <tr key={idx} className="hover:bg-slate-50/70 transition-colors">
+                                <td className="py-2 px-3 font-mono text-slate-400 text-[11px] font-bold">
+                                  {idx + 1}
+                                </td>
+                                <td className="py-2 px-3">
+                                  {s.codigo_serie ? (
+                                    <span className="font-mono font-black text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200 text-[11px]">
+                                      🏷️ {s.codigo_serie}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400 font-mono text-[10px]">-</span>
+                                  )}
+                                </td>
+                                <td className="py-2 px-3 font-mono font-black text-slate-900 text-[11px]">
+                                  {s.numero_serie}
+                                </td>
+                                <td className="py-2 px-3">
+                                  {esAlmacen ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                      🏢 Disponible
+                                    </span>
+                                  ) : esDefectuoso ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+                                      ⚠️ Defectuoso
+                                    </span>
+                                  ) : esTecnico ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200">
+                                      🚚 En Camioneta
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-500">{s.estado_serie}</span>
+                                  )}
+                                </td>
+                                <td className="py-2 px-3 font-bold text-slate-800">
+                                  {esTecnico ? (
+                                    <span className="flex items-center gap-1 text-sky-900">
+                                      <Truck size={12} className="text-sky-600 shrink-0" />
+                                      <span>{s.tecnico_nombre}</span>
+                                    </span>
+                                  ) : (
+                                    <span className="text-emerald-800 font-medium">🏢 Almacén Central</span>
+                                  )}
+                                </td>
+                                <td className="py-2 px-3 font-mono text-[11px] text-slate-600">
+                                  {s.tecnico_cuadrilla || s.vehiculo_placa ? (
+                                    <span>
+                                      {s.tecnico_cuadrilla ? `Cuadrilla ${s.tecnico_cuadrilla}` : ""} {s.vehiculo_placa ? `(${s.vehiculo_placa})` : ""}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400">-</span>
+                                  )}
+                                </td>
+                                <td className="py-2 px-3 whitespace-nowrap text-slate-500 font-mono text-[10px]">
+                                  {s.fecha_ingreso ? (
+                                    new Date(s.fecha_ingreso).toLocaleDateString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric" })
+                                  ) : (
+                                    "-"
+                                  )}
+                                </td>
+                                <td className="py-2 px-3 whitespace-nowrap text-slate-500 font-mono text-[10px]">
+                                  {s.fecha_asignacion ? (
+                                    <span className="text-sky-800 font-bold">
+                                      {new Date(s.fecha_asignacion).toLocaleDateString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                                    </span>
+                                  ) : (
+                                    "-"
+                                  )}
+                                </td>
+                                <td className="py-2 px-3 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => copiarSerie(s.numero_serie)}
+                                    className="p-1 rounded-lg text-slate-400 hover:text-emerald-700 hover:bg-slate-100 transition-all cursor-pointer"
+                                    title="Copiar serie"
+                                  >
+                                    {copiadoSerie === s.numero_serie ? (
+                                      <Check size={14} className="text-emerald-600" />
+                                    ) : (
+                                      <Copy size={14} />
+                                    )}
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                }
+
+                // VISTA 2: TARJETAS VISUALES
                 return (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 max-h-[380px] overflow-y-auto p-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 max-h-[420px] overflow-y-auto p-1">
                     {seriesFiltradas.map((s: any, idx: number) => {
                       const esAlmacen = s.estado_serie === "DISPONIBLE";
                       const esDefectuoso = s.estado_serie === "DEFECTUOSO";
@@ -1258,22 +1573,29 @@ export const StockOverviewTab: React.FC<Props> = ({
                               : "bg-slate-50 border-slate-200"
                           }`}
                         >
-                          {/* Número de serie y botón copiar */}
-                          <div className="flex items-center justify-between gap-1.5">
-                            <span className="font-mono font-black text-xs text-slate-900 tracking-wide">
-                              {s.numero_serie}
-                            </span>
-                            <div className="flex items-center gap-1">
+                          {/* Código Correlativo de Serie y Serie de Fábrica */}
+                          <div className="flex items-start justify-between gap-1.5">
+                            <div className="min-w-0 flex-1">
+                              {s.codigo_serie && (
+                                <span className="inline-block text-[10px] font-black font-mono px-1.5 py-0.5 bg-indigo-100 text-indigo-800 rounded-md border border-indigo-200 mb-1">
+                                  🏷️ {s.codigo_serie}
+                                </span>
+                              )}
+                              <span className="font-mono font-black text-xs text-slate-900 tracking-wide block truncate" title={s.numero_serie}>
+                                {s.numero_serie}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
                               <button
                                 type="button"
                                 onClick={() => copiarSerie(s.numero_serie)}
-                                className="p-1 rounded-lg text-slate-400 hover:text-emerald-700 hover:bg-white transition-all cursor-pointer"
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-700 hover:bg-white transition-all cursor-pointer"
                                 title="Copiar número de serie"
                               >
                                 {copiadoSerie === s.numero_serie ? (
-                                  <Check size={13} className="text-emerald-600" />
+                                  <Check size={14} className="text-emerald-600" />
                                 ) : (
-                                  <Copy size={13} />
+                                  <Copy size={14} />
                                 )}
                               </button>
                             </div>
@@ -1288,7 +1610,7 @@ export const StockOverviewTab: React.FC<Props> = ({
                                     type="button"
                                     onClick={() => setSerieEditandoEstado(serieEditandoEstado === s.id_producto_serie ? null : s.id_producto_serie)}
                                     className="flex items-center gap-1.5 text-emerald-800 font-extrabold hover:text-emerald-950 transition-colors cursor-pointer group truncate"
-                                    title="Toca para cambiar estado (ej: marcar avería o baja)"
+                                    title="Toca para cambiar estado"
                                   >
                                     <Building2 size={12} className="text-emerald-600 shrink-0" />
                                     <span className="truncate">Almacén Central (Disponible)</span>
@@ -1296,7 +1618,6 @@ export const StockOverviewTab: React.FC<Props> = ({
                                   </button>
                                 </div>
 
-                                {/* Menú desplegable para editar estado (solo si hace clic) */}
                                 {serieEditandoEstado === s.id_producto_serie && (
                                   <div className="p-2 bg-white rounded-xl border border-slate-200 shadow-lg space-y-1 animate-scale-up">
                                     <span className="text-[9px] font-bold text-slate-400 block uppercase">Cambiar Estado:</span>
@@ -1390,6 +1711,26 @@ export const StockOverviewTab: React.FC<Props> = ({
                               <span className="text-slate-500 font-medium">{s.estado_serie}</span>
                             )}
                           </div>
+
+                          {/* FECHAS: INGRESO AL ALMACÉN Y ENTREGA AL TÉCNICO */}
+                          <div className="pt-2 border-t border-slate-100/80 text-[10px] space-y-1">
+                            {s.fecha_ingreso && (
+                              <div className="flex items-center gap-1.5 text-slate-500 font-mono">
+                                <Calendar size={11} className="text-slate-400 shrink-0" />
+                                <span>
+                                  Ingreso: <strong className="text-slate-700 font-semibold">{new Date(s.fecha_ingreso).toLocaleDateString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</strong>
+                                </span>
+                              </div>
+                            )}
+                            {esTecnico && s.fecha_asignacion && (
+                              <div className="flex items-center gap-1.5 text-sky-800 font-mono font-bold bg-sky-50 px-2 py-0.5 rounded-lg border border-sky-200">
+                                <Clock size={11} className="text-sky-600 shrink-0" />
+                                <span>
+                                  Entregado: {new Date(s.fecha_asignacion).toLocaleDateString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                                </span>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -1398,10 +1739,10 @@ export const StockOverviewTab: React.FC<Props> = ({
               })()}
             </div>
 
-            {/* Footer */}
-            <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+            {/* Footer del Modal */}
+            <div className="flex items-center justify-between pt-3 border-t border-slate-100 shrink-0">
               <span className="text-[11px] text-slate-400 font-medium">
-                💡 Consejo: Toca el icono de copiar al lado de cualquier serie para usarla en activación de NOC o reportes.
+                💡 Consejo: Alterna entre <strong>Tabla Compacta</strong> (para buscar rápido entre cientos de series) o <strong>Tarjetas</strong> según tu preferencia.
               </span>
               <button
                 type="button"

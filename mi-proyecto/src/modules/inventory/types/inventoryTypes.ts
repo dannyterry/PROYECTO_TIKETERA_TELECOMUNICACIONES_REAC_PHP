@@ -11,6 +11,7 @@ export interface ProductoStock {
   stock_central: number;
   stock_en_tecnicos: number;
   series_disponibles: number;
+  fecha_ingreso?: string;
   unidad?: string;
   unidad_medida?: string;
 }
@@ -26,6 +27,7 @@ export interface StockTecnicoDetalle {
   categoria: string;
   es_drop: number;
   stock: number;
+  fecha_entrega?: string;
   series?: any[];
   series_disponibles?: string[];
   series_liquidadas?: string[];

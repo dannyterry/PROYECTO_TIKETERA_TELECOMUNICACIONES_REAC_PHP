@@ -54,12 +54,12 @@ export const InventoryPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50/60 p-4 md:p-8 space-y-6 animate-fade-in font-sans">
-      
+
       {/* ─────────────────────────────────────────────────────────────
           1. HEADER & TOP NAVIGATION BAR
       ───────────────────────────────────────────────────────────── */}
       <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-4">
-        
+
         {/* Título & Badge */}
         <div className="flex items-center gap-3.5">
           <div className="w-13 h-13 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-700 to-purple-600 text-white flex items-center justify-center font-black shadow-lg shadow-indigo-600/25">
@@ -68,7 +68,7 @@ export const InventoryPage: React.FC = () => {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">
-                Almacén & Logística de Telecomunicaciones
+                Almacén & Logística
               </h1>
               <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-200">
                 <Sparkles size={11} />
@@ -97,15 +97,14 @@ export const InventoryPage: React.FC = () => {
           2. SELECTOR DE PESTAÑAS PRINCIPALES
       ───────────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200/80 pb-2">
-        
+
         {/* Tab 1: Stock */}
         <button
           onClick={() => handleTabChange("stock")}
-          className={`px-5 py-2.5 rounded-2xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
-            tabActiva === "stock"
+          className={`px-5 py-2.5 rounded-2xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${tabActiva === "stock"
               ? "bg-slate-900 text-white shadow-md shadow-slate-900/20 scale-[1.02]"
               : "bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80"
-          }`}
+            }`}
         >
           <Layers size={16} />
           Control de Stock & Almacenes
@@ -114,11 +113,10 @@ export const InventoryPage: React.FC = () => {
         {/* Tab 2: Compras & Entrada */}
         <button
           onClick={() => handleTabChange("compras")}
-          className={`px-5 py-2.5 rounded-2xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
-            tabActiva === "compras"
+          className={`px-5 py-2.5 rounded-2xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${tabActiva === "compras"
               ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/20 scale-[1.02]"
               : "bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80"
-          }`}
+            }`}
         >
           <ShoppingCart size={16} />
           Compras & Entrada (Pistoleo Series)
@@ -127,11 +125,10 @@ export const InventoryPage: React.FC = () => {
         {/* Tab 3: Despacho a Técnicos */}
         <button
           onClick={() => handleTabChange("despacho")}
-          className={`px-5 py-2.5 rounded-2xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
-            tabActiva === "despacho"
+          className={`px-5 py-2.5 rounded-2xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${tabActiva === "despacho"
               ? "bg-cyan-600 text-white shadow-md shadow-cyan-600/20 scale-[1.02]"
               : "bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80"
-          }`}
+            }`}
         >
           <Truck size={16} />
           Despacho a Técnicos (Dotación)
@@ -140,11 +137,10 @@ export const InventoryPage: React.FC = () => {
         {/* Tab 4: Equipos Recogidos */}
         <button
           onClick={() => handleTabChange("recogidos")}
-          className={`px-5 py-2.5 rounded-2xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
-            tabActiva === "recogidos"
+          className={`px-5 py-2.5 rounded-2xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${tabActiva === "recogidos"
               ? "bg-purple-600 text-white shadow-md shadow-purple-600/20 scale-[1.02]"
               : "bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80"
-          }`}
+            }`}
         >
           <RotateCcw size={16} />
           Equipos Recogidos (Internamiento)

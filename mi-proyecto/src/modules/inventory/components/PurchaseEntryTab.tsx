@@ -144,10 +144,10 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
       prev.map((item, idx) =>
         idx === itemIndex
           ? {
-              ...item,
-              cantidad: generated.length,
-              series: generated,
-            }
+            ...item,
+            cantidad: generated.length,
+            series: generated,
+          }
           : item
       )
     );
@@ -430,9 +430,10 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
         return;
       }
 
-      // 2. Validar duplicados dentro del mismo ítem
-      if (currentItem.series.includes(clean)) {
-        alert(`⚠️ La serie "${clean}" ya fue ingresada para este producto.`);
+      // 2. Validar duplicados dentro de toda la compra actual
+      const existeEnOtro = items.some((it, idx) => idx !== itemIndexParaSeries && it.series.includes(clean));
+      if (currentItem.series.includes(clean) || existeEnOtro) {
+        alert(`⚠️ SERIE DUPLICADA:\n\nLa serie "${clean}" ya fue ingresada en esta compra.\n\nCada equipo debe tener un número de serie único e irrepetible.`);
         setSerieInput("");
         return;
       }
@@ -497,14 +498,14 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
         prev.map((it, idx) =>
           idx === index
             ? {
-                ...it,
-                categoria: catUpper,
-                id_producto: firstProd.id_producto,
-                nombre: firstProd.nombre,
-                precio: Number(firstProd.precio_compra) || it.precio || 0,
-                maneja_serie: Boolean(firstProd.maneja_serie || catUpper === "EQUIPOS"),
-                series: [],
-              }
+              ...it,
+              categoria: catUpper,
+              id_producto: firstProd.id_producto,
+              nombre: firstProd.nombre,
+              precio: Number(firstProd.precio_compra) || it.precio || 0,
+              maneja_serie: Boolean(firstProd.maneja_serie || catUpper === "EQUIPOS"),
+              series: [],
+            }
             : it
         )
       );
@@ -513,13 +514,13 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
         prev.map((it, idx) =>
           idx === index
             ? {
-                ...it,
-                categoria: catUpper,
-                id_producto: 0,
-                nombre: `Sin productos en ${catUpper} (Crear nuevo)`,
-                maneja_serie: catUpper === "EQUIPOS",
-                series: [],
-              }
+              ...it,
+              categoria: catUpper,
+              id_producto: 0,
+              nombre: `Sin productos en ${catUpper} (Crear nuevo)`,
+              maneja_serie: catUpper === "EQUIPOS",
+              series: [],
+            }
             : it
         )
       );
@@ -536,14 +537,14 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
       prev.map((it, idx) =>
         idx === index
           ? {
-              ...it,
-              id_producto: prod.id_producto,
-              nombre: prod.nombre,
-              categoria: (prod.categoria || it.categoria || "GENERAL").toUpperCase(),
-              precio: Number(prod.precio_compra) || it.precio || 0,
-              maneja_serie: Boolean(prod.maneja_serie || prod.categoria === "EQUIPOS"),
-              series: it.id_producto === prod.id_producto ? it.series : [],
-            }
+            ...it,
+            id_producto: prod.id_producto,
+            nombre: prod.nombre,
+            categoria: (prod.categoria || it.categoria || "GENERAL").toUpperCase(),
+            precio: Number(prod.precio_compra) || it.precio || 0,
+            maneja_serie: Boolean(prod.maneja_serie || prod.categoria === "EQUIPOS"),
+            series: it.id_producto === prod.id_producto ? it.series : [],
+          }
           : it
       )
     );
@@ -601,14 +602,14 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
           prev.map((it, idx) =>
             idx === rowIdx
               ? {
-                  ...it,
-                  id_producto: nuevoProd.id_producto,
-                  nombre: nuevoProd.nombre,
-                  categoria: nuevoProd.categoria,
-                  precio: Number(nuevoProd.precio_compra) || it.precio || 0,
-                  maneja_serie: Boolean(nuevoProd.maneja_serie || nuevoProd.categoria === "EQUIPOS"),
-                  series: [],
-                }
+                ...it,
+                id_producto: nuevoProd.id_producto,
+                nombre: nuevoProd.nombre,
+                categoria: nuevoProd.categoria,
+                precio: Number(nuevoProd.precio_compra) || it.precio || 0,
+                maneja_serie: Boolean(nuevoProd.maneja_serie || nuevoProd.categoria === "EQUIPOS"),
+                series: [],
+              }
               : it
           )
         );
@@ -767,12 +768,12 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
   return (
     <>
       <form onSubmit={handleSubmit} className="space-y-6 animate-fade-in font-sans">
-        
+
         {/* ─────────────────────────────────────────────────────────────
             1. DATOS DEL COMPROBANTE & PROVEEDOR INTELIGENTE (CON CARGA XML)
         ───────────────────────────────────────────────────────────── */}
         <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-4">
-          
+
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black shadow-2xs">
@@ -790,7 +791,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
 
             {/* Acciones Inteligentes: Cargar XML y Proveedores Frecuentes */}
             <div className="flex flex-wrap items-center gap-2">
-              
+
               {/* Botón de Carga XML SUNAT */}
               <input
                 ref={fileInputRef}
@@ -869,7 +870,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            
+
             {/* Tipo de Comprobante */}
             <div>
               <label className="block text-xs font-bold text-slate-600 mb-1">Tipo Comprobante</label>
@@ -1003,14 +1004,13 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
               return (
                 <div
                   key={idx}
-                  className={`p-4 rounded-2xl border transition-all space-y-3 ${
-                    itemIndexParaSeries === idx && esEquipo
+                  className={`p-4 rounded-2xl border transition-all space-y-3 ${itemIndexParaSeries === idx && esEquipo
                       ? "bg-emerald-50/40 border-emerald-300 ring-2 ring-emerald-100"
                       : "bg-slate-50/60 border-slate-200/90"
-                  }`}
+                    }`}
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
-                    
+
                     {/* 1. Selector de Categoría (Paso 1) */}
                     <div className="sm:col-span-3">
                       <label className="block text-[11px] font-black text-indigo-700 uppercase tracking-wider mb-1 flex items-center gap-1">
@@ -1177,7 +1177,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                         </div>
 
                         <div className="flex items-center gap-2">
-                          
+
                           {/* Botón Lote de Talonarios / Actas por Rango */}
                           {(it.categoria.includes("TALONARIO") || it.categoria.includes("ACTA") || it.categoria.includes("GUIA") || it.nombre.toUpperCase().includes("ACTA") || it.nombre.toUpperCase().includes("GUIA")) && (
                             <button
@@ -1213,11 +1213,10 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                           <button
                             type="button"
                             onClick={() => setItemIndexParaSeries(idx)}
-                            className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-all ${
-                              itemIndexParaSeries === idx
+                            className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-all ${itemIndexParaSeries === idx
                                 ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
                                 : "bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100"
-                            }`}
+                              }`}
                           >
                             {itemIndexParaSeries === idx ? "⚡ Escáner Activo" : "Activar Pistola"}
                           </button>
@@ -1237,11 +1236,10 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                             value={serieInput}
                             onChange={(e) => setSerieInput(e.target.value)}
                             onKeyDown={handlePistolearSerie}
-                            className={`flex-1 p-2 rounded-xl text-xs font-mono font-bold focus:outline-none transition-all ${
-                              it.series.length >= it.cantidad
+                            className={`flex-1 p-2 rounded-xl text-xs font-mono font-bold focus:outline-none transition-all ${it.series.length >= it.cantidad
                                 ? "bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed"
                                 : "bg-emerald-50/30 border border-emerald-300 text-slate-900 focus:ring-2 focus:ring-emerald-400"
-                            }`}
+                              }`}
                           />
                           <button
                             type="button"
@@ -1256,8 +1254,9 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                                   setSerieInput("");
                                   return;
                                 }
-                                if (it.series.includes(clean)) {
-                                  alert(`⚠️ La serie "${clean}" ya fue ingresada para este producto.`);
+                                const existeEnOtro = items.some((otherIt, otherIdx) => otherIdx !== idx && otherIt.series.includes(clean));
+                                if (it.series.includes(clean) || existeEnOtro) {
+                                  alert(`⚠️ SERIE DUPLICADA:\n\nLa serie "${clean}" ya fue ingresada en esta compra.\n\nCada equipo debe tener un número de serie único e irrepetible.`);
                                   setSerieInput("");
                                   return;
                                 }
@@ -1319,13 +1318,13 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
             );
             return esSerializado && (it.series?.length || 0) !== it.cantidad;
           }) && (
-            <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl flex items-center gap-2.5 text-xs text-rose-900 font-bold animate-pulse">
-              <AlertCircle size={18} className="text-rose-600 shrink-0" />
-              <span>
-                ⚠️ Regla de Negocio: Tienes equipos o talonarios con series pendientes de pistolear. Para registrar la compra y garantizar el control de stock, debes ingresar la totalidad de las series.
-              </span>
-            </div>
-          )}
+              <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl flex items-center gap-2.5 text-xs text-rose-900 font-bold animate-pulse">
+                <AlertCircle size={18} className="text-rose-600 shrink-0" />
+                <span>
+                  ⚠️  Para registrar la compra y garantizar el control de stock, debes ingresar la totalidad de las series.
+                </span>
+              </div>
+            )}
 
           {/* Resumen Total y Submit */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-100">
@@ -1360,7 +1359,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
       {modalNuevoProd.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in font-sans">
           <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-2xl w-full max-w-md space-y-4 animate-scale-up">
-            
+
             {/* Cabecera del Modal */}
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2.5">
@@ -1396,7 +1395,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
 
             {/* Formulario de Nuevo Producto */}
             <form onSubmit={handleGuardarNuevoProducto} className="space-y-3.5">
-              
+
               {/* Categoría Seleccionada */}
               <div>
                 <label className="block text-xs font-bold text-slate-600 mb-1">Categoría</label>
@@ -1434,23 +1433,60 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                   className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-indigo-400"
                   autoFocus
                 />
+
+                {/* Badge visual de código inteligente sugerido en tiempo real */}
+                {modalNuevoProd.nombre.trim().length >= 2 && (
+                  <div className="mt-1.5 flex items-center justify-between text-[11px] font-mono font-bold text-indigo-900 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-xl">
+                    <span className="flex items-center gap-1">
+                      <span>🏷️ Código generado:</span>
+                    </span>
+                    <span className="bg-indigo-600 text-white px-2 py-0.5 rounded-md text-[11px] font-black tracking-wider shadow-2xs">
+                      {(() => {
+                        const nom = modalNuevoProd.nombre.toUpperCase().trim();
+                        let prefix = "";
+                        if (nom.includes("ZTE")) prefix = "ZT";
+                        else if (nom.includes("HUAWEI")) prefix = "HW";
+                        else if (nom.includes("FIBERHOME")) prefix = "FH";
+                        else if (nom.includes("WIN TV") || nom.includes("DECODIFICADOR") || nom.includes("DECO")) prefix = "WT";
+                        else if (nom.includes("TP-LINK") || nom.includes("TPLINK")) prefix = "TP";
+                        else if (nom.includes("MERCUSYS")) prefix = "MC";
+                        else if (nom.includes("ROSETA")) prefix = "ROS";
+                        else if (nom.includes("CONECTOR")) prefix = "CON";
+                        else if (nom.includes("DROP") || nom.includes("CABLE")) prefix = "DRP";
+                        else if (nom.includes("PATCH")) prefix = "PCH";
+                        else if (modalNuevoProd.categoria.toUpperCase().includes("EQUIPO")) {
+                          const palabras = nom.replace(/[^A-Z0-9\s]/g, "").split(/\s+/).filter((w) => w.length >= 2);
+                          prefix = (palabras[0] || "EQ").slice(0, 2);
+                        } else {
+                          const palabras = nom.replace(/[^A-Z0-9\s]/g, "").split(/\s+/).filter((w) => w.length >= 2);
+                          prefix = (palabras[0] || "PR").slice(0, 3);
+                        }
+
+                        const existentes = localProductos.filter((p) => p.codigo && p.codigo.startsWith(prefix));
+                        const letrasUsadas = new Set(
+                          existentes
+                            .map((p) => p.codigo.slice(prefix.length).match(/^([A-Z])/)?.[1])
+                            .filter(Boolean)
+                        );
+
+                        const abecedario = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+                        let letra = "A";
+                        for (let i = 0; i < abecedario.length; i++) {
+                          if (!letrasUsadas.has(abecedario[i])) {
+                            letra = abecedario[i];
+                            break;
+                          }
+                        }
+
+                        return `${prefix}${letra}001`;
+                      })()}
+                    </span>
+                  </div>
+                )}
               </div>
 
-              {/* Código Opcional */}
+              {/* Stock Mínimo y Precio Unitario */}
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">
-                    Código (Opcional)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Auto: PROD-XXXXX"
-                    value={modalNuevoProd.codigo}
-                    onChange={(e) => setModalNuevoProd((prev) => ({ ...prev, codigo: e.target.value }))}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-xs text-slate-900"
-                  />
-                </div>
-
                 <div>
                   <label className="block text-xs font-bold text-slate-600 mb-1">
                     Stock Mín. Alerta
@@ -1463,42 +1499,31 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-xs text-center"
                   />
                 </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">
+                    Precio Compra Ref. (S/)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                    value={modalNuevoProd.precio_compra || ""}
+                    onChange={(e) => setModalNuevoProd((prev) => ({ ...prev, precio_compra: Number(e.target.value) }))}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-xs text-right"
+                  />
+                </div>
               </div>
 
-              {/* Precio Unitario Estimado */}
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">
-                  Precio Unitario Compra Referencial (S/)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="0.00"
-                  value={modalNuevoProd.precio_compra || ""}
-                  onChange={(e) => setModalNuevoProd((prev) => ({ ...prev, precio_compra: Number(e.target.value) }))}
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-xs text-right"
-                />
-              </div>
-
-              {/* Switches: Maneja Series & Es Drop */}
-              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-2 text-xs">
+              {/* Switch Único: Maneja Número de Serie */}
+              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs">
                 <label className="flex items-center justify-between cursor-pointer">
                   <span className="font-bold text-slate-700">¿Maneja Número de Serie (Pistoleo)?</span>
                   <input
                     type="checkbox"
                     checked={modalNuevoProd.maneja_serie}
                     onChange={(e) => setModalNuevoProd((prev) => ({ ...prev, maneja_serie: e.target.checked }))}
-                    className="w-4 h-4 text-indigo-600 rounded cursor-pointer"
-                  />
-                </label>
-
-                <label className="flex items-center justify-between cursor-pointer border-t border-slate-200/60 pt-2">
-                  <span className="font-bold text-slate-700">¿Es Bobina / Cable Drop (Metros)?</span>
-                  <input
-                    type="checkbox"
-                    checked={modalNuevoProd.es_drop}
-                    onChange={(e) => setModalNuevoProd((prev) => ({ ...prev, es_drop: e.target.checked }))}
                     className="w-4 h-4 text-indigo-600 rounded cursor-pointer"
                   />
                 </label>
@@ -1540,7 +1565,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
       {modalPegarSeries.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in font-sans">
           <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-2xl w-full max-w-lg space-y-4 animate-scale-up">
-            
+
             {/* Cabecera del Modal */}
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2.5">
@@ -1639,7 +1664,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
       {modalRangoActas.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in font-sans">
           <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-2xl w-full max-w-md space-y-4 animate-scale-up">
-            
+
             {/* Cabecera */}
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2.5">

@@ -2238,6 +2238,7 @@ app.get('/api/almacen/stock-general', async (req, res) => {
         p.maneja_serie,
         p.es_drop,
         p.precio_compra,
+        COALESCE((SELECT MAX(ps.fecha_ingreso) FROM producto_series ps WHERE ps.id_producto = p.id_producto), p.fecha_creacion) AS fecha_ingreso,
         c.nombre AS categoria,
         COALESCE((SELECT SUM(s.cantidad) FROM stock s WHERE s.id_producto = p.id_producto AND (s.id_almacen = 1 OR s.id_almacen IS NULL)), 0) AS stock_central,
         COALESCE((
@@ -2268,7 +2269,11 @@ app.get('/api/almacen/stock-general', async (req, res) => {
         p.codigo AS producto_codigo,
         p.es_drop,
         c.nombre AS categoria,
-        tp.stock
+        tp.stock,
+        COALESCE(
+          (SELECT MAX(ts.fecha_asignacion) FROM trabajador_series ts WHERE ts.id_trabajador = tp.id_trabajador AND ts.id_producto = tp.id_producto),
+          tp.fecha_creacion
+        ) AS fecha_entrega
       FROM trabajador_productos tp
       JOIN trabajadores t ON tp.id_trabajador = t.id_trabajador
       JOIN usuarios u ON t.id_usuario = u.id_usuario
@@ -2415,12 +2420,63 @@ app.post('/api/almacen/productos', async (req, res) => {
       }
     }
 
-    // Generar código automático si no se envió
+    // Generar código automático inteligente (Brand Prefix + Letra Modelo + 001)
     let codProd = (codigo || '').trim().toUpperCase();
     if (!codProd) {
-      const [countRows] = await pool.query("SELECT MAX(id_producto) as maxId FROM productos");
-      const nextId = (countRows[0].maxId || 0) + 1;
-      codProd = `PROD-${String(nextId).padStart(5, '0')}`;
+      const nom = nombre.trim().toUpperCase();
+      let prefix = '';
+
+      if (nom.includes('ZTE')) {
+        prefix = 'ZT';
+      } else if (nom.includes('HUAWEI')) {
+        prefix = 'HW';
+      } else if (nom.includes('FIBERHOME')) {
+        prefix = 'FH';
+      } else if (nom.includes('WIN TV') || nom.includes('DECODIFICADOR') || nom.includes('DECO')) {
+        prefix = 'WT';
+      } else if (nom.includes('TP-LINK') || nom.includes('TPLINK')) {
+        prefix = 'TP';
+      } else if (nom.includes('MERCUSYS')) {
+        prefix = 'MC';
+      } else if (nom.includes('ROSETA')) {
+        prefix = 'ROS';
+      } else if (nom.includes('CONECTOR')) {
+        prefix = 'CON';
+      } else if (nom.includes('DROP') || nom.includes('CABLE')) {
+        prefix = 'DRP';
+      } else if (nom.includes('PATCH')) {
+        prefix = 'PCH';
+      } else if (catNombre.includes('EQUIPO')) {
+        const palabras = nom.replace(/[^A-Z0-9\s]/g, '').split(/\s+/).filter(w => w.length >= 2);
+        prefix = (palabras[0] || 'EQ').slice(0, 2);
+      } else {
+        const palabras = nom.replace(/[^A-Z0-9\s]/g, '').split(/\s+/).filter(w => w.length >= 2);
+        prefix = (palabras[0] || 'PR').slice(0, 3);
+      }
+
+      // Consultar productos existentes con ese prefijo para calcular la siguiente letra correlativa (A, B, C...)
+      const [existentes] = await pool.query(
+        "SELECT codigo FROM productos WHERE codigo LIKE ?",
+        [`${prefix}%`]
+      );
+
+      const letrasUsadas = new Set();
+      existentes.forEach(p => {
+        const resto = String(p.codigo || '').slice(prefix.length);
+        const match = resto.match(/^([A-Z])/);
+        if (match) letrasUsadas.add(match[1]);
+      });
+
+      const abecedario = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+      let letraAsignada = 'A';
+      for (let i = 0; i < abecedario.length; i++) {
+        if (!letrasUsadas.has(abecedario[i])) {
+          letraAsignada = abecedario[i];
+          break;
+        }
+      }
+
+      codProd = `${prefix}${letraAsignada}`;
     }
 
     const manejaSerieVal = maneja_serie !== undefined ? (maneja_serie ? 1 : 0) : (catNombre === 'EQUIPOS' ? 1 : 0);
@@ -2521,13 +2577,25 @@ app.post('/api/almacen/compras', async (req, res) => {
     const fechaCompra = fecha || new Date().toISOString().slice(0, 10);
     const totalCompra = items.reduce((acc, it) => acc + (Number(it.cantidad) * Number(it.precio || 0)), 0);
 
-    // B1. Validar regla de negocio: Productos serializados deben tener exactamente la misma cantidad de series
+    // B1. Validar regla de negocio: Productos serializados deben tener exactamente la misma cantidad de series y sin duplicados
+    const todasLasSeriesCompra = [];
+
     for (const item of items) {
       const prodId = Number(item.id_producto);
       const cant = Number(item.cantidad) || 0;
       const seriesList = Array.isArray(item.series)
         ? item.series.map((s) => String(s).trim().toUpperCase()).filter((s) => s.length >= 3)
         : [];
+
+      // Validar duplicados dentro de la misma compra
+      for (const s of seriesList) {
+        if (todasLasSeriesCompra.includes(s)) {
+          return res.status(400).json({
+            error: `La serie "${s}" está duplicada dentro de esta misma compra. Cada equipo debe tener un número de serie único e irrepetible.`,
+          });
+        }
+        todasLasSeriesCompra.push(s);
+      }
 
       const [prodRows] = await pool.query(
         "SELECT id_producto, nombre, maneja_serie, id_categoria FROM productos WHERE id_producto = ?",
@@ -2544,7 +2612,21 @@ app.post('/api/almacen/compras', async (req, res) => {
       }
     }
 
-    // B2. Crear registro de Compra
+    // B2. Validar que las series no existan previamente registradas en la base de datos
+    if (todasLasSeriesCompra.length > 0) {
+      const [seriesExistentes] = await pool.query(
+        "SELECT ps.numero_serie, p.nombre as producto_nombre FROM producto_series ps JOIN productos p ON ps.id_producto = p.id_producto WHERE ps.numero_serie IN (?)",
+        [todasLasSeriesCompra]
+      );
+      if (seriesExistentes.length > 0) {
+        const repetidas = seriesExistentes.map((r) => `"${r.numero_serie}" (${r.producto_nombre})`).join(", ");
+        return res.status(400).json({
+          error: `Las siguientes series ya se encuentran registradas previamente en el almacén: ${repetidas}. No se permiten series duplicadas.`,
+        });
+      }
+    }
+
+    // B3. Crear registro de Compra
     const [compraResult] = await pool.query(`
       INSERT INTO compras (id_proveedor, id_almacen, fecha, total, tipo_comprobante, numero_comprobante, estado, observaciones)
       VALUES (?, 1, ?, ?, ?, ?, 'COMPLETADO', ?)
@@ -2580,15 +2662,34 @@ app.post('/api/almacen/compras', async (req, res) => {
         VALUES (?, 1, 'ENTRADA', ?, ?, NOW())
       `, [prodId, cant, `Compra #${idCompra} - ${tipo_comprobante || 'Fac'} ${numero_comprobante || ''}`]);
 
-      // 4. Si el producto maneja series (ONT, Mesh, etc.), registrar cada serie pistoleada
-      for (const serie of seriesList) {
-        const cleanSerie = serie.trim().toUpperCase();
-        if (cleanSerie.length > 2) {
-          await pool.query(`
-            INSERT INTO producto_series (id_producto, id_almacen, numero_serie, estado, fecha_ingreso)
-            VALUES (?, 1, ?, 'DISPONIBLE', NOW())
-            ON DUPLICATE KEY UPDATE estado = 'DISPONIBLE', id_almacen = 1
-          `, [prodId, cleanSerie]);
+      // 4. Si el producto maneja series (ONT, Mesh, etc.), registrar cada serie pistoleada con su código correlativo
+      if (seriesList.length > 0) {
+        const [prodInfo] = await pool.query("SELECT codigo FROM productos WHERE id_producto = ?", [prodId]);
+        const modelCode = (prodInfo[0]?.codigo || 'EQA').trim();
+
+        // Obtener el último número correlativo asignado a este producto
+        const [lastSerie] = await pool.query(
+          "SELECT codigo_serie FROM producto_series WHERE id_producto = ? AND codigo_serie IS NOT NULL ORDER BY id_producto_serie DESC LIMIT 1",
+          [prodId]
+        );
+        let nextNum = 1;
+        if (lastSerie.length > 0 && lastSerie[0].codigo_serie) {
+          const m = lastSerie[0].codigo_serie.match(/-S(\d+)$/i);
+          if (m) nextNum = parseInt(m[1], 10) + 1;
+        }
+
+        for (const serie of seriesList) {
+          const cleanSerie = serie.trim().toUpperCase();
+          if (cleanSerie.length > 2) {
+            const codigoSerie = `${modelCode}-S${String(nextNum).padStart(3, '0')}`;
+            nextNum++;
+
+            await pool.query(`
+              INSERT INTO producto_series (id_producto, id_almacen, codigo_serie, numero_serie, estado, fecha_ingreso)
+              VALUES (?, 1, ?, ?, 'DISPONIBLE', NOW())
+              ON DUPLICATE KEY UPDATE codigo_serie = COALESCE(codigo_serie, VALUES(codigo_serie)), estado = 'DISPONIBLE', id_almacen = 1
+            `, [prodId, codigoSerie, cleanSerie]);
+          }
         }
       }
     }
@@ -2920,6 +3021,7 @@ app.get('/api/almacen/producto-series/:idProducto', async (req, res) => {
       SELECT 
         ps.id_producto_serie,
         ps.id_producto,
+        ps.codigo_serie,
         ps.numero_serie,
         ps.estado AS estado_serie,
         ps.fecha_ingreso,

@@ -9,6 +9,9 @@ import {
   RefreshCw,
   Search,
   ArrowDownLeft,
+  Calendar,
+  Clock,
+  AlertTriangle,
 } from "lucide-react";
 import { EquipoRetirado } from "../types/inventoryTypes";
 import { getEquiposRecogidos, internarEquipoRecogido } from "../services/inventoryService";
@@ -18,6 +21,8 @@ export const RetrievedEquipmentTab: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [filtroTexto, setFiltroTexto] = useState("");
   const [filtroEstado, setFiltroEstado] = useState<string>("Todos");
+  const [filtroFechaDesde, setFiltroFechaDesde] = useState<string>("");
+  const [filtroFechaHasta, setFiltroFechaHasta] = useState<string>("");
 
   const cargarEquipos = () => {
     setLoading(true);
@@ -63,7 +68,11 @@ export const RetrievedEquipmentTab: React.FC = () => {
       (filtroEstado === "Pendiente" && e.estado === "En_Poder_Tecnico") ||
       (filtroEstado === "Internado" && e.estado !== "En_Poder_Tecnico");
 
-    return matchTxt && matchEst;
+    const fechaRef = (e.fecha_recojo || e.fecha_internamiento || "").slice(0, 10);
+    const matchFechaDesde = !filtroFechaDesde || (fechaRef && fechaRef >= filtroFechaDesde);
+    const matchFechaHasta = !filtroFechaHasta || (fechaRef && fechaRef <= filtroFechaHasta);
+
+    return matchTxt && matchEst && matchFechaDesde && matchFechaHasta;
   });
 
   const totalPendientes = equipos.filter((e) => e.estado === "En_Poder_Tecnico").length;
@@ -128,7 +137,7 @@ export const RetrievedEquipmentTab: React.FC = () => {
           2. FILTROS & BÚSQUEDA
       ───────────────────────────────────────────────────────────── */}
       <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setFiltroEstado("Todos")}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
@@ -155,15 +164,67 @@ export const RetrievedEquipmentTab: React.FC = () => {
           </button>
         </div>
 
-        <div className="relative min-w-[240px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-          <input
-            type="text"
-            value={filtroTexto}
-            onChange={(e) => setFiltroTexto(e.target.value)}
-            placeholder="Buscar por S/N, ticket, cliente..."
-            className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none"
-          />
+        {/* Filtro Rango de Fechas & Buscador */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs">
+            <Calendar size={14} className="text-slate-400 shrink-0" />
+            <span className="text-[11px] font-bold text-slate-500">Fecha:</span>
+            <input
+              type="date"
+              value={filtroFechaDesde}
+              onChange={(e) => setFiltroFechaDesde(e.target.value)}
+              className="bg-transparent border-0 text-xs font-mono font-medium p-0 text-slate-700 focus:ring-0"
+              title="Fecha desde"
+            />
+            <span className="text-slate-400 font-bold">-</span>
+            <input
+              type="date"
+              value={filtroFechaHasta}
+              onChange={(e) => setFiltroFechaHasta(e.target.value)}
+              className="bg-transparent border-0 text-xs font-mono font-medium p-0 text-slate-700 focus:ring-0"
+              title="Fecha hasta"
+            />
+            {(filtroFechaDesde || filtroFechaHasta) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFiltroFechaDesde("");
+                  setFiltroFechaHasta("");
+                }}
+                className="text-[10px] text-rose-600 hover:text-rose-800 font-bold ml-1 cursor-pointer"
+                title="Limpiar fechas"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              const hoy = new Date().toISOString().slice(0, 10);
+              setFiltroFechaDesde(hoy);
+              setFiltroFechaHasta(hoy);
+            }}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+              filtroFechaDesde === new Date().toISOString().slice(0, 10) && filtroFechaHasta === new Date().toISOString().slice(0, 10)
+                ? "bg-indigo-600 text-white border-indigo-600 shadow-2xs"
+                : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-white"
+            }`}
+          >
+            📅 Hoy
+          </button>
+
+          <div className="relative min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+            <input
+              type="text"
+              value={filtroTexto}
+              onChange={(e) => setFiltroTexto(e.target.value)}
+              placeholder="Buscar S/N, ticket, cliente..."
+              className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none"
+            />
+          </div>
         </div>
       </div>
 
@@ -178,6 +239,8 @@ export const RetrievedEquipmentTab: React.FC = () => {
               <th className="py-3.5 px-4">Cliente & Ticket</th>
               <th className="py-3.5 px-4">Técnico que Retiró</th>
               <th className="py-3.5 px-4">Motivo Retiro</th>
+              <th className="py-3.5 px-4">Fecha Recojo</th>
+              <th className="py-3.5 px-4">Fecha Internado</th>
               <th className="py-3.5 px-4 text-center">Estado</th>
               <th className="py-3.5 px-4 text-right">Acción Almacén</th>
             </tr>
@@ -185,13 +248,17 @@ export const RetrievedEquipmentTab: React.FC = () => {
           <tbody className="divide-y divide-slate-100">
             {equiposFiltrados.length === 0 ? (
               <tr>
-                <td colSpan={6} className="py-8 text-center text-slate-400 font-bold">
+                <td colSpan={8} className="py-10 text-center text-slate-400 font-bold">
                   No hay equipos recogidos registrados con los filtros actuales.
                 </td>
               </tr>
             ) : (
               equiposFiltrados.map((eq) => {
                 const esPendiente = eq.estado === "En_Poder_Tecnico";
+                const horasDesdeRecojo = eq.fecha_recojo
+                  ? (new Date().getTime() - new Date(eq.fecha_recojo).getTime()) / (1000 * 3600)
+                  : 0;
+                const alertaDemora = esPendiente && horasDesdeRecojo > 48;
 
                 return (
                   <tr key={eq.id_equipo_retirado} className="hover:bg-slate-50/60 transition-colors">
@@ -226,8 +293,54 @@ export const RetrievedEquipmentTab: React.FC = () => {
                     </td>
 
                     {/* Motivo */}
-                    <td className="py-3.5 px-4 text-slate-600 text-[11px] max-w-[200px] truncate">
+                    <td className="py-3.5 px-4 text-slate-600 text-[11px] max-w-[180px] truncate">
                       {eq.motivo_retiro || "Cambio por avería"}
+                    </td>
+
+                    {/* Fecha de Recojo (En casa de cliente) */}
+                    <td className="py-3.5 px-4">
+                      <div className="text-xs font-mono font-bold text-slate-700">
+                        {eq.fecha_recojo
+                          ? new Date(eq.fecha_recojo).toLocaleDateString("es-PE", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              year: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : "-"}
+                      </div>
+                      {alertaDemora && (
+                        <span className="inline-flex items-center gap-1 text-[9px] font-black text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded-md border border-rose-200 mt-1">
+                          <AlertTriangle size={10} className="text-rose-600" />
+                          Demora (+{Math.floor(horasDesdeRecojo / 24)}d en ruta)
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Fecha de Internado (En Almacén) */}
+                    <td className="py-3.5 px-4">
+                      {eq.fecha_internamiento ? (
+                        <div className="space-y-0.5">
+                          <span className="text-xs font-mono font-bold text-emerald-800 block">
+                            {new Date(eq.fecha_internamiento).toLocaleDateString("es-PE", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              year: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-medium block">
+                            Por: {eq.recibido_por || "Almacén Central"}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                          <Clock size={10} />
+                          Pendiente entrega
+                        </span>
+                      )}
                     </td>
 
                     {/* Estado */}
@@ -263,8 +376,8 @@ export const RetrievedEquipmentTab: React.FC = () => {
                           </button>
                         </div>
                       ) : (
-                        <span className="text-[10px] text-slate-400 font-bold">
-                          Recibido: {eq.fecha_internamiento?.slice(0, 10) || "OK"}
+                        <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                          ✓ Custodia OK
                         </span>
                       )}
                     </td>
