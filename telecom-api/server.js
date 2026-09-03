@@ -789,15 +789,51 @@ app.get('/ordenes', async (req, res) => {
   }
 });
 
-// --- 1.1 SINCRONIZAR ÓRDENES CON WIN / FÉNIX (SCRAPER EN TIEMPO REAL) ---
+// --- 1.1 SINCRONIZAR ÓRDENES CON WIN / FÉNIX (SCRAPER EN TIEMPO REAL CON CANDADO Y TIMEOUT ANTI-SATURACIÓN) ---
+let estaSincronizandoFenix = false;
+let ultimoErrorFenixTime = 0;
+
 app.post('/ordenes/sincronizar-win', async (req, res) => {
+  // 1. Candado Anti-Duplicados: si ya hay una sincronización corriendo, no duplicar procesos
+  if (estaSincronizandoFenix) {
+    return res.json({ 
+      success: true, 
+      warning: "Ya hay una sincronización en curso. Petición omitida para proteger recursos.",
+      status: "SYNC_IN_PROGRESS" 
+    });
+  }
+
+  // 2. Cooldown: Si Fénix falló hace menos de 60 segundos, responder rápido sin saturar
+  if (Date.now() - ultimoErrorFenixTime < 60000) {
+    return res.json({
+      success: false,
+      warning: "Fénix se encuentra temporalmente inaccesible. Reintentando en breve.",
+      status: "COOLDOWN"
+    });
+  }
+
   try {
+    estaSincronizandoFenix = true;
     const { fechaDesde, fechaHasta } = req.body || {};
-    const resultado = await sincronizarFenix({ fechaDesde, fechaHasta });
+
+    // Timeout máximo de seguridad: Si Fénix tarda más de 40 segundos, cortar de inmediato
+    const timeoutSeguridad = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("Timeout de seguridad: Fénix tardó más de 40s en responder")), 40000)
+    );
+
+    const resultado = await Promise.race([
+      sincronizarFenix({ fechaDesde, fechaHasta }),
+      timeoutSeguridad
+    ]);
+
+    ultimoErrorFenixTime = 0;
     res.json(resultado);
   } catch (error) {
-    console.error("❌ Error en sincronización Fénix:", error.message);
+    ultimoErrorFenixTime = Date.now();
+    console.error("❌ Error o timeout en sincronización Fénix:", error.message);
     res.status(500).json({ error: error.message });
+  } finally {
+    estaSincronizandoFenix = false; // Siempre liberar el candado
   }
 });
 

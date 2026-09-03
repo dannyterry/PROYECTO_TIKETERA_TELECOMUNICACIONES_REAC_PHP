@@ -98,7 +98,7 @@ function requestWin(urlStr, payload = null, cookieHeader = '') {
       path: url.pathname + url.search,
       method: payload ? 'POST' : 'GET',
       headers: headers,
-      timeout: 90000
+      timeout: 30000
     };
 
     const req = https.request(options, (res) => {
