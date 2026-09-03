@@ -125,4 +125,33 @@ export const actualizarEstadoSerie = async (idProductoSerie: number | string, nu
   return res.data;
 };
 
+export const devolverMaterialTecnico = async (payload: {
+  id_trabajador: number;
+  id_producto?: number;
+  cantidad?: number;
+  series_devueltas?: string[];
+  motivo?: string;
+  devolver_todo?: boolean;
+}) => {
+  const res = await api.post("/almacen/devolucion-tecnico", payload);
+  return res.data;
+};
+
+export const procesarLiquidacionTecnico = async (payload: any) => {
+  const res = await api.post("/almacen/procesar-liquidacion", payload);
+  return res.data;
+};
+
+export const getHistorialLiquidaciones = async () => {
+  const res = await api.get("/almacen/historial-liquidaciones");
+  return res.data;
+};
+
+export const getDetalleLiquidacion = async (idLiquidacion: number | string) => {
+  const res = await api.get(`/almacen/liquidacion/${idLiquidacion}`);
+  return res.data;
+};
+
+
+
 

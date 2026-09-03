@@ -172,6 +172,11 @@ export const QuickDispatchModal: React.FC<Props> = ({
       return;
     }
 
+    if (producto && cantidad > (producto.stock_central || 0)) {
+      alert(`⚠️ Stock Insuficiente:\nSolo tienes ${producto.stock_central || 0} unidades disponibles en Almacén Central de "${producto.nombre}".\nNo puedes despachar ${cantidad}.`);
+      return;
+    }
+
     try {
       setGuardando(true);
 

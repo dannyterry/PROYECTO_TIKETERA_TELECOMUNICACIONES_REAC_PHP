@@ -9,6 +9,7 @@ import {
   Building2,
   Sparkles,
   QrCode,
+  ClipboardCheck,
 } from "lucide-react";
 import { ProductoStock, StockTecnicoDetalle, SerieTecnicoDetalle } from "./types/inventoryTypes";
 import { getStockGeneral } from "./services/inventoryService";
@@ -16,9 +17,10 @@ import { StockOverviewTab } from "./components/StockOverviewTab";
 import { PurchaseEntryTab } from "./components/PurchaseEntryTab";
 import { TechnicianDispatchTab } from "./components/TechnicianDispatchTab";
 import { RetrievedEquipmentTab } from "./components/RetrievedEquipmentTab";
+import { TechnicianLiquidationTab } from "./components/TechnicianLiquidationTab";
 
 export const InventoryPage: React.FC = () => {
-  const [tabActiva, setTabActiva] = useState<"stock" | "compras" | "despacho" | "recogidos">("stock");
+  const [tabActiva, setTabActiva] = useState<"stock" | "compras" | "despacho" | "recogidos" | "liquidacion">("stock");
   const [productos, setProductos] = useState<ProductoStock[]>([]);
   const [stockPorTecnico, setStockPorTecnico] = useState<StockTecnicoDetalle[]>([]);
   const [seriesTecnicos, setSeriesTecnicos] = useState<SerieTecnicoDetalle[]>([]);
@@ -44,12 +46,12 @@ export const InventoryPage: React.FC = () => {
     if (hash === "compras") setTabActiva("compras");
     else if (hash === "despacho") setTabActiva("despacho");
     else if (hash === "recogidos") setTabActiva("recogidos");
+    else if (hash === "liquidacion") setTabActiva("liquidacion");
     else if (hash === "stock") setTabActiva("stock");
   }, []);
 
-  const handleTabChange = (t: "stock" | "compras" | "despacho" | "recogidos") => {
+  const handleTabChange = (t: "stock" | "compras" | "despacho" | "recogidos" | "liquidacion") => {
     setTabActiva(t);
-    window.location.hash = t;
   };
 
   return (
@@ -58,25 +60,25 @@ export const InventoryPage: React.FC = () => {
       {/* ─────────────────────────────────────────────────────────────
           1. HEADER & TOP NAVIGATION BAR
       ───────────────────────────────────────────────────────────── */}
-      <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-4">
+      <div className="bg-white rounded-3xl p-6 border border-slate-200/90 shadow-xs flex flex-wrap items-center justify-between gap-4">
 
         {/* Título & Badge */}
         <div className="flex items-center gap-3.5">
-          <div className="w-13 h-13 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-700 to-purple-600 text-white flex items-center justify-center font-black shadow-lg shadow-indigo-600/25">
+          <div className="w-13 h-13 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-blue-700 text-white flex items-center justify-center font-black shadow-md shadow-blue-600/20 border border-blue-500/20">
             <Package size={26} />
           </div>
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">
-                Almacén & Logística
+                Almacén & Logística Central
               </h1>
-              <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-200">
-                <Sparkles size={11} />
-                Sistema Centralizado
+              <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-50 text-blue-700 border border-blue-200/80">
+                <Sparkles size={11} className="text-blue-600" />
+                Control de Inventario
               </span>
             </div>
             <p className="text-xs text-slate-500 font-medium mt-0.5">
-              Control de stock central, dotación en camionetas, pistoleo de series ONT/Mesh e internamiento de equipos recogidos.
+              Control de stock central, dotación en camionetas, trazabilidad de series ONT/Mesh y auditoría de actas.
             </p>
           </div>
         </div>
@@ -85,9 +87,9 @@ export const InventoryPage: React.FC = () => {
         <button
           onClick={cargarDatos}
           disabled={loading}
-          className="p-2.5 rounded-2xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-2xs"
+          className="p-2.5 rounded-2xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-2xs"
         >
-          <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
+          <RefreshCw size={15} className={loading ? "animate-spin text-blue-600" : ""} />
           <span className="hidden sm:inline">Actualizar</span>
         </button>
 
@@ -101,49 +103,61 @@ export const InventoryPage: React.FC = () => {
         {/* Tab 1: Stock */}
         <button
           onClick={() => handleTabChange("stock")}
-          className={`px-5 py-2.5 rounded-2xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${tabActiva === "stock"
-              ? "bg-slate-900 text-white shadow-md shadow-slate-900/20 scale-[1.02]"
-              : "bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80"
+          className={`px-5 py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 cursor-pointer ${tabActiva === "stock"
+            ? "bg-slate-700 text-white shadow-xs scale-[1.01]"
+            : "bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-slate-200/80"
             }`}
         >
-          <Layers size={16} />
+          <Layers size={16} className={tabActiva === "stock" ? "text-slate-200" : "text-slate-400"} />
           Control de Stock & Almacenes
         </button>
 
         {/* Tab 2: Compras & Entrada */}
         <button
           onClick={() => handleTabChange("compras")}
-          className={`px-5 py-2.5 rounded-2xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${tabActiva === "compras"
-              ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/20 scale-[1.02]"
-              : "bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80"
+          className={`px-5 py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 cursor-pointer ${tabActiva === "compras"
+            ? "bg-slate-700 text-white shadow-xs scale-[1.01]"
+            : "bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-slate-200/80"
             }`}
         >
-          <ShoppingCart size={16} />
+          <ShoppingCart size={16} className={tabActiva === "compras" ? "text-emerald-300" : "text-slate-400"} />
           Compras & Entrada (Pistoleo Series)
         </button>
 
         {/* Tab 3: Despacho a Técnicos */}
         <button
           onClick={() => handleTabChange("despacho")}
-          className={`px-5 py-2.5 rounded-2xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${tabActiva === "despacho"
-              ? "bg-cyan-600 text-white shadow-md shadow-cyan-600/20 scale-[1.02]"
-              : "bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80"
+          className={`px-5 py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 cursor-pointer ${tabActiva === "despacho"
+            ? "bg-slate-700 text-white shadow-xs scale-[1.01]"
+            : "bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-slate-200/80"
             }`}
         >
-          <Truck size={16} />
+          <Truck size={16} className={tabActiva === "despacho" ? "text-cyan-300" : "text-slate-400"} />
           Despacho a Técnicos (Dotación)
         </button>
 
         {/* Tab 4: Equipos Recogidos */}
         <button
           onClick={() => handleTabChange("recogidos")}
-          className={`px-5 py-2.5 rounded-2xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${tabActiva === "recogidos"
-              ? "bg-purple-600 text-white shadow-md shadow-purple-600/20 scale-[1.02]"
-              : "bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80"
+          className={`px-5 py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 cursor-pointer ${tabActiva === "recogidos"
+            ? "bg-slate-700 text-white shadow-xs scale-[1.01]"
+            : "bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-slate-200/80"
             }`}
         >
-          <RotateCcw size={16} />
+          <RotateCcw size={16} className={tabActiva === "recogidos" ? "text-amber-300" : "text-slate-400"} />
           Equipos Recogidos (Internamiento)
+        </button>
+
+        {/* Tab 5: Liquidación & Devoluciones (Paz y Salvo) */}
+        <button
+          onClick={() => handleTabChange("liquidacion")}
+          className={`px-5 py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 cursor-pointer ${tabActiva === "liquidacion"
+            ? "bg-slate-700 text-white shadow-xs scale-[1.01]"
+            : "bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-slate-200/80"
+            }`}
+        >
+          <ClipboardCheck size={16} className={tabActiva === "liquidacion" ? "text-emerald-300" : "text-slate-400"} />
+          Liquidación & Devolución ()
         </button>
 
       </div>
@@ -170,6 +184,14 @@ export const InventoryPage: React.FC = () => {
       )}
 
       {tabActiva === "recogidos" && <RetrievedEquipmentTab />}
+
+      {tabActiva === "liquidacion" && (
+        <TechnicianLiquidationTab
+          stockPorTecnico={stockPorTecnico}
+          seriesTecnicos={seriesTecnicos}
+          onRefresh={cargarDatos}
+        />
+      )}
 
     </div>
   );

@@ -189,6 +189,8 @@ export default function App() {
     currentView === "compras" ||
     currentView === "despacho" ||
     currentView === "recogidos" ||
+    currentView === "liquidacion" ||
+    currentView === "liquidaciones" ||
     currentView === "productos";
 
   return (

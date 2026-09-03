@@ -43,6 +43,7 @@ export interface SerieTecnicoDetalle {
   tecnico_nombre: string;
   numero_serie: string;
   equipo_nombre: string;
+  producto_nombre?: string;
   estado: string;
   fecha_asignacion: string;
 }

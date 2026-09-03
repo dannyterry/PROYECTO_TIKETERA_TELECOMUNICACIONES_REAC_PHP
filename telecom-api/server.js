@@ -2844,6 +2844,268 @@ app.post('/api/almacen/despacho-tecnico', async (req, res) => {
   }
 });
 
+// --- ↩️ 4.0.1 DEVOLUCIÓN DE MATERIALES O EQUIPOS DE TÉCNICO A ALMACÉN CENTRAL ---
+app.post('/api/almacen/devolucion-tecnico', async (req, res) => {
+  try {
+    const { id_trabajador, id_producto, cantidad, series_devueltas, motivo, devolver_todo } = req.body;
+
+    if (!id_trabajador) {
+      return res.status(400).json({ error: "Debe indicar el técnico que realiza la devolución." });
+    }
+
+    const [tecnicoRows] = await pool.query(`
+      SELECT TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre
+      FROM trabajadores t
+      JOIN usuarios u ON t.id_usuario = u.id_usuario
+      WHERE t.id_trabajador = ?
+    `, [id_trabajador]);
+    const tecnicoNombre = tecnicoRows[0]?.tecnico_nombre || `Técnico #${id_trabajador}`;
+
+    // CASO A: Devolver toda la dotación completa (cuando el técnico se retira)
+    if (devolver_todo) {
+      // 1. Devolver todos los materiales (trabajador_productos)
+      const [prodRows] = await pool.query("SELECT id_producto, stock FROM trabajador_productos WHERE id_trabajador = ? AND stock > 0", [id_trabajador]);
+      for (const p of prodRows) {
+        await pool.query("UPDATE stock SET cantidad = cantidad + ? WHERE id_producto = ? AND id_almacen = 1", [p.stock, p.id_producto]);
+        await pool.query(`
+          INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
+          VALUES (?, 1, 'ENTRADA', ?, ?, NOW())
+        `, [p.id_producto, p.stock, `Devolución total por retiro: ${tecnicoNombre} (${motivo || 'Baja de personal'})`]);
+      }
+      await pool.query("UPDATE trabajador_productos SET stock = 0 WHERE id_trabajador = ?", [id_trabajador]);
+
+      // 2. Devolver todas las series activas (trabajador_series)
+      const [serieRows] = await pool.query(`
+        SELECT ts.id_trabajador_serie, ts.id_producto_serie, ps.id_producto 
+        FROM trabajador_series ts
+        JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
+        WHERE ts.id_trabajador = ? AND ts.estado = 'Asignada'
+      `, [id_trabajador]);
+
+      for (const s of serieRows) {
+        await pool.query("UPDATE trabajador_series SET estado = 'Devuelta' WHERE id_trabajador_serie = ?", [s.id_trabajador_serie]);
+        await pool.query("UPDATE producto_series SET estado = 'DISPONIBLE', id_almacen = 1 WHERE id_producto_serie = ?", [s.id_producto_serie]);
+        await pool.query("UPDATE stock SET cantidad = cantidad + 1 WHERE id_producto = ? AND id_almacen = 1", [s.id_producto]);
+      }
+
+      return res.json({ success: true, message: `Se devolvió exitosamente toda la dotación de ${tecnicoNombre} a Almacén Central.` });
+    }
+
+    // CASO B: Devolución específica de un producto o material
+    if (id_producto && Number(cantidad) > 0) {
+      const cant = Number(cantidad);
+      const [tp] = await pool.query("SELECT stock FROM trabajador_productos WHERE id_trabajador = ? AND id_producto = ?", [id_trabajador, id_producto]);
+      const stockActual = tp[0]?.stock || 0;
+      if (cant > stockActual) {
+        return res.status(400).json({ error: `El técnico solo tiene ${stockActual} unidades en su vehículo. No puede devolver ${cant}.` });
+      }
+
+      await pool.query("UPDATE trabajador_productos SET stock = GREATEST(0, stock - ?) WHERE id_trabajador = ? AND id_producto = ?", [cant, id_trabajador, id_producto]);
+      await pool.query("UPDATE stock SET cantidad = cantidad + ? WHERE id_producto = ? AND id_almacen = 1", [cant, id_producto]);
+      await pool.query(`
+        INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
+        VALUES (?, 1, 'ENTRADA', ?, ?, NOW())
+      `, [id_producto, cant, `Devolución de ${tecnicoNombre} (${motivo || 'Retorno de material'})`]);
+    }
+
+    // Series devueltas
+    if (Array.isArray(series_devueltas) && series_devueltas.length > 0) {
+      for (const item of series_devueltas) {
+        const numSerie = String(item.numero_serie || item).trim().toUpperCase();
+        const [sRows] = await pool.query(`
+          SELECT ts.id_trabajador_serie, ts.id_producto_serie, ps.id_producto
+          FROM trabajador_series ts
+          JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
+          WHERE ts.id_trabajador = ? AND ps.numero_serie = ? AND ts.estado = 'Asignada'
+        `, [id_trabajador, numSerie]);
+
+        if (sRows.length > 0) {
+          const s = sRows[0];
+          await pool.query("UPDATE trabajador_series SET estado = 'Devuelta' WHERE id_trabajador_serie = ?", [s.id_trabajador_serie]);
+          await pool.query("UPDATE producto_series SET estado = 'DISPONIBLE', id_almacen = 1 WHERE id_producto_serie = ?", [s.id_producto_serie]);
+          await pool.query("UPDATE stock SET cantidad = cantidad + 1 WHERE id_producto = ? AND id_almacen = 1", [s.id_producto]);
+        }
+      }
+    }
+
+    res.json({ success: true, message: "Devolución registrada exitosamente en Almacén Central." });
+  } catch (error) {
+    console.error("Error en devolucion-tecnico:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- 📋 4.0.2 LIQUIDACIÓN FORMAL DE DOTACIÓN (PAZ Y SALVO CON VERIFICACIÓN) ---
+app.post('/api/almacen/procesar-liquidacion', async (req, res) => {
+  try {
+    const {
+      id_trabajador,
+      tecnico_nombre,
+      cuadrilla,
+      vehiculo_placa,
+      almacenero_nombre,
+      motivo,
+      observaciones,
+      items,
+      series_devueltas_todas
+    } = req.body;
+
+    if (!id_trabajador) {
+      return res.status(400).json({ error: "Debe especificar el técnico a liquidar." });
+    }
+
+    let totalItemsDevueltos = 0;
+    let totalSeriesDevueltas = Array.isArray(series_devueltas_todas) ? series_devueltas_todas.length : 0;
+
+    // 1. Insertar cabecera de la liquidación
+    const [liqResult] = await pool.query(`
+      INSERT INTO liquidaciones_tecnicos (
+        id_trabajador, tecnico_nombre, cuadrilla, vehiculo_placa, almacenero_nombre,
+        motivo, observaciones, total_items_devueltos, total_series_devueltas, fecha_liquidacion
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+    `, [
+      id_trabajador,
+      tecnico_nombre || `Técnico #${id_trabajador}`,
+      cuadrilla || 'S/C',
+      vehiculo_placa || 'Sin vehículo',
+      almacenero_nombre || 'Almacén Central',
+      motivo || 'Baja / Retiro de personal',
+      observaciones || '',
+      0,
+      totalSeriesDevueltas
+    ]);
+
+    const idLiquidacion = liqResult.insertId;
+
+    // 2. Procesar ítems y descontar del vehículo / sumar a central
+    if (Array.isArray(items)) {
+      for (const it of items) {
+        const prodId = Number(it.id_producto);
+        const cantDevuelta = Number(it.cantidad_devuelta) || 0;
+        const cantEsperada = Number(it.cantidad_esperada) || 0;
+        const cantFaltante = Math.max(0, cantEsperada - cantDevuelta);
+
+        totalItemsDevueltos += cantDevuelta;
+
+        // Guardar detalle
+        await pool.query(`
+          INSERT INTO liquidacion_detalles (
+            id_liquidacion, id_producto, producto_nombre, producto_codigo, categoria,
+            cantidad_esperada, cantidad_devuelta, cantidad_faltante, series_devueltas, observaciones
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          idLiquidacion,
+          prodId,
+          it.producto_nombre || 'Material',
+          it.producto_codigo || null,
+          it.categoria || 'MATERIALES',
+          cantEsperada,
+          cantDevuelta,
+          cantFaltante,
+          Array.isArray(it.series_devueltas) ? JSON.stringify(it.series_devueltas) : (it.series_devueltas || null),
+          it.observaciones || null
+        ]);
+
+        // Aumentar en Almacén Central la cantidad efectivamente devuelta
+        if (cantDevuelta > 0) {
+          await pool.query("UPDATE stock SET cantidad = cantidad + ? WHERE id_producto = ? AND id_almacen = 1", [cantDevuelta, prodId]);
+
+          // Kardex Entrada
+          await pool.query(`
+            INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
+            VALUES (?, 1, 'ENTRADA', ?, ?, NOW())
+          `, [prodId, cantDevuelta, `Liquidación Dotación #${idLiquidacion}: ${tecnico_nombre} (${motivo})`]);
+        }
+
+        // Si fue una liquidación total, dejar en 0 el stock asignado en el vehículo
+        await pool.query("UPDATE trabajador_productos SET stock = GREATEST(0, stock - ?) WHERE id_trabajador = ? AND id_producto = ?", [cantEsperada, id_trabajador, prodId]);
+      }
+    }
+
+    // 3. Procesar Equipos / Series devueltas
+    if (Array.isArray(series_devueltas_todas) && series_devueltas_todas.length > 0) {
+      for (const sn of series_devueltas_todas) {
+        const cleanSn = String(sn).trim().toUpperCase();
+        if (!cleanSn) continue;
+
+        const [sRows] = await pool.query(`
+          SELECT ts.id_trabajador_serie, ts.id_producto_serie, ps.id_producto
+          FROM trabajador_series ts
+          JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
+          WHERE ts.id_trabajador = ? AND ps.numero_serie = ? AND ts.estado = 'Asignada'
+        `, [id_trabajador, cleanSn]);
+
+        if (sRows.length > 0) {
+          const s = sRows[0];
+          await pool.query("UPDATE trabajador_series SET estado = 'Devuelta' WHERE id_trabajador_serie = ?", [s.id_trabajador_serie]);
+          await pool.query("UPDATE producto_series SET estado = 'DISPONIBLE', id_almacen = 1 WHERE id_producto_serie = ?", [s.id_producto_serie]);
+          await pool.query("UPDATE stock SET cantidad = cantidad + 1 WHERE id_producto = ? AND id_almacen = 1", [s.id_producto]);
+        }
+      }
+    }
+
+    // Actualizar total devueltos en cabecera
+    await pool.query("UPDATE liquidaciones_tecnicos SET total_items_devueltos = ? WHERE id_liquidacion = ?", [totalItemsDevueltos, idLiquidacion]);
+
+    res.json({
+      success: true,
+      id_liquidacion: idLiquidacion,
+      message: `Liquidación de ${tecnico_nombre} procesada exitosamente. Constancia #${idLiquidacion} generada.`
+    });
+  } catch (error) {
+    console.error("Error en procesar-liquidacion:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- 📋 4.0.3 HISTORIAL DE LIQUIDACIONES ---
+app.get('/api/almacen/historial-liquidaciones', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        l.id_liquidacion,
+        l.id_trabajador,
+        l.tecnico_nombre,
+        l.cuadrilla,
+        l.vehiculo_placa,
+        l.almacenero_nombre,
+        l.motivo,
+        l.observaciones,
+        l.total_items_devueltos,
+        l.total_series_devueltas,
+        l.fecha_liquidacion,
+        COUNT(d.id_detalle) as total_lineas
+      FROM liquidaciones_tecnicos l
+      LEFT JOIN liquidacion_detalles d ON l.id_liquidacion = d.id_liquidacion
+      GROUP BY l.id_liquidacion
+      ORDER BY l.fecha_liquidacion DESC
+    `);
+    res.json(rows);
+  } catch (error) {
+    console.error("Error en historial-liquidaciones:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- 📋 4.0.4 DETALLE DE LIQUIDACIÓN ESPECÍFICA (PARA RE-DESCARGAR CONSTANCIA) ---
+app.get('/api/almacen/liquidacion/:id', async (req, res) => {
+  try {
+    const idLiq = req.params.id;
+    const [cabecera] = await pool.query("SELECT * FROM liquidaciones_tecnicos WHERE id_liquidacion = ?", [idLiq]);
+    if (cabecera.length === 0) {
+      return res.status(404).json({ error: "Liquidación no encontrada." });
+    }
+    const [detalles] = await pool.query("SELECT * FROM liquidacion_detalles WHERE id_liquidacion = ?", [idLiq]);
+    res.json({
+      ...cabecera[0],
+      detalles
+    });
+  } catch (error) {
+    console.error("Error en liquidacion/:id:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // --- 📋 4.1 AUDITORÍA Y CONTROL DE ACTAS / GUÍAS ASIGNADAS A TÉCNICOS ---
 app.get('/api/almacen/actas-tecnicos', async (req, res) => {
   try {
@@ -3092,6 +3354,50 @@ app.get('/api/almacen/producto-series/:idProducto', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// --- 🔍 5.1.1 TRAZABILIDAD Y BÚSQUEDA GLOBAL DE CUALQUIER SERIE / MAC ---
+app.get('/api/almacen/trazabilidad-serie/:serie', async (req, res) => {
+  try {
+    const rawSerie = req.params.serie ? req.params.serie.trim() : '';
+    if (!rawSerie) {
+      return res.json({ success: true, series: [] });
+    }
+
+    const [rows] = await pool.query(`
+      SELECT 
+        ps.id_producto_serie,
+        ps.id_producto,
+        p.codigo AS producto_codigo,
+        p.nombre AS producto_nombre,
+        c.nombre AS categoria,
+        ps.codigo_serie,
+        ps.numero_serie,
+        ps.estado AS estado_serie,
+        ps.fecha_ingreso,
+        ts.id_trabajador,
+        ts.estado AS estado_en_tecnico,
+        ts.fecha_asignacion,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre,
+        COALESCE(u.cuadrilla, '') AS tecnico_cuadrilla,
+        COALESCE(v.placa, '') AS vehiculo_placa
+      FROM producto_series ps
+      JOIN productos p ON ps.id_producto = p.id_producto
+      LEFT JOIN categorias c ON p.id_categoria = c.id_categoria
+      LEFT JOIN trabajador_series ts ON ps.id_producto_serie = ts.id_producto_serie AND ts.estado = 'Asignada'
+      LEFT JOIN trabajadores t ON ts.id_trabajador = t.id_trabajador
+      LEFT JOIN usuarios u ON t.id_usuario = u.id_usuario
+      LEFT JOIN vehiculos v ON t.id_vehiculo = v.id_vehiculo
+      WHERE ps.numero_serie LIKE ? OR ps.codigo_serie LIKE ?
+      ORDER BY ps.id_producto_serie DESC
+      LIMIT 15
+    `, [`%${rawSerie}%`, `%${rawSerie}%`]);
+
+    res.json({ success: true, series: rows });
+  } catch (err) {
+    console.error("Error en trazabilidad-serie:", err.message);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

@@ -25,7 +25,11 @@ import {
   Calendar,
   Copy,
   RefreshCw,
+  Download,
+  FileSpreadsheet,
+  Undo2,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import {
   ProductoStock,
   StockTecnicoDetalle,
@@ -34,7 +38,13 @@ import {
   ProductoSeriesResumen,
 } from "../types/inventoryTypes";
 import { QuickDispatchModal } from "./QuickDispatchModal";
-import { getActasTecnicos, getProductoSeries, actualizarEstadoSerie } from "../services/inventoryService";
+import {
+  getActasTecnicos,
+  getProductoSeries,
+  actualizarEstadoSerie,
+  getTrazabilidadSerie,
+  devolverMaterialTecnico,
+} from "../services/inventoryService";
 
 interface Props {
   productos: ProductoStock[];
@@ -76,6 +86,22 @@ export const StockOverviewTab: React.FC<Props> = ({
     producto: null,
   });
 
+  // Modal de Devolución de Materiales / Dotación de Técnico a Central
+  const [modalDevolucion, setModalDevolucion] = useState<{
+    isOpen: boolean;
+    item: StockTecnicoDetalle | null;
+    devolverTodo?: boolean;
+    tecnicoNombre?: string;
+    idTrabajador?: number;
+  }>({
+    isOpen: false,
+    item: null,
+    devolverTodo: false,
+  });
+  const [cantidadDevolver, setCantidadDevolver] = useState<number>(1);
+  const [motivoDevolucion, setMotivoDevolucion] = useState<string>("Sobrante de instalación / bobina");
+  const [guardandoDevolucion, setGuardandoDevolucion] = useState<boolean>(false);
+
   // Modal de Auditoría de Series Individuales de un Equipo
   const [modalSeries, setModalSeries] = useState<{
     isOpen: boolean;
@@ -108,6 +134,173 @@ export const StockOverviewTab: React.FC<Props> = ({
     item: null,
   });
   const [filtroSerieTecnicoTexto, setFiltroSerieTecnicoTexto] = useState("");
+
+  // 🚨 Filtro de Semáforo de Stock Crítico
+  const [filtroSoloCritico, setFiltroSoloCritico] = useState(false);
+
+  // 🔍 Omnibox Global de Búsqueda de Series / MAC / Códigos
+  const [busquedaOmnibox, setBusquedaOmnibox] = useState("");
+  const [resultadosOmnibox, setResultadosOmnibox] = useState<any[]>([]);
+  const [buscandoOmnibox, setBuscandoOmnibox] = useState(false);
+  const [mostrarOmnibox, setMostrarOmnibox] = useState(false);
+
+  const handleBuscarOmnibox = async (val: string) => {
+    setBusquedaOmnibox(val);
+    const clean = val.trim();
+    if (clean.length < 2) {
+      setResultadosOmnibox([]);
+      setMostrarOmnibox(false);
+      return;
+    }
+    setBuscandoOmnibox(true);
+    setMostrarOmnibox(true);
+    try {
+      const res = await getTrazabilidadSerie(clean);
+      setResultadosOmnibox(res.series || []);
+    } catch (e) {
+      console.error("Error buscando en Omnibox:", e);
+    } finally {
+      setBuscandoOmnibox(false);
+    }
+  };
+
+  // 📥 Exportación Oficial a Excel (.xlsx) Multi-Hojas Profesional
+  const exportarAExcel = () => {
+    try {
+      // Hoja 1: Stock Central (Categoría primero, luego Producto y Código)
+      const dataCentral = productos.map((p) => ({
+        "Categoría": p.categoria || "GENERAL",
+        "Producto": p.nombre,
+        "Código": p.codigo || "-",
+        "Stock Central": p.stock_central || 0,
+        "Stock en Técnicos / Móviles": p.stock_en_tecnicos || 0,
+        "Stock Total Empresa": (p.stock_central || 0) + (p.stock_en_tecnicos || 0),
+        "Stock Mínimo": p.stock_minimo || 0,
+        "Estado del Stock": (p.stock_central || 0) <= (p.stock_minimo || 0) ? " CRÍTICO / REPONER" : "ÓPTIMO",
+        "Fecha Último Ingreso": p.fecha_ingreso ? p.fecha_ingreso.replace("T", " ") : "-"
+      }));
+
+      // Hoja 2: Stock en Móviles / Camionetas (Categoría primero, luego Producto y Código)
+      const dataMoviles = stockPorTecnico.map((s) => ({
+        "Técnico Asignado": s.tecnico_nombre,
+        "Cuadrilla": s.cuadrilla || "-",
+        "Vehículo / Placa": s.vehiculo_placa || "-",
+        "Categoría": s.categoria || "-",
+        "Producto": s.producto_nombre,
+        "Código": s.producto_codigo || "-",
+        "Stock en Camioneta": s.stock,
+        "Fecha de Entrega": s.fecha_entrega ? s.fecha_entrega.replace("T", " ") : "-",
+        "Rangos de Actas Asignadas": (s.rangos && s.rangos.length > 0) ? s.rangos.join("; ") : "-"
+      }));
+
+      // Hoja 3: Series de Equipos (Excluyendo Actas / Talonarios para dejar solo hardware físico: ONT, Decos, Teléfonos)
+      const dataSeries = seriesTecnicos
+        .filter((st) => {
+          const eq = (st.equipo_nombre || "").toUpperCase();
+          return !eq.includes("ACTA") && !eq.includes("TALONARIO") && !eq.includes("GUIA");
+        })
+        .map((st) => ({
+          "Técnico": st.tecnico_nombre,
+          "Equipo": st.equipo_nombre,
+          "Número de Serie (MAC/SN)": st.numero_serie,
+          "Estado": st.estado || "Asignada",
+          "Fecha Asignación": st.fecha_asignacion ? st.fecha_asignacion.replace("T", " ") : "-"
+        }));
+
+      const wb = XLSX.utils.book_new();
+      const wsCentral = XLSX.utils.json_to_sheet(dataCentral);
+      const wsMoviles = XLSX.utils.json_to_sheet(dataMoviles);
+      const wsSeries = XLSX.utils.json_to_sheet(dataSeries);
+
+      // 📏 Auto-ancho de columnas optimizado para lectura ejecutiva
+      wsCentral["!cols"] = [
+        { wch: 18 }, // Categoría
+        { wch: 30 }, // Producto
+        { wch: 14 }, // Código
+        { wch: 15 }, // Stock Central
+        { wch: 25 }, // Stock en Técnicos / Móviles
+        { wch: 20 }, // Stock Total Empresa
+        { wch: 14 }, // Stock Mínimo
+        { wch: 22 }, // Estado del Stock
+        { wch: 22 }, // Fecha Último Ingreso
+      ];
+
+      wsMoviles["!cols"] = [
+        { wch: 28 }, // Técnico Asignado
+        { wch: 16 }, // Cuadrilla
+        { wch: 16 }, // Vehículo / Placa
+        { wch: 18 }, // Categoría
+        { wch: 28 }, // Producto
+        { wch: 14 }, // Código
+        { wch: 18 }, // Stock en Camioneta
+        { wch: 22 }, // Fecha de Entrega
+        { wch: 48 }, // Rangos de Actas Asignadas
+      ];
+
+      wsSeries["!cols"] = [
+        { wch: 28 }, // Técnico
+        { wch: 24 }, // Equipo
+        { wch: 26 }, // Número de Serie (MAC/SN)
+        { wch: 16 }, // Estado
+        { wch: 22 }, // Fecha Asignación
+      ];
+
+      XLSX.utils.book_append_sheet(wb, wsCentral, "Stock Central");
+      XLSX.utils.book_append_sheet(wb, wsMoviles, "Stock en Móviles");
+      XLSX.utils.book_append_sheet(wb, wsSeries, "Series de Equipos");
+
+      const hoyStr = new Date().toISOString().split("T")[0];
+      XLSX.writeFile(wb, `Reporte_Inventario_Telecom_${hoyStr}.xlsx`);
+    } catch (err) {
+      console.error("Error al exportar a Excel:", err);
+      alert("Error al generar el archivo Excel.");
+    }
+  };
+
+  // ↩️ Confirmar Devolución de Material o Toda la Dotación de Técnico a Central
+  const handleConfirmarDevolucion = async () => {
+    if (!modalDevolucion.item && !modalDevolucion.devolverTodo) return;
+
+    try {
+      setGuardandoDevolucion(true);
+
+      if (modalDevolucion.devolverTodo) {
+        if (!modalDevolucion.idTrabajador) return;
+        await devolverMaterialTecnico({
+          id_trabajador: modalDevolucion.idTrabajador,
+          devolver_todo: true,
+          motivo: motivoDevolucion,
+        });
+        alert(`✅ Toda la dotación de ${modalDevolucion.tecnicoNombre} fue devuelta exitosamente a Almacén Central.`);
+      } else if (modalDevolucion.item) {
+        if (cantidadDevolver <= 0) {
+          alert("Ingresa una cantidad mayor a 0.");
+          setGuardandoDevolucion(false);
+          return;
+        }
+        if (cantidadDevolver > modalDevolucion.item.stock) {
+          alert(`El técnico solo tiene ${modalDevolucion.item.stock} en su vehículo.`);
+          setGuardandoDevolucion(false);
+          return;
+        }
+
+        await devolverMaterialTecnico({
+          id_trabajador: modalDevolucion.item.id_trabajador,
+          id_producto: modalDevolucion.item.id_producto,
+          cantidad: cantidadDevolver,
+          motivo: motivoDevolucion,
+        });
+        alert(`✅ Se devolvieron ${cantidadDevolver} unidades de "${modalDevolucion.item.producto_nombre}" a Almacén Central.`);
+      }
+
+      setModalDevolucion({ isOpen: false, item: null, devolverTodo: false });
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      alert("Error al procesar devolución: " + (err.response?.data?.error || err.message));
+    } finally {
+      setGuardandoDevolucion(false);
+    }
+  };
 
   const abrirModalSeries = (prod: ProductoStock) => {
     setModalSeries({ isOpen: true, producto: prod });
@@ -172,8 +365,14 @@ export const StockOverviewTab: React.FC<Props> = ({
   };
 
   const productosFiltrados = productos.filter((p) => {
-    const txt = filtroTexto.toLowerCase();
-    const matchTxt = !txt || p.nombre.toLowerCase().includes(txt) || p.codigo.toLowerCase().includes(txt);
+    // Si el filtro de stock crítico está activo, solo mostrar productos con stock central <= stock mínimo
+    if (filtroSoloCritico && p.stock_central > p.stock_minimo) return false;
+
+    const txt = filtroTexto.toLowerCase().trim();
+    const matchSerieCentral = txt && seriesTecnicos.some(
+      (s) => s.equipo_nombre && s.equipo_nombre.trim().toUpperCase() === p.nombre.trim().toUpperCase() && s.numero_serie.toLowerCase().includes(txt)
+    );
+    const matchTxt = !txt || p.nombre.toLowerCase().includes(txt) || p.codigo.toLowerCase().includes(txt) || matchSerieCentral;
     const matchCat =
       filtroCategoria === "Todas" ||
       (filtroCategoria === "ACTAS / GUÍAS"
@@ -183,12 +382,30 @@ export const StockOverviewTab: React.FC<Props> = ({
   });
 
   const stockTecnicosFiltrado = stockPorTecnico.filter((st) => {
-    const txt = filtroTexto.toLowerCase();
+    const txt = filtroTexto.toLowerCase().trim();
+
+    // 🔍 Buscar también dentro de las series del técnico y rangos de actas
+    const matchSerieTecnico = txt && seriesTecnicos.some(
+      (s) =>
+        s.id_trabajador === st.id_trabajador &&
+        s.numero_serie.toLowerCase().includes(txt)
+    );
+
+    const matchSeriesArray = txt && (
+      (st.series && st.series.some((s: any) => (typeof s === "string" ? s : s.numero_serie || s.codigo_serie || "").toLowerCase().includes(txt))) ||
+      (st.series_disponibles && st.series_disponibles.some((s) => s.toLowerCase().includes(txt))) ||
+      (st.rangos && st.rangos.some((r) => r.toLowerCase().includes(txt)))
+    );
+
     const matchTxt =
       !txt ||
       st.producto_nombre.toLowerCase().includes(txt) ||
+      (st.producto_codigo && st.producto_codigo.toLowerCase().includes(txt)) ||
       st.tecnico_nombre.toLowerCase().includes(txt) ||
-      st.cuadrilla.toLowerCase().includes(txt);
+      st.cuadrilla.toLowerCase().includes(txt) ||
+      matchSerieTecnico ||
+      matchSeriesArray;
+
     const matchTec = tecnicoSeleccionado === "Todos" || st.tecnico_nombre === tecnicoSeleccionado;
     const matchCat =
       filtroCategoria === "Todas" ||
@@ -313,12 +530,12 @@ export const StockOverviewTab: React.FC<Props> = ({
 
   return (
     <div className="space-y-6 animate-fade-in">
-      
+
       {/* ─────────────────────────────────────────────────────────────
           1. TARJETAS KPI DE RESUMEN DE ALMACÉN
       ───────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        
+
         {/* KPI 1: Almacén Central */}
         <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-3 flex flex-col justify-between">
           <div>
@@ -476,6 +693,20 @@ export const StockOverviewTab: React.FC<Props> = ({
             )}
           </div>
 
+          <button
+            type="button"
+            onClick={() => {
+              setSubTab("central");
+              setFiltroSoloCritico(!filtroSoloCritico);
+            }}
+            className={`w-full py-1.5 font-bold text-[10px] rounded-xl transition-all cursor-pointer text-center ${filtroSoloCritico
+              ? "bg-rose-600 text-white shadow-xs"
+              : "bg-rose-100/70 hover:bg-rose-200/70 text-rose-900"
+              }`}
+          >
+            {filtroSoloCritico ? "✕ Quitar filtro crítico" : "🚨 Filtrar solo productos críticos →"}
+          </button>
+
           <div className="text-[10px] font-bold text-slate-400 pt-1 text-center">
             {productos.length} productos registrados en catálogo
           </div>
@@ -484,29 +715,151 @@ export const StockOverviewTab: React.FC<Props> = ({
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
+          1.1 🔍 OMNIBOX DE BÚSQUEDA GLOBAL DE SERIES & MAC (TRAZABILIDAD)
+      ───────────────────────────────────────────────────────────── */}
+      <div className="relative">
+        <div className="flex items-center gap-3 bg-white text-slate-900 p-2.5 px-4 rounded-2xl shadow-xs border border-slate-200/90 hover:border-slate-300 focus-within:border-blue-600 focus-within:ring-4 focus-within:ring-blue-100/60 transition-all">
+          <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-200/60 shadow-xs">
+            <QrCode size={19} />
+          </div>
+          <div className="flex-1 relative">
+            <input
+              type="text"
+              value={busquedaOmnibox}
+              onChange={(e) => handleBuscarOmnibox(e.target.value)}
+              onFocus={() => { if (busquedaOmnibox.trim().length >= 2) setMostrarOmnibox(true); }}
+              placeholder="Pega o escanea cualquier Serie, MAC o Código (ej: ZTEGDA04A7B8, 485754...)"
+              className="w-full bg-transparent text-xs md:text-sm font-mono text-slate-800 placeholder-slate-400 focus:outline-none tracking-wide"
+            />
+            {buscandoOmnibox && (
+              <RefreshCw size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-blue-600 animate-spin" />
+            )}
+          </div>
+          {busquedaOmnibox && (
+            <button
+              type="button"
+              onClick={() => { setBusquedaOmnibox(""); setMostrarOmnibox(false); }}
+              className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              title="Limpiar búsqueda"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
+
+        {/* Dropdown flotante con los resultados encontrados */}
+        {mostrarOmnibox && (
+          <div className="absolute top-full left-0 right-0 mt-2 z-50 bg-white rounded-2xl shadow-2xl border border-indigo-200/80 p-3 max-h-96 overflow-y-auto">
+            <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100 text-xs text-slate-500 font-bold">
+              <span>Resultados de trazabilidad de series ({resultadosOmnibox.length})</span>
+              <button
+                type="button"
+                onClick={() => setMostrarOmnibox(false)}
+                className="text-slate-400 hover:text-slate-700 text-[11px] cursor-pointer"
+              >
+                Cerrar ✕
+              </button>
+            </div>
+
+            {resultadosOmnibox.length === 0 && !buscandoOmnibox && (
+              <div className="py-6 text-center text-slate-400 text-xs">
+                No se encontraron equipos ni series que coincidan con "{busquedaOmnibox}".
+              </div>
+            )}
+
+            <div className="space-y-2">
+              {resultadosOmnibox.map((item, idx) => {
+                const enTecnico = !!item.tecnico_nombre;
+                return (
+                  <div
+                    key={idx}
+                    className="p-3 bg-slate-50 hover:bg-indigo-50/50 rounded-xl border border-slate-200/70 transition-all flex flex-wrap items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${enTecnico ? "bg-cyan-100 text-cyan-800" : "bg-emerald-100 text-emerald-800"}`}>
+                        {enTecnico ? <Truck size={16} /> : <Building2 size={16} />}
+                      </div>
+                      <div>
+                        <div className="font-extrabold text-slate-900 flex items-center gap-2">
+                          <span>{item.producto_nombre}</span>
+                          <span className="font-mono text-[10px] text-slate-400 font-normal">({item.codigo_serie || item.producto_codigo})</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="font-mono font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 text-[11px]">
+                            {item.numero_serie}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => copiarSerie(item.numero_serie)}
+                            className="text-slate-400 hover:text-slate-700 p-0.5 cursor-pointer"
+                            title="Copiar Serie"
+                          >
+                            {copiadoSerie === item.numero_serie ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Ubicación y Asignación */}
+                    <div className="flex flex-col items-end gap-1">
+                      {enTecnico ? (
+                        <div className="text-right">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-100 text-cyan-800 border border-cyan-200">
+                            <Truck size={11} /> {item.tecnico_nombre} ({item.tecnico_cuadrilla || "Móvil"})
+                          </span>
+                          {item.fecha_asignacion && (
+                            <div className="text-[10px] text-slate-400 mt-0.5">
+                              Entrega: <strong className="text-slate-600">{item.fecha_asignacion.replace("T", " ")}</strong>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-right">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            <Building2 size={11} /> Almacén Central ({item.estado_serie || "Disponible"})
+                          </span>
+                          {item.fecha_ingreso && (
+                            <div className="text-[10px] text-slate-400 mt-0.5">
+                              Ingreso: <strong className="text-slate-600">{item.fecha_ingreso.replace("T", " ")}</strong>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ─────────────────────────────────────────────────────────────
           2. FILTROS, CATEGORÍAS & SWITCH DE VISTA
       ───────────────────────────────────────────────────────────── */}
       <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
-        
+
         <div className="flex flex-wrap items-center justify-between gap-4">
           {/* Switch Central vs Técnicos vs Actas */}
-          <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1 rounded-2xl border border-slate-200">
+          <div className="flex flex-wrap items-center gap-1.5 bg-slate-100/80 p-1 rounded-2xl border border-slate-200/70">
             <button
               onClick={() => setSubTab("central")}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-                subTab === "central" ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${subTab === "central" 
+                ? "bg-slate-700 text-white shadow-xs font-bold" 
+                : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              <Building2 size={15} />
+              <Building2 size={15} className={subTab === "central" ? "text-slate-200" : "text-slate-400"} />
               Almacén Central ({productos.length})
             </button>
             <button
               onClick={() => setSubTab("tecnicos")}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-                subTab === "tecnicos" ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${subTab === "tecnicos" 
+                ? "bg-slate-700 text-white shadow-xs font-bold" 
+                : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              <Truck size={15} />
+              <Truck size={15} className={subTab === "tecnicos" ? "text-slate-200" : "text-slate-400"} />
               Stock en Móviles ({stockPorTecnico.length})
             </button>
             <button
@@ -514,16 +867,17 @@ export const StockOverviewTab: React.FC<Props> = ({
                 setSubTab("actas");
                 cargarActas();
               }}
-              className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
-                subTab === "actas" ? "bg-amber-500 text-white shadow-md shadow-amber-500/25" : "text-amber-900 hover:bg-amber-100"
+              className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${subTab === "actas" 
+                ? "bg-slate-700 text-amber-300 shadow-xs font-bold" 
+                : "text-amber-900 hover:bg-amber-100/60"
               }`}
             >
-              <FileText size={15} />
+              <FileText size={15} className={subTab === "actas" ? "text-amber-300" : "text-amber-700"} />
               Control de Actas & Guías ({totalActasAsignadasGlobal})
             </button>
           </div>
 
-          {/* Buscador */}
+          {/* Buscador & Exportar Excel */}
           <div className="flex items-center gap-3">
             <div className="relative min-w-[240px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -550,6 +904,17 @@ export const StockOverviewTab: React.FC<Props> = ({
                 ))}
               </select>
             )}
+
+            {/* 📥 Botón Oficial de Exportar a Excel */}
+            <button
+              type="button"
+              onClick={exportarAExcel}
+              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
+              title="Descargar reporte completo en Excel (.xlsx)"
+            >
+              <Download size={15} />
+              <span>Exportar Excel</span>
+            </button>
           </div>
         </div>
 
@@ -557,6 +922,21 @@ export const StockOverviewTab: React.FC<Props> = ({
         {subTab !== "actas" && (
           <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-1 border-t border-slate-100">
             <span className="text-xs font-bold text-slate-400 mr-1 shrink-0">Categoría:</span>
+
+            {/* 🚨 Botón Semáforo de Stock Crítico */}
+            <button
+              type="button"
+              onClick={() => setFiltroSoloCritico(!filtroSoloCritico)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 flex items-center gap-1.5 ${filtroSoloCritico
+                ? "bg-rose-600 text-white shadow-md shadow-rose-600/25 ring-2 ring-rose-400"
+                : "bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200"
+                }`}
+              title="Filtrar solo productos con stock bajo o agotado"
+            >
+              <AlertTriangle size={13} className={filtroSoloCritico ? "text-white" : "text-rose-600"} />
+              <span>Stock Crítico ({alertasBajoStock})</span>
+            </button>
+
             {categoriasOficiales.map((cat) => {
               const isSelected = filtroCategoria === cat;
               return (
@@ -564,11 +944,10 @@ export const StockOverviewTab: React.FC<Props> = ({
                   key={cat}
                   type="button"
                   onClick={() => setFiltroCategoria(cat)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 flex items-center gap-1.5 ${
-                    isSelected
-                      ? "bg-indigo-600 text-white shadow-xs"
-                      : "bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200/80"
-                  }`}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 flex items-center gap-1.5 ${isSelected
+                    ? "bg-slate-700 text-white shadow-xs font-bold"
+                    : "bg-white hover:bg-slate-50 text-slate-700 border border-slate-200/90 font-medium"
+                    }`}
                 >
                   {cat === "Todas" && <Boxes size={13} />}
                   {cat === "EQUIPOS" && <QrCode size={13} />}
@@ -687,15 +1066,27 @@ export const StockOverviewTab: React.FC<Props> = ({
                       </td>
                       <td className="py-3.5 px-4 text-center">
                         <div className="flex items-center justify-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => setModalDespacho({ isOpen: true, producto: p })}
-                            className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-[11px] flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
-                            title="Asignar y transferir material a la camioneta del técnico"
-                          >
-                            <Send size={11} />
-                            <span>Despachar</span>
-                          </button>
+                          {Number(p.stock_central || 0) > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => setModalDespacho({ isOpen: true, producto: p })}
+                              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-[11px] flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                              title="Asignar y transferir material a la camioneta del técnico"
+                            >
+                              <Send size={11} />
+                              <span>Despachar</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => alert(`⚠️ Sin Stock en Almacén Central:\nNo hay unidades disponibles de "${p.nombre}" para despachar.\nDebes registrar una compra o ingreso en la pestaña de Compras primero.`)}
+                              className="px-2.5 py-1 bg-slate-100 hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-slate-200 hover:border-rose-200 rounded-xl font-bold text-[11px] flex items-center gap-1.5 transition-all cursor-pointer"
+                              title="Sin stock disponible en central para despachar"
+                            >
+                              <AlertTriangle size={11} className="text-amber-500" />
+                              <span>Sin Stock</span>
+                            </button>
+                          )}
                           {Boolean(p.maneja_serie) && (
                             <button
                               type="button"
@@ -772,11 +1163,10 @@ export const StockOverviewTab: React.FC<Props> = ({
                   setFiltroFechaMovilDesde(hoy);
                   setFiltroFechaMovilHasta(hoy);
                 }}
-                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                  filtroFechaMovilDesde === new Date().toISOString().slice(0, 10) && filtroFechaMovilHasta === new Date().toISOString().slice(0, 10)
-                    ? "bg-cyan-600 text-white border-cyan-600 shadow-2xs"
-                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                }`}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${filtroFechaMovilDesde === new Date().toISOString().slice(0, 10) && filtroFechaMovilHasta === new Date().toISOString().slice(0, 10)
+                  ? "bg-cyan-600 text-white border-cyan-600 shadow-2xs"
+                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                  }`}
               >
                 📅 Entregas de Hoy
               </button>
@@ -798,12 +1188,13 @@ export const StockOverviewTab: React.FC<Props> = ({
                     <th className="py-3.5 px-4">Fecha Entrega</th>
                     {mostrarColumnaSeries && <th className="py-3.5 px-4">Series / Rangos Asignados</th>}
                     <th className="py-3.5 px-4 text-right">Cantidad en Carro</th>
+                    <th className="py-3.5 px-4 text-center">Acción</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {stockTecnicosFiltrado.length === 0 ? (
                     <tr>
-                      <td colSpan={mostrarColumnaSeries ? 7 : 6} className="py-12 text-center text-slate-400 text-xs font-bold">
+                      <td colSpan={mostrarColumnaSeries ? 8 : 7} className="py-12 text-center text-slate-400 text-xs font-bold">
                         No hay asignaciones registradas para el filtro seleccionado.
                       </td>
                     </tr>
@@ -936,6 +1327,29 @@ export const StockOverviewTab: React.FC<Props> = ({
                           <td className="py-3.5 px-4 text-right font-black font-mono text-sm text-cyan-800">
                             {st.stock} {st.es_drop ? "m" : "und"}
                           </td>
+
+                          {/* ACCIÓN: DEVOLUCIÓN A ALMACÉN CENTRAL */}
+                          <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setModalDevolucion({
+                                  isOpen: true,
+                                  item: st,
+                                  devolverTodo: false,
+                                  tecnicoNombre: st.tecnico_nombre,
+                                  idTrabajador: st.id_trabajador,
+                                });
+                                setCantidadDevolver(st.stock);
+                                setMotivoDevolucion("Sobrante de instalación / bobina");
+                              }}
+                              className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl font-bold text-[11px] inline-flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                              title="Devolver este material de la camioneta a Almacén Central"
+                            >
+                              <Undo2 size={12} className="text-amber-700" />
+                              <span>Devolver</span>
+                            </button>
+                          </td>
                         </tr>
                       );
                     })
@@ -948,7 +1362,7 @@ export const StockOverviewTab: React.FC<Props> = ({
       ) : (
         /* VISTA: 📋 CONTROL & AUDITORÍA DE ACTAS / GUÍAS ASIGNADAS */
         <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden space-y-4">
-          
+
           <div className="p-4 bg-gradient-to-r from-amber-50/80 to-orange-50/50 border-b border-amber-200/80 flex flex-wrap items-center justify-between gap-3">
             <div>
               <span className="text-xs font-black text-amber-950 flex items-center gap-1.5">
@@ -1054,7 +1468,7 @@ export const StockOverviewTab: React.FC<Props> = ({
       {modalDetalleActas.isOpen && modalDetalleActas.tecnico && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-3 md:p-6 animate-fade-in">
           <div className="bg-white rounded-3xl p-5 md:p-6 max-w-3xl w-full shadow-2xl border border-slate-100 space-y-4 max-h-[90vh] overflow-y-auto">
-            
+
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center font-black shadow-md shadow-amber-500/25">
@@ -1124,23 +1538,21 @@ export const StockOverviewTab: React.FC<Props> = ({
                   Inspección de Hojas Individuales ({modalDetalleActas.tecnico.actas.length}):
                 </span>
               </div>
-              
+
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-2 max-h-60 overflow-y-auto p-1 bg-slate-50/50 rounded-2xl border border-slate-200/60">
                 {modalDetalleActas.tecnico.actas.map((acta, idx) => {
                   const esUsada = acta.estado === "Usada";
                   return (
                     <div
                       key={idx}
-                      className={`p-2 rounded-xl border text-center font-mono text-xs transition-all ${
-                        esUsada
-                          ? "bg-slate-100 border-slate-200 text-slate-400 line-through"
-                          : "bg-white border-emerald-200 text-emerald-950 font-black shadow-2xs"
-                      }`}
+                      className={`p-2 rounded-xl border text-center font-mono text-xs transition-all ${esUsada
+                        ? "bg-slate-100 border-slate-200 text-slate-400 line-through"
+                        : "bg-white border-emerald-200 text-emerald-950 font-black shadow-2xs"
+                        }`}
                     >
                       <div className="font-bold">{acta.numero_serie}</div>
-                      <span className={`text-[9px] font-sans block mt-0.5 ${
-                        esUsada ? "text-blue-600 font-bold" : "text-emerald-700"
-                      }`}>
+                      <span className={`text-[9px] font-sans block mt-0.5 ${esUsada ? "text-blue-600 font-bold" : "text-emerald-700"
+                        }`}>
                         {esUsada
                           ? acta.orden_numero ? `OT #${acta.orden_numero}` : "Liquidada"
                           : "En Mano"}
@@ -1171,7 +1583,7 @@ export const StockOverviewTab: React.FC<Props> = ({
       {modalSeries.isOpen && modalSeries.producto && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
           <div className="bg-white rounded-3xl p-5 sm:p-6 w-full max-w-6xl shadow-2xl border border-slate-100 space-y-4 animate-scale-up max-h-[92vh] flex flex-col">
-            
+
             {/* Header del Modal */}
             <div className="flex items-start justify-between border-b border-slate-100 pb-3 shrink-0">
               <div className="space-y-1">
@@ -1196,9 +1608,8 @@ export const StockOverviewTab: React.FC<Props> = ({
                   <button
                     type="button"
                     onClick={() => setModoVistaSeries("table")}
-                    className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                      modoVistaSeries === "table" ? "bg-white text-indigo-900 shadow-2xs" : "text-slate-500 hover:text-slate-800"
-                    }`}
+                    className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${modoVistaSeries === "table" ? "bg-white text-indigo-900 shadow-2xs" : "text-slate-500 hover:text-slate-800"
+                      }`}
                     title="Vista Tabla / Grid Compacto"
                   >
                     <Layers size={13} />
@@ -1207,9 +1618,8 @@ export const StockOverviewTab: React.FC<Props> = ({
                   <button
                     type="button"
                     onClick={() => setModoVistaSeries("cards")}
-                    className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                      modoVistaSeries === "cards" ? "bg-white text-indigo-900 shadow-2xs" : "text-slate-500 hover:text-slate-800"
-                    }`}
+                    className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${modoVistaSeries === "cards" ? "bg-white text-indigo-900 shadow-2xs" : "text-slate-500 hover:text-slate-800"
+                      }`}
                     title="Vista Tarjetas"
                   >
                     <Package size={13} />
@@ -1271,24 +1681,22 @@ export const StockOverviewTab: React.FC<Props> = ({
 
             {/* Barra de Filtros Avanzados (Ubicación, Técnico, Fechas, Búsqueda) */}
             <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1 shrink-0">
-              
+
               {/* Tabs de Filtro de Ubicación */}
               <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
                 <button
                   type="button"
                   onClick={() => setFiltroSerieTab("todas")}
-                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
-                    filtroSerieTab === "todas" ? "bg-white text-slate-900 shadow-2xs" : "text-slate-600 hover:text-slate-900"
-                  }`}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${filtroSerieTab === "todas" ? "bg-white text-slate-900 shadow-2xs" : "text-slate-600 hover:text-slate-900"
+                    }`}
                 >
                   Todas ({detalleSeries?.total_series || 0})
                 </button>
                 <button
                   type="button"
                   onClick={() => setFiltroSerieTab("almacen")}
-                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                    filtroSerieTab === "almacen" ? "bg-emerald-600 text-white shadow-2xs" : "text-emerald-800 hover:bg-emerald-50"
-                  }`}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1 ${filtroSerieTab === "almacen" ? "bg-emerald-600 text-white shadow-2xs" : "text-emerald-800 hover:bg-emerald-50"
+                    }`}
                 >
                   <Building2 size={11} />
                   Almacén ({detalleSeries?.disponibles_almacen || 0})
@@ -1296,9 +1704,8 @@ export const StockOverviewTab: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={() => setFiltroSerieTab("tecnicos")}
-                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                    filtroSerieTab === "tecnicos" ? "bg-sky-600 text-white shadow-2xs" : "text-sky-800 hover:bg-sky-50"
-                  }`}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1 ${filtroSerieTab === "tecnicos" ? "bg-sky-600 text-white shadow-2xs" : "text-sky-800 hover:bg-sky-50"
+                    }`}
                 >
                   <Truck size={11} />
                   En Técnicos ({detalleSeries?.asignadas_tecnicos || 0})
@@ -1306,9 +1713,8 @@ export const StockOverviewTab: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={() => setFiltroSerieTab("defectuosos")}
-                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                    filtroSerieTab === "defectuosos" ? "bg-rose-600 text-white shadow-2xs" : "text-rose-800 hover:bg-rose-50"
-                  }`}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1 ${filtroSerieTab === "defectuosos" ? "bg-rose-600 text-white shadow-2xs" : "text-rose-800 hover:bg-rose-50"
+                    }`}
                 >
                   <AlertTriangle size={11} />
                   Defectuosos ({detalleSeries?.defectuosos || 0})
@@ -1563,15 +1969,14 @@ export const StockOverviewTab: React.FC<Props> = ({
                       return (
                         <div
                           key={idx}
-                          className={`p-3 rounded-2xl border transition-all flex flex-col justify-between space-y-2 ${
-                            esDefectuoso
-                              ? "bg-rose-50/50 border-rose-200 hover:border-rose-400"
-                              : esAlmacen
+                          className={`p-3 rounded-2xl border transition-all flex flex-col justify-between space-y-2 ${esDefectuoso
+                            ? "bg-rose-50/50 border-rose-200 hover:border-rose-400"
+                            : esAlmacen
                               ? "bg-emerald-50/40 border-emerald-200 hover:border-emerald-400"
                               : esTecnico
-                              ? "bg-sky-50/40 border-sky-200 hover:border-sky-400"
-                              : "bg-slate-50 border-slate-200"
-                          }`}
+                                ? "bg-sky-50/40 border-sky-200 hover:border-sky-400"
+                                : "bg-slate-50 border-slate-200"
+                            }`}
                         >
                           {/* Código Correlativo de Serie y Serie de Fábrica */}
                           <div className="flex items-start justify-between gap-1.5">
@@ -1763,7 +2168,7 @@ export const StockOverviewTab: React.FC<Props> = ({
       {modalSeriesTecnico.isOpen && modalSeriesTecnico.item && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in font-sans">
           <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-2xl w-full max-w-2xl space-y-4 animate-scale-up max-h-[90vh] flex flex-col">
-            
+
             {/* Cabecera */}
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2.5">
@@ -1898,6 +2303,185 @@ export const StockOverviewTab: React.FC<Props> = ({
                 className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs cursor-pointer transition-all shadow-xs"
               >
                 Cerrar
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          Modal: ↩️ DEVOLUCIÓN DE MATERIALES / RETORNO A ALMACÉN CENTRAL
+      ───────────────────────────────────────────────────────────── */}
+      {modalDevolucion.isOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-150">
+            
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-amber-50 text-amber-700 flex items-center justify-center font-bold border border-amber-200/80">
+                  <Undo2 size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 tracking-tight">
+                    {modalDevolucion.devolverTodo ? "📦 Liquidar Toda la Dotación" : "↩️ Devolución a Almacén Central"}
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    {modalDevolucion.tecnicoNombre || modalDevolucion.item?.tecnico_nombre}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalDevolucion({ isOpen: false, item: null, devolverTodo: false })}
+                className="p-1 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {modalDevolucion.devolverTodo ? (
+              <div className="space-y-4">
+                <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-900">
+                  <p className="font-bold flex items-center gap-1.5 mb-1 text-rose-950">
+                    <AlertTriangle size={15} className="text-rose-600 shrink-0" />
+                    ¿Devolver toda la dotación por retiro/baja?
+                  </p>
+                  <p className="text-[11px] leading-relaxed">
+                    Todos los materiales (bobinas, cables, conectores, rosetas) y equipos serializados asignados a este técnico regresarán automáticamente al <strong>Almacén Central</strong> y el stock en su camioneta quedará en <strong>0</strong>.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Técnico a liquidar / retirar:
+                  </label>
+                  <select
+                    value={modalDevolucion.idTrabajador}
+                    onChange={(e) => {
+                      const id = Number(e.target.value);
+                      const tObj = stockPorTecnico.find((s) => s.id_trabajador === id);
+                      setModalDevolucion((prev) => ({
+                        ...prev,
+                        idTrabajador: id,
+                        tecnicoNombre: tObj?.tecnico_nombre || "",
+                      }));
+                    }}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:bg-white focus:outline-none"
+                  >
+                    {Array.from(new Map(stockPorTecnico.map((s) => [s.id_trabajador, s.tecnico_nombre])).entries()).map(([id, nom]) => (
+                      <option key={id} value={id}>
+                        👤 {nom}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Motivo de la liquidación / devolución:
+                  </label>
+                  <input
+                    type="text"
+                    value={motivoDevolucion}
+                    onChange={(e) => setMotivoDevolucion(e.target.value)}
+                    placeholder="Ej: Renuncia de personal, cambio de camioneta..."
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl">
+                  <div className="text-[11px] text-slate-500 font-bold">Producto a devolver:</div>
+                  <div className="text-sm font-black text-slate-900">{modalDevolucion.item?.producto_nombre}</div>
+                  <div className="text-xs text-slate-600 mt-1 flex items-center justify-between">
+                    <span>Stock actual en camioneta:</span>
+                    <span className="font-mono font-bold text-cyan-800 bg-cyan-50 px-2 py-0.5 rounded-lg border border-cyan-200">
+                      {modalDevolucion.item?.stock} {modalDevolucion.item?.es_drop ? "metros" : "und"}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Cantidad a devolver al Almacén Central:
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min={1}
+                      max={modalDevolucion.item?.stock || 1}
+                      value={cantidadDevolver}
+                      onChange={(e) => setCantidadDevolver(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono font-bold focus:bg-white focus:outline-none"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                      {modalDevolucion.item?.es_drop ? "metros" : "unidades"}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-1">
+                    Máximo permitido: {modalDevolucion.item?.stock}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Motivo / Observación:
+                  </label>
+                  <select
+                    value={motivoDevolucion}
+                    onChange={(e) => setMotivoDevolucion(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none mb-2"
+                  >
+                    <option value="Sobrante de instalación / bobina">Sobrante de instalación / bobina</option>
+                    <option value="Cambio de cuadrilla / vehículo">Cambio de cuadrilla / vehículo</option>
+                    <option value="Baja o retiro de personal">Baja o retiro de personal</option>
+                    <option value="Devolución para internamiento en central">Devolución para internamiento en central</option>
+                    <option value="Otro">Otro motivo...</option>
+                  </select>
+                  {motivoDevolucion === "Otro" && (
+                    <input
+                      type="text"
+                      onChange={(e) => setMotivoDevolucion(e.target.value)}
+                      placeholder="Escribe el motivo..."
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none"
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2.5 pt-4 mt-5 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setModalDevolucion({ isOpen: false, item: null, devolverTodo: false })}
+                disabled={guardandoDevolucion}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmarDevolucion}
+                disabled={guardandoDevolucion}
+                className={`px-4 py-2 rounded-xl text-xs font-bold text-white transition-all cursor-pointer flex items-center gap-1.5 shadow-sm ${
+                  modalDevolucion.devolverTodo
+                    ? "bg-rose-600 hover:bg-rose-700"
+                    : "bg-amber-600 hover:bg-amber-700"
+                }`}
+              >
+                {guardandoDevolucion ? (
+                  <>
+                    <RefreshCw size={13} className="animate-spin" />
+                    <span>Guardando...</span>
+                  </>
+                ) : (
+                  <>
+                    <Undo2 size={13} />
+                    <span>{modalDevolucion.devolverTodo ? "Confirmar Retiro y Devolución Total" : "Confirmar Devolución a Central"}</span>
+                  </>
+                )}
               </button>
             </div>
 
