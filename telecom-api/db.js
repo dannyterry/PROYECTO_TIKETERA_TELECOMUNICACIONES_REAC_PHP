@@ -3,9 +3,10 @@ const mysql = require('mysql2/promise');
 // ============================================================
 // ⚙️ SWITCH DE ENTORNO (CAMBIA AQUÍ SEGÚN TU NECESIDAD)
 // ============================================================
-// 🟢 false = MODO LOCAL (Para trabajar en tu PC con XAMPP / MySQL local)
-// 🔴 true  = MODO PRODUCCIÓN (Para cuando subas el código al Hosting cPanel)
-const IS_PRODUCTION = false; // ⬅️ Cambia a true antes de subir al hosting
+// 🟢 En Windows (Procesador local) conecta a XAMPP local
+// 🔴 En Linux (cPanel hosting /home/corporacioncespe/...) conecta a Producción automáticamente
+const isLinuxHosting = process.platform === 'linux' || __dirname.includes('corporacioncespe');
+const IS_PRODUCTION = isLinuxHosting;
 
 // ============================================================
 // 🟢 1. CONFIGURACIÓN LOCAL (XAMPP en tu PC)

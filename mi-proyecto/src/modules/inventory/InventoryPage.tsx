@@ -157,7 +157,7 @@ export const InventoryPage: React.FC = () => {
             }`}
         >
           <ClipboardCheck size={16} className={tabActiva === "liquidacion" ? "text-emerald-300" : "text-slate-400"} />
-          Liquidación & Devolución ()
+          Liquidación & Devolución
         </button>
 
       </div>

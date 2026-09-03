@@ -4277,10 +4277,18 @@ app.get(['/api/dashboard/estadisticas', '/dashboard/estadisticas'], async (req, 
 // ============================================================
 // 📡 ENDPOINTS LOOKER STUDIO: TARJETAS Y ALERTAS ZONA SUR
 // ============================================================
-const lookerService = require('./looker_alert_service');
+let lookerService = null;
+try {
+  lookerService = require('./looker_alert_service');
+} catch (err) {
+  console.warn("⚠️ [Looker Service] No se pudo cargar './looker_alert_service':", err.message);
+}
 
 app.get(['/api/looker/resumen', '/looker/resumen'], async (req, res) => {
   try {
+    if (!lookerService) {
+      return res.json({ success: true, fromCache: false, message: 'Servicio Looker no disponible' });
+    }
     const orders = await lookerService.fetchLookerOrders();
     const result = lookerService.processCardsAndAlerts(orders);
     res.json({ success: true, ...result });
