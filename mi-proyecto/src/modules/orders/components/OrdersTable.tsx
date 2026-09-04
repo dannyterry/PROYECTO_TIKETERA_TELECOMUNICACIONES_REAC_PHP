@@ -3,7 +3,7 @@ import { Order } from "../types/Order";
 import { getRowColorByStatus, getBadgeColorByStatus } from "../utils/statusColors";
 import { extractCuadrillaKey, extractCuadrillaMemberName } from "../utils/cuadrillaUtils";
 import { mapTipificacionWinToTipoTrabajo, matchWithCatalog, TIPOS_TRABAJO_CATALOGO } from "../utils/tipoTrabajoMapper";
-import { Phone, Copy, Check, Activity, Eye, ExternalLink, FileText, UserPlus, Users, Edit2, X, User } from "lucide-react";
+import { Phone, Copy, Check, Activity, Eye, ExternalLink, FileText, UserPlus, Users, Edit2, X, User, CheckCircle2 } from "lucide-react";
 import { LookerCardsAlertBanner } from "./LookerCardsAlertBanner";
 
 interface OrdersTableProps {
@@ -491,12 +491,21 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                           tasksProgressMap?.[String(order.ticket || "")] ||
                           tasksProgressMap?.[String(order.numeroOrden || "")];
 
-                        // Si la orden está Procesada o Iniciada: mostrar botón con porcentaje de avance
-                        if (isProcesadaOIniciada) {
-                          const pct = progress && progress.total > 0 ? progress.pct : 0;
-                          const done = progress && progress.total > 0 ? progress.done : 0;
-                          const total = progress && progress.total > 0 ? progress.total : 0;
+                        // Prioridad a los datos de la Base de Datos (orden_tareas_cache)
+                        const total = order.totalTareas !== undefined && order.totalTareas !== null
+                          ? order.totalTareas
+                          : (progress && progress.total > 0 ? progress.total : 0);
 
+                        const done = order.tareasFinalizadas !== undefined && order.tareasFinalizadas !== null
+                          ? order.tareasFinalizadas
+                          : (progress && progress.total > 0 ? progress.done : 0);
+
+                        const pct = order.progresoPorcentaje !== undefined && order.progresoPorcentaje !== null
+                          ? order.progresoPorcentaje
+                          : (progress && progress.total > 0 ? progress.pct : (total > 0 ? Math.round((done / total) * 100) : 0));
+
+                        // 1. Si la orden está Procesada o Iniciada (Técnico en campo en vivo)
+                        if (isProcesadaOIniciada) {
                           return (
                             <button
                               type="button"
@@ -507,7 +516,7 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                                   ? "bg-indigo-600 text-white border-indigo-500 shadow-indigo-500/20"
                                   : "bg-amber-400 text-slate-950 border-amber-500 shadow-amber-500/20"
                                 }`}
-                              title={`En proceso: ${done}/${total} tareas completadas. Clic para ver tareas en vivo.`}
+                              title={`Técnico en campo: ${done}/${total} tareas completadas (${pct}%). Clic para ver tareas en vivo.`}
                             >
                               <span className="relative flex h-1.5 w-1.5 shrink-0">
                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>
@@ -518,13 +527,13 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                           );
                         }
 
-                        // Para órdenes que no están en proceso/iniciadas (Finalizadas, Pendientes, etc.)
+                        // 2. Para órdenes Finalizadas o de otros estados: botón limpio "Tareas"
                         return (
                           <button
                             type="button"
                             onClick={() => onViewTasks && onViewTasks(order)}
                             className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold text-slate-600 hover:text-indigo-700 bg-slate-100/90 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 transition-all cursor-pointer shadow-2xs whitespace-nowrap"
-                            title="Clic para ver tareas"
+                            title="Ver tareas registradas en BD"
                           >
                             <Activity size={10} className="text-slate-400" />
                             <span>Tareas</span>

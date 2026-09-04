@@ -13,6 +13,8 @@ app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+const { sincronizarTareasOrdenSeguro, getTareasDeBD, sincronizarTareasOrdenesActivas, guardarDetalleTareaEnBD, getMetrajeDeclaradoFenix } = require('./services/taskSyncService');
+
 // CONFIGURACIÓN DE MULTER CON RUTA ABSOLUTA (Para compatibilidad con cPanel / Passenger)
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
@@ -662,10 +664,14 @@ app.get('/ordenes', async (req, res) => {
           NULLIF(TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))), '')
         ) AS nombre_tecnico,
         u.cuadrilla AS cuadrilla_tecnico,
-        TRIM(CONCAT(COALESCE(u2.nombres, ''), ' ', COALESCE(u2.primer_apellido, u2.apellidos, ''), ' ', COALESCE(u2.segundo_apellido, ''))) AS nombre_tecnico_2
+        TRIM(CONCAT(COALESCE(u2.nombres, ''), ' ', COALESCE(u2.primer_apellido, u2.apellidos, ''), ' ', COALESCE(u2.segundo_apellido, ''))) AS nombre_tecnico_2,
+        tc.total_tareas,
+        tc.tareas_finalizadas,
+        tc.progreso_porcentaje
       FROM ordenes o
       LEFT JOIN usuarios u ON o.id_tecnico = u.id_usuario
       LEFT JOIN usuarios u2 ON o.id_tecnico_reemplazo = u2.id_usuario
+      LEFT JOIN orden_tareas_cache tc ON o.numero = tc.numero_orden
       ${whereClause}
       ORDER BY 
         CASE WHEN nombre_tecnico IS NULL OR TRIM(nombre_tecnico) = '' THEN 1 ELSE 0 END,
@@ -828,6 +834,11 @@ app.post('/ordenes/sincronizar-win', async (req, res) => {
 
     ultimoErrorFenixTime = 0;
     res.json(resultado);
+
+    // Disparar en segundo plano la actualización de tareas para órdenes activas de hoy
+    setTimeout(() => {
+      sincronizarTareasOrdenesActivas().catch(e => console.error("Aviso tareas activas:", e.message));
+    }, 1000);
   } catch (error) {
     ultimoErrorFenixTime = Date.now();
     console.error("❌ Error o timeout en sincronización Fénix:", error.message);
@@ -837,28 +848,93 @@ app.post('/ordenes/sincronizar-win', async (req, res) => {
   }
 });
 
-// --- 1.2 OBTENER TAREAS EN TIEMPO REAL DE UNA ORDEN (MODAL DE FÉNIX) ---
+// --- 1.2 OBTENER TAREAS EN TIEMPO REAL DE UNA ORDEN (BD CON PROTECCIÓN ANTI-BAN) ---
 app.get('/ordenes/:numero/tareas', async (req, res) => {
   try {
     const { numero } = req.params;
-    const ordeVisiId = await obtenerOrdeVisiId(numero);
-    if (!ordeVisiId) {
-      return res.json({ success: true, numero, ordeVisiId: null, tareas: [] });
-    }
-    const tareas = await obtenerTareasOrden(ordeVisiId);
-    res.json({ success: true, numero, ordeVisiId, tareas });
+    const forzar = req.query.fresh === 'true' || req.query.forceFresh === 'true';
+    const result = await sincronizarTareasOrdenSeguro(numero, null, forzar);
+    res.json({
+      success: true,
+      numero,
+      fuente: result.fuente,
+      total_tareas: result.total || (result.tareas ? result.tareas.length : 0),
+      tareas_finalizadas: result.finalizadas || 0,
+      progreso_porcentaje: result.pct || 0,
+      ordeVisiId: null,
+      tareas: result.tareas || []
+    });
   } catch (error) {
     console.error("Error al obtener tareas de la orden:", error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// --- 1.3 OBTENER DETALLE DE UNA TAREA ESPECÍFICA (FOTOS, COORDENADAS, TIEMPOS) ---
+// --- 1.2.0 BARRIDO AUTOMÁTICO DE TAREAS PARA ÓRDENES ACTIVAS (CRON HOY) ---
+app.post('/ordenes/sincronizar-tareas-activas', async (req, res) => {
+  try {
+    const result = await sincronizarTareasOrdenesActivas();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// --- 1.2.1 OBTENER METRAJE SUGERIDO DECLARADO EN FÉNIX (TAREA METRAJE TOTAL) ---
+app.get('/ordenes/:numero/metraje-sugerido', async (req, res) => {
+  try {
+    const { numero } = req.params;
+    const metraje = await getMetrajeDeclaradoFenix(numero);
+    res.json({ success: true, numero, metraje });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// --- 1.3 OBTENER DETALLE DE UNA TAREA ESPECÍFICA (FOTOS, COORDENADAS, TIEMPOS, OBSERVACIONES) ---
 app.post('/ordenes/tarea-detalle', async (req, res) => {
   try {
-    const { idTarea, index } = req.body || {};
+    const { idTarea, index, numeroOrden } = req.body || {};
+
+    // 1. Si vino numeroOrden, verificar si ya está guardado en orden_tareas_cache (0ms)
+    if (numeroOrden) {
+      const cleanNum = String(numeroOrden).trim();
+      const [rows] = await pool.query(
+        "SELECT tareas_json FROM orden_tareas_cache WHERE numero_orden = ? LIMIT 1",
+        [cleanNum]
+      );
+      if (rows.length > 0 && rows[0].tareas_json) {
+        try {
+          const tasks = JSON.parse(rows[0].tareas_json);
+          const t = tasks.find(x => String(x.id) === String(idTarea));
+          if (t && (t.detalle || (t.campos && Object.keys(t.campos).length > 0))) {
+            return res.json({
+              success: true,
+              fuente: 'BD_LOCAL',
+              detalle: t.detalle || {
+                descripcion: t.descripcion,
+                campos: t.campos,
+                tiempos: t.tiempos,
+                coordenadas_inicio: t.coordenadas_inicio,
+                coordenadas_fin: t.coordenadas_fin
+              }
+            });
+          }
+        } catch (eJson) {
+          // Continuar a Fénix si hay error de parseo
+        }
+      }
+    }
+
+    // 2. Si no está en BD local, consultar Fénix
     const detalle = await obtenerDetalleTarea(idTarea, index);
-    res.json({ success: true, detalle });
+
+    // 3. Si se obtuvo con éxito y vino numeroOrden, persistirlo en la BD para siempre
+    if (detalle && numeroOrden) {
+      await guardarDetalleTareaEnBD(numeroOrden, idTarea, detalle);
+    }
+
+    res.json({ success: true, fuente: 'FENIX', detalle });
   } catch (error) {
     console.error("Error al obtener detalle de tarea:", error.message);
     res.status(500).json({ success: false, error: error.message });
@@ -2298,6 +2374,7 @@ app.get('/api/almacen/stock-general', async (req, res) => {
       SELECT 
         tp.id_trabajador,
         TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre,
+        COALESCE(u.documento, '') AS tecnico_dni,
         COALESCE(u.cuadrilla, '') AS cuadrilla,
         COALESCE(v.placa, 'Sin vehículo') AS vehiculo_placa,
         p.id_producto,
@@ -3066,6 +3143,7 @@ app.get('/api/almacen/historial-liquidaciones', async (req, res) => {
         l.id_liquidacion,
         l.id_trabajador,
         l.tecnico_nombre,
+        COALESCE(u.documento, '') AS tecnico_dni,
         l.cuadrilla,
         l.vehiculo_placa,
         l.almacenero_nombre,
@@ -3076,6 +3154,8 @@ app.get('/api/almacen/historial-liquidaciones', async (req, res) => {
         l.fecha_liquidacion,
         COUNT(d.id_detalle) as total_lineas
       FROM liquidaciones_tecnicos l
+      LEFT JOIN trabajadores t ON l.id_trabajador = t.id_trabajador
+      LEFT JOIN usuarios u ON t.id_usuario = u.id_usuario
       LEFT JOIN liquidacion_detalles d ON l.id_liquidacion = d.id_liquidacion
       GROUP BY l.id_liquidacion
       ORDER BY l.fecha_liquidacion DESC
@@ -3091,7 +3171,13 @@ app.get('/api/almacen/historial-liquidaciones', async (req, res) => {
 app.get('/api/almacen/liquidacion/:id', async (req, res) => {
   try {
     const idLiq = req.params.id;
-    const [cabecera] = await pool.query("SELECT * FROM liquidaciones_tecnicos WHERE id_liquidacion = ?", [idLiq]);
+    const [cabecera] = await pool.query(`
+      SELECT l.*, COALESCE(u.documento, '') AS tecnico_dni
+      FROM liquidaciones_tecnicos l
+      LEFT JOIN trabajadores t ON l.id_trabajador = t.id_trabajador
+      LEFT JOIN usuarios u ON t.id_usuario = u.id_usuario
+      WHERE l.id_liquidacion = ?
+    `, [idLiq]);
     if (cabecera.length === 0) {
       return res.status(404).json({ error: "Liquidación no encontrada." });
     }
@@ -3443,6 +3529,7 @@ app.get('/api/almacen/tecnico-dotacion-completa/:idTrabajador', async (req, res)
       return res.json({
         id_trabajador: paramId,
         materiales: [],
+        cablesDrop: [],
         equipos: [],
         herramientas: [],
         uniformes: [],
@@ -3487,9 +3574,12 @@ app.get('/api/almacen/tecnico-dotacion-completa/:idTrabajador', async (req, res)
       ORDER BY p.nombre ASC
     `, [idTrabajador]);
 
+    const isDrop = (i) => i.es_drop == 1 || /drop|fibra drop|cable drop/i.test(i.nombre || '');
+
     res.json({
       id_trabajador: idTrabajador,
-      materiales: items.filter(i => i.categoria === 'MATERIALES'),
+      materiales: items.filter(i => i.categoria === 'MATERIALES' && !isDrop(i)),
+      cablesDrop: items.filter(i => isDrop(i)),
       equipos: items.filter(i => i.categoria === 'EQUIPOS'),
       herramientas: items.filter(i => i.categoria === 'HERRAMIENTAS'),
       uniformes: items.filter(i => i.categoria === 'UNIFORMES'),
@@ -3565,6 +3655,244 @@ app.get('/api/ordenes/:id/acta-liquidacion', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// --- 📋 5.1 AUDITORÍA DE LIQUIDACIONES DE ÓRDENES EN ALMACÉN (CON INTELIGENCIA Y ALERTAS) ---
+app.get('/api/almacen/orden-liquidaciones', async (req, res) => {
+  try {
+    let { desde, hasta, id_trabajador, estado } = req.query;
+
+    if (!desde && !hasta) {
+      const hoy = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      const hoyStr = `${hoy.getFullYear()}-${pad(hoy.getMonth() + 1)}-${pad(hoy.getDate())}`;
+      desde = hoyStr;
+      hasta = hoyStr;
+    }
+
+    let dateCondLiq = "";
+    let dateCondOrd = "";
+    const paramsLiq = [];
+    const paramsTec = [];
+
+    if (desde) {
+      dateCondLiq += " AND ol.fecha_liquidacion >= ?";
+      paramsLiq.push(`${desde} 00:00:00`);
+      dateCondOrd += " AND o2.fecha_visita >= ?";
+      paramsTec.push(`${desde} 00:00:00`);
+    }
+    if (hasta) {
+      dateCondLiq += " AND ol.fecha_liquidacion <= ?";
+      paramsLiq.push(`${hasta} 23:59:59`);
+      dateCondOrd += " AND o2.fecha_visita <= ?";
+      paramsTec.push(`${hasta} 23:59:59`);
+    }
+
+    let workerCondLiq = "";
+    if (id_trabajador && id_trabajador !== 'todos') {
+      workerCondLiq = " AND (ol.id_trabajador = ? OR o.id_tecnico = ?)";
+      paramsLiq.push(Number(id_trabajador), Number(id_trabajador));
+    }
+
+    let estadoCond = "";
+    if (estado && estado !== 'todos') {
+      estadoCond = " AND ol.estado = ?";
+      paramsLiq.push(estado);
+    }
+
+    const paramsResumen = [...paramsTec];
+    let dateCondLiqJoin = "";
+    if (desde) {
+      dateCondLiqJoin += " AND ol.fecha_liquidacion >= ?";
+      paramsResumen.push(`${desde} 00:00:00`);
+    }
+    if (hasta) {
+      dateCondLiqJoin += " AND ol.fecha_liquidacion <= ?";
+      paramsResumen.push(`${hasta} 23:59:59`);
+    }
+
+    // 1. Resumen por técnico (con id_usuario real correspondiente a id_tecnico de ordenes)
+    const [tecnicos] = await pool.query(`
+      SELECT
+        u.id_usuario AS id_trabajador,
+        CONCAT(u.nombres, ' ', u.apellidos) AS tecnico,
+        u.foto_personal,
+        u.documento AS tecnico_dni,
+        u.cuadrilla,
+        (SELECT COUNT(*) FROM ordenes o2 WHERE o2.id_tecnico = u.id_usuario ${dateCondOrd}) AS total_ordenes,
+        COUNT(DISTINCT CASE WHEN ol.estado <> 'Rechazada' THEN ol.id_liquidacion END) AS total_liquidaciones,
+        COUNT(DISTINCT CASE WHEN ol.estado = 'Pendiente' THEN ol.id_liquidacion END) AS total_pendientes,
+        COUNT(DISTINCT CASE WHEN ol.estado = 'Aprobada' THEN ol.id_liquidacion END) AS total_aprobadas,
+        COUNT(DISTINCT CASE WHEN ol.estado = 'Rechazada' THEN ol.id_liquidacion END) AS total_rechazadas,
+        COALESCE(SUM(
+          CASE WHEN ol.estado = 'Rechazada' THEN 0
+               ELSE d.cantidad * COALESCE(p.precio_compra, 0)
+          END
+        ), 0) AS total_costo,
+        MAX(ol.fecha_liquidacion) AS ultima_liquidacion
+      FROM usuarios u
+      LEFT JOIN orden_liquidaciones ol ON (ol.id_trabajador = u.id_usuario) ${dateCondLiqJoin}
+      LEFT JOIN orden_liquidacion_detalle d ON d.id_liquidacion = ol.id_liquidacion
+      LEFT JOIN productos p ON p.id_producto = d.id_producto
+      GROUP BY u.id_usuario
+      HAVING total_ordenes > 0 OR total_liquidaciones > 0
+      ORDER BY tecnico ASC
+    `, paramsResumen);
+
+    // 2. Detalle de liquidaciones individuales
+    const [liquidaciones] = await pool.query(`
+      SELECT
+        ol.id_liquidacion,
+        ol.id_orden,
+        COALESCE(o.id_tecnico, ol.id_trabajador) AS id_trabajador,
+        COALESCE(CONCAT(u.nombres, ' ', u.apellidos), o.tecnico_asignado, o.cuadrilla) AS tecnico,
+        u.documento AS tecnico_dni,
+        ol.numero_acta,
+        ol.numero_guia,
+        ol.tipo_trabajo_acta,
+        ol.cto,
+        ol.puerto,
+        ol.speedtest_download,
+        ol.speedtest_upload,
+        ol.tipo_conexion,
+        ol.drop_metro_inicio,
+        ol.drop_metro_fin,
+        ol.drop_total_metros,
+        ol.observaciones,
+        ol.observaciones_tecnico,
+        ol.estado AS estado_liquidacion,
+        ol.motivo_rechazo,
+        ol.fecha_liquidacion,
+        o.numero AS numero_orden,
+        o.cliente,
+        o.direccion,
+        o.tipo_trabajo,
+        COALESCE(
+          NULLIF(TRIM(o.motivo_finalizacion), ''),
+          NULLIF(TRIM(o.motivo_cancelacion), '')
+        ) AS tipo_averia,
+        o.fecha_visita,
+        COUNT(d.id_detalle_liq) AS total_items,
+        COALESCE(SUM(
+          CASE WHEN ol.estado = 'Rechazada' THEN 0
+               ELSE d.cantidad * COALESCE(p.precio_compra, 0)
+          END
+        ), 0) AS total_costo
+      FROM orden_liquidaciones ol
+      INNER JOIN ordenes o ON o.id_orden = ol.id_orden
+      LEFT JOIN usuarios u ON u.id_usuario = COALESCE(o.id_tecnico, ol.id_trabajador)
+      LEFT JOIN orden_liquidacion_detalle d ON d.id_liquidacion = ol.id_liquidacion
+      LEFT JOIN productos p ON p.id_producto = d.id_producto
+      WHERE 1=1 ${dateCondLiq} ${workerCondLiq} ${estadoCond}
+      GROUP BY ol.id_liquidacion
+      ORDER BY ol.fecha_liquidacion DESC
+    `, paramsLiq);
+
+    // 3. Enriquecer con materiales, metraje de Fénix y cálculo de alertas
+    for (const liq of liquidaciones) {
+      const [mats] = await pool.query(`
+        SELECT
+          d.id_detalle_liq,
+          d.id_producto,
+          d.numero_serie,
+          d.cantidad,
+          d.drop_inicio,
+          d.drop_fin,
+          p.nombre AS nombre_producto,
+          p.categoria_liquidar,
+          p.precio_compra,
+          (d.cantidad * COALESCE(p.precio_compra, 0)) AS costo
+        FROM orden_liquidacion_detalle d
+        JOIN productos p ON p.id_producto = d.id_producto
+        WHERE d.id_liquidacion = ?
+        ORDER BY p.categoria_liquidar DESC, p.nombre ASC
+      `, [liq.id_liquidacion]);
+      liq.materiales = mats;
+
+      // Buscar si Fénix reportó metraje en orden_tareas
+      const [fenixTask] = await pool.query(`
+        SELECT metraje, valor_texto, titulo
+        FROM orden_tareas
+        WHERE numero_orden = ? AND titulo LIKE '%METRAJE%'
+        LIMIT 1
+      `, [liq.numero_orden]);
+      liq.metraje_fenix = fenixTask.length > 0 && fenixTask[0].metraje ? Number(fenixTask[0].metraje) : null;
+
+      // REGLAS INTELIGENTES DE ALERTA:
+      const trabTexto = ((liq.tipo_trabajo || '') + ' ' + (liq.tipo_averia || '') + ' ' + (liq.tipo_trabajo_acta || '')).toUpperCase();
+      const esRecableado = trabTexto.includes('RECABLEADO') || trabTexto.includes('ALTA') || trabTexto.includes('NUEV') || trabTexto.includes('TENDIDO');
+      const maxDropPermitido = esRecableado ? 500 : 120; // 500m en recableado, 120m en averías normales
+
+      const totalDrop = Number(liq.drop_total_metros) || 0;
+      const totalEquipos = mats.filter(m => (m.categoria_liquidar || '').toUpperCase() === 'EQUIPO' || (m.nombre_producto || '').toUpperCase().includes('ONT')).reduce((acc, m) => acc + (Number(m.cantidad) || 0), 0);
+
+      const motivosAlerta = [];
+      if (totalDrop > maxDropPermitido) {
+        motivosAlerta.push(`Drop declarado (${totalDrop}m) supera el límite permitido (${maxDropPermitido}m) para ${esRecableado ? 'recableado' : 'avería'}.`);
+      }
+      if (totalEquipos > 1) {
+        motivosAlerta.push(`Se liquidaron ${totalEquipos} equipos ONT en una sola orden.`);
+      }
+      if (liq.metraje_fenix && Math.abs(totalDrop - liq.metraje_fenix) > 25) {
+        motivosAlerta.push(`Discrepancia con Fénix: Declaró ${totalDrop}m pero tarea Fénix reporta ${liq.metraje_fenix}m.`);
+      }
+
+      liq.es_alerta = motivosAlerta.length > 0;
+      liq.motivo_alerta = motivosAlerta.join(' | ');
+      liq.max_drop_permitido = maxDropPermitido;
+    }
+
+    res.json({
+      success: true,
+      desde,
+      hasta,
+      tecnicos,
+      liquidaciones
+    });
+  } catch (error) {
+    console.error("Error al obtener liquidaciones para almacén:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// --- 📋 5.2 APROBAR LIQUIDACIÓN INDIVIDUAL ---
+app.post('/api/almacen/orden-liquidaciones/:id/aprobar', async (req, res) => {
+  try {
+    const idLiquidacion = req.params.id;
+    await pool.query("UPDATE orden_liquidaciones SET estado = 'Aprobada', motivo_rechazo = NULL WHERE id_liquidacion = ?", [idLiquidacion]);
+    res.json({ success: true, message: 'Liquidación aprobada correctamente.' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// --- 📋 5.3 RECHAZAR LIQUIDACIÓN INDIVIDUAL (CON MOTIVO) ---
+app.post('/api/almacen/orden-liquidaciones/:id/rechazar', async (req, res) => {
+  try {
+    const idLiquidacion = req.params.id;
+    const { motivo } = req.body || {};
+    if (!motivo || !motivo.trim()) {
+      return res.status(400).json({ success: false, error: 'Debe especificar el motivo del rechazo.' });
+    }
+    await pool.query("UPDATE orden_liquidaciones SET estado = 'Rechazada', motivo_rechazo = ? WHERE id_liquidacion = ?", [motivo.trim(), idLiquidacion]);
+    res.json({ success: true, message: 'Liquidación rechazada.' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// --- 📋 5.4 APROBACIÓN MASIVA DE LIQUIDACIONES ---
+app.post('/api/almacen/orden-liquidaciones/aprobar-masivo', async (req, res) => {
+  try {
+    const { ids } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, error: 'Debe enviar una lista de IDs a aprobar.' });
+    }
+    await pool.query("UPDATE orden_liquidaciones SET estado = 'Aprobada', motivo_rechazo = NULL WHERE id_liquidacion IN (?)", [ids]);
+    res.json({ success: true, message: `${ids.length} liquidaciones aprobadas con éxito.` });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

@@ -200,15 +200,7 @@ function puedeVer($modulo, $permisos, $es_admin)
                         </li>
                     <?php endif; ?>
 
-                    <!-- Liquidaciones -->
-                    <?php if (puedeVer('liquidaciones', $permisos, $es_admin)): ?>
-                        <li class="side-nav-item">
-                            <a href="<?= base_url() ?>liquidaciones" class="side-nav-link">
-                                <i class="uil-invoice"></i>
-                                <span> Liquidaciones </span>
-                            </a>
-                        </li>
-                    <?php endif; ?>
+
 
                     <!-- Pagos a técnicos -->
                     <?php if (puedeVer('pagos', $permisos, $es_admin)): ?>

@@ -12,15 +12,21 @@ import {
   AlertCircle,
   RefreshCw,
   Search,
+  ChevronDown,
+  ChevronUp,
+  MessageSquare,
+  MapPin
 } from "lucide-react";
 import {
   OrderTask,
+  TaskDetail,
   OrderStatusHistoryItem,
   getOrderTasks,
   getOrderStatusHistory,
   getCachedOrderTasks,
   getCachedOrderStatusHistory,
   saveTaskProgress,
+  getTaskDetail
 } from "../services/orderService";
 
 interface OrderTasksModalProps {
@@ -50,6 +56,38 @@ export const OrderTasksModal: React.FC<OrderTasksModalProps> = ({
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [searchTask, setSearchTask] = useState<string>("");
+  const [onlyWithObservations, setOnlyWithObservations] = useState<boolean>(false);
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [loadingDetailId, setLoadingDetailId] = useState<string | null>(null);
+  const [taskDetailsMap, setTaskDetailsMap] = useState<Record<string, TaskDetail>>({});
+
+  const handleToggleTask = async (task: OrderTask) => {
+    if (expandedTaskId === task.id) {
+      setExpandedTaskId(null);
+      return;
+    }
+
+    setExpandedTaskId(task.id);
+
+    // Si ya tiene campos o detalle en memoria o en el objeto task, no consultar
+    const hasCampos = (task.campos && Object.keys(task.campos).length > 0) || Boolean(task.detalle);
+    if (hasCampos || taskDetailsMap[task.id]) {
+      return;
+    }
+
+    // Consultar detalle a la API (la API revisa MySQL primero a 0ms y si no está, Fénix y lo guarda)
+    setLoadingDetailId(task.id);
+    try {
+      const det = await getTaskDetail(task.id, task.index, orderNumber);
+      if (det) {
+        setTaskDetailsMap((prev) => ({ ...prev, [task.id]: det }));
+      }
+    } catch (e) {
+      // Silencioso
+    } finally {
+      setLoadingDetailId(null);
+    }
+  };
 
   const onProgressUpdateRef = useRef(onProgressUpdate);
   useEffect(() => {
@@ -80,6 +118,34 @@ export const OrderTasksModal: React.FC<OrderTasksModalProps> = ({
     [orderNumber, orderId]
   );
 
+  // Auto-enriquecer en segundo plano las tareas que suelen tener cuestionarios/observaciones
+  const enrichObservationCandidates = useCallback(
+    (taskList: OrderTask[]) => {
+      if (!orderNumber || !Array.isArray(taskList)) return;
+      const candidates = taskList.filter((t) => {
+        const isDone = !(t.estado || "").toLowerCase().includes("pend");
+        const tit = (t.titulo || "").toLowerCase();
+        const isCand = /motivo|diagn|observ|problema|disponible|metraje|resumen|justif|causa/i.test(tit);
+        const yaTiene =
+          (t.campos && Object.keys(t.campos).filter((k) => !k.includes("GD:") && !k.includes("GMS:")).length > 0) ||
+          Boolean(t.observacion);
+        return isDone && isCand && !yaTiene;
+      });
+
+      if (candidates.length > 0) {
+        candidates.forEach(async (c) => {
+          try {
+            const det = await getTaskDetail(c.id, c.index, orderNumber);
+            if (det) {
+              setTaskDetailsMap((prev) => ({ ...prev, [c.id]: det }));
+            }
+          } catch {}
+        });
+      }
+    },
+    [orderNumber]
+  );
+
   // Cargar lista de tareas e historial al abrir el modal (Apertura Instantánea con Stale-While-Revalidate)
   const loadData = useCallback(
     async (isManual = false) => {
@@ -101,6 +167,7 @@ export const OrderTasksModal: React.FC<OrderTasksModalProps> = ({
         notifyProgress(cachedTasks.tareas);
         if (cachedHistory) setHistory(cachedHistory);
         setLoading(false); // 🚀 Cero spinner, renderizado instantáneo
+        enrichObservationCandidates(cachedTasks.tareas);
       } else if (!isManual) {
         setLoading(true);
       }
@@ -117,6 +184,7 @@ export const OrderTasksModal: React.FC<OrderTasksModalProps> = ({
           const loadedTasks = tasksRes.value.tareas || [];
           setTasks(loadedTasks);
           notifyProgress(loadedTasks);
+          enrichObservationCandidates(loadedTasks);
         }
         if (historyRes.status === "fulfilled") {
           setHistory(historyRes.value);
@@ -135,7 +203,7 @@ export const OrderTasksModal: React.FC<OrderTasksModalProps> = ({
         setLoading(false);
       }
     },
-    [orderNumber, notifyProgress]
+    [orderNumber, notifyProgress, enrichObservationCandidates]
   );
 
   useEffect(() => {
@@ -148,6 +216,7 @@ export const OrderTasksModal: React.FC<OrderTasksModalProps> = ({
       setHistory([]);
       setActiveTab("tareas");
       setSearchTask("");
+      setOnlyWithObservations(false);
       setError(null);
     }
 
@@ -208,10 +277,35 @@ export const OrderTasksModal: React.FC<OrderTasksModalProps> = ({
     );
   };
 
-  // Filtrado de tareas por buscador
-  const filteredTasks = tasks.filter((t) =>
-    t.titulo.toLowerCase().includes(searchTask.toLowerCase())
-  );
+  // Tareas con observaciones detectadas
+  const tareasConObservacion = tasks.filter((t) => {
+    const det = taskDetailsMap[t.id] || t.detalle || (t.campos ? { campos: t.campos } : null);
+    const cKeys =
+      det && det.campos
+        ? Object.keys(det.campos).filter(
+            (k) => !k.includes("GD:") && !k.includes("GMS:") && !k.toLowerCase().includes("campoid")
+          )
+        : [];
+    return cKeys.length > 0 || Boolean(t.observacion) || Boolean(t.valor_texto);
+  });
+
+  // Filtrado de tareas por buscador y por observación
+  const filteredTasks = tasks.filter((t) => {
+    const matchesSearch = t.titulo.toLowerCase().includes(searchTask.toLowerCase());
+    if (!matchesSearch) return false;
+
+    if (onlyWithObservations) {
+      const det = taskDetailsMap[t.id] || t.detalle || (t.campos ? { campos: t.campos } : null);
+      const cKeys =
+        det && det.campos
+          ? Object.keys(det.campos).filter(
+              (k) => !k.includes("GD:") && !k.includes("GMS:") && !k.toLowerCase().includes("campoid")
+            )
+          : [];
+      return cKeys.length > 0 || Boolean(t.observacion) || Boolean(t.valor_texto);
+    }
+    return true;
+  });
 
   // Contadores y Porcentajes de Avance de Tareas
   const tareasFinalizadas = tasks.filter((t) => {
@@ -322,17 +416,35 @@ export const OrderTasksModal: React.FC<OrderTasksModalProps> = ({
             </button>
           </div>
 
-          {/* BUSCADOR DE TAREAS */}
+          {/* BUSCADOR DE TAREAS Y FILTRO CON OBSERVACIÓN */}
           {activeTab === "tareas" && tasks.length > 0 && (
-            <div className="relative my-2 w-48 sm:w-64">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Buscar tarea..."
-                value={searchTask}
-                onChange={(e) => setSearchTask(e.target.value)}
-                className="w-full pl-8 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-              />
+            <div className="flex items-center gap-2 my-2">
+              {tareasConObservacion.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setOnlyWithObservations(!onlyWithObservations)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border shrink-0 shadow-2xs ${
+                    onlyWithObservations
+                      ? "bg-sky-600 text-white border-sky-600 shadow-sky-200"
+                      : "bg-white text-sky-700 border-sky-300 hover:bg-sky-50"
+                  }`}
+                  title="Mostrar solo las tareas que tienen observaciones registradas"
+                >
+                  <MessageSquare size={12} />
+                  <span>Con Observación ({tareasConObservacion.length})</span>
+                </button>
+              )}
+
+              <div className="relative w-40 sm:w-56">
+                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Buscar tarea..."
+                  value={searchTask}
+                  onChange={(e) => setSearchTask(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                />
+              </div>
             </div>
           )}
         </div>
@@ -375,7 +487,7 @@ export const OrderTasksModal: React.FC<OrderTasksModalProps> = ({
 
               <div className="flex items-center justify-center gap-2 pt-2 text-slate-400 text-xs">
                 <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
-                <span>Consultando datos en tiempo real desde Fénix...</span>
+                <span>Obteniendo tareas registradas en Base de Datos...</span>
               </div>
             </div>
           ) : error ? (
@@ -522,25 +634,204 @@ export const OrderTasksModal: React.FC<OrderTasksModalProps> = ({
 
               {/* LISTADO DE TAREAS LIMPIO Y RÁPIDO */}
               <div className="grid grid-cols-1 gap-2">
-                {filteredTasks.map((task) => (
-                  <div
-                    key={task.id}
-                    className="flex items-center justify-between p-3.5 bg-white border border-slate-200 rounded-xl hover:border-slate-300 hover:shadow-2xs transition-all"
-                  >
-                    <div className="flex items-center gap-3 min-w-0 pr-2">
-                      <div className="p-2 rounded-xl bg-slate-100/90 border border-slate-200/60 shrink-0">
-                        {getTaskIcon(task.titulo)}
-                      </div>
-                      <h4 className="text-xs font-bold text-slate-800 truncate" title={task.titulo}>
-                        {task.titulo}
-                      </h4>
-                    </div>
+                {filteredTasks.map((task) => {
+                  const isExpanded = expandedTaskId === task.id;
+                  const isLoadingDet = loadingDetailId === task.id;
+                  const detail =
+                    taskDetailsMap[task.id] ||
+                    task.detalle ||
+                    (task.campos
+                      ? {
+                          campos: task.campos,
+                          descripcion: task.descripcion,
+                          tiempos: task.tiempos,
+                          coordenadas_inicio: task.coordenadas_inicio,
+                          coordenadas_fin: task.coordenadas_fin,
+                        }
+                      : null);
 
-                    <div className="shrink-0">
-                      {getStatusBadge(task)}
+                  const camposKeys =
+                    detail && detail.campos
+                      ? Object.keys(detail.campos).filter(
+                          (k) => !k.includes("GD:") && !k.includes("GMS:") && !k.toLowerCase().includes("campoid")
+                        )
+                      : [];
+
+                  // Extraer texto limpio de observación para el preview directo en la tarjeta
+                  const observacionValores = camposKeys.length > 0 && detail?.campos
+                    ? camposKeys.map((k) => `${k !== "1." ? `${k}: ` : ""}${detail.campos?.[k] ?? ""}`).join(" | ")
+                    : null;
+                  const observacionTexto = task.observacion || observacionValores || task.valor_texto || null;
+                  const hasObservaciones = camposKeys.length > 0 || Boolean(task.observacion) || Boolean(task.valor_texto);
+
+                  return (
+                    <div
+                      key={task.id}
+                      className={`bg-white border rounded-xl transition-all overflow-hidden ${
+                        isExpanded
+                          ? "border-indigo-400 shadow-md ring-1 ring-indigo-100"
+                          : hasObservaciones
+                          ? "border-sky-300/90 hover:border-sky-400 hover:shadow-xs bg-gradient-to-r from-sky-50/25 via-white to-white"
+                          : "border-slate-200 hover:border-slate-300 hover:shadow-2xs"
+                      }`}
+                    >
+                      {/* CABECERA DE LA TAREA (CLIC PARA EXPANDIR OBSERVACIONES) */}
+                      <div
+                        onClick={() => handleToggleTask(task)}
+                        className="flex items-center justify-between p-3 cursor-pointer gap-3 select-none"
+                      >
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div
+                            className={`p-2 rounded-xl border shrink-0 ${
+                              hasObservaciones
+                                ? "bg-sky-50 border-sky-200 text-sky-600"
+                                : "bg-slate-100/90 border-slate-200/60"
+                            }`}
+                          >
+                            {getTaskIcon(task.titulo)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-xs font-bold text-slate-800 truncate" title={task.titulo}>
+                                {task.titulo}
+                              </h4>
+                              {hasObservaciones && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-800 border border-sky-300 shrink-0 shadow-2xs animate-in fade-in duration-200">
+                                  <MessageSquare size={11} className="text-sky-600" />
+                                  <span>Observación</span>
+                                </span>
+                              )}
+                            </div>
+
+                            {(observacionTexto || task.metraje) && !isExpanded && (
+                              <div className="flex flex-wrap items-center gap-2 mt-1">
+                                {task.metraje && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                    📏 {task.metraje} metros
+                                  </span>
+                                )}
+                                {observacionTexto && (
+                                  <p
+                                    className="text-[11px] text-slate-600 font-medium truncate max-w-lg bg-sky-50/80 px-2 py-0.5 rounded border border-sky-200/70"
+                                    title={observacionTexto}
+                                  >
+                                    💬 <strong className="text-sky-950 font-semibold">{observacionTexto}</strong>
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {getStatusBadge(task)}
+                          <button
+                            type="button"
+                            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                          >
+                            {isLoadingDet ? (
+                              <Loader2 size={14} className="animate-spin text-indigo-600" />
+                            ) : isExpanded ? (
+                              <ChevronUp size={15} />
+                            ) : (
+                              <ChevronDown size={15} />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* PANEL EXPANDIDO DE OBSERVACIONES (TABLA CAMPO / VALOR COMO EN FÉNIX) */}
+                      {isExpanded && (
+                        <div className="px-4 pb-4 pt-1 border-t border-slate-100 bg-slate-50/50 space-y-3 animate-in fade-in duration-150 text-xs">
+                          {isLoadingDet ? (
+                            <div className="flex items-center justify-center gap-2 py-4 text-slate-400 text-xs">
+                              <Loader2 size={14} className="animate-spin text-indigo-500" />
+                              <span>Cargando detalle de la tarea desde BD local...</span>
+                            </div>
+                          ) : (
+                            <>
+                              {/* Descripción / Pregunta técnica */}
+                              {(detail?.descripcion || task.descripcion) && (
+                                <div className="p-2.5 bg-indigo-50/70 border border-indigo-200/60 rounded-xl text-indigo-900 font-semibold text-[11px] leading-relaxed">
+                                  ❓ {detail?.descripcion || task.descripcion}
+                                </div>
+                              )}
+
+                              {/* TABLA DE OBSERVACIONES: CAMPO / VALOR (IDÉNTICA A FÉNIX) */}
+                              {camposKeys.length > 0 ? (
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center gap-1.5 text-[11px] font-black uppercase text-slate-700 tracking-wider">
+                                    <span>Observaciones</span>
+                                  </div>
+                                  <div className="overflow-hidden rounded-xl border border-slate-200 shadow-2xs">
+                                    <table className="w-full text-xs text-left">
+                                      <thead className="bg-sky-800 text-white font-bold uppercase text-[10px] tracking-wider">
+                                        <tr>
+                                          <th className="py-2 px-3 w-2/3">CAMPO</th>
+                                          <th className="py-2 px-3 w-1/3">VALOR</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-100 bg-white">
+                                        {camposKeys.map((k, i) => (
+                                          <tr key={i} className="hover:bg-slate-50 transition-colors">
+                                            <td className="py-2 px-3 text-slate-700 font-medium">{k}</td>
+                                            <td className="py-2 px-3 font-bold text-slate-900 bg-sky-50/30">
+                                              {(detail?.campos && detail.campos[k]) || "-"}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              ) : (task.observacion || task.valor_texto) ? (
+                                <div className="p-3 bg-white border border-slate-200 rounded-xl space-y-1">
+                                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Observación Registrada</span>
+                                  <p className="font-bold text-slate-800">{task.observacion || task.valor_texto}</p>
+                                </div>
+                              ) : (
+                                <div className="text-center py-2 text-slate-400 text-[11px] italic">
+                                  Esta tarea no contiene campos u observaciones adicionales registradas.
+                                </div>
+                              )}
+
+                              {/* METRAJE SI APLICA */}
+                              {task.metraje && (
+                                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs">
+                                  📏 Metraje utilizado: <strong>{task.metraje} metros</strong>
+                                </div>
+                              )}
+
+                              {/* COORDENADAS Y TIEMPOS */}
+                              {(detail?.coordenadas_inicio?.gd || detail?.tiempos?.inicio || task.fecha_inicio) && (
+                                <div className="flex flex-wrap items-center gap-4 text-[10px] text-slate-500 pt-1 border-t border-slate-200/60 font-mono">
+                                  {detail?.coordenadas_inicio?.gd && (
+                                    <span className="flex items-center gap-1">
+                                      <MapPin size={11} className="text-indigo-500" />
+                                      <span>GPS: {detail.coordenadas_inicio.gd}</span>
+                                    </span>
+                                  )}
+                                  {(detail?.tiempos?.inicio || task.fecha_inicio) && (
+                                    <span className="flex items-center gap-1">
+                                      <Clock size={11} className="text-slate-400" />
+                                      <span>Inicio: {detail?.tiempos?.inicio || task.fecha_inicio}</span>
+                                    </span>
+                                  )}
+                                  {(detail?.tiempos?.fin || task.fecha_fin) && (
+                                    <span>Fin: {detail?.tiempos?.fin || task.fecha_fin}</span>
+                                  )}
+                                  {(detail?.tiempos?.duracion || task.duracion) && (
+                                    <span className="font-bold text-slate-700">Duración: {detail?.tiempos?.duracion || task.duracion}</span>
+                                  )}
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

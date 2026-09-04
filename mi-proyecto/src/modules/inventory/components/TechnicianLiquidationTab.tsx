@@ -16,6 +16,8 @@ import {
   FileText,
   UserCheck,
   Clock,
+  Eye,
+  Printer,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -68,6 +70,10 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
   const [cargandoHistorial, setCargandoHistorial] = useState(false);
   const [busquedaHistorial, setBusquedaHistorial] = useState("");
 
+  // Modal para ver el detalle del Acta en pantalla
+  const [modalLiquidacion, setModalLiquidacion] = useState<any | null>(null);
+  const [cargandoModal, setCargandoModal] = useState(false);
+
   // Técnicos únicos que tienen dotación activa
   const tecnicosConStock = Array.from(
     new Map(
@@ -76,6 +82,7 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
         .map((s) => [s.id_trabajador, {
           id: s.id_trabajador,
           nombre: s.tecnico_nombre,
+          dni: s.tecnico_dni || "",
           cuadrilla: s.cuadrilla || "S/C",
           placa: s.vehiculo_placa || "Sin vehículo",
         }])
@@ -155,8 +162,9 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
   const generarExcelConstancia = (datosLiq: {
     id_liquidacion: number;
     tecnico_nombre: string;
+    tecnico_dni?: string;
     cuadrilla: string;
-    vehiculo_placa: string;
+    vehiculo_placa?: string;
     almacenero_nombre: string;
     motivo: string;
     observaciones: string;
@@ -169,13 +177,13 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
 
       // Formato oficial membretado
       const rowsExcel: any[][] = [
-        ["CORPORACIÓN CÉSPEDES TELECOMUNICACIONES S.A.C."],
+        ["CORPORACION CESPEDES S.A.C."],
         ["ÁREA DE LOGÍSTICA & ALMACÉN CENTRAL"],
         ["ACTA DE ENTREGA, RECEPCIÓN Y LIQUIDACIÓN DE DOTACIÓN "],
         [],
         ["Nº DE CONSTANCIA:", `LIQ-${String(datosLiq.id_liquidacion).padStart(5, "0")}`, "FECHA Y HORA:", datosLiq.fecha_liquidacion.replace("T", " ")],
         ["TÉCNICO / CONDUCTOR:", datosLiq.tecnico_nombre, "CUADRILLA:", datosLiq.cuadrilla],
-        ["VEHÍCULO / PLACA:", datosLiq.vehiculo_placa, "ALMACENERO RECEPTOR:", datosLiq.almacenero_nombre],
+        ["DNI:", datosLiq.tecnico_dni || "-", "ALMACENERO RECEPTOR:", datosLiq.almacenero_nombre],
         ["MOTIVO DE DEVOLUCIÓN:", datosLiq.motivo, "OBSERVACIONES:", datosLiq.observaciones || "Conforme sin observaciones"],
         [],
         ["1. DETALLE DE MATERIALES, HERRAMIENTAS Y SUMINISTROS DEVUELTOS"],
@@ -211,14 +219,14 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
       rowsExcel.push([]);
       rowsExcel.push(["DECLARACIÓN DE CONFORMIDAD:"]);
       rowsExcel.push([
-        "Por medio de la presente, el Técnico declara haber hecho entrega formal de los materiales y equipos detallados precedentemente al Almacén Central de Corporación Céspedes. Ambas partes firman en señal de conformidad quedando regularizado el inventario del vehículo asignado.",
+        "Por medio de la presente, el Técnico declara haber hecho entrega formal de los materiales y equipos detallados precedentemente al Almacén Central de CORPORACION CESPEDES S.A.C. Ambas partes firman en señal de conformidad quedando regularizado el inventario asignado.",
       ]);
       rowsExcel.push([]);
       rowsExcel.push([]);
       rowsExcel.push(["________________________________________", "", "________________________________________"]);
       rowsExcel.push([`FIRMA DEL TRABAJADOR`, "", "FIRMA RESPONSABLE ALMACÉN"]);
       rowsExcel.push([`Técnico: ${datosLiq.tecnico_nombre}`, "", `Almacenero: ${datosLiq.almacenero_nombre}`]);
-      rowsExcel.push([`Placa: ${datosLiq.vehiculo_placa}`, "", "Corporación Céspedes Telecomunicaciones"]);
+      rowsExcel.push([`DNI: ${datosLiq.tecnico_dni || "-"}`, "", "CORPORACION CESPEDES S.A.C."]);
 
       const ws = XLSX.utils.aoa_to_sheet(rowsExcel);
 
@@ -239,6 +247,351 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
     } catch (err) {
       console.error("Error al exportar constancia en Excel:", err);
       alert("Error al generar el archivo Excel de la constancia.");
+    }
+  };
+
+  // 📄 Generador Oficial de Constancia en PDF (Diseño A4 Profesional y Ordenado)
+  const generarPdfConstancia = (datosLiq: {
+    id_liquidacion: number;
+    tecnico_nombre: string;
+    tecnico_dni?: string;
+    cuadrilla: string;
+    almacenero_nombre: string;
+    motivo: string;
+    observaciones: string;
+    fecha_liquidacion: string;
+    detalles: any[];
+    series_devueltas: string[];
+  }) => {
+    try {
+      const printWindow = window.open("", "_blank");
+      if (!printWindow) {
+        alert("Por favor habilita las ventanas emergentes en tu navegador para ver y descargar el PDF.");
+        return;
+      }
+
+      const numLiq = `LIQ-${String(datosLiq.id_liquidacion).padStart(5, "0")}`;
+      const fecha = datosLiq.fecha_liquidacion ? datosLiq.fecha_liquidacion.replace("T", " ") : new Date().toLocaleString();
+      const dni = datosLiq.tecnico_dni || "-";
+
+      const rowsMaterialesHtml = datosLiq.detalles.map((d: any, idx: number) => `
+        <tr style="border-bottom: 1px solid #e2e8f0; ${idx % 2 === 1 ? 'background-color: #f8fafc;' : ''}">
+          <td style="padding: 6px 8px; font-weight: 600; color: #475569;">${d.categoria || "MATERIAL"}</td>
+          <td style="padding: 6px 8px; color: #0f172a; font-weight: 700;">${d.producto_nombre}</td>
+          <td style="padding: 6px 8px; font-family: monospace; color: #64748b;">${d.producto_codigo || "-"}</td>
+          <td style="padding: 6px 8px; text-align: center; color: #334155;">${d.cantidad_esperada}</td>
+          <td style="padding: 6px 8px; text-align: center; font-weight: 700; color: #059669;">${d.cantidad_devuelta}</td>
+          <td style="padding: 6px 8px; text-align: center; font-weight: 700; color: ${Number(d.cantidad_faltante) > 0 ? '#e11d48' : '#64748b'};">
+            ${Number(d.cantidad_faltante) > 0 ? `🚨 ${d.cantidad_faltante}` : '0'}
+          </td>
+          <td style="padding: 6px 8px; font-size: 10px; color: #475569;">${d.observaciones || "OK"}</td>
+        </tr>
+      `).join("");
+
+      const rowsSeriesHtml = (datosLiq.series_devueltas && datosLiq.series_devueltas.length > 0)
+        ? datosLiq.series_devueltas.map((sn: string, idx: number) => `
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 5px 8px; text-align: center; font-weight: 600; color: #64748b;">${idx + 1}</td>
+              <td style="padding: 5px 8px; font-family: monospace; font-weight: 700; color: #0f172a;">${sn}</td>
+              <td style="padding: 5px 8px; color: #059669; font-weight: 600;">DISPONIBLE EN CENTRAL</td>
+              <td style="padding: 5px 8px; color: #334155;">RECIBIDO EN MANO</td>
+            </tr>
+          `).join("")
+        : `<tr><td colspan="4" style="padding: 8px; text-align: center; color: #94a3b8; font-style: italic;">No se registraron equipos serializados en esta entrega</td></tr>`;
+
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html lang="es">
+        <head>
+          <meta charset="UTF-8" />
+          <title>ACTA_LIQUIDACION_${numLiq}_${datosLiq.tecnico_nombre.replace(/\\s+/g, "_")}</title>
+          <style>
+            @page {
+              size: A4 portrait;
+              margin: 12mm 15mm;
+            }
+            * {
+              box-sizing: border-box;
+              margin: 0;
+              padding: 0;
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            }
+            body {
+              color: #0f172a;
+              background-color: #fff;
+              font-size: 11px;
+              line-height: 1.4;
+              padding: 15px;
+            }
+            .header-box {
+              border-bottom: 2px solid #0f172a;
+              padding-bottom: 8px;
+              margin-bottom: 12px;
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+            }
+            .company-title {
+              font-size: 18px;
+              font-weight: 900;
+              letter-spacing: -0.5px;
+              color: #0f172a;
+              text-transform: uppercase;
+            }
+            .sub-title {
+              font-size: 10px;
+              font-weight: 700;
+              color: #475569;
+              letter-spacing: 0.5px;
+              margin-top: 2px;
+            }
+            .doc-badge {
+              text-align: right;
+            }
+            .doc-title {
+              font-size: 12px;
+              font-weight: 800;
+              color: #0284c7;
+              text-transform: uppercase;
+            }
+            .doc-num {
+              font-size: 14px;
+              font-weight: 900;
+              font-family: monospace;
+              color: #0f172a;
+              margin-top: 2px;
+            }
+            .meta-card {
+              border: 1px solid #cbd5e1;
+              border-radius: 6px;
+              padding: 10px 12px;
+              margin-bottom: 12px;
+              background-color: #f8fafc;
+            }
+            .meta-grid {
+              display: grid;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 6px 16px;
+            }
+            .meta-item {
+              display: flex;
+              gap: 4px;
+            }
+            .meta-label {
+              font-weight: 800;
+              color: #475569;
+              font-size: 10px;
+              min-width: 120px;
+              text-transform: uppercase;
+            }
+            .meta-val {
+              font-weight: 700;
+              color: #0f172a;
+            }
+            .sec-title {
+              font-size: 11px;
+              font-weight: 800;
+              color: #0f172a;
+              text-transform: uppercase;
+              letter-spacing: 0.3px;
+              margin: 10px 0 6px 0;
+              border-left: 3px solid #0284c7;
+              padding-left: 6px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 12px;
+              font-size: 10px;
+            }
+            th {
+              background-color: #e2e8f0;
+              color: #1e293b;
+              font-weight: 800;
+              text-align: left;
+              padding: 6px 8px;
+              border: 1px solid #cbd5e1;
+              text-transform: uppercase;
+              font-size: 9px;
+            }
+            td {
+              border: 1px solid #e2e8f0;
+            }
+            .declaracion-box {
+              background-color: #f1f5f9;
+              border: 1px solid #cbd5e1;
+              border-radius: 6px;
+              padding: 8px 12px;
+              font-size: 9.5px;
+              color: #334155;
+              text-align: justify;
+              margin-top: 10px;
+              margin-bottom: 35px;
+            }
+            .firmas-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 40px;
+              margin-top: 25px;
+            }
+            .firma-col {
+              text-align: center;
+            }
+            .linea-firma {
+              border-top: 1.5px solid #0f172a;
+              width: 80%;
+              margin: 0 auto 6px auto;
+            }
+            .firma-cargo {
+              font-weight: 800;
+              font-size: 10px;
+              color: #0f172a;
+              text-transform: uppercase;
+            }
+            .firma-nombre {
+              font-weight: 700;
+              font-size: 10px;
+              color: #334155;
+              margin-top: 2px;
+            }
+            .firma-sub {
+              font-size: 9.5px;
+              font-weight: 600;
+              color: #64748b;
+              margin-top: 1px;
+            }
+            .no-print {
+              margin-bottom: 15px;
+              display: flex;
+              gap: 10px;
+              justify-content: flex-end;
+            }
+            .btn-print {
+              background-color: #0284c7;
+              color: #fff;
+              border: none;
+              padding: 8px 16px;
+              font-weight: 700;
+              border-radius: 6px;
+              cursor: pointer;
+              font-size: 12px;
+            }
+            .btn-close {
+              background-color: #64748b;
+              color: #fff;
+              border: none;
+              padding: 8px 14px;
+              font-weight: 700;
+              border-radius: 6px;
+              cursor: pointer;
+              font-size: 12px;
+            }
+            @media print {
+              .no-print {
+                display: none !important;
+              }
+              body {
+                padding: 0 !important;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="no-print">
+            <button class="btn-print" onclick="window.print()">🖨️ Imprimir / Guardar como PDF</button>
+            <button class="btn-close" onclick="window.close()">Cerrar</button>
+          </div>
+
+          <div class="header-box">
+            <div>
+              <div class="company-title">CORPORACION CESPEDES S.A.C.</div>
+              <div class="sub-title">ÁREA DE LOGÍSTICA & ALMACÉN CENTRAL • CONTROL DE DOTACIONES</div>
+            </div>
+            <div class="doc-badge">
+              <div class="doc-title">ACTA DE LIQUIDACIÓN Y DEVOLUCIÓN</div>
+              <div class="doc-num">${numLiq}</div>
+            </div>
+          </div>
+
+          <div class="meta-card">
+            <div class="meta-grid">
+              <div class="meta-item"><span class="meta-label">TÉCNICO:</span><span class="meta-val">${datosLiq.tecnico_nombre}</span></div>
+              <div class="meta-item"><span class="meta-label">DNI:</span><span class="meta-val" style="color:#0284c7;">${dni}</span></div>
+              <div class="meta-item"><span class="meta-label">FECHA Y HORA:</span><span class="meta-val">${fecha}</span></div>
+              <div class="meta-item"><span class="meta-label">CUADRILLA:</span><span class="meta-val">${datosLiq.cuadrilla || "S/C"}</span></div>
+              <div class="meta-item"><span class="meta-label">ALMACENERO RECEPTOR:</span><span class="meta-val">${datosLiq.almacenero_nombre}</span></div>
+              <div class="meta-item"><span class="meta-label">MOTIVO:</span><span class="meta-val">${datosLiq.motivo || "Devolución"}</span></div>
+              <div class="meta-item" style="grid-column: span 2;"><span class="meta-label">OBSERVACIONES:</span><span class="meta-val">${datosLiq.observaciones || "Conforme sin observaciones"}</span></div>
+            </div>
+          </div>
+
+          <div class="sec-title">1. Detalle de Materiales, Herramientas y Suministros Devueltos</div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 14%;">Categoría</th>
+                <th style="width: 32%;">Producto / Descripción</th>
+                <th style="width: 12%;">Código</th>
+                <th style="width: 10%; text-align: center;">Asignado</th>
+                <th style="width: 10%; text-align: center;">Devuelto</th>
+                <th style="width: 10%; text-align: center;">Faltante</th>
+                <th style="width: 12%;">Observación</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsMaterialesHtml}
+            </tbody>
+          </table>
+
+          <div class="sec-title">2. Detalle de Equipos y Series Individuales Recibidas (ONT / Talonarios de Actas)</div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 8%; text-align: center;">#</th>
+                <th style="width: 42%;">Número de Serie / Correlativo</th>
+                <th style="width: 25%;">Estado en Almacén</th>
+                <th style="width: 25%;">Verificación Física</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsSeriesHtml}
+            </tbody>
+          </table>
+
+          <div class="declaracion-box">
+            <strong>DECLARACIÓN DE CONFORMIDAD:</strong> Por medio de la presente, el Trabajador declara haber hecho entrega formal de los materiales y equipos detallados precedentemente al Almacén Central de <strong>CORPORACION CESPEDES S.A.C.</strong> Ambas partes firman en señal de conformidad quedando regularizado el inventario asignado.
+          </div>
+
+          <div class="firmas-grid">
+            <div class="firma-col">
+              <div class="linea-firma"></div>
+              <div class="firma-cargo">FIRMA DEL TRABAJADOR</div>
+              <div class="firma-nombre">Técnico: ${datosLiq.tecnico_nombre}</div>
+              <div class="firma-sub">DNI: ${dni}</div>
+            </div>
+            <div class="firma-col">
+              <div class="linea-firma"></div>
+              <div class="firma-cargo">FIRMA RESPONSABLE ALMACÉN</div>
+              <div class="firma-nombre">Almacenero: ${datosLiq.almacenero_nombre}</div>
+              <div class="firma-sub">CORPORACION CESPEDES S.A.C.</div>
+            </div>
+          </div>
+
+          <script>
+            window.onload = function() {
+              setTimeout(function() { window.print(); }, 500);
+            };
+          </script>
+        </body>
+        </html>
+      `;
+
+      printWindow.document.open();
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+    } catch (err) {
+      console.error("Error al generar PDF de constancia:", err);
+      alert("Error al generar el PDF de la constancia.");
     }
   };
 
@@ -288,10 +641,24 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
 
       const res = await procesarLiquidacionTecnico(payload);
 
-      // Generar y descargar el Excel inmediatamente
+      // Generar y descargar el PDF y Excel inmediatamente
+      generarPdfConstancia({
+        id_liquidacion: res.id_liquidacion,
+        tecnico_nombre: tecnicoActual.nombre,
+        tecnico_dni: tecnicoActual.dni,
+        cuadrilla: tecnicoActual.cuadrilla,
+        almacenero_nombre: almaceneroNombre,
+        motivo: motivo,
+        observaciones: observacionesGenerales,
+        fecha_liquidacion: new Date().toISOString(),
+        detalles: itemsPayload,
+        series_devueltas: seriesDevueltasTodas,
+      });
+
       generarExcelConstancia({
         id_liquidacion: res.id_liquidacion,
         tecnico_nombre: tecnicoActual.nombre,
+        tecnico_dni: tecnicoActual.dni,
         cuadrilla: tecnicoActual.cuadrilla,
         vehiculo_placa: tecnicoActual.placa,
         almacenero_nombre: almaceneroNombre,
@@ -302,7 +669,7 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
         series_devueltas: seriesDevueltasTodas,
       });
 
-      alert(`✅ ${res.message}\n\nEl archivo Excel  se descargó en tu equipo.`);
+      alert(`✅ ${res.message}\n\nSe ha generado el Acta en PDF y la copia en Excel.`);
 
       // Limpiar formulario y refrescar almacén
       setTecnicoSeleccionadoId("");
@@ -315,6 +682,68 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
       alert("Error al procesar liquidación: " + (err.response?.data?.error || err.message));
     } finally {
       setGuardando(false);
+    }
+  };
+
+  // Ver detalle del Acta en Modal en pantalla
+  const handleVerDetalleModal = async (idLiq: number) => {
+    try {
+      setCargandoModal(true);
+      const data = await getDetalleLiquidacion(idLiq);
+      let seriesList: string[] = [];
+      if (data.detalles) {
+        data.detalles.forEach((d: any) => {
+          if (d.series_devueltas) {
+            try {
+              const parsed = JSON.parse(d.series_devueltas);
+              if (Array.isArray(parsed)) seriesList.push(...parsed);
+            } catch {
+              seriesList.push(d.series_devueltas);
+            }
+          }
+        });
+      }
+      data.series_devueltas_list = seriesList;
+      setModalLiquidacion(data);
+    } catch (err) {
+      alert("Error al cargar el detalle de la liquidación.");
+    } finally {
+      setCargandoModal(false);
+    }
+  };
+
+  // Re-descargar PDF desde historial
+  const handleRedescargarPdf = async (idLiq: number) => {
+    try {
+      const data = await getDetalleLiquidacion(idLiq);
+      let seriesList: string[] = [];
+      if (data.detalles) {
+        data.detalles.forEach((d: any) => {
+          if (d.series_devueltas) {
+            try {
+              const parsed = JSON.parse(d.series_devueltas);
+              if (Array.isArray(parsed)) seriesList.push(...parsed);
+            } catch {
+              seriesList.push(d.series_devueltas);
+            }
+          }
+        });
+      }
+
+      generarPdfConstancia({
+        id_liquidacion: data.id_liquidacion,
+        tecnico_nombre: data.tecnico_nombre,
+        tecnico_dni: data.tecnico_dni,
+        cuadrilla: data.cuadrilla,
+        almacenero_nombre: data.almacenero_nombre,
+        motivo: data.motivo,
+        observaciones: data.observaciones,
+        fecha_liquidacion: data.fecha_liquidacion,
+        detalles: data.detalles || [],
+        series_devueltas: seriesList,
+      });
+    } catch (err) {
+      alert("Error al obtener detalle de liquidación para PDF.");
     }
   };
 
@@ -339,6 +768,7 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
       generarExcelConstancia({
         id_liquidacion: data.id_liquidacion,
         tecnico_nombre: data.tecnico_nombre,
+        tecnico_dni: data.tecnico_dni,
         cuadrilla: data.cuadrilla,
         vehiculo_placa: data.vehiculo_placa,
         almacenero_nombre: data.almacenero_nombre,
@@ -852,8 +1282,8 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
                 <tr>
                   <th className="py-3 px-4">Nº Constancia</th>
                   <th className="py-3 px-4">Fecha & Hora</th>
-                  <th className="py-3 px-4">Técnico / Conductor</th>
-                  <th className="py-3 px-4">Cuadrilla / Vehículo</th>
+                  <th className="py-3 px-4">Técnico / DNI</th>
+                  <th className="py-3 px-4">Cuadrilla</th>
                   <th className="py-3 px-4">Almacenero Receptor</th>
                   <th className="py-3 px-4">Motivo</th>
                   <th className="py-3 px-4 text-center">Ítems Devueltos</th>
@@ -882,12 +1312,14 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
                           <span>{h.fecha_liquidacion ? h.fecha_liquidacion.replace("T", " ") : "-"}</span>
                         </span>
                       </td>
-                      <td className="py-3.5 px-4 font-bold text-slate-900">
-                        {h.tecnico_nombre}
+                      <td className="py-3.5 px-4">
+                        <span className="font-bold text-slate-900 block">{h.tecnico_nombre}</span>
+                        {h.tecnico_dni && (
+                          <span className="text-[11px] font-mono text-slate-500 font-semibold">DNI: {h.tecnico_dni}</span>
+                        )}
                       </td>
                       <td className="py-3.5 px-4">
                         <span className="text-[11px] font-bold text-slate-700 block">{h.cuadrilla}</span>
-                        <span className="text-[10px] font-mono text-cyan-700 font-bold">{h.vehiculo_placa}</span>
                       </td>
                       <td className="py-3.5 px-4 text-slate-700">
                         {h.almacenero_nombre}
@@ -904,15 +1336,26 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
                         {h.total_series_devueltas}
                       </td>
                       <td className="py-3.5 px-4 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleRedescargarExcel(h.id_liquidacion)}
-                          className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl font-bold text-[11px] inline-flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
-                          title="Descargar copia del Acta / en Excel"
-                        >
-                          <Download size={12} />
-                          <span>(.xlsx)</span>
-                        </button>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleVerDetalleModal(h.id_liquidacion)}
+                            className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-extrabold text-[11px] inline-flex items-center gap-1 transition-all cursor-pointer shadow-2xs hover:scale-105"
+                            title="Ver Detalle y Acta en pantalla"
+                          >
+                            <Eye size={13} className="text-indigo-600" />
+                            <span>Ver</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRedescargarPdf(h.id_liquidacion)}
+                            className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-extrabold text-[11px] inline-flex items-center gap-1 transition-all cursor-pointer shadow-2xs hover:scale-105"
+                            title="Exportar / Imprimir Acta Oficial en PDF"
+                          >
+                            <FileText size={13} className="text-rose-600" />
+                            <span>PDF</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -921,6 +1364,225 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
             </table>
           </div>
 
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          4. MODAL DETALLE DE LIQUIDACIÓN Y DEVOLUCIÓN (VISTA BONITA)
+      ───────────────────────────────────────────────────────────── */}
+      {modalLiquidacion && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200/90 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden">
+            
+            {/* Header del Modal */}
+            <div className="bg-slate-900 text-white p-5 sm:px-8 sm:py-6 flex items-start justify-between gap-4 shrink-0 border-b border-slate-800">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-black text-amber-400 uppercase tracking-wider">
+                    CORPORACION CESPEDES S.A.C.
+                  </span>
+                  <span className="text-slate-500">•</span>
+                  <span className="text-[11px] font-bold text-slate-300">
+                    Área de Logística & Almacén Central
+                  </span>
+                </div>
+                <h3 className="text-lg sm:text-xl font-black text-white mt-1 tracking-tight flex items-center gap-2.5">
+                  <span>Acta de Liquidación y Devolución</span>
+                  <span className="px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-400/30">
+                    LIQ-{String(modalLiquidacion.id_liquidacion).padStart(5, "0")}
+                  </span>
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalLiquidacion(null)}
+                className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center transition-colors cursor-pointer"
+                title="Cerrar modal"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Contenido con scroll */}
+            <div className="overflow-y-auto p-5 sm:p-8 space-y-6 flex-1 text-slate-800">
+
+              {/* Ficha de Información del Técnico */}
+              <div className="bg-slate-50/90 rounded-2xl p-5 border border-slate-200/80">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase text-slate-400 block tracking-wider">Técnico / Colaborador</span>
+                    <span className="font-bold text-slate-900 text-sm">{modalLiquidacion.tecnico_nombre}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase text-slate-400 block tracking-wider">DNI</span>
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-md font-mono font-extrabold text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 mt-0.5">
+                      {modalLiquidacion.tecnico_dni || "Sin DNI"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase text-slate-400 block tracking-wider">Fecha y Hora</span>
+                    <span className="font-semibold text-slate-700">
+                      {modalLiquidacion.fecha_liquidacion ? modalLiquidacion.fecha_liquidacion.replace("T", " ") : "-"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase text-slate-400 block tracking-wider">Cuadrilla</span>
+                    <span className="font-semibold text-slate-700">{modalLiquidacion.cuadrilla || "S/C"}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase text-slate-400 block tracking-wider">Almacenero Receptor</span>
+                    <span className="font-semibold text-slate-700">{modalLiquidacion.almacenero_nombre}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase text-slate-400 block tracking-wider">Motivo</span>
+                    <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 inline-block mt-0.5">
+                      {modalLiquidacion.motivo}
+                    </span>
+                  </div>
+                  <div className="sm:col-span-2 md:col-span-3">
+                    <span className="text-[10px] font-extrabold uppercase text-slate-400 block tracking-wider">Observaciones Generales</span>
+                    <span className="font-medium text-slate-600 italic">
+                      {modalLiquidacion.observaciones || "Conforme sin observaciones adicionales."}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* KPIs de Resumen Rápido */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-3.5 flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+                    <CheckCircle2 size={20} />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 block">Total Ítems Devueltos</span>
+                    <span className="text-lg font-black text-emerald-900">{modalLiquidacion.total_items_devueltos}</span>
+                  </div>
+                </div>
+
+                <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-3.5 flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+                    <QrCode size={20} />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-800 block">Series Verificadas</span>
+                    <span className="text-lg font-black text-amber-900">{modalLiquidacion.total_series_devueltas}</span>
+                  </div>
+                </div>
+
+                <div className="bg-slate-100 border border-slate-200 rounded-2xl p-3.5 flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-slate-800 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+                    <Check size={20} />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-600 block">Estado Inventario</span>
+                    <span className="text-xs font-bold text-slate-900">Regularizado en Almacén</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 1. Detalle de Materiales Devueltos */}
+              <div>
+                <div className="flex items-center gap-2 mb-2.5">
+                  <span className="w-2 h-2 rounded-full bg-indigo-600"></span>
+                  <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                    1. Detalle de Materiales, Suministros & Herramientas
+                  </h4>
+                </div>
+
+                <div className="border border-slate-200 rounded-2xl overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-100 text-slate-500 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
+                      <tr>
+                        <th className="py-2.5 px-3">Categoría</th>
+                        <th className="py-2.5 px-3">Producto / Descripción</th>
+                        <th className="py-2.5 px-3">Código</th>
+                        <th className="py-2.5 px-3 text-center">Asignado</th>
+                        <th className="py-2.5 px-3 text-center">Devuelto</th>
+                        <th className="py-2.5 px-3 text-center">Faltante</th>
+                        <th className="py-2.5 px-3">Observación</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {(!modalLiquidacion.detalles || modalLiquidacion.detalles.length === 0) ? (
+                        <tr>
+                          <td colSpan={7} className="py-4 text-center text-slate-400">
+                            No se registraron detalles de ítems.
+                          </td>
+                        </tr>
+                      ) : (
+                        modalLiquidacion.detalles.map((d: any, dIdx: number) => (
+                          <tr key={dIdx} className={dIdx % 2 === 1 ? "bg-slate-50/50" : ""}>
+                            <td className="py-2.5 px-3 font-semibold text-slate-500 text-[11px]">{d.categoria || "MATERIAL"}</td>
+                            <td className="py-2.5 px-3 font-bold text-slate-900">{d.producto_nombre}</td>
+                            <td className="py-2.5 px-3 font-mono text-[11px] text-slate-500">{d.producto_codigo || "-"}</td>
+                            <td className="py-2.5 px-3 text-center font-bold text-slate-700">{d.cantidad_esperada}</td>
+                            <td className="py-2.5 px-3 text-center font-bold text-emerald-700 bg-emerald-50/50">{d.cantidad_devuelta}</td>
+                            <td className="py-2.5 px-3 text-center font-bold">
+                              {Number(d.cantidad_faltante) > 0 ? (
+                                <span className="text-rose-600 font-extrabold">🚨 {d.cantidad_faltante}</span>
+                              ) : (
+                                <span className="text-slate-400">0</span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-500 text-[11px] italic">{d.observaciones || "OK"}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* 2. Detalle de Series / Equipos / Talonarios Recibidos */}
+              <div>
+                <div className="flex items-center gap-2 mb-2.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-600"></span>
+                  <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                    2. Equipos Serializados & Talonarios de Actas Recibidos
+                  </h4>
+                </div>
+
+                {(!modalLiquidacion.series_devueltas_list || modalLiquidacion.series_devueltas_list.length === 0) ? (
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-center text-slate-400 text-xs font-medium">
+                    No se registraron equipos con número de serie o talonarios en esta devolución.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                    {modalLiquidacion.series_devueltas_list.map((sn: string, sIdx: number) => (
+                      <div key={sIdx} className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-lg bg-amber-100 text-amber-800 text-[11px] font-bold flex items-center justify-center shrink-0">
+                            #{sIdx + 1}
+                          </span>
+                          <div>
+                            <span className="font-mono font-bold text-slate-900 text-xs block">{sn}</span>
+                            <span className="text-[10px] text-emerald-700 font-bold">● Recibido en mano</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            {/* Footer con Acciones */}
+            <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0">
+              <span className="text-xs text-slate-500 font-medium">
+                Vista de sólo lectura de la liquidación emitida por Almacén.
+              </span>
+              <button
+                type="button"
+                onClick={() => setModalLiquidacion(null)}
+                className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-all cursor-pointer shadow-sm hover:shadow"
+              >
+                Cerrar
+              </button>
+            </div>
+
+          </div>
         </div>
       )}
 

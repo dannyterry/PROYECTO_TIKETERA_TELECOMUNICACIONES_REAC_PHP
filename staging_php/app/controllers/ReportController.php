@@ -19,7 +19,7 @@ class ReportController extends Controller
         $data = [
             'titulo' => 'Reportes',
             'ocultar_titulo' => true,
-            'js'     => 'reportes',
+            'js'     => false,
             'modal'  => false,
             'anios'  => $anios,
         ];

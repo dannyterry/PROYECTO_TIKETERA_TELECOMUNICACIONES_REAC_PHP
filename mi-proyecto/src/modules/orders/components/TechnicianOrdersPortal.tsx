@@ -37,9 +37,12 @@ import { API_URL } from "../../../config/api";
 interface Props {
   userId?: string | number;
   userName?: string;
+  userRol?: string;
 }
 
-export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName }) => {
+export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, userRol }) => {
+  // Solo se muestra el selector de cambio de técnico en modo prueba (sin userId) o si es Administrador (Rol 1)
+  const esAdminOSimulador = !userId || userRol === "1" || String(userRol).toLowerCase().includes("admin");
   const [tecnicos, setTecnicos] = useState<any[]>([]);
   const [trabajadorActual, setTrabajadorActual] = useState<any>(null);
   const [ordenes, setOrdenes] = useState<Order[]>([]);
@@ -166,8 +169,22 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName }) =>
         setTecnicos(res.data);
         if (res.data.length > 0) {
           let matched = null;
+          // Prioridad 0: Parámetro URL explícito (ej: ?tecnico=65 o #portal-tecnico?tecnico=65)
+          const searchParams = new URLSearchParams(window.location.search || "");
+          const hashQuery = window.location.hash.includes("?") ? window.location.hash.split("?")[1] : "";
+          const hashParams = new URLSearchParams(hashQuery);
+          const paramTech = searchParams.get("tecnico") || searchParams.get("tech") || searchParams.get("id") || hashParams.get("tecnico") || hashParams.get("tech") || hashParams.get("id");
+
+          if (paramTech) {
+            matched = res.data.find((t: any) =>
+              String(t.id_usuario) === String(paramTech) ||
+              String(t.id_trabajador) === String(paramTech) ||
+              (t.nombre_completo || "").toLowerCase().includes(paramTech.toLowerCase())
+            );
+          }
+
           // Prioridad 1: Match EXACTO por id_usuario (Clave primaria única de usuarios)
-          if (userId) {
+          if (!matched && userId) {
             matched = res.data.find((t: any) => String(t.id_usuario) === String(userId));
           }
           // Prioridad 2: Match por nombre de usuario o cuadrilla
@@ -415,9 +432,30 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName }) =>
               <Car size={18} />
             </div>
             <div className="min-w-0 flex-1">
-              <span className="text-[9px] sm:text-[10px] uppercase font-bold text-indigo-300 tracking-wider block truncate">
-                Portal de Campo • Técnico
-              </span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[9px] sm:text-[10px] uppercase font-bold text-indigo-300 tracking-wider block">
+                  Portal de Campo • Técnico
+                </span>
+                {esAdminOSimulador && tecnicos.length > 1 && (
+                  <select
+                    value={trabajadorActual?.id_usuario || ""}
+                    onChange={(e) => {
+                      const sel = tecnicos.find((t: any) => String(t.id_usuario) === String(e.target.value));
+                      if (sel) {
+                        setTrabajadorActual(sel);
+                      }
+                    }}
+                    className="bg-indigo-900/60 text-amber-300 text-[10px] font-bold rounded-lg px-1.5 py-0.5 border border-indigo-400/40 cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber-400"
+                    title="Cambiar técnico de prueba (Solo Administrador / Modo Prueba)"
+                  >
+                    {tecnicos.map((t: any) => (
+                      <option key={t.id_usuario} value={t.id_usuario} className="bg-slate-900 text-white">
+                        🔄 Probar: {t.nombre_completo}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
               <h1 className="text-xs sm:text-sm font-black text-white truncate">
                 {trabajadorActual?.nombre_completo || "Técnico de Campo"}
               </h1>

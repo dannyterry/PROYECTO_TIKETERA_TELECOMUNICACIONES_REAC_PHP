@@ -735,14 +735,18 @@ export const TechnicalActModal: React.FC<Props> = ({
             ───────────────────────────────────────────────────────────── */}
             {(plantillaActual.requiereDrop || Number(dropMetroInicio) > 0) && (
               <div className="p-4 bg-amber-50/50 border border-amber-200 rounded-2xl space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <span className="font-black text-xs text-amber-900 flex items-center gap-1.5">
                     <Package size={16} />
                     Metraje de Cable Drop (Fibra Óptica)
                   </span>
-                  <span className="text-xs font-black px-3 py-1 bg-amber-500 text-white rounded-xl font-mono shadow-xs">
-                    Total Consumido: {totalDropCalculado} metros
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {totalDropCalculado > 0 && (
+                      <span className="text-xs font-black px-3 py-1 bg-amber-500 text-white rounded-xl font-mono shadow-xs">
+                        Total Consumido: {totalDropCalculado} metros
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 items-center">
@@ -753,8 +757,8 @@ export const TechnicalActModal: React.FC<Props> = ({
                       disabled={readOnly}
                       value={dropMetroInicio}
                       onChange={(e) => setDropMetroInicio(e.target.value)}
-                      placeholder="Ej: 160"
-                      className="w-full p-2 bg-white border border-slate-200 rounded-xl font-mono font-bold text-xs disabled:bg-slate-100"
+                      placeholder="Ej: 500"
+                      className="w-full p-2 bg-white border border-slate-200 rounded-xl font-mono font-bold text-xs disabled:bg-slate-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-200"
                     />
                   </div>
 
@@ -765,8 +769,8 @@ export const TechnicalActModal: React.FC<Props> = ({
                       disabled={readOnly}
                       value={dropMetroFin}
                       onChange={(e) => setDropMetroFin(e.target.value)}
-                      placeholder="Ej: 100"
-                      className="w-full p-2 bg-white border border-slate-200 rounded-xl font-mono font-bold text-xs disabled:bg-slate-100"
+                      placeholder="Ej: 435"
+                      className="w-full p-2 bg-white border border-slate-200 rounded-xl font-mono font-bold text-xs disabled:bg-slate-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-200"
                     />
                   </div>
 

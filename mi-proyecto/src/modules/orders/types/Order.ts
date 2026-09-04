@@ -43,6 +43,9 @@ export interface Order {
   esReiteradaTecnico?: boolean;
   totalOrdenesMismoTecnico?: number;
   georeferencia?: string;
+  totalTareas?: number;
+  tareasFinalizadas?: number;
+  progresoPorcentaje?: number;
 }
 
 export type OrderStatus =

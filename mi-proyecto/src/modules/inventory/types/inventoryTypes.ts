@@ -19,6 +19,7 @@ export interface ProductoStock {
 export interface StockTecnicoDetalle {
   id_trabajador: number;
   tecnico_nombre: string;
+  tecnico_dni?: string;
   cuadrilla: string;
   vehiculo_placa: string;
   id_producto: number;
@@ -191,5 +192,70 @@ export interface ProductoSeriesResumen {
   disponibles_almacen: number;
   asignadas_tecnicos: number;
   series: ProductoSerieItem[];
+}
+
+export interface MaterialLiquidadoAudit {
+  id_detalle_liq: number;
+  id_producto: number;
+  numero_serie?: string | null;
+  cantidad: number;
+  drop_inicio?: number | null;
+  drop_fin?: number | null;
+  nombre_producto: string;
+  categoria_liquidar?: string;
+  precio_compra: number | string;
+  costo: number | string;
+}
+
+export interface LiquidacionOrdenAudit {
+  id_liquidacion: number;
+  id_orden: number;
+  id_trabajador: number;
+  tecnico: string;
+  tecnico_dni?: string;
+  numero_acta: string;
+  numero_guia?: string;
+  tipo_trabajo_acta?: string;
+  cto?: string;
+  puerto?: string;
+  speedtest_download?: number | string;
+  speedtest_upload?: number | string;
+  tipo_conexion?: string;
+  drop_metro_inicio?: number | null;
+  drop_metro_fin?: number | null;
+  drop_total_metros: number;
+  observaciones?: string;
+  observaciones_tecnico?: string;
+  estado_liquidacion: "Pendiente" | "Aprobada" | "Rechazada";
+  motivo_rechazo?: string | null;
+  fecha_liquidacion: string;
+  numero_orden: string;
+  cliente: string;
+  direccion: string;
+  tipo_trabajo?: string;
+  tipo_averia?: string;
+  fecha_visita: string;
+  total_items: number;
+  total_costo: number | string;
+  materiales: MaterialLiquidadoAudit[];
+  metraje_fenix?: number | null;
+  es_alerta: boolean;
+  motivo_alerta?: string;
+  max_drop_permitido?: number;
+}
+
+export interface TecnicoLiqAuditResumen {
+  id_trabajador: number;
+  tecnico: string;
+  cuadrilla?: string;
+  foto_personal?: string;
+  tecnico_dni?: string;
+  total_ordenes: number;
+  total_liquidaciones: number;
+  total_pendientes: number;
+  total_aprobadas: number;
+  total_rechazadas: number;
+  total_costo: number | string;
+  ultima_liquidacion?: string;
 }
 

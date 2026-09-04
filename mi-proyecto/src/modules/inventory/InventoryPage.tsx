@@ -10,6 +10,7 @@ import {
   Sparkles,
   QrCode,
   ClipboardCheck,
+  FileCheck,
 } from "lucide-react";
 import { ProductoStock, StockTecnicoDetalle, SerieTecnicoDetalle } from "./types/inventoryTypes";
 import { getStockGeneral } from "./services/inventoryService";
@@ -18,9 +19,10 @@ import { PurchaseEntryTab } from "./components/PurchaseEntryTab";
 import { TechnicianDispatchTab } from "./components/TechnicianDispatchTab";
 import { RetrievedEquipmentTab } from "./components/RetrievedEquipmentTab";
 import { TechnicianLiquidationTab } from "./components/TechnicianLiquidationTab";
+import { OrderLiquidationsAuditTab } from "./components/OrderLiquidationsAuditTab";
 
 export const InventoryPage: React.FC = () => {
-  const [tabActiva, setTabActiva] = useState<"stock" | "compras" | "despacho" | "recogidos" | "liquidacion">("stock");
+  const [tabActiva, setTabActiva] = useState<"stock" | "compras" | "despacho" | "recogidos" | "devoluciones" | "liquidaciones_ordenes">("stock");
   const [productos, setProductos] = useState<ProductoStock[]>([]);
   const [stockPorTecnico, setStockPorTecnico] = useState<StockTecnicoDetalle[]>([]);
   const [seriesTecnicos, setSeriesTecnicos] = useState<SerieTecnicoDetalle[]>([]);
@@ -46,11 +48,12 @@ export const InventoryPage: React.FC = () => {
     if (hash === "compras") setTabActiva("compras");
     else if (hash === "despacho") setTabActiva("despacho");
     else if (hash === "recogidos") setTabActiva("recogidos");
-    else if (hash === "liquidacion") setTabActiva("liquidacion");
+    else if (hash === "devoluciones" || hash === "liquidacion") setTabActiva("devoluciones");
+    else if (hash === "liquidaciones" || hash === "liquidaciones_ordenes") setTabActiva("liquidaciones_ordenes");
     else if (hash === "stock") setTabActiva("stock");
   }, []);
 
-  const handleTabChange = (t: "stock" | "compras" | "despacho" | "recogidos" | "liquidacion") => {
+  const handleTabChange = (t: "stock" | "compras" | "despacho" | "recogidos" | "devoluciones" | "liquidaciones_ordenes") => {
     setTabActiva(t);
   };
 
@@ -148,16 +151,33 @@ export const InventoryPage: React.FC = () => {
           Equipos Recogidos (Internamiento)
         </button>
 
-        {/* Tab 5: Liquidación & Devoluciones (Paz y Salvo) */}
+        {/* Tab 5: Devolución de Dotaciones (Sobrantes / Finiquito) */}
         <button
-          onClick={() => handleTabChange("liquidacion")}
-          className={`px-5 py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 cursor-pointer ${tabActiva === "liquidacion"
+          onClick={() => handleTabChange("devoluciones")}
+          className={`px-5 py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 cursor-pointer ${tabActiva === "devoluciones"
             ? "bg-slate-700 text-white shadow-xs scale-[1.01]"
             : "bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-slate-200/80"
             }`}
         >
-          <ClipboardCheck size={16} className={tabActiva === "liquidacion" ? "text-emerald-300" : "text-slate-400"} />
-          Liquidación & Devolución
+          <ClipboardCheck size={16} className={tabActiva === "devoluciones" ? "text-emerald-300" : "text-slate-400"} />
+          Devoluciones de Dotación
+        </button>
+
+        {/* Tab 6: NUEVO - Liquidaciones de Técnicos (Actas de Campo) */}
+        <button
+          onClick={() => handleTabChange("liquidaciones_ordenes")}
+          className={`px-5 py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 cursor-pointer ${tabActiva === "liquidaciones_ordenes"
+            ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/20 scale-[1.01]"
+            : "bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-slate-200/80"
+            }`}
+        >
+          <FileCheck size={16} className={tabActiva === "liquidaciones_ordenes" ? "text-white" : "text-indigo-500"} />
+          <span>Liquidaciones de Técnicos</span>
+          <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-extrabold uppercase ${
+            tabActiva === "liquidaciones_ordenes" ? "bg-white/20 text-white" : "bg-indigo-100 text-indigo-700"
+          }`}>
+            Actas
+          </span>
         </button>
 
       </div>
@@ -185,12 +205,16 @@ export const InventoryPage: React.FC = () => {
 
       {tabActiva === "recogidos" && <RetrievedEquipmentTab />}
 
-      {tabActiva === "liquidacion" && (
+      {tabActiva === "devoluciones" && (
         <TechnicianLiquidationTab
           stockPorTecnico={stockPorTecnico}
           seriesTecnicos={seriesTecnicos}
           onRefresh={cargarDatos}
         />
+      )}
+
+      {tabActiva === "liquidaciones_ordenes" && (
+        <OrderLiquidationsAuditTab />
       )}
 
     </div>

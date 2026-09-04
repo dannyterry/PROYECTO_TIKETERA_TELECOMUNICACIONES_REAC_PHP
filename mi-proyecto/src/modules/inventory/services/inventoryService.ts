@@ -152,6 +152,41 @@ export const getDetalleLiquidacion = async (idLiquidacion: number | string) => {
   return res.data;
 };
 
+// --- AUDITORÍA DE LIQUIDACIONES EN ÓRDENES DIARIAS (ALMACÉN) ---
+export const getLiquidacionesOrdenesAudit = async (params: {
+  desde?: string;
+  hasta?: string;
+  id_trabajador?: string;
+  estado?: string;
+}) => {
+  const res = await api.get("/almacen/orden-liquidaciones", { params });
+  return res.data;
+};
+
+export const aprobarLiquidacionOrden = async (idLiquidacion: number | string) => {
+  const res = await api.post(`/almacen/orden-liquidaciones/${idLiquidacion}/aprobar`);
+  return res.data;
+};
+
+export const rechazarLiquidacionOrden = async (idLiquidacion: number | string, motivo: string) => {
+  const res = await api.post(`/almacen/orden-liquidaciones/${idLiquidacion}/rechazar`, { motivo });
+  return res.data;
+};
+
+export const aprobarMasivoLiquidaciones = async (ids: number[]) => {
+  const res = await api.post("/almacen/orden-liquidaciones/aprobar-masivo", { ids });
+  return res.data;
+};
+
+export const getMetrajeSugerido = async (numeroOrden: string) => {
+  try {
+    const res = await axios.get(`${API_URL}/ordenes/${numeroOrden}/metraje-sugerido`);
+    return res.data?.metraje || null;
+  } catch {
+    return null;
+  }
+};
+
 
 
 

@@ -274,7 +274,7 @@ export default function App() {
       ───────────────────────────────────────────────────────────── */}
       {isTechnicianPortal && (
         <div className="flex-1 w-full overflow-y-auto min-h-0">
-          <TechnicianOrdersPortal userId={userId} userName={userName} />
+          <TechnicianOrdersPortal userId={userId} userName={userName} userRol={userRol} />
         </div>
       )}
 

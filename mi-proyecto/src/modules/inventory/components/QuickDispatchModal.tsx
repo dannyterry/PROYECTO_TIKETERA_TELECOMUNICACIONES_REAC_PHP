@@ -310,26 +310,35 @@ export const QuickDispatchModal: React.FC<Props> = ({
 
             {/* Vista Rápida de Categorías en Poder del Técnico */}
             {dotacionTecnico && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-                <div className="p-2 bg-white rounded-xl border border-slate-200 text-center">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1">
+                <div className="p-2 bg-white rounded-xl border border-slate-200 text-center shadow-2xs">
                   <span className="text-[9px] font-bold text-slate-400 block uppercase">Materiales</span>
                   <span className="font-mono font-black text-xs text-slate-800">
-                    {dotacionTecnico.materiales?.reduce((a: any, b: any) => a + Number(b.stock), 0) || 0} u.
+                    {(dotacionTecnico.materiales || [])
+                      .filter((i: any) => !i.es_drop && !/drop|cable drop|fibra drop/i.test(i.nombre || ''))
+                      .reduce((a: any, b: any) => a + Number(b.stock), 0)} u.
                   </span>
                 </div>
-                <div className="p-2 bg-white rounded-xl border border-slate-200 text-center">
+                <div className="p-2 bg-amber-50/60 rounded-xl border border-amber-200 text-center shadow-2xs">
+                  <span className="text-[9px] font-bold text-amber-700 block uppercase">Cable Drop</span>
+                  <span className="font-mono font-black text-xs text-amber-900">
+                    {(dotacionTecnico.cablesDrop || dotacionTecnico.todosLosItems?.filter((i: any) => i.es_drop || /drop|cable drop|fibra drop/i.test(i.nombre || '')) || [])
+                      .reduce((a: any, b: any) => a + Number(b.stock), 0)} m.
+                  </span>
+                </div>
+                <div className="p-2 bg-white rounded-xl border border-slate-200 text-center shadow-2xs">
                   <span className="text-[9px] font-bold text-slate-400 block uppercase">Equipos (ONT/Mesh)</span>
                   <span className="font-mono font-black text-xs text-emerald-700">
                     {dotacionTecnico.equipos?.reduce((a: any, b: any) => a + Number(b.stock), 0) || 0} u.
                   </span>
                 </div>
-                <div className="p-2 bg-white rounded-xl border border-slate-200 text-center">
+                <div className="p-2 bg-white rounded-xl border border-slate-200 text-center shadow-2xs">
                   <span className="text-[9px] font-bold text-slate-400 block uppercase">Herramientas</span>
                   <span className="font-mono font-black text-xs text-slate-800">
                     {dotacionTecnico.herramientas?.reduce((a: any, b: any) => a + Number(b.stock), 0) || 0} u.
                   </span>
                 </div>
-                <div className="p-2 bg-white rounded-xl border border-slate-200 text-center">
+                <div className="p-2 bg-white rounded-xl border border-slate-200 text-center shadow-2xs">
                   <span className="text-[9px] font-bold text-slate-400 block uppercase">Uniformes / EPP</span>
                   <span className="font-mono font-black text-xs text-slate-800">
                     {dotacionTecnico.uniformes?.reduce((a: any, b: any) => a + Number(b.stock), 0) || 0} u.

@@ -387,6 +387,9 @@ export const getOrders = async (filters?: {
           esReiteradaTecnico: Boolean(raw.es_reiterada_tecnico),
           totalOrdenesMismoTecnico: Number(raw.total_ordenes_mismo_tecnico || 1),
           georeferencia: String(raw.georeferencia || raw.geolocalizacion || raw.coordenadas || "").trim(),
+          totalTareas: raw.total_tareas !== null && raw.total_tareas !== undefined ? Number(raw.total_tareas) : undefined,
+          tareasFinalizadas: raw.tareas_finalizadas !== null && raw.tareas_finalizadas !== undefined ? Number(raw.tareas_finalizadas) : undefined,
+          progresoPorcentaje: raw.progreso_porcentaje !== null && raw.progreso_porcentaje !== undefined ? Number(raw.progreso_porcentaje) : undefined,
         };
     });
   } catch (error) {
@@ -579,6 +582,18 @@ export interface OrderTask {
   id: string;
   titulo: string;
   estado: string;
+  valor_texto?: string | null;
+  observacion?: string | null;
+  metraje?: number | null;
+  duracion?: string | null;
+  fecha_inicio?: string | null;
+  fecha_fin?: string | null;
+  descripcion?: string | null;
+  campos?: Record<string, string> | null;
+  detalle?: TaskDetail | null;
+  coordenadas_inicio?: { gd: string; gms: string } | null;
+  coordenadas_fin?: { gd: string; gms: string } | null;
+  tiempos?: Record<string, string> | null;
   imagen_base64?: string | null;
 }
 
@@ -597,6 +612,7 @@ export interface TaskDetail {
     titulo: string;
     imagen: string;
   }>;
+  campos?: Record<string, string>;
 }
 
 // ⚡ Caché en memoria para tareas e historial de Fénix (Apertura Instantánea a 0ms)
@@ -640,7 +656,14 @@ export const getCachedOrderStatusHistory = (numeroTicket: string): OrderStatusHi
 export const getOrderTasks = async (
   numeroTicket: string,
   options?: { forceFresh?: boolean; signal?: AbortSignal }
-): Promise<{ ordeVisiId: string | null; tareas: OrderTask[] }> => {
+): Promise<{
+  ordeVisiId: string | null;
+  total_tareas?: number;
+  tareas_finalizadas?: number;
+  progreso_porcentaje?: number;
+  fuente?: string;
+  tareas: OrderTask[];
+}> => {
   const key = String(numeroTicket);
   const cached = tasksCache.get(key);
 
@@ -650,7 +673,11 @@ export const getOrderTasks = async (
   }
 
   try {
-    const response = await fetch(`${API_URL}/ordenes/${numeroTicket}/tareas`, {
+    const url = options?.forceFresh
+      ? `${API_URL}/ordenes/${numeroTicket}/tareas?fresh=true`
+      : `${API_URL}/ordenes/${numeroTicket}/tareas`;
+
+    const response = await fetch(url, {
       signal: options?.signal,
     });
     if (!response.ok) {
@@ -660,6 +687,10 @@ export const getOrderTasks = async (
     const data = await response.json();
     const result = {
       ordeVisiId: data.ordeVisiId || null,
+      total_tareas: data.total_tareas,
+      tareas_finalizadas: data.tareas_finalizadas,
+      progreso_porcentaje: data.progreso_porcentaje,
+      fuente: data.fuente,
       tareas: data.tareas || []
     };
 
@@ -674,15 +705,20 @@ export const getOrderTasks = async (
 /**
  * 🚀 7. Obtener detalle de una tarea (coordenadas, fotos, tiempos)
  */
-export const getTaskDetail = async (idTarea: string, index: number): Promise<TaskDetail | null> => {
-  const response = await fetch(`${API_URL}/ordenes/tarea-detalle`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ idTarea, index }),
-  });
-  if (!response.ok) throw new Error("Error al consultar el detalle de la tarea");
-  const data = await response.json();
-  return data.detalle || null;
+export const getTaskDetail = async (idTarea: string, index: number, numeroOrden?: string): Promise<TaskDetail | null> => {
+  try {
+    const response = await fetch(`${API_URL}/ordenes/tarea-detalle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idTarea, index, numeroOrden }),
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data.detalle || null;
+  } catch (err) {
+    console.error("Error al obtener detalle de tarea:", err);
+    return null;
+  }
 };
 
 /**

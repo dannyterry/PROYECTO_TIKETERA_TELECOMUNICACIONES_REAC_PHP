@@ -1201,12 +1201,25 @@ async function obtenerDetalleTarea(idTarea, index) {
       }
     });
 
+    // Extraer campos de tabla (CAMPO / VALOR)
+    const campos = {};
+    const trRegex = /<tr[^>]*>[\s\S]*?<td[^>]*>([\s\S]*?)<\/td>[\s\S]*?<td[^>]*>([\s\S]*?)<\/td>[\s\S]*?<\/tr>/gi;
+    let trMatch;
+    while ((trMatch = trRegex.exec(html)) !== null) {
+      const campoKey = trMatch[1].replace(/<[^>]+>/g, '').trim();
+      const campoVal = trMatch[2].replace(/<[^>]+>/g, '').trim();
+      if (campoKey && !campoKey.toLowerCase().includes('campo') && campoKey !== 'TareaId' && campoKey !== 'NumeRegis') {
+        campos[campoKey] = campoVal;
+      }
+    }
+
     return {
       coordenadas_inicio,
       coordenadas_fin,
       descripcion,
       tiempos,
-      fotografias
+      fotografias,
+      campos
     };
   } catch (e) {
     console.error("Error al obtener detalle de tarea:", e.message);
