@@ -5,6 +5,7 @@ import {
   StockTecnicoDetalle,
   SerieTecnicoDetalle,
   Proveedor,
+  CategoriaItem,
   CompraPayload,
   DespachoPayload,
   EquipoRetirado,
@@ -26,13 +27,48 @@ export const getStockGeneral = async (): Promise<{
   return res.data;
 };
 
+export const getProductos = async (): Promise<ProductoStock[]> => {
+  const res = await api.get("/almacen/stock-general");
+  return res.data?.productos || [];
+};
+
 export const getProveedores = async (): Promise<Proveedor[]> => {
   const res = await api.get("/almacen/proveedores");
   return res.data;
 };
 
-export const getCategorias = async (): Promise<{ id_categoria: number; nombre: string; descripcion?: string }[]> => {
+export const crearProveedor = async (payload: Partial<Proveedor>) => {
+  const res = await api.post("/almacen/proveedores", payload);
+  return res.data;
+};
+
+export const actualizarProveedor = async (id: number, payload: Partial<Proveedor>) => {
+  const res = await api.put(`/almacen/proveedores/${id}`, payload);
+  return res.data;
+};
+
+export const desactivarProveedor = async (id: number) => {
+  const res = await api.delete(`/almacen/proveedores/${id}`);
+  return res.data;
+};
+
+export const getCategorias = async (): Promise<CategoriaItem[]> => {
   const res = await api.get("/almacen/categorias");
+  return res.data;
+};
+
+export const crearCategoria = async (payload: { nombre: string; descripcion?: string; estado?: string }) => {
+  const res = await api.post("/almacen/categorias", payload);
+  return res.data;
+};
+
+export const actualizarCategoria = async (id: number, payload: { nombre?: string; descripcion?: string; estado?: string }) => {
+  const res = await api.put(`/almacen/categorias/${id}`, payload);
+  return res.data;
+};
+
+export const desactivarCategoria = async (id: number) => {
+  const res = await api.delete(`/almacen/categorias/${id}`);
   return res.data;
 };
 

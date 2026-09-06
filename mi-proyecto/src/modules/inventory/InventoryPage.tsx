@@ -11,6 +11,7 @@ import {
   QrCode,
   ClipboardCheck,
   FileCheck,
+  Tag,
 } from "lucide-react";
 import { ProductoStock, StockTecnicoDetalle, SerieTecnicoDetalle } from "./types/inventoryTypes";
 import { getStockGeneral } from "./services/inventoryService";
@@ -20,9 +21,13 @@ import { TechnicianDispatchTab } from "./components/TechnicianDispatchTab";
 import { RetrievedEquipmentTab } from "./components/RetrievedEquipmentTab";
 import { TechnicianLiquidationTab } from "./components/TechnicianLiquidationTab";
 import { OrderLiquidationsAuditTab } from "./components/OrderLiquidationsAuditTab";
+import { CategoriesTab } from "./components/CategoriesTab";
+import { SuppliersTab } from "./components/SuppliersTab";
 
 export const InventoryPage: React.FC = () => {
-  const [tabActiva, setTabActiva] = useState<"stock" | "compras" | "despacho" | "recogidos" | "devoluciones" | "liquidaciones_ordenes">("stock");
+  const [tabActiva, setTabActiva] = useState<
+    "stock" | "compras" | "despacho" | "recogidos" | "devoluciones" | "liquidaciones_ordenes" | "categorias" | "proveedores"
+  >("stock");
   const [productos, setProductos] = useState<ProductoStock[]>([]);
   const [stockPorTecnico, setStockPorTecnico] = useState<StockTecnicoDetalle[]>([]);
   const [seriesTecnicos, setSeriesTecnicos] = useState<SerieTecnicoDetalle[]>([]);
@@ -43,17 +48,26 @@ export const InventoryPage: React.FC = () => {
   useEffect(() => {
     cargarDatos();
 
-    // Sincronizar hash de URL
-    const hash = window.location.hash.replace("#", "");
-    if (hash === "compras") setTabActiva("compras");
-    else if (hash === "despacho") setTabActiva("despacho");
-    else if (hash === "recogidos") setTabActiva("recogidos");
-    else if (hash === "devoluciones" || hash === "liquidacion") setTabActiva("devoluciones");
-    else if (hash === "liquidaciones" || hash === "liquidaciones_ordenes") setTabActiva("liquidaciones_ordenes");
-    else if (hash === "stock") setTabActiva("stock");
+    const sincronizarHash = () => {
+      const hash = window.location.hash.toLowerCase().replace("#", "");
+      if (hash.includes("categoria")) setTabActiva("categorias");
+      else if (hash.includes("proveedor")) setTabActiva("proveedores");
+      else if (hash.includes("compra")) setTabActiva("compras");
+      else if (hash.includes("despacho")) setTabActiva("despacho");
+      else if (hash.includes("recogido")) setTabActiva("recogidos");
+      else if (hash.includes("devolucion") || hash.includes("liquidacion_tecnico")) setTabActiva("devoluciones");
+      else if (hash.includes("liquidaciones") || hash.includes("liquidaciones_ordenes")) setTabActiva("liquidaciones_ordenes");
+      else if (hash.includes("stock") || hash.includes("inventario") || hash.includes("producto")) setTabActiva("stock");
+    };
+
+    sincronizarHash();
+    window.addEventListener("hashchange", sincronizarHash);
+    return () => window.removeEventListener("hashchange", sincronizarHash);
   }, []);
 
-  const handleTabChange = (t: "stock" | "compras" | "despacho" | "recogidos" | "devoluciones" | "liquidaciones_ordenes") => {
+  const handleTabChange = (
+    t: "stock" | "compras" | "despacho" | "recogidos" | "devoluciones" | "liquidaciones_ordenes" | "categorias" | "proveedores"
+  ) => {
     setTabActiva(t);
   };
 
@@ -180,6 +194,30 @@ export const InventoryPage: React.FC = () => {
           </span>
         </button>
 
+        {/* Tab 7: Categorías */}
+        <button
+          onClick={() => handleTabChange("categorias")}
+          className={`px-5 py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 cursor-pointer ${tabActiva === "categorias"
+            ? "bg-slate-700 text-white shadow-xs scale-[1.01]"
+            : "bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-slate-200/80"
+            }`}
+        >
+          <Tag size={16} className={tabActiva === "categorias" ? "text-indigo-300" : "text-slate-400"} />
+          Categorías
+        </button>
+
+        {/* Tab 8: Proveedores */}
+        <button
+          onClick={() => handleTabChange("proveedores")}
+          className={`px-5 py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 cursor-pointer ${tabActiva === "proveedores"
+            ? "bg-slate-700 text-white shadow-xs scale-[1.01]"
+            : "bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-slate-200/80"
+            }`}
+        >
+          <Building2 size={16} className={tabActiva === "proveedores" ? "text-teal-300" : "text-slate-400"} />
+          Proveedores
+        </button>
+
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
@@ -215,6 +253,14 @@ export const InventoryPage: React.FC = () => {
 
       {tabActiva === "liquidaciones_ordenes" && (
         <OrderLiquidationsAuditTab />
+      )}
+
+      {tabActiva === "categorias" && (
+        <CategoriesTab />
+      )}
+
+      {tabActiva === "proveedores" && (
+        <SuppliersTab />
       )}
 
     </div>

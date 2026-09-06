@@ -34,6 +34,98 @@ const upload = multer({ storage: storage }).fields([
 
 app.get("/", (req, res) => { res.send("API Telecom funcionando con MySQL y Multer"); });
 
+// --- 🔐 AUTENTICACIÓN / LOGIN DIRECTO EN API ---
+app.post(['/login', '/api/login'], async (req, res) => {
+  try {
+    const { usuario, password } = req.body;
+    if (!usuario || !password) {
+      return res.status(400).json({ success: false, mensaje: "Ingrese usuario y contraseña." });
+    }
+
+    const [rows] = await pool.query(`
+      SELECT 
+        u.id_usuario,
+        u.id_rol,
+        u.usuario,
+        u.password,
+        u.nombres,
+        u.primer_apellido,
+        u.segundo_apellido,
+        u.apellidos,
+        u.email,
+        u.area,
+        u.foto_personal,
+        u.estado,
+        r.nombre as nombre_rol
+      FROM usuarios u
+      LEFT JOIN roles r ON u.id_rol = r.id_rol
+      WHERE u.usuario = ?
+      LIMIT 1
+    `, [usuario.trim()]);
+
+    if (rows.length === 0) {
+      return res.status(401).json({ success: false, mensaje: "Usuario o contraseña incorrectos." });
+    }
+
+    const u = rows[0];
+
+    if (u.estado !== 'Activo') {
+      return res.status(403).json({ success: false, mensaje: "El usuario se encuentra inactivo. Consulte con RRHH." });
+    }
+
+    // Validación de contraseña (soporta texto plano o hash si aplica)
+    if (String(u.password).trim() !== String(password).trim()) {
+      return res.status(401).json({ success: false, mensaje: "Usuario o contraseña incorrectos." });
+    }
+
+    // Obtener permisos del rol
+    const [permRows] = await pool.query(`
+      SELECT p.clave, p.modulo
+      FROM permisos p
+      INNER JOIN roles_permisos rp ON rp.id_permiso = p.id_permiso
+      WHERE rp.id_rol = ? AND p.estado = 'Activo'
+    `, [u.id_rol]);
+
+    const permisos = permRows.map(p => p.clave);
+
+    // Marcar usuario online
+    await pool.query("UPDATE usuarios SET ultimo_acceso = NOW(), esta_online = 1, ultima_accion = 'Inicio de sesión' WHERE id_usuario = ?", [u.id_usuario]);
+
+    const nombreCompleto = `${u.nombres} ${u.primer_apellido || u.apellidos || ''}`.trim();
+
+    res.json({
+      success: true,
+      user: {
+        id_usuario: u.id_usuario,
+        id_rol: u.id_rol,
+        usuario: u.usuario,
+        nombres: u.nombres,
+        apellidos: u.apellidos || `${u.primer_apellido || ''} ${u.segundo_apellido || ''}`.trim(),
+        nombreCompleto,
+        email: u.email,
+        rol: u.nombre_rol || 'Usuario',
+        area: u.area || '',
+        foto_personal: u.foto_personal || null,
+        permisos
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, mensaje: error.message });
+  }
+});
+
+app.post(['/logout', '/api/logout'], async (req, res) => {
+  try {
+    const { id_usuario } = req.body;
+    if (id_usuario) {
+      await pool.query("UPDATE usuarios SET esta_online = 0, ultima_accion = 'Cierre de sesión' WHERE id_usuario = ?", [id_usuario]);
+    }
+    res.json({ success: true, message: "Sesión cerrada correctamente." });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // ⏱️ Endpoint de Diagnóstico de Zona Horaria
 app.get("/time-diagnostic", async (req, res) => {
   try {
@@ -569,11 +661,869 @@ app.get('/empleados/:id/historial', async (req, res) => {
   }
 });
 
-app.get('/roles', async (req, res) => {
+// --- 👥 ROLES CRUD ---
+app.get(['/roles', '/api/roles'], async (req, res) => {
   try {
-    const [rows] = await pool.query("SELECT id_rol, nombre FROM roles WHERE estado = 'Activo'");
+    const [rows] = await pool.query("SELECT id_rol, nombre, descripcion, estado FROM roles ORDER BY id_rol ASC");
     res.json(rows);
   } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.post('/api/roles', async (req, res) => {
+  try {
+    const { nombre, descripcion, estado = 'Activo' } = req.body;
+    if (!nombre || !nombre.trim()) return res.status(400).json({ error: "El nombre del rol es requerido." });
+    const [result] = await pool.query(
+      "INSERT INTO roles (nombre, descripcion, estado) VALUES (?, ?, ?)",
+      [nombre.trim().toUpperCase(), descripcion?.trim() || null, estado]
+    );
+    res.json({ success: true, id_rol: result.insertId, message: "Rol creado con éxito." });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.put('/api/roles/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, descripcion, estado } = req.body;
+    await pool.query(
+      "UPDATE roles SET nombre = COALESCE(?, nombre), descripcion = COALESCE(?, descripcion), estado = COALESCE(?, estado) WHERE id_rol = ?",
+      [nombre?.trim()?.toUpperCase() || null, descripcion !== undefined ? descripcion?.trim() : null, estado || null, id]
+    );
+    res.json({ success: true, message: "Rol actualizado con éxito." });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.delete('/api/roles/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query("UPDATE roles SET estado = 'Inactivo' WHERE id_rol = ?", [id]);
+    res.json({ success: true, message: "Rol desactivado con éxito." });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// --- 🏢 ÁREAS CRUD ---
+app.get(['/areas', '/api/areas'], async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        a.id_area, 
+        a.nombre, 
+        a.estado, 
+        a.fecha_creacion,
+        (SELECT COUNT(*) FROM usuarios u WHERE LOWER(TRIM(u.area)) = LOWER(TRIM(a.nombre))) AS total_empleados
+      FROM areas a 
+      ORDER BY a.nombre ASC
+    `);
+    res.json(rows);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.post('/api/areas', async (req, res) => {
+  try {
+    const { nombre, estado = 'Activo' } = req.body;
+    if (!nombre || !nombre.trim()) return res.status(400).json({ error: "El nombre del área es requerido." });
+    const [result] = await pool.query(
+      "INSERT INTO areas (nombre, estado) VALUES (?, ?)",
+      [nombre.trim(), estado]
+    );
+    res.json({ success: true, id_area: result.insertId, message: "Área creada con éxito." });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.put('/api/areas/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, estado } = req.body;
+    await pool.query(
+      "UPDATE areas SET nombre = COALESCE(?, nombre), estado = COALESCE(?, estado) WHERE id_area = ?",
+      [nombre?.trim() || null, estado || null, id]
+    );
+    res.json({ success: true, message: "Área actualizada con éxito." });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.delete('/api/areas/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query("UPDATE areas SET estado = 'Inactivo' WHERE id_area = ?", [id]);
+    res.json({ success: true, message: "Área desactivada con éxito." });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// ==========================================
+// ⚙️ CONFIGURACIÓN: MOTIVOS, TIPOS DE TRABAJO, SISTEMA Y PERMISOS
+// ==========================================
+
+// --- 1. MOTIVOS CRUD ---
+app.get(['/motivos', '/api/motivos'], async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        id_motivo, 
+        nombre, 
+        COALESCE(tipo_trabajo, '') AS tipo_trabajo,
+        COALESCE(precio_compra, 0.00) AS precio_compra,
+        COALESCE(precio_venta, 0.00) AS precio_venta,
+        limites_materiales,
+        estado,
+        fecha_creacion
+      FROM motivos
+      ORDER BY nombre ASC
+    `);
+    res.json(rows);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.post('/api/motivos', async (req, res) => {
+  try {
+    const { nombre, tipo_trabajo, precio_compra, precio_venta, limites_materiales, estado = 'Activo' } = req.body;
+    if (!nombre || !nombre.trim()) return res.status(400).json({ error: "El nombre del motivo es requerido." });
+    const limitesStr = typeof limites_materiales === 'object' ? JSON.stringify(limites_materiales) : (limites_materiales || null);
+    const [result] = await pool.query(`
+      INSERT INTO motivos (nombre, tipo_trabajo, precio_compra, precio_venta, limites_materiales, estado)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [nombre.trim().toUpperCase(), tipo_trabajo?.trim() || null, precio_compra || 0.00, precio_venta || 0.00, limitesStr, estado]);
+    res.json({ success: true, id_motivo: result.insertId, message: "Motivo creado con éxito." });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.put('/api/motivos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, tipo_trabajo, precio_compra, precio_venta, limites_materiales, estado } = req.body;
+    const limitesStr = typeof limites_materiales === 'object' ? JSON.stringify(limites_materiales) : (limites_materiales !== undefined ? limites_materiales : null);
+    await pool.query(`
+      UPDATE motivos 
+      SET 
+        nombre = COALESCE(?, nombre),
+        tipo_trabajo = COALESCE(?, tipo_trabajo),
+        precio_compra = COALESCE(?, precio_compra),
+        precio_venta = COALESCE(?, precio_venta),
+        limites_materiales = COALESCE(?, limites_materiales),
+        estado = COALESCE(?, estado)
+      WHERE id_motivo = ?
+    `, [nombre?.trim()?.toUpperCase() || null, tipo_trabajo?.trim() || null, precio_compra, precio_venta, limitesStr, estado || null, id]);
+    res.json({ success: true, message: "Motivo actualizado con éxito." });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.delete('/api/motivos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query("UPDATE motivos SET estado = 'Inactivo' WHERE id_motivo = ?", [id]);
+    res.json({ success: true, message: "Motivo desactivado con éxito." });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// --- 2. TIPOS DE TRABAJO CRUD ---
+app.get(['/tipos-trabajo', '/api/tipos-trabajo'], async (req, res) => {
+  try {
+    const [rows] = await pool.query("SELECT id_tipo_trabajo, nombre, estado FROM tipos_trabajo ORDER BY nombre ASC");
+    res.json(rows);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.post('/api/tipos-trabajo', async (req, res) => {
+  try {
+    const { nombre, estado = 'Activo' } = req.body;
+    if (!nombre || !nombre.trim()) return res.status(400).json({ error: "El nombre es requerido." });
+    const [result] = await pool.query(
+      "INSERT INTO tipos_trabajo (nombre, estado) VALUES (?, ?)",
+      [nombre.trim().toUpperCase(), estado]
+    );
+    res.json({ success: true, id_tipo_trabajo: result.insertId, message: "Tipo de trabajo creado con éxito." });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.put('/api/tipos-trabajo/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, estado } = req.body;
+    await pool.query(
+      "UPDATE tipos_trabajo SET nombre = COALESCE(?, nombre), estado = COALESCE(?, estado) WHERE id_tipo_trabajo = ?",
+      [nombre?.trim()?.toUpperCase() || null, estado || null, id]
+    );
+    res.json({ success: true, message: "Tipo de trabajo actualizado con éxito." });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.delete('/api/tipos-trabajo/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query("UPDATE tipos_trabajo SET estado = 'Inactivo' WHERE id_tipo_trabajo = ?", [id]);
+    res.json({ success: true, message: "Tipo de trabajo desactivado con éxito." });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// --- 3. CONFIGURACIÓN DEL SISTEMA (Variables Globales) ---
+app.get('/api/configuracion/sistema', async (req, res) => {
+  try {
+    const [rows] = await pool.query("SELECT id, clave, valor, descripcion, grupo, updated_at FROM configuracion ORDER BY grupo ASC, clave ASC");
+    res.json(rows);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.post('/api/configuracion/sistema', async (req, res) => {
+  try {
+    const configs = req.body; // objeto clave: valor o array
+    if (typeof configs === 'object' && !Array.isArray(configs)) {
+      for (const [clave, valor] of Object.entries(configs)) {
+        await pool.query(`
+          INSERT INTO configuracion (clave, valor, updated_at)
+          VALUES (?, ?, NOW())
+          ON DUPLICATE KEY UPDATE valor = VALUES(valor), updated_at = NOW()
+        `, [clave, String(valor ?? '')]);
+      }
+    }
+    res.json({ success: true, message: "Configuración guardada exitosamente." });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// --- 4. ROLES Y PERMISOS MATRIZ ---
+app.get('/api/permisos/resumen', async (req, res) => {
+  try {
+    const [roles] = await pool.query(`
+      SELECT 
+        r.id_rol, 
+        r.nombre AS nombre_rol, 
+        r.estado,
+        COUNT(rp.id_permiso) AS total_permisos,
+        GROUP_CONCAT(DISTINCT SUBSTRING_INDEX(p.clave, '.', 1) ORDER BY SUBSTRING_INDEX(p.clave, '.', 1) SEPARATOR ',') AS modulos_activos
+      FROM roles r
+      LEFT JOIN roles_permisos rp ON rp.id_rol = r.id_rol
+      LEFT JOIN permisos p ON p.id_permiso = rp.id_permiso AND p.estado = 'Activo'
+      GROUP BY r.id_rol
+      ORDER BY r.id_rol ASC
+    `);
+
+    const [todosPermisos] = await pool.query("SELECT id_permiso, nombre, clave, modulo, estado FROM permisos WHERE estado = 'Activo'");
+
+    res.json({ success: true, roles, permisos: todosPermisos });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.get('/api/permisos/rol/:id_rol', async (req, res) => {
+  try {
+    const { id_rol } = req.params;
+    const [rows] = await pool.query(`
+      SELECT p.id_permiso, p.clave, p.nombre, p.modulo
+      FROM permisos p
+      JOIN roles_permisos rp ON rp.id_permiso = p.id_permiso
+      WHERE rp.id_rol = ? AND p.estado = 'Activo'
+    `, [id_rol]);
+    res.json({ success: true, claves: rows.map(r => r.clave), permisos: rows });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.post('/api/permisos/guardar', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const { id_rol, claves } = req.body;
+    if (!id_rol) return res.status(400).json({ error: "id_rol es requerido." });
+
+    const clavesArr = Array.isArray(claves) ? claves : (typeof claves === 'string' ? JSON.parse(claves || '[]') : []);
+
+    // 1. Eliminar permisos anteriores del rol
+    await connection.query("DELETE FROM roles_permisos WHERE id_rol = ?", [id_rol]);
+
+    // 2. Insertar cada permiso
+    for (const clv of clavesArr) {
+      const cleanClave = String(clv).trim();
+      if (!cleanClave || !cleanClave.includes('.')) continue;
+
+      const [modulo, accion] = cleanClave.split('.');
+      const nombre = `${accion.charAt(0).toUpperCase() + accion.slice(1)} ${modulo.charAt(0).toUpperCase() + modulo.slice(1)}`;
+
+      let [perm] = await connection.query("SELECT id_permiso FROM permisos WHERE clave = ?", [cleanClave]);
+      let idPermiso;
+      if (perm.length > 0) {
+        idPermiso = perm[0].id_permiso;
+      } else {
+        const [ins] = await connection.query(
+          "INSERT INTO permisos (nombre, clave, modulo, estado) VALUES (?, ?, ?, 'Activo')",
+          [nombre, cleanClave, modulo]
+        );
+        idPermiso = ins.insertId;
+      }
+
+      await connection.query(
+        "INSERT IGNORE INTO roles_permisos (id_rol, id_permiso) VALUES (?, ?)",
+        [id_rol, idPermiso]
+      );
+    }
+
+    await connection.commit();
+    res.json({ success: true, message: "Permisos del rol actualizados con éxito." });
+  } catch (error) {
+    await connection.rollback();
+    res.status(500).json({ error: error.message });
+  } finally {
+    connection.release();
+  }
+});
+
+app.delete('/api/permisos/rol/:id_rol', async (req, res) => {
+  try {
+    const { id_rol } = req.params;
+    await pool.query("DELETE FROM roles_permisos WHERE id_rol = ?", [id_rol]);
+    res.json({ success: true, message: "Permisos eliminados del rol." });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// --- 📧 MÓDULO DE CORREOS / SMTP ---
+const nodemailer = require('nodemailer');
+
+// 1. Obtener configuración SMTP
+app.get('/api/correos/config', async (req, res) => {
+  try {
+    const claves = ['EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_USER', 'EMAIL_PASSWORD', 'EMAIL_SECURE', 'EMAIL_FROM_NAME', 'EMAIL_PRUEBA'];
+    const [rows] = await pool.query("SELECT clave, valor FROM configuracion WHERE clave IN (?)", [claves]);
+    const config = {
+      EMAIL_HOST: '',
+      EMAIL_PORT: '587',
+      EMAIL_USER: '',
+      EMAIL_PASSWORD: '',
+      EMAIL_SECURE: 'tls',
+      EMAIL_FROM_NAME: '',
+      EMAIL_PRUEBA: ''
+    };
+    rows.forEach(r => {
+      if (r.clave in config) config[r.clave] = r.valor || '';
+    });
+    res.json(config);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// 2. Guardar configuración SMTP
+app.post('/api/correos/config', async (req, res) => {
+  try {
+    const data = req.body;
+    for (const [k, v] of Object.entries(data)) {
+      await pool.query(`
+        INSERT INTO configuracion (clave, valor, updated_at)
+        VALUES (?, ?, NOW())
+        ON DUPLICATE KEY UPDATE valor = VALUES(valor), updated_at = NOW()
+      `, [k, String(v ?? '')]);
+    }
+    res.json({ success: true, message: "Configuración SMTP guardada exitosamente." });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// 3. Obtener técnicos con correo registrado
+app.get('/api/correos/tecnicos', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT
+        t.id_trabajador,
+        CONCAT_WS(' ', u.nombres, u.apellidos) AS tecnico,
+        u.email
+      FROM trabajadores t
+      INNER JOIN usuarios u ON u.id_usuario = t.id_usuario
+      INNER JOIN roles r    ON r.id_rol     = u.id_rol
+      WHERE (LOWER(r.nombre) LIKE '%tecnico%' OR r.id_rol = 2)
+        AND u.email IS NOT NULL
+        AND TRIM(u.email) <> ''
+        AND TRIM(u.email) <> '-'
+      ORDER BY tecnico ASC
+    `);
+    res.json(rows);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// 4. Enviar correo de prueba
+app.post('/api/correos/enviar-prueba', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const [rows] = await pool.query(
+      "SELECT clave, valor FROM configuracion WHERE clave IN ('EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_USER', 'EMAIL_PASSWORD', 'EMAIL_SECURE', 'EMAIL_FROM_NAME', 'EMAIL_PRUEBA')"
+    );
+    const cfg = {};
+    rows.forEach(r => { cfg[r.clave] = r.valor; });
+
+    const destino = email || cfg.EMAIL_PRUEBA;
+    if (!destino) return res.status(400).json({ success: false, mensaje: "Debe ingresar un correo de destino." });
+
+    if (!cfg.EMAIL_HOST || !cfg.EMAIL_USER || !cfg.EMAIL_PASSWORD) {
+      return res.status(400).json({ success: false, mensaje: "La configuración SMTP está incompleta." });
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: cfg.EMAIL_HOST,
+      port: parseInt(cfg.EMAIL_PORT || '587', 10),
+      secure: cfg.EMAIL_SECURE === 'ssl',
+      auth: {
+        user: cfg.EMAIL_USER,
+        pass: cfg.EMAIL_PASSWORD
+      },
+      tls: {
+        rejectUnauthorized: false
+      }
+    });
+
+    await transporter.sendMail({
+      from: `"${cfg.EMAIL_FROM_NAME || 'Sistema Telecom'}" <${cfg.EMAIL_USER}>`,
+      to: destino,
+      subject: "Correo de prueba - Configuración Exitosa",
+      html: `
+        <div style="font-family: sans-serif; padding: 20px; color: #333;">
+          <h2 style="color: #059669;">¡Configuración SMTP Correcta!</h2>
+          <p>Este es un correo de prueba emitido desde la plataforma de telecomunicaciones.</p>
+          <p>La conexión con el servidor <b>${cfg.EMAIL_HOST}</b> se ha validado exitosamente.</p>
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
+          <small style="color: #888;">Fecha y hora de envío: ${new Date().toLocaleString('es-PE')}</small>
+        </div>
+      `
+    });
+
+    res.json({ success: true, mensaje: `Correo de prueba enviado exitosamente a ${destino}.` });
+  } catch (error) {
+    res.status(500).json({ success: false, mensaje: error.message });
+  }
+});
+
+// --- 💰 MÓDULO DE PAGOS Y LIQUIDACIÓN FINANCIERA A TÉCNICOS ---
+app.get('/api/pagos/resumen', async (req, res) => {
+  try {
+    const { desde, hasta, estado } = req.query;
+
+    let where = "o.estado = 'Finalizada' AND o.id_tecnico IS NOT NULL";
+    const params = [];
+
+    if (desde && hasta) {
+      where += " AND DATE(o.fecha_visita) BETWEEN ? AND ?";
+      params.push(desde, hasta);
+    } else if (desde) {
+      where += " AND DATE(o.fecha_visita) >= ?";
+      params.push(desde);
+    } else if (hasta) {
+      where += " AND DATE(o.fecha_visita) <= ?";
+      params.push(hasta);
+    }
+
+    if (estado === 'liquidada') {
+      where += " AND EXISTS (SELECT 1 FROM orden_liquidaciones eli WHERE eli.id_orden = o.id_orden AND eli.estado = 'Aprobada')";
+    } else if (estado === 'pendiente') {
+      where += " AND EXISTS (SELECT 1 FROM orden_liquidaciones eli WHERE eli.id_orden = o.id_orden AND eli.estado = 'Pendiente')";
+    } else if (estado === 'rechazada') {
+      where += " AND EXISTS (SELECT 1 FROM orden_liquidaciones eli WHERE eli.id_orden = o.id_orden AND eli.estado = 'Rechazada')";
+    } else if (estado === 'sin_liquidar') {
+      where += " AND NOT EXISTS (SELECT 1 FROM orden_liquidaciones eli WHERE eli.id_orden = o.id_orden)";
+    }
+
+    const sql = `
+      SELECT
+        o.id_orden,
+        o.numero,
+        o.fecha_visita,
+        TRIM(UPPER(o.tipo_trabajo)) AS tipo_trabajo,
+        o.id_tecnico,
+        CONCAT_WS(' ', u.nombres, u.apellidos) AS tecnico,
+        m.id_motivo,
+        m.nombre AS motivo_nombre,
+        COALESCE(m.precio_compra, 0) AS precio_win,
+        COALESCE(m.precio_venta, 0)  AS precio_tecnico,
+        (SELECT COALESCE(SUM(
+            CASE WHEN ps.estado = 'BAJA' THEN 0
+                 ELSE d.cantidad * p.precio_compra END), 0)
+         FROM orden_liquidaciones ol
+         INNER JOIN orden_liquidacion_detalle d ON d.id_liquidacion = ol.id_liquidacion
+         INNER JOIN productos p ON p.id_producto = d.id_producto
+         LEFT JOIN producto_series ps ON ps.id_producto_serie = d.id_producto_serie
+         WHERE ol.id_orden = o.id_orden
+           AND ol.estado IN ('Pendiente','Aprobada')) AS costo_material
+      FROM ordenes o
+      LEFT JOIN motivos m
+        ON m.estado = 'Activo'
+       AND m.tipo_trabajo IS NOT NULL
+       AND TRIM(UPPER(m.tipo_trabajo)) = TRIM(UPPER(o.tipo_trabajo))
+      LEFT JOIN trabajadores t ON t.id_trabajador = o.id_tecnico
+      LEFT JOIN usuarios u     ON u.id_usuario    = t.id_usuario
+      WHERE ${where}
+      ORDER BY o.numero ASC
+    `;
+
+    const [filas] = await pool.query(sql, params);
+
+    const totales = {
+      num_ordenes: 0,
+      sin_precio: 0,
+      ingreso_win: 0,
+      costo_material: 0,
+      pago_tecnicos: 0,
+      ganancia: 0
+    };
+
+    const tecnicosMap = {};
+
+    filas.forEach((f) => {
+      const ingreso = Math.round(Number(f.precio_win) * 100) / 100;
+      const pago = Math.round(Number(f.precio_tecnico) * 100) / 100;
+      const material = Math.round(Number(f.costo_material) * 100) / 100;
+      const ganancia = Math.round((ingreso - pago - material) * 100) / 100;
+
+      totales.num_ordenes++;
+      if (!f.id_motivo) totales.sin_precio++;
+      totales.ingreso_win = Math.round((totales.ingreso_win + ingreso) * 100) / 100;
+      totales.costo_material = Math.round((totales.costo_material + material) * 100) / 100;
+      totales.pago_tecnicos = Math.round((totales.pago_tecnicos + pago) * 100) / 100;
+      totales.ganancia = Math.round((totales.ganancia + ganancia) * 100) / 100;
+
+      if (f.id_tecnico) {
+        const id = Number(f.id_tecnico);
+        if (!tecnicosMap[id]) {
+          tecnicosMap[id] = {
+            id_trabajador: id,
+            tecnico: f.tecnico || `Técnico #${id}`,
+            num_ordenes: 0,
+            sin_precio: 0,
+            ingreso_win: 0,
+            costo_material: 0,
+            pago_tecnico: 0,
+            ganancia: 0
+          };
+        }
+
+        tecnicosMap[id].num_ordenes++;
+        if (!f.id_motivo) tecnicosMap[id].sin_precio++;
+        tecnicosMap[id].ingreso_win = Math.round((tecnicosMap[id].ingreso_win + ingreso) * 100) / 100;
+        tecnicosMap[id].costo_material = Math.round((tecnicosMap[id].costo_material + material) * 100) / 100;
+        tecnicosMap[id].pago_tecnico = Math.round((tecnicosMap[id].pago_tecnico + pago) * 100) / 100;
+        tecnicosMap[id].ganancia = Math.round((tecnicosMap[id].ganancia + ganancia) * 100) / 100;
+      }
+    });
+
+    const tecnicos = Object.values(tecnicosMap).sort((a, b) => b.pago_tecnico - a.pago_tecnico);
+
+    res.json({
+      success: true,
+      fecha_desde: desde,
+      fecha_hasta: hasta,
+      estado,
+      totales,
+      tecnicos
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/pagos/detalle/:id_trabajador', async (req, res) => {
+  try {
+    const { id_trabajador } = req.params;
+    const { desde, hasta, estado } = req.query;
+
+    let where = "o.estado = 'Finalizada' AND o.id_tecnico = ?";
+    const params = [id_trabajador];
+
+    if (desde && hasta) {
+      where += " AND DATE(o.fecha_visita) BETWEEN ? AND ?";
+      params.push(desde, hasta);
+    } else if (desde) {
+      where += " AND DATE(o.fecha_visita) >= ?";
+      params.push(desde);
+    } else if (hasta) {
+      where += " AND DATE(o.fecha_visita) <= ?";
+      params.push(hasta);
+    }
+
+    if (estado === 'liquidada') {
+      where += " AND EXISTS (SELECT 1 FROM orden_liquidaciones eli WHERE eli.id_orden = o.id_orden AND eli.estado = 'Aprobada')";
+    } else if (estado === 'pendiente') {
+      where += " AND EXISTS (SELECT 1 FROM orden_liquidaciones eli WHERE eli.id_orden = o.id_orden AND eli.estado = 'Pendiente')";
+    } else if (estado === 'rechazada') {
+      where += " AND EXISTS (SELECT 1 FROM orden_liquidaciones eli WHERE eli.id_orden = o.id_orden AND eli.estado = 'Rechazada')";
+    } else if (estado === 'sin_liquidar') {
+      where += " AND NOT EXISTS (SELECT 1 FROM orden_liquidaciones eli WHERE eli.id_orden = o.id_orden)";
+    }
+
+    const sql = `
+      SELECT
+        o.id_orden,
+        o.numero,
+        o.fecha_visita,
+        o.cliente,
+        TRIM(UPPER(o.tipo_trabajo)) AS tipo_trabajo,
+        o.id_tecnico,
+        CONCAT_WS(' ', u.nombres, u.apellidos) AS tecnico,
+        m.id_motivo,
+        m.nombre AS motivo_nombre,
+        COALESCE(m.precio_compra, 0) AS precio_win,
+        COALESCE(m.precio_venta, 0)  AS precio_tecnico,
+        (SELECT COALESCE(SUM(
+            CASE WHEN ps.estado = 'BAJA' THEN 0
+                 ELSE d.cantidad * p.precio_compra END), 0)
+         FROM orden_liquidaciones ol
+         INNER JOIN orden_liquidacion_detalle d ON d.id_liquidacion = ol.id_liquidacion
+         INNER JOIN productos p ON p.id_producto = d.id_producto
+         LEFT JOIN producto_series ps ON ps.id_producto_serie = d.id_producto_serie
+         WHERE ol.id_orden = o.id_orden
+           AND ol.estado IN ('Pendiente','Aprobada')) AS costo_material
+      FROM ordenes o
+      LEFT JOIN motivos m
+        ON m.estado = 'Activo'
+       AND m.tipo_trabajo IS NOT NULL
+       AND TRIM(UPPER(m.tipo_trabajo)) = TRIM(UPPER(o.tipo_trabajo))
+      LEFT JOIN trabajadores t ON t.id_trabajador = o.id_tecnico
+      LEFT JOIN usuarios u     ON u.id_usuario    = t.id_usuario
+      WHERE ${where}
+      ORDER BY o.numero ASC
+    `;
+
+    const [filas] = await pool.query(sql, params);
+
+    let nombreTecnico = '';
+    const ordenes = [];
+    const totales = {
+      num_ordenes: 0,
+      sin_precio: 0,
+      ingreso_win: 0,
+      costo_material: 0,
+      pago_tecnicos: 0,
+      ganancia: 0
+    };
+
+    filas.forEach((f) => {
+      if (!nombreTecnico) nombreTecnico = f.tecnico || `Técnico #${id_trabajador}`;
+
+      const ingreso = Math.round(Number(f.precio_win) * 100) / 100;
+      const pago = Math.round(Number(f.precio_tecnico) * 100) / 100;
+      const material = Math.round(Number(f.costo_material) * 100) / 100;
+      const ganancia = Math.round((ingreso - pago - material) * 100) / 100;
+
+      ordenes.push({
+        id_orden: f.id_orden,
+        numero: f.numero,
+        fecha_visita: f.fecha_visita,
+        cliente: f.cliente || '-',
+        tipo_trabajo: f.tipo_trabajo || '-',
+        motivo: f.motivo_nombre || null,
+        precio_win: ingreso,
+        pago_tecnico: pago,
+        costo_material: material,
+        ganancia
+      });
+
+      totales.num_ordenes++;
+      if (!f.id_motivo) totales.sin_precio++;
+      totales.ingreso_win = Math.round((totales.ingreso_win + ingreso) * 100) / 100;
+      totales.costo_material = Math.round((totales.costo_material + material) * 100) / 100;
+      totales.pago_tecnicos = Math.round((totales.pago_tecnicos + pago) * 100) / 100;
+      totales.ganancia = Math.round((totales.ganancia + ganancia) * 100) / 100;
+    });
+
+    res.json({
+      success: true,
+      id_trabajador: Number(id_trabajador),
+      tecnico: nombreTecnico,
+      totales,
+      ordenes
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- ⏱️ ASISTENCIAS & DESCANSOS (RRHH) ---
+
+// 1. Obtener pase de asistencia por fecha (con lista completa de trabajadores y su estado)
+app.get('/api/asistencias/diaria', async (req, res) => {
+  try {
+    const fecha = req.query.fecha || new Date().toISOString().slice(0, 10);
+    const idRol = req.query.id_rol;
+
+    let rolFilter = "";
+    const params = [fecha];
+    if (idRol && idRol !== "Todos") {
+      rolFilter = "AND u.id_rol = ?";
+      params.push(idRol);
+    }
+
+    const [rows] = await pool.query(`
+      SELECT 
+        u.id_usuario,
+        t.id_trabajador,
+        u.documento,
+        u.id_rol,
+        r.nombre AS rol_nombre,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))) AS nombre_completo,
+        COALESCE(u.cuadrilla, '') AS cuadrilla,
+        COALESCE(v.placa, '') AS vehiculo_placa,
+        a.id_asistencia,
+        a.fecha,
+        COALESCE(a.hora_entrada, '') AS hora_entrada,
+        COALESCE(a.hora_salida, '') AS hora_salida,
+        a.estado,
+        COALESCE(a.minutos_tarde, 0) AS minutos_tarde,
+        COALESCE(a.observacion, '') AS observacion,
+        (
+          SELECT COUNT(*) FROM trabajador_descansos td
+          WHERE td.id_trabajador = t.id_trabajador
+            AND ? BETWEEN td.fecha_inicio AND td.fecha_fin
+            AND td.estado != 'Cancelado'
+        ) AS tiene_descanso_programado
+      FROM usuarios u
+      LEFT JOIN roles r ON u.id_rol = r.id_rol
+      LEFT JOIN trabajadores t ON u.id_usuario = t.id_usuario
+      LEFT JOIN vehiculos v ON t.id_vehiculo = v.id_vehiculo
+      LEFT JOIN asistencias a ON t.id_trabajador = a.id_trabajador AND a.fecha = ?
+      WHERE (u.estado = 'Activo' OR u.estado IS NULL)
+        ${rolFilter}
+      ORDER BY u.cuadrilla ASC, nombre_completo ASC
+    `, [fecha, ...params]);
+
+    res.json({ fecha, asistencias: rows });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 2. Registrar o Actualizar Asistencia de un Trabajador (1-Clic o cambio de hora)
+app.post('/api/asistencias/marcar', async (req, res) => {
+  try {
+    const { id_trabajador, id_usuario, fecha, estado, hora_entrada, hora_salida, minutos_tarde, observacion } = req.body;
+
+    let targetTrabajadorId = id_trabajador;
+    if (!targetTrabajadorId && id_usuario) {
+      const [tRows] = await pool.query("SELECT id_trabajador FROM trabajadores WHERE id_usuario = ? LIMIT 1", [id_usuario]);
+      if (tRows.length > 0) {
+        targetTrabajadorId = tRows[0].id_trabajador;
+      } else {
+        const [insT] = await pool.query("INSERT INTO trabajadores (id_usuario, estado) VALUES (?, 'Activo')", [id_usuario]);
+        targetTrabajadorId = insT.insertId;
+      }
+    }
+
+    if (!targetTrabajadorId) {
+      return res.status(400).json({ error: "id_trabajador o id_usuario es requerido." });
+    }
+
+    const fechaAsistencia = fecha || new Date().toISOString().slice(0, 10);
+    const estadoAsistencia = estado || 'Asistio';
+
+    const [exist] = await pool.query("SELECT id_asistencia FROM asistencias WHERE id_trabajador = ? AND fecha = ?", [targetTrabajadorId, fechaAsistencia]);
+
+    if (exist.length > 0) {
+      await pool.query(`
+        UPDATE asistencias SET
+          estado = ?,
+          hora_entrada = COALESCE(?, hora_entrada),
+          hora_salida = COALESCE(?, hora_salida),
+          minutos_tarde = COALESCE(?, minutos_tarde),
+          observacion = COALESCE(?, observacion),
+          tipo = 'Manual'
+        WHERE id_asistencia = ?
+      `, [estadoAsistencia, hora_entrada || null, hora_salida || null, minutos_tarde || 0, observacion || null, exist[0].id_asistencia]);
+
+      res.json({ success: true, message: "Asistencia actualizada", id_asistencia: exist[0].id_asistencia });
+    } else {
+      const [insRes] = await pool.query(`
+        INSERT INTO asistencias (id_trabajador, fecha, hora_entrada, hora_salida, estado, minutos_tarde, tipo, observacion)
+        VALUES (?, ?, ?, ?, ?, ?, 'Manual', ?)
+      `, [targetTrabajadorId, fechaAsistencia, hora_entrada || '07:30:00', hora_salida || null, estadoAsistencia, minutos_tarde || 0, observacion || null]);
+
+      res.json({ success: true, message: "Asistencia registrada", id_asistencia: insRes.insertId });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 3. Matriz de asistencias por rango de fechas (Semana o Mes para auditoría visual)
+app.get('/api/asistencias/matriz', async (req, res) => {
+  try {
+    const { desde, hasta, id_rol } = req.query;
+    if (!desde || !hasta) {
+      return res.status(400).json({ error: "Fechas desde y hasta son requeridas." });
+    }
+
+    let rolFilter = "";
+    const params = [desde, hasta];
+    if (id_rol && id_rol !== "Todos") {
+      rolFilter = "AND u.id_rol = ?";
+      params.push(id_rol);
+    }
+
+    const [trabajadores] = await pool.query(`
+      SELECT 
+        u.id_usuario,
+        t.id_trabajador,
+        u.documento,
+        r.nombre AS rol_nombre,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))) AS nombre_completo,
+        COALESCE(u.cuadrilla, '') AS cuadrilla
+      FROM usuarios u
+      LEFT JOIN roles r ON u.id_rol = r.id_rol
+      LEFT JOIN trabajadores t ON u.id_usuario = t.id_usuario
+      WHERE (u.estado = 'Activo' OR u.estado IS NULL)
+        ${rolFilter}
+      ORDER BY u.cuadrilla ASC, nombre_completo ASC
+    `, params.slice(2));
+
+    const [asistencias] = await pool.query(`
+      SELECT a.id_asistencia, a.id_trabajador, a.fecha, a.hora_entrada, a.estado, a.minutos_tarde, a.observacion
+      FROM asistencias a
+      WHERE a.fecha BETWEEN ? AND ?
+    `, [desde, hasta]);
+
+    const [descansos] = await pool.query(`
+      SELECT id_descanso, id_trabajador, fecha_inicio, fecha_fin, motivo, estado
+      FROM trabajador_descansos
+      WHERE estado != 'Cancelado'
+        AND NOT (fecha_fin < ? OR fecha_inicio > ?)
+    `, [desde, hasta]);
+
+    res.json({ desde, hasta, trabajadores, asistencias, descansos });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 4. Descansos Programados (CRUD)
+app.get('/api/asistencias/descansos', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        td.*,
+        u.id_usuario,
+        u.documento,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS nombre_completo,
+        u.cuadrilla
+      FROM trabajador_descansos td
+      JOIN trabajadores t ON td.id_trabajador = t.id_trabajador
+      JOIN usuarios u ON t.id_usuario = u.id_usuario
+      ORDER BY td.fecha_inicio DESC
+    `);
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/asistencias/descansos', async (req, res) => {
+  try {
+    const { id_trabajador, fecha_inicio, fecha_fin, motivo, estado = 'Programado' } = req.body;
+    if (!id_trabajador || !fecha_inicio || !fecha_fin) {
+      return res.status(400).json({ error: "id_trabajador, fecha_inicio y fecha_fin son requeridos." });
+    }
+    const [result] = await pool.query(`
+      INSERT INTO trabajador_descansos (id_trabajador, fecha_inicio, fecha_fin, motivo, estado)
+      VALUES (?, ?, ?, ?, ?)
+    `, [id_trabajador, fecha_inicio, fecha_fin, motivo?.trim() || null, estado]);
+    res.json({ success: true, id_descanso: result.insertId, message: "Descanso programado con éxito." });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/asistencias/descansos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query("UPDATE trabajador_descansos SET estado = 'Cancelado' WHERE id_descanso = ?", [id]);
+    res.json({ success: true, message: "Descanso cancelado con éxito." });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ============================================================
@@ -1427,12 +2377,18 @@ app.get('/api/movilidad/vehiculos', async (req, res) => {
     const [rows] = await pool.query(`
       SELECT 
         v.id_vehiculo,
+        v.id_marca,
+        v.id_modelo,
+        v.id_tipo_vehiculo,
+        v.id_combustible,
         v.placa,
         v.anio,
         v.transmision,
         v.color,
         v.estado,
         v.observaciones,
+        v.fecha_ven_soat,
+        v.fecha_ven_revision,
         m.nombre AS marca,
         mo.nombre AS modelo,
         tv.nombre AS tipo_vehiculo,
@@ -1461,6 +2417,232 @@ app.get('/api/movilidad/vehiculos', async (req, res) => {
   }
 });
 
+// --- 🚗 CATALOGOS DE FLOTA (Marcas, Modelos, Tipos, Combustibles) ---
+app.get('/api/movilidad/catalogos', async (req, res) => {
+  try {
+    const [marcas] = await pool.query("SELECT id_marca, nombre, estado FROM marcas ORDER BY nombre ASC");
+    const [modelos] = await pool.query("SELECT id_modelo, nombre, estado FROM modelos ORDER BY nombre ASC");
+    const [tipos_vehiculo] = await pool.query("SELECT id_tipo_vehiculo, nombre, estado FROM tipos_vehiculo ORDER BY nombre ASC");
+    const [combustibles] = await pool.query("SELECT id_combustible, nombre, estado FROM combustibles ORDER BY nombre ASC");
+    res.json({ marcas, modelos, tipos_vehiculo, combustibles });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// CRUD Marcas
+app.post('/api/movilidad/marcas', async (req, res) => {
+  try {
+    const { nombre, estado = 'Activo' } = req.body;
+    if (!nombre) return res.status(400).json({ error: 'El nombre de la marca es requerido' });
+    const [result] = await pool.query('INSERT INTO marcas (nombre, estado) VALUES (?, ?)', [nombre.trim(), estado]);
+    res.json({ success: true, id_marca: result.insertId, message: 'Marca creada con éxito' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/movilidad/marcas/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, estado } = req.body;
+    await pool.query('UPDATE marcas SET nombre = COALESCE(?, nombre), estado = COALESCE(?, estado) WHERE id_marca = ?', [nombre?.trim(), estado, id]);
+    res.json({ success: true, message: 'Marca actualizada con éxito' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/movilidad/marcas/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query("UPDATE marcas SET estado = 'Inactivo' WHERE id_marca = ?", [id]);
+    res.json({ success: true, message: 'Marca desactivada con éxito' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// CRUD Modelos
+app.post('/api/movilidad/modelos', async (req, res) => {
+  try {
+    const { nombre, estado = 'Activo' } = req.body;
+    if (!nombre) return res.status(400).json({ error: 'El nombre del modelo es requerido' });
+    const [result] = await pool.query('INSERT INTO modelos (nombre, estado) VALUES (?, ?)', [nombre.trim(), estado]);
+    res.json({ success: true, id_modelo: result.insertId, message: 'Modelo creado con éxito' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/movilidad/modelos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, estado } = req.body;
+    await pool.query('UPDATE modelos SET nombre = COALESCE(?, nombre), estado = COALESCE(?, estado) WHERE id_modelo = ?', [nombre?.trim(), estado, id]);
+    res.json({ success: true, message: 'Modelo actualizado con éxito' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/movilidad/modelos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query("UPDATE modelos SET estado = 'Inactivo' WHERE id_modelo = ?", [id]);
+    res.json({ success: true, message: 'Modelo desactivado con éxito' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// CRUD Tipos de Vehículo
+app.post('/api/movilidad/tipos-vehiculo', async (req, res) => {
+  try {
+    const { nombre, estado = 'Activo' } = req.body;
+    if (!nombre) return res.status(400).json({ error: 'El nombre del tipo es requerido' });
+    const [result] = await pool.query('INSERT INTO tipos_vehiculo (nombre, estado) VALUES (?, ?)', [nombre.trim(), estado]);
+    res.json({ success: true, id_tipo_vehiculo: result.insertId, message: 'Tipo de vehículo creado con éxito' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/movilidad/tipos-vehiculo/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, estado } = req.body;
+    await pool.query('UPDATE tipos_vehiculo SET nombre = COALESCE(?, nombre), estado = COALESCE(?, estado) WHERE id_tipo_vehiculo = ?', [nombre?.trim(), estado, id]);
+    res.json({ success: true, message: 'Tipo de vehículo actualizado con éxito' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/movilidad/tipos-vehiculo/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query("UPDATE tipos_vehiculo SET estado = 'Inactivo' WHERE id_tipo_vehiculo = ?", [id]);
+    res.json({ success: true, message: 'Tipo de vehículo desactivado con éxito' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// CRUD Vehículos (Crear y Editar)
+app.post('/api/movilidad/vehiculos', async (req, res) => {
+  try {
+    const {
+      placa,
+      id_marca,
+      id_modelo,
+      id_tipo_vehiculo,
+      id_combustible,
+      anio,
+      transmision = 'Manual',
+      color,
+      estado = 'Disponible',
+      observaciones,
+      fecha_ven_soat,
+      fecha_ven_revision
+    } = req.body;
+
+    if (!placa) return res.status(400).json({ error: 'La placa es obligatoria' });
+
+    const [exist] = await pool.query('SELECT id_vehiculo FROM vehiculos WHERE placa = ?', [placa.trim().toUpperCase()]);
+    if (exist.length > 0) {
+      return res.status(400).json({ error: `La placa ${placa} ya se encuentra registrada.` });
+    }
+
+    const [result] = await pool.query(`
+      INSERT INTO vehiculos (
+        placa, id_marca, id_modelo, id_tipo_vehiculo, id_combustible,
+        anio, transmision, color, estado, observaciones,
+        fecha_ven_soat, fecha_ven_revision
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      placa.trim().toUpperCase(),
+      id_marca || null,
+      id_modelo || null,
+      id_tipo_vehiculo || null,
+      id_combustible || null,
+      anio || null,
+      transmision,
+      color?.trim() || null,
+      estado,
+      observaciones?.trim() || null,
+      fecha_ven_soat || null,
+      fecha_ven_revision || null
+    ]);
+
+    res.json({ success: true, id_vehiculo: result.insertId, message: 'Vehículo registrado exitosamente' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/movilidad/vehiculos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      placa,
+      id_marca,
+      id_modelo,
+      id_tipo_vehiculo,
+      id_combustible,
+      anio,
+      transmision,
+      color,
+      estado,
+      observaciones,
+      fecha_ven_soat,
+      fecha_ven_revision
+    } = req.body;
+
+    if (placa) {
+      const [exist] = await pool.query('SELECT id_vehiculo FROM vehiculos WHERE placa = ? AND id_vehiculo != ?', [placa.trim().toUpperCase(), id]);
+      if (exist.length > 0) {
+        return res.status(400).json({ error: `La placa ${placa} ya pertenece a otro vehículo.` });
+      }
+    }
+
+    await pool.query(`
+      UPDATE vehiculos SET
+        placa = COALESCE(?, placa),
+        id_marca = COALESCE(?, id_marca),
+        id_modelo = COALESCE(?, id_modelo),
+        id_tipo_vehiculo = COALESCE(?, id_tipo_vehiculo),
+        id_combustible = COALESCE(?, id_combustible),
+        anio = COALESCE(?, anio),
+        transmision = COALESCE(?, transmision),
+        color = COALESCE(?, color),
+        estado = COALESCE(?, estado),
+        observaciones = COALESCE(?, observaciones),
+        fecha_ven_soat = COALESCE(?, fecha_ven_soat),
+        fecha_ven_revision = COALESCE(?, fecha_ven_revision)
+      WHERE id_vehiculo = ?
+    `, [
+      placa?.trim()?.toUpperCase() || null,
+      id_marca || null,
+      id_modelo || null,
+      id_tipo_vehiculo || null,
+      id_combustible || null,
+      anio || null,
+      transmision || null,
+      color?.trim() || null,
+      estado || null,
+      observaciones !== undefined ? observaciones : null,
+      fecha_ven_soat || null,
+      fecha_ven_revision || null,
+      id
+    ]);
+
+    res.json({ success: true, message: 'Vehículo actualizado exitosamente' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // --- 🚗 2. LISTAR TÉCNICOS PARA ASIGNACIÓN / CHECKLIST ---
 app.get(['/api/movilidad/tecnicos', '/api/movilidad/tecnicos-flota'], async (req, res) => {
   try {
@@ -1475,7 +2657,13 @@ app.get(['/api/movilidad/tecnicos', '/api/movilidad/tecnicos-flota'], async (req
         COALESCE(t.id_vehiculo, va.id_vehiculo) AS id_vehiculo,
         COALESCE(v.placa, va.placa, '') AS vehiculo_placa,
         COALESCE(v.marca, va.marca, '') AS vehiculo_marca,
-        COALESCE(v.modelo, va.modelo, '') AS vehiculo_modelo
+        COALESCE(v.modelo, va.modelo, '') AS vehiculo_modelo,
+        (
+          SELECT COUNT(*) FROM trabajador_descansos td
+          WHERE td.id_trabajador = t.id_trabajador
+            AND CURDATE() BETWEEN td.fecha_inicio AND td.fecha_fin
+            AND td.estado != 'Cancelado'
+        ) AS descanso_hoy
       FROM trabajadores t
       JOIN usuarios u ON t.id_usuario = u.id_usuario
       LEFT JOIN roles r ON u.id_rol = r.id_rol
@@ -2501,8 +3689,48 @@ app.get('/api/almacen/stock-general', async (req, res) => {
 // --- 📦 CATEGORÍAS DE PRODUCTOS ---
 app.get('/api/almacen/categorias', async (req, res) => {
   try {
-    const [rows] = await pool.query("SELECT id_categoria, nombre, descripcion FROM categorias WHERE estado = 'Activo' OR estado IS NULL ORDER BY nombre ASC");
+    const [rows] = await pool.query("SELECT id_categoria, nombre, descripcion, estado FROM categorias ORDER BY nombre ASC");
     res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/almacen/categorias', async (req, res) => {
+  try {
+    const { nombre, descripcion, estado = 'Activo' } = req.body;
+    if (!nombre || !nombre.trim()) {
+      return res.status(400).json({ error: "El nombre de la categoría es obligatorio." });
+    }
+    const [result] = await pool.query(
+      "INSERT INTO categorias (nombre, descripcion, estado) VALUES (?, ?, ?)",
+      [nombre.trim().toUpperCase(), descripcion?.trim() || null, estado]
+    );
+    res.json({ success: true, id_categoria: result.insertId, message: "Categoría creada con éxito." });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/almacen/categorias/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, descripcion, estado } = req.body;
+    await pool.query(
+      "UPDATE categorias SET nombre = COALESCE(?, nombre), descripcion = COALESCE(?, descripcion), estado = COALESCE(?, estado) WHERE id_categoria = ?",
+      [nombre?.trim()?.toUpperCase() || null, descripcion !== undefined ? descripcion?.trim() : null, estado || null, id]
+    );
+    res.json({ success: true, message: "Categoría actualizada con éxito." });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/almacen/categorias/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query("UPDATE categorias SET estado = 'Inactivo' WHERE id_categoria = ?", [id]);
+    res.json({ success: true, message: "Categoría desactivada con éxito." });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2635,11 +3863,81 @@ app.post('/api/almacen/productos', async (req, res) => {
   }
 });
 
-// --- 📦 2. PROVEEDORES (LISTAR & AUTOLLENADO POR RUC) ---
+// --- 📦 2. PROVEEDORES (LISTAR, CREAR, EDITAR, ELIMINAR) ---
 app.get('/api/almacen/proveedores', async (req, res) => {
   try {
-    const [rows] = await pool.query("SELECT * FROM proveedores WHERE estado = 'Activo' OR estado IS NULL ORDER BY razon_social ASC");
+    const [rows] = await pool.query("SELECT * FROM proveedores ORDER BY razon_social ASC");
     res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/almacen/proveedores', async (req, res) => {
+  try {
+    const { razon_social, nombre_comercial, ruc, telefono, email, direccion, estado = 'Activo' } = req.body;
+    if (!razon_social || !razon_social.trim()) {
+      return res.status(400).json({ error: "La Razón Social es requerida." });
+    }
+    if (ruc) {
+      const [exist] = await pool.query("SELECT id_proveedor FROM proveedores WHERE ruc = ?", [ruc.trim()]);
+      if (exist.length > 0) {
+        return res.status(400).json({ error: `El RUC ${ruc} ya se encuentra registrado.` });
+      }
+    }
+    const [result] = await pool.query(
+      `INSERT INTO proveedores (razon_social, nombre_comercial, ruc, telefono, email, direccion, estado)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [razon_social.trim().toUpperCase(), nombre_comercial?.trim() || null, ruc?.trim() || null, telefono?.trim() || null, email?.trim() || null, direccion?.trim() || null, estado]
+    );
+    res.json({ success: true, id_proveedor: result.insertId, message: "Proveedor registrado con éxito." });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/almacen/proveedores/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { razon_social, nombre_comercial, ruc, telefono, email, direccion, estado } = req.body;
+    if (ruc) {
+      const [exist] = await pool.query("SELECT id_proveedor FROM proveedores WHERE ruc = ? AND id_proveedor != ?", [ruc.trim(), id]);
+      if (exist.length > 0) {
+        return res.status(400).json({ error: `El RUC ${ruc} ya está asignado a otro proveedor.` });
+      }
+    }
+    await pool.query(
+      `UPDATE proveedores SET
+        razon_social = COALESCE(?, razon_social),
+        nombre_comercial = COALESCE(?, nombre_comercial),
+        ruc = COALESCE(?, ruc),
+        telefono = COALESCE(?, telefono),
+        email = COALESCE(?, email),
+        direccion = COALESCE(?, direccion),
+        estado = COALESCE(?, estado)
+       WHERE id_proveedor = ?`,
+      [
+        razon_social?.trim()?.toUpperCase() || null,
+        nombre_comercial !== undefined ? nombre_comercial?.trim() : null,
+        ruc !== undefined ? ruc?.trim() : null,
+        telefono !== undefined ? telefono?.trim() : null,
+        email !== undefined ? email?.trim() : null,
+        direccion !== undefined ? direccion?.trim() : null,
+        estado || null,
+        id
+      ]
+    );
+    res.json({ success: true, message: "Proveedor actualizado con éxito." });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/almacen/proveedores/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query("UPDATE proveedores SET estado = 'Inactivo' WHERE id_proveedor = ?", [id]);
+    res.json({ success: true, message: "Proveedor desactivado con éxito." });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3603,13 +4901,13 @@ app.get('/api/ordenes/:id/acta-liquidacion', async (req, res) => {
         ol.*,
         COALESCE(ol.numero_acta, ol.numero_guia) AS numero_guia,
         COALESCE(ol.numero_acta, ol.numero_guia) AS numero_acta,
-        o.ticket,
-        o.cliente,
-        o.dni,
-        o.direccion,
-        o.distrito,
-        o.tipo_trabajo,
-        o.cuadrilla,
+        COALESCE(o.numero, '') AS ticket,
+        COALESCE(o.cliente, '') AS cliente,
+        COALESCE(o.numero_documento, '') AS dni,
+        COALESCE(o.direccion, '') AS direccion,
+        COALESCE(o.localidad, '') AS distrito,
+        COALESCE(o.tipo_trabajo, '') AS tipo_trabajo,
+        COALESCE(o.cuadrilla, '') AS cuadrilla,
         TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre
       FROM orden_liquidaciones ol
       JOIN ordenes o ON ol.id_orden = o.id_orden
@@ -4066,14 +5364,14 @@ app.get('/api/almacen/equipos-recogidos', async (req, res) => {
         er.fecha_internamiento,
         er.recibido_por,
         er.observaciones,
-        o.ticket,
-        o.cliente,
-        o.direccion,
-        o.distrito,
+        COALESCE(o.numero, '') AS ticket,
+        COALESCE(o.cliente, '') AS cliente,
+        COALESCE(o.direccion, '') AS direccion,
+        COALESCE(o.localidad, '') AS distrito,
         TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre,
         u.cuadrilla
       FROM orden_equipos_retirados er
-      JOIN ordenes o ON er.id_orden = o.id_orden
+      LEFT JOIN ordenes o ON er.id_orden = o.id_orden
       LEFT JOIN trabajadores t ON er.id_trabajador = t.id_trabajador
       LEFT JOIN usuarios u ON t.id_usuario = u.id_usuario
       ORDER BY er.fecha_recojo DESC
@@ -4145,9 +5443,9 @@ app.get('/api/almacen/trazabilidad-serie/:serie', async (req, res) => {
 
     // 4. Si fue retirado de algún cliente
     const [retiros] = await pool.query(`
-      SELECT er.*, o.ticket, o.cliente, o.direccion, o.distrito
+      SELECT er.*, COALESCE(o.numero, '') AS ticket, COALESCE(o.cliente, '') AS cliente, COALESCE(o.direccion, '') AS direccion, COALESCE(o.localidad, '') AS distrito
       FROM orden_equipos_retirados er
-      JOIN ordenes o ON er.id_orden = o.id_orden
+      LEFT JOIN ordenes o ON er.id_orden = o.id_orden
       WHERE er.numero_serie = ?
     `, [serie]);
 

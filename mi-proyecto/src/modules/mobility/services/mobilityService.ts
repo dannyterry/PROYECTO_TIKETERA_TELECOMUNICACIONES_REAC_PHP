@@ -7,10 +7,77 @@ import {
   CargaCombustible,
   ResumenCombustible,
   DashboardKmResumen,
+  CatalogosFlota,
+  Marca,
+  Modelo,
+  TipoVehiculo,
 } from "../types/mobilityTypes";
 
 export const getVehiculos = async (): Promise<Vehiculo[]> => {
   const res = await axios.get(`${API_URL}/api/movilidad/vehiculos`);
+  return res.data;
+};
+
+export const getCatalogosFlota = async (): Promise<CatalogosFlota> => {
+  const res = await axios.get(`${API_URL}/api/movilidad/catalogos`);
+  return res.data;
+};
+
+export const crearVehiculo = async (data: Partial<Vehiculo>) => {
+  const res = await axios.post(`${API_URL}/api/movilidad/vehiculos`, data);
+  return res.data;
+};
+
+export const actualizarVehiculo = async (id: number, data: Partial<Vehiculo>) => {
+  const res = await axios.put(`${API_URL}/api/movilidad/vehiculos/${id}`, data);
+  return res.data;
+};
+
+// CRUD Marcas
+export const crearMarca = async (data: { nombre: string; estado?: string }) => {
+  const res = await axios.post(`${API_URL}/api/movilidad/marcas`, data);
+  return res.data;
+};
+
+export const actualizarMarca = async (id: number, data: { nombre?: string; estado?: string }) => {
+  const res = await axios.put(`${API_URL}/api/movilidad/marcas/${id}`, data);
+  return res.data;
+};
+
+export const desactivarMarca = async (id: number) => {
+  const res = await axios.delete(`${API_URL}/api/movilidad/marcas/${id}`);
+  return res.data;
+};
+
+// CRUD Modelos
+export const crearModelo = async (data: { nombre: string; estado?: string }) => {
+  const res = await axios.post(`${API_URL}/api/movilidad/modelos`, data);
+  return res.data;
+};
+
+export const actualizarModelo = async (id: number, data: { nombre?: string; estado?: string }) => {
+  const res = await axios.put(`${API_URL}/api/movilidad/modelos/${id}`, data);
+  return res.data;
+};
+
+export const desactivarModelo = async (id: number) => {
+  const res = await axios.delete(`${API_URL}/api/movilidad/modelos/${id}`);
+  return res.data;
+};
+
+// CRUD Tipos de Vehículo
+export const crearTipoVehiculo = async (data: { nombre: string; estado?: string }) => {
+  const res = await axios.post(`${API_URL}/api/movilidad/tipos-vehiculo`, data);
+  return res.data;
+};
+
+export const actualizarTipoVehiculo = async (id: number, data: { nombre?: string; estado?: string }) => {
+  const res = await axios.put(`${API_URL}/api/movilidad/tipos-vehiculo/${id}`, data);
+  return res.data;
+};
+
+export const desactivarTipoVehiculo = async (id: number) => {
+  const res = await axios.delete(`${API_URL}/api/movilidad/tipos-vehiculo/${id}`);
   return res.data;
 };
 

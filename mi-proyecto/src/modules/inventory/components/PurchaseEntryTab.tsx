@@ -27,7 +27,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { ProductoStock, Proveedor, CompraPayload } from "../types/inventoryTypes";
-import { getProveedores, registrarCompra, consultarSunatRuc, crearProducto, getCategorias } from "../services/inventoryService";
+import { getProveedores, registrarCompra, consultarSunatRuc, crearProducto, getCategorias, crearCategoria } from "../services/inventoryService";
 
 interface Props {
   productos: ProductoStock[];
@@ -630,6 +630,37 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
         guardando: false,
         error: err.response?.data?.error || err.message || "Error al crear el producto.",
       }));
+    }
+  };
+
+  // Crear categoría rápida directamente desde el selector
+  const [creandoCategoriaRapida, setCreandoCategoriaRapida] = useState(false);
+  const [nuevaCatNombre, setNuevaCatNombre] = useState("");
+
+  const handleGuardarCategoriaRapida = async () => {
+    if (!nuevaCatNombre.trim()) {
+      setCreandoCategoriaRapida(false);
+      return;
+    }
+
+    try {
+      const nombreCat = nuevaCatNombre.trim().toUpperCase();
+      await crearCategoria({ nombre: nombreCat, estado: "Activo" });
+
+      // Agregar a la lista de categorías si no existe
+      setCategorias((prev) => Array.from(new Set([nombreCat, ...prev])));
+
+      // Seleccionar automáticamente en el modal de nuevo producto
+      setModalNuevoProd((prev) => ({
+        ...prev,
+        categoria: nombreCat,
+        maneja_serie: nombreCat === "EQUIPOS",
+      }));
+
+      setNuevaCatNombre("");
+      setCreandoCategoriaRapida(false);
+    } catch (err: any) {
+      alert("Error al crear categoría: " + (err.response?.data?.error || err.message));
     }
   };
 
@@ -1396,27 +1427,70 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
             {/* Formulario de Nuevo Producto */}
             <form onSubmit={handleGuardarNuevoProducto} className="space-y-3.5">
 
-              {/* Categoría Seleccionada */}
+              {/* Categoría Seleccionada con opción de agregar rápida */}
               <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Categoría</label>
-                <select
-                  value={modalNuevoProd.categoria}
-                  onChange={(e) => {
-                    const cat = e.target.value.toUpperCase();
-                    setModalNuevoProd((prev) => ({
-                      ...prev,
-                      categoria: cat,
-                      maneja_serie: cat === "EQUIPOS",
-                    }));
-                  }}
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs text-slate-900"
-                >
-                  {categorias.map((c) => (
-                    <option key={c} value={c}>
-                      📁 {c}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-600">Categoría</label>
+                  {!creandoCategoriaRapida && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCreandoCategoriaRapida(true);
+                        setNuevaCatNombre("");
+                      }}
+                      className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus size={13} />
+                      <span>Nueva Categoría</span>
+                    </button>
+                  )}
+                </div>
+
+                {creandoCategoriaRapida ? (
+                  <div className="flex items-center gap-1.5 p-1.5 bg-indigo-50 border border-indigo-200 rounded-xl">
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder="NOMBRE NUEVA CATEGORÍA..."
+                      value={nuevaCatNombre}
+                      onChange={(e) => setNuevaCatNombre(e.target.value)}
+                      className="flex-1 px-2.5 py-1.5 bg-white border border-indigo-300 rounded-lg text-xs font-bold text-slate-900 uppercase focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleGuardarCategoriaRapida}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
+                    >
+                      Guardar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCreandoCategoriaRapida(false)}
+                      className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                ) : (
+                  <select
+                    value={modalNuevoProd.categoria}
+                    onChange={(e) => {
+                      const cat = e.target.value.toUpperCase();
+                      setModalNuevoProd((prev) => ({
+                        ...prev,
+                        categoria: cat,
+                        maneja_serie: cat === "EQUIPOS",
+                      }));
+                    }}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs text-slate-900"
+                  >
+                    {categorias.map((c) => (
+                      <option key={c} value={c}>
+                        📁 {c}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               {/* Nombre del Producto */}

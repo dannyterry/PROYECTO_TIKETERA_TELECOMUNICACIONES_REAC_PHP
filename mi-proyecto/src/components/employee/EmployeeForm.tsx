@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input"; 
-import { createEmpleado, getDatosAFP, updateEmpleado } from "../../services/employeeService";
+import { createEmpleado, getDatosAFP, updateEmpleado, getAreas, AreaItem } from "../../services/employeeService";
 import { API_URL } from "../../config/api";
 import { Employee } from "./Employee";
 
@@ -18,6 +18,19 @@ const distritosLima = [
   "San Juan de Lurigancho", "San Juan de Miraflores", "San Luis", "San Martín de Porres", "San Miguel", 
   "Santa Anita", "Santa María del Mar", "Santa Rosa", "Santiago de Surco", "Surquillo", "Ventanilla", 
   "Villa El Salvador", "Villa María del Triunfo"
+];
+
+export const areasFijas = [
+  "Operaciones",
+  "RRHH",
+  "Tecnología",
+  "Logística",
+  "Almacén",
+  "Post venta",
+  "Moto win",
+  "Ordenamiento",
+  "Visita técnica",
+  "Tecnico 2"
 ];
 
 export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFormProps) {
@@ -105,6 +118,7 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
   const [loading, setLoading] = useState(false);
   const [tasasAfp, setTasasAfp] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]); 
+  const [areas, setAreas] = useState<AreaItem[]>([]);
 
   // Generamos un sufijo numérico y una contraseña aleatoria una sola vez al cargar
   const [credencialesAuto] = useState(() => {
@@ -113,16 +127,18 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
     return { sufijo, passRandom };
   });
 
-  // 1. CARGAR TASAS DE LA SBS Y ROLES DESDE MYSQL
+  // 1. CARGAR TASAS DE LA SBS, ROLES Y ÁREAS DESDE MYSQL
   useEffect(() => {
     const cargarDatosIniciales = async () => {
       try {
-        const [tasas, rolesRes] = await Promise.all([
+        const [tasas, rolesRes, areasRes] = await Promise.all([
           getDatosAFP(),
-          fetch(`${API_URL}/roles`).then(res => res.json())
+          fetch(`${API_URL}/roles`).then(res => res.json()),
+          getAreas().catch(() => [])
         ]);
         setTasasAfp(tasas);
         setRoles(rolesRes);
+        setAreas(areasRes);
       } catch (error) {
         console.error("Error al cargar datos iniciales:", error);
       }
@@ -608,21 +624,31 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
       {/* --- 2. DATOS LABORALES Y PLANILLA --- */}
       <div className="col-span-full border-t pt-4 mb-1 mt-2"><h3 className="text-sm font-bold text-emerald-700 uppercase">2. Laboral y Planilla</h3></div>
       
-      {/* ÁREA ACTUALIZADA CON LAS NUEVAS OPCIONES */}
+      {/* ÁREA DE PERSONAL (Base fija + Áreas dinámicas de MySQL) */}
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-medium text-gray-700">Área</label>
         <select name="area" value={formData.area} onChange={handleChange} className={selectClass}>
           <option value="">Elegir Área</option>
-          <option value="Operaciones">Operaciones</option>
-          <option value="RRHH">RRHH</option>
-          <option value="Tecnología">Tecnología</option>
-          <option value="Logística">Logística</option>
-          <option value="Almacén">Almacén</option>
-          <option value="Post venta">Post venta</option>
-          <option value="Moto win">Moto win</option>
-          <option value="Ordenamiento">Ordenamiento</option>
-          <option value="Visita técnica">Visita técnica</option>
-          <option value="Tecnico 2">Tecnico 2</option>
+          {(() => {
+            // Unir la lista base con las creadas en la BD (evitando duplicados)
+            const nombresDeBd = areas
+              .filter((a) => a.estado === "Activo")
+              .map((a) => a.nombre);
+            
+            const todasLasAreas = Array.from(new Set([...areasFijas, ...nombresDeBd]));
+
+            return todasLasAreas.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ));
+          })()}
+          {/* Si el empleado ya tenía otra área histórica no contemplada, mantenerla seleccionada */}
+          {formData.area &&
+            !areasFijas.includes(formData.area) &&
+            !areas.some((a) => a.nombre === formData.area) && (
+              <option value={formData.area}>{formData.area}</option>
+            )}
         </select>
       </div>
 

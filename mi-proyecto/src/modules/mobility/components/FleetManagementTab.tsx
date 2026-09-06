@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Car,
   User,
@@ -11,9 +11,17 @@ import {
   Wrench,
   X,
   Sparkles,
+  Plus,
+  Layers,
+  Edit3,
+  Calendar,
+  Shield,
+  FileCheck,
 } from "lucide-react";
-import { Vehiculo, Tecnico } from "../types/mobilityTypes";
-import { reasignarVehiculo } from "../services/mobilityService";
+import { Vehiculo, Tecnico, CatalogosFlota } from "../types/mobilityTypes";
+import { reasignarVehiculo, getCatalogosFlota } from "../services/mobilityService";
+import { VehicleFormModal } from "./VehicleFormModal";
+import { FleetCatalogModal } from "./FleetCatalogModal";
 
 interface Props {
   vehiculos: Vehiculo[];
@@ -31,11 +39,32 @@ export const FleetManagementTab: React.FC<Props> = ({
   const [filtroTexto, setFiltroTexto] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("Todos");
 
+  // Catálogos
+  const [catalogos, setCatalogos] = useState<CatalogosFlota | null>(null);
+  const [modalCatalogoAbierto, setModalCatalogoAbierto] = useState(false);
+
+  // Modal Crear / Editar Vehículo
+  const [modalVehiculoAbierto, setModalVehiculoAbierto] = useState(false);
+  const [vehiculoAEditar, setVehiculoAEditar] = useState<Vehiculo | null>(null);
+
   // Modal Reasignación
   const [vehiculoSeleccionado, setVehiculoSeleccionado] = useState<Vehiculo | null>(null);
   const [nuevoTrabajadorId, setNuevoTrabajadorId] = useState<string>("");
   const [motivoCambio, setMotivoCambio] = useState<string>("");
   const [guardando, setGuardando] = useState(false);
+
+  const cargarCatalogos = async () => {
+    try {
+      const data = await getCatalogosFlota();
+      setCatalogos(data);
+    } catch (err) {
+      console.error("Error al cargar catalogos de flota:", err);
+    }
+  };
+
+  useEffect(() => {
+    cargarCatalogos();
+  }, []);
 
   const vehiculosFiltrados = vehiculos.filter((v) => {
     const txt = filtroTexto.toLowerCase();
@@ -50,6 +79,16 @@ export const FleetManagementTab: React.FC<Props> = ({
 
     return coincideTexto && coincideEstado;
   });
+
+  const handleAbrirNuevoVehiculo = () => {
+    setVehiculoAEditar(null);
+    setModalVehiculoAbierto(true);
+  };
+
+  const handleAbrirEditarVehiculo = (veh: Vehiculo) => {
+    setVehiculoAEditar(veh);
+    setModalVehiculoAbierto(true);
+  };
 
   const handleAbrirReasignar = (veh: Vehiculo) => {
     setVehiculoSeleccionado(veh);
@@ -80,7 +119,7 @@ export const FleetManagementTab: React.FC<Props> = ({
   return (
     <div className="space-y-6">
       {/* ─────────────────────────────────────────────────────────────
-          1. BARRA DE CONTROL Y FILTROS
+          1. BARRA DE ACCIONES PRINCIPALES Y FILTROS
       ───────────────────────────────────────────────────────────── */}
       <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-4">
         
@@ -97,7 +136,7 @@ export const FleetManagementTab: React.FC<Props> = ({
         </div>
 
         {/* Filtros de Estado */}
-        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-2xl border border-slate-200">
+        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-2xl border border-slate-200 overflow-x-auto">
           {["Todos", "Disponible", "En uso", "En mantenimiento"].map((est) => (
             <button
               key={est}
@@ -117,6 +156,28 @@ export const FleetManagementTab: React.FC<Props> = ({
               {est}
             </button>
           ))}
+        </div>
+
+        {/* Botones de Acción: Catálogo y Nuevo Vehículo */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setModalCatalogoAbierto(true)}
+            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-2xl text-xs font-bold flex items-center gap-2 border border-slate-200 transition-all cursor-pointer"
+            title="Marcas, modelos y tipos de vehículo"
+          >
+            <Layers size={15} className="text-cyan-600" />
+            <span>Catálogo Flota</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleAbrirNuevoVehiculo}
+            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-2xl text-xs font-bold flex items-center gap-2 shadow-md shadow-cyan-600/20 transition-all cursor-pointer"
+          >
+            <Plus size={16} />
+            <span>Nuevo Vehículo</span>
+          </button>
         </div>
       </div>
 
@@ -224,15 +285,29 @@ export const FleetManagementTab: React.FC<Props> = ({
                 </div>
               </div>
 
-              {/* Botón Reasignar */}
-              <button
-                onClick={() => handleAbrirReasignar(v)}
-                className="w-full py-2.5 px-4 rounded-2xl border border-slate-200 hover:border-cyan-500 bg-white hover:bg-cyan-50/50 text-slate-700 hover:text-cyan-700 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs"
-              >
-                <RotateCw size={14} className="text-cyan-600" />
-                Reasignar / Cambiar Conductor
-              </button>
-            </div>
+                {/* Botones de Acción en cada vehículo */}
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleAbrirEditarVehiculo(v)}
+                    className="flex-1 py-2.5 px-3 rounded-2xl border border-slate-200 hover:border-cyan-500 bg-white hover:bg-cyan-50/50 text-slate-700 hover:text-cyan-700 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                    title="Editar datos del vehículo"
+                  >
+                    <Edit3 size={14} className="text-cyan-600" />
+                    <span>Editar</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleAbrirReasignar(v)}
+                    className="flex-1 py-2.5 px-3 rounded-2xl border border-slate-200 hover:border-cyan-500 bg-white hover:bg-cyan-50/50 text-slate-700 hover:text-cyan-700 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                    title="Reasignar conductor"
+                  >
+                    <RotateCw size={14} className="text-cyan-600" />
+                    <span>Conductor</span>
+                  </button>
+                </div>
+              </div>
           ))}
         </div>
       )}
@@ -329,6 +404,33 @@ export const FleetManagementTab: React.FC<Props> = ({
           </div>
         </div>
       )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          4. MODAL CREAR / EDITAR VEHÍCULO
+      ───────────────────────────────────────────────────────────── */}
+      <VehicleFormModal
+        isOpen={modalVehiculoAbierto}
+        onClose={() => setModalVehiculoAbierto(false)}
+        vehiculo={vehiculoAEditar}
+        catalogos={catalogos}
+        onSaved={() => {
+          onRefresh();
+          cargarCatalogos();
+        }}
+      />
+
+      {/* ─────────────────────────────────────────────────────────────
+          5. MODAL CATÁLOGOS DE FLOTA (MARCAS, MODELOS, TIPOS)
+      ───────────────────────────────────────────────────────────── */}
+      <FleetCatalogModal
+        isOpen={modalCatalogoAbierto}
+        onClose={() => setModalCatalogoAbierto(false)}
+        catalogos={catalogos}
+        onRefresh={() => {
+          cargarCatalogos();
+          onRefresh();
+        }}
+      />
     </div>
   );
 };

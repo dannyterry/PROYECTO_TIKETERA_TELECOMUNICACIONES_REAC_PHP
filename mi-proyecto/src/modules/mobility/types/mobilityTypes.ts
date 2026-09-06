@@ -1,20 +1,57 @@
+export interface Marca {
+  id_marca: number;
+  nombre: string;
+  estado: 'Activo' | 'Inactivo';
+}
+
+export interface Modelo {
+  id_modelo: number;
+  nombre: string;
+  estado: 'Activo' | 'Inactivo';
+}
+
+export interface TipoVehiculo {
+  id_tipo_vehiculo: number;
+  nombre: string;
+  estado: 'Activo' | 'Inactivo';
+}
+
+export interface Combustible {
+  id_combustible: number;
+  nombre: string;
+  estado: 'Activo' | 'Inactivo';
+}
+
+export interface CatalogosFlota {
+  marcas: Marca[];
+  modelos: Modelo[];
+  tipos_vehiculo: TipoVehiculo[];
+  combustibles: Combustible[];
+}
+
 export interface Vehiculo {
   id_vehiculo: number;
+  id_marca?: number | null;
+  id_modelo?: number | null;
+  id_tipo_vehiculo?: number | null;
+  id_combustible?: number | null;
   placa: string;
-  anio?: number;
-  transmision?: string;
-  color?: string;
+  anio?: number | null;
+  transmision?: 'Manual' | 'Automática';
+  color?: string | null;
   estado: 'Disponible' | 'En uso' | 'En mantenimiento' | 'Inactivo';
-  observaciones?: string;
+  observaciones?: string | null;
+  fecha_ven_soat?: string | null;
+  fecha_ven_revision?: string | null;
   marca?: string;
   modelo?: string;
   tipo_vehiculo?: string;
   combustible?: string;
-  id_trabajador?: number;
-  id_usuario?: number;
+  id_trabajador?: number | null;
+  id_usuario?: number | null;
   tecnico_asignado?: string;
   cuadrilla?: string;
-  ultimo_km?: number;
+  ultimo_km?: number | null;
 }
 
 export interface Tecnico {

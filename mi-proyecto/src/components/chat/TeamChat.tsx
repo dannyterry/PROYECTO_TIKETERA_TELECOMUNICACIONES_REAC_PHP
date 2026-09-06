@@ -262,7 +262,7 @@ export const TeamChat: React.FC<TeamChatProps> = ({ userId, userName, userRol, r
       {/* ─────────────────────────────────────────────────────────────
           1. BARRA SUPERIOR DE PERSONAL ONLINE Y ACCESO A CHAT DIRECTO
       ───────────────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-30 w-full bg-slate-900/95 backdrop-blur-md border-b border-slate-700/60 px-4 py-2 flex items-center gap-2 shadow-md overflow-x-auto scrollbar-none">
+      <div className="sticky top-0 z-10 w-full bg-slate-900/95 backdrop-blur-md border-b border-slate-700/60 px-4 py-2 flex items-center gap-2 shadow-md overflow-x-auto scrollbar-none">
         
         {/* Indicador de Conectados */}
         <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 shrink-0 pr-1">

@@ -120,3 +120,202 @@ export const updateEmpleado = async (id: number, d: any) => {
 
 export const getDatosSunat = async (dni: string) => { const r = await fetch(`${API_URL}/sunat/${dni}`); if (!r.ok) throw new Error("Error en SUNAT"); return await r.json(); };
 export const getDatosAFP = async () => { try { const r = await fetch(`${API_URL}/sbs/comisiones`); if (!r.ok) throw new Error("Error en SBS"); return await r.json(); } catch { return []; } };
+
+// ==========================================
+// 👥 ROLES CRUD
+// ==========================================
+export interface RolItem {
+  id_rol: number;
+  nombre: string;
+  descripcion?: string;
+  estado: 'Activo' | 'Inactivo';
+}
+
+export const getRoles = async (): Promise<RolItem[]> => {
+  const res = await fetch(`${API_URL}/api/roles`);
+  if (!res.ok) throw new Error("Error al obtener roles");
+  return res.json();
+};
+
+export const createRol = async (data: { nombre: string; descripcion?: string; estado?: string }) => {
+  const res = await fetch(`${API_URL}/api/roles`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Error al crear el rol");
+  }
+  return res.json();
+};
+
+export const updateRol = async (id: number, data: { nombre?: string; descripcion?: string; estado?: string }) => {
+  const res = await fetch(`${API_URL}/api/roles/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Error al actualizar el rol");
+  }
+  return res.json();
+};
+
+export const deleteRol = async (id: number) => {
+  const res = await fetch(`${API_URL}/api/roles/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Error al desactivar el rol");
+  }
+  return res.json();
+};
+
+// ==========================================
+// 🏢 ÁREAS / DEPARTAMENTOS
+// ==========================================
+export interface AreaItem {
+  id_area: number;
+  nombre: string;
+  estado: 'Activo' | 'Inactivo';
+  fecha_creacion?: string;
+  total_empleados?: number;
+}
+
+export const getAreas = async (): Promise<AreaItem[]> => {
+  const res = await fetch(`${API_URL}/api/areas`);
+  if (!res.ok) throw new Error("Error al obtener las áreas");
+  return res.json();
+};
+
+export const createArea = async (data: { nombre: string; estado?: string }) => {
+  const res = await fetch(`${API_URL}/api/areas`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Error al crear el área");
+  }
+  return res.json();
+};
+
+export const updateArea = async (id: number, data: { nombre?: string; estado?: string }) => {
+  const res = await fetch(`${API_URL}/api/areas/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Error al actualizar el área");
+  }
+  return res.json();
+};
+
+export const deleteArea = async (id: number) => {
+  const res = await fetch(`${API_URL}/api/areas/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Error al desactivar el área");
+  }
+  return res.json();
+};
+
+// ==========================================
+// ⏱️ ASISTENCIAS & DESCANSOS
+// ==========================================
+export interface AsistenciaDiariaItem {
+  id_usuario: number;
+  id_trabajador: number;
+  documento: string;
+  id_rol: number;
+  rol_nombre: string;
+  nombre_completo: string;
+  cuadrilla: string;
+  vehiculo_placa: string;
+  id_asistencia?: number | null;
+  fecha?: string;
+  hora_entrada?: string;
+  hora_salida?: string;
+  estado?: 'Asistio' | 'Tardanza' | 'Falta' | 'Descanso' | 'Permiso' | null;
+  minutos_tarde?: number;
+  observacion?: string;
+  tiene_descanso_programado?: number;
+}
+
+export const getAsistenciaDiaria = async (fecha?: string, id_rol?: string | number): Promise<{ fecha: string; asistencias: AsistenciaDiariaItem[] }> => {
+  const params = new URLSearchParams();
+  if (fecha) params.append("fecha", fecha);
+  if (id_rol) params.append("id_rol", String(id_rol));
+
+  const res = await fetch(`${API_URL}/api/asistencias/diaria?${params.toString()}`);
+  if (!res.ok) throw new Error("Error al obtener asistencia diaria");
+  return res.json();
+};
+
+export const marcarAsistencia = async (data: {
+  id_trabajador?: number;
+  id_usuario?: number;
+  fecha?: string;
+  estado: 'Asistio' | 'Tardanza' | 'Falta' | 'Descanso' | 'Permiso';
+  hora_entrada?: string;
+  hora_salida?: string;
+  minutos_tarde?: number;
+  observacion?: string;
+}) => {
+  const res = await fetch(`${API_URL}/api/asistencias/marcar`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Error al registrar asistencia");
+  }
+  return res.json();
+};
+
+export const getMatrizAsistencias = async (desde: string, hasta: string, id_rol?: string | number) => {
+  const params = new URLSearchParams({ desde, hasta });
+  if (id_rol) params.append("id_rol", String(id_rol));
+
+  const res = await fetch(`${API_URL}/api/asistencias/matriz?${params.toString()}`);
+  if (!res.ok) throw new Error("Error al obtener matriz de asistencias");
+  return res.json();
+};
+
+export const getDescansos = async () => {
+  const res = await fetch(`${API_URL}/api/asistencias/descansos`);
+  if (!res.ok) throw new Error("Error al obtener descansos");
+  return res.json();
+};
+
+export const programarDescanso = async (data: {
+  id_trabajador: number;
+  fecha_inicio: string;
+  fecha_fin: string;
+  motivo?: string;
+}) => {
+  const res = await fetch(`${API_URL}/api/asistencias/descansos`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Error al programar descanso");
+  }
+  return res.json();
+};
+
+export const cancelarDescanso = async (id: number) => {
+  const res = await fetch(`${API_URL}/api/asistencias/descansos/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Error al cancelar descanso");
+  }
+  return res.json();
+};

@@ -22,6 +22,7 @@ import {
   TrendingUp,
   Maximize2,
   Minimize2,
+  Coffee,
 } from "lucide-react";
 import { Order } from "../types/Order";
 import { getOrders } from "../services/orderService";
@@ -421,6 +422,25 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
       }}
     >
       
+      {/* ─────────────────────────────────────────────────────────────
+          0. AVISO AMIGABLE DE DESCANSO PROGRAMADO
+      ───────────────────────────────────────────────────────────── */}
+      {Number(trabajadorActual?.descanso_hoy) > 0 && (
+        <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-600 text-white rounded-3xl p-4 shadow-lg flex items-center gap-3.5 border border-white/20 animate-fade-in">
+          <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center shrink-0 text-white shadow-inner">
+            <Coffee size={24} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <span className="text-[10px] font-black uppercase tracking-wider bg-white/25 px-2 py-0.5 rounded-full inline-block mb-1">
+              🏖️ Turno Libre • Día No Laborable
+            </span>
+            <p className="text-xs font-bold leading-snug">
+              Hoy es tu día de descanso programado. ¡Que disfrutes de tu día libre!
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ─────────────────────────────────────────────────────────────
           1. HEADER MÓVIL DEL TÉCNICO
       ───────────────────────────────────────────────────────────── */}

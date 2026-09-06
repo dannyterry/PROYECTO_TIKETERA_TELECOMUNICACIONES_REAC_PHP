@@ -57,6 +57,14 @@ export interface Proveedor {
   direccion?: string;
   telefono?: string;
   email?: string;
+  estado?: 'Activo' | 'Inactivo';
+}
+
+export interface CategoriaItem {
+  id_categoria: number;
+  nombre: string;
+  descripcion?: string;
+  estado?: 'Activo' | 'Inactivo';
 }
 
 export interface CompraItemPayload {
