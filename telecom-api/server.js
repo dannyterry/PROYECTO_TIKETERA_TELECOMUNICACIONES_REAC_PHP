@@ -6070,6 +6070,251 @@ app.post(['/api/looker/launch-login', '/looker/launch-login'], async (req, res) 
   }
 });
 
+// ============================================================
+// ✉️ ENDPOINTS CORREOS / SMTP & ENVÍO DE REPORTES A TÉCNICOS
+// ============================================================
+app.get(['/api/correos/config', '/correos/config'], async (req, res) => {
+  try {
+    const [rows] = await pool.query("SELECT clave, valor FROM configuracion WHERE clave LIKE 'EMAIL_%'");
+    const config = {
+      EMAIL_HOST: '',
+      EMAIL_PORT: '587',
+      EMAIL_USER: '',
+      EMAIL_PASSWORD: '',
+      EMAIL_SECURE: 'tls',
+      EMAIL_FROM_NAME: 'Sistema Telecom',
+      EMAIL_PRUEBA: ''
+    };
+    rows.forEach(r => {
+      config[r.clave] = r.valor;
+    });
+    res.json(config);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post(['/api/correos/config', '/correos/config'], async (req, res) => {
+  try {
+    const body = req.body || {};
+    const keys = ['EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_USER', 'EMAIL_PASSWORD', 'EMAIL_SECURE', 'EMAIL_FROM_NAME', 'EMAIL_PRUEBA'];
+    for (const k of keys) {
+      if (body[k] !== undefined) {
+        await pool.query(
+          `INSERT INTO configuracion (clave, valor, grupo, descripcion, updated_at) 
+           VALUES (?, ?, 'email', 'Configuración de servidor SMTP', NOW())
+           ON DUPLICATE KEY UPDATE valor = VALUES(valor), updated_at = NOW()`,
+          [k, String(body[k])]
+        );
+      }
+    }
+    res.json({ success: true, mensaje: 'Configuración SMTP guardada correctamente.' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get(['/api/correos/tecnicos', '/correos/tecnicos'], async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        id_trabajador,
+        CONCAT(nombres, ' ', apellidos) as tecnico,
+        correo as email
+      FROM trabajadores
+      WHERE estado = 'Activo' AND correo IS NOT NULL AND correo != ''
+      ORDER BY nombres ASC
+    `);
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post(['/api/correos/enviar-prueba', '/correos/enviar-prueba'], async (req, res) => {
+  try {
+    const nodemailer = require('nodemailer');
+    const [rows] = await pool.query("SELECT clave, valor FROM configuracion WHERE clave LIKE 'EMAIL_%'");
+    const cfg = {};
+    rows.forEach(r => { cfg[r.clave] = r.valor; });
+
+    const destino = req.body?.email || cfg.EMAIL_PRUEBA || cfg.EMAIL_USER;
+    if (!destino) {
+      return res.status(400).json({ success: false, mensaje: 'No hay correo destinatario especificado.' });
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: cfg.EMAIL_HOST,
+      port: Number(cfg.EMAIL_PORT) || 587,
+      secure: cfg.EMAIL_SECURE === 'ssl',
+      auth: {
+        user: cfg.EMAIL_USER,
+        pass: cfg.EMAIL_PASSWORD
+      },
+      tls: { rejectUnauthorized: false }
+    });
+
+    await transporter.sendMail({
+      from: `"${cfg.EMAIL_FROM_NAME || 'Corporación Céspedes'}" <${cfg.EMAIL_USER}>`,
+      to: destino,
+      subject: 'Prueba de Conexión SMTP - Corporación Céspedes',
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+          <h2 style="color: #4f46e5;">Prueba Exitosa de Conexión SMTP</h2>
+          <p>Tu servidor de correo está correctamente conectado y listo para enviar reportes a los técnicos.</p>
+          <hr style="border: none; border-top: 1px solid #eee;" />
+          <small style="color: #666;">Corporación Céspedes • Telecomunicaciones</small>
+        </div>
+      `
+    });
+
+    res.json({ success: true, mensaje: `Correo de prueba enviado con éxito a ${destino}` });
+  } catch (error) {
+    console.error('Error enviando correo SMTP:', error);
+    res.status(500).json({ success: false, mensaje: error.message });
+  }
+});
+
+// ============================================================
+// 💰 ENDPOINTS PAGOS & LIQUIDACIONES A TÉCNICOS
+// ============================================================
+app.get(['/api/pagos/resumen', '/pagos/resumen'], async (req, res) => {
+  try {
+    const { desde, hasta, estado } = req.query;
+    let where = "WHERE o.id_tecnico IS NOT NULL";
+    const params = [];
+
+    if (desde) {
+      where += " AND DATE(o.fecha) >= ?";
+      params.push(desde);
+    }
+    if (hasta) {
+      where += " AND DATE(o.fecha) <= ?";
+      params.push(hasta);
+    }
+    if (estado && estado !== 'Todos') {
+      where += " AND o.estado = ?";
+      params.push(estado);
+    }
+
+    const sql = `
+      SELECT 
+        o.id_tecnico as id_trabajador,
+        COALESCE(CONCAT(t.nombres, ' ', t.apellidos), 'Sin técnico asignado') as tecnico,
+        COUNT(o.id) as num_ordenes,
+        SUM(CASE WHEN m.precio_compra IS NULL OR m.precio_compra = 0 THEN 1 ELSE 0 END) as sin_precio,
+        COALESCE(SUM(m.precio_venta), 0) as ingreso_win,
+        COALESCE(SUM(m.precio_compra), 0) as pago_tecnico,
+        0 as costo_material,
+        (COALESCE(SUM(m.precio_venta), 0) - COALESCE(SUM(m.precio_compra), 0)) as ganancia
+      FROM ordenes o
+      LEFT JOIN trabajadores t ON o.id_tecnico = t.id_trabajador
+      LEFT JOIN motivos m ON o.id_motivo = m.id_motivo
+      ${where}
+      GROUP BY o.id_tecnico, t.nombres, t.apellidos
+      ORDER BY num_ordenes DESC
+    `;
+
+    const [tecnicos] = await pool.query(sql, params);
+
+    const totales = tecnicos.reduce((acc, curr) => ({
+      num_ordenes: acc.num_ordenes + Number(curr.num_ordenes || 0),
+      sin_precio: acc.sin_precio + Number(curr.sin_precio || 0),
+      ingreso_win: acc.ingreso_win + Number(curr.ingreso_win || 0),
+      costo_material: acc.costo_material + Number(curr.costo_material || 0),
+      pago_tecnicos: acc.pago_tecnicos + Number(curr.pago_tecnico || 0),
+      ganancia: acc.ganancia + Number(curr.ganancia || 0),
+    }), {
+      num_ordenes: 0,
+      sin_precio: 0,
+      ingreso_win: 0,
+      costo_material: 0,
+      pago_tecnicos: 0,
+      ganancia: 0
+    });
+
+    res.json({
+      success: true,
+      fecha_desde: desde,
+      fecha_hasta: hasta,
+      estado: estado || 'Todos',
+      totales,
+      tecnicos
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get(['/api/pagos/detalle/:id_trabajador', '/pagos/detalle/:id_trabajador'], async (req, res) => {
+  try {
+    const { id_trabajador } = req.params;
+    const { desde, hasta, estado } = req.query;
+
+    let where = "WHERE o.id_tecnico = ?";
+    const params = [id_trabajador];
+
+    if (desde) {
+      where += " AND DATE(o.fecha) >= ?";
+      params.push(desde);
+    }
+    if (hasta) {
+      where += " AND DATE(o.fecha) <= ?";
+      params.push(hasta);
+    }
+    if (estado && estado !== 'Todos') {
+      where += " AND o.estado = ?";
+      params.push(estado);
+    }
+
+    const [ordenes] = await pool.query(`
+      SELECT 
+        o.id as id_orden,
+        COALESCE(o.numero_orden, o.ot, o.ticket) as numero,
+        DATE_FORMAT(o.fecha, '%Y-%m-%d') as fecha_visita,
+        o.cliente,
+        o.tipo_trabajo,
+        m.nombre as motivo,
+        COALESCE(m.precio_venta, 0) as precio_win,
+        COALESCE(m.precio_compra, 0) as pago_tecnico,
+        0 as costo_material,
+        (COALESCE(m.precio_venta, 0) - COALESCE(m.precio_compra, 0)) as ganancia
+      FROM ordenes o
+      LEFT JOIN motivos m ON o.id_motivo = m.id_motivo
+      ${where}
+      ORDER BY o.fecha DESC
+    `, params);
+
+    const [trabajadorRow] = await pool.query("SELECT CONCAT(nombres, ' ', apellidos) as nombre FROM trabajadores WHERE id_trabajador = ?", [id_trabajador]);
+
+    const totales = ordenes.reduce((acc, curr) => ({
+      num_ordenes: acc.num_ordenes + 1,
+      sin_precio: acc.sin_precio + (Number(curr.pago_tecnico) === 0 ? 1 : 0),
+      ingreso_win: acc.ingreso_win + Number(curr.precio_win || 0),
+      costo_material: acc.costo_material + Number(curr.costo_material || 0),
+      pago_tecnicos: acc.pago_tecnicos + Number(curr.pago_tecnico || 0),
+      ganancia: acc.ganancia + Number(curr.ganancia || 0),
+    }), {
+      num_ordenes: 0,
+      sin_precio: 0,
+      ingreso_win: 0,
+      costo_material: 0,
+      pago_tecnicos: 0,
+      ganancia: 0
+    });
+
+    res.json({
+      success: true,
+      id_trabajador: Number(id_trabajador),
+      tecnico: trabajadorRow[0]?.nombre || 'Técnico',
+      totales,
+      ordenes
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor en puerto ${PORT}`));
 
