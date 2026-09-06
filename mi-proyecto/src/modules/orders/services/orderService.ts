@@ -101,22 +101,46 @@ const extractCTO = (datosTecnicos?: string): string => {
 };
 
 /**
- * Limpia el texto de región/zona para dejar únicamente el nombre del distrito
- * Ej: "REGION SUR 5 LIMA CHORRILLOS" -> "CHORRILLOS"
- *     "REGION SUR 6 LIMA LURÍN" -> "LURÍN"
+ * Limpia el texto de región/zona para dejar únicamente el nombre del distrito.
+ * Si region_zona viene con el nombre de la cuadrilla o vacío, extrae el distrito de la dirección.
  */
-export const cleanDistrito = (rawDistrito?: string): string => {
-  if (!rawDistrito) return "";
-  let d = rawDistrito.trim();
+export const cleanDistrito = (rawDistrito?: string, direccion?: string, localidad?: string): string => {
+  const isInvalidCuadrilla = (s?: string) => !s || /(^[KO]\s*\d+|CESPEDES|SGA|MOTOWIN|TRASLADO)/i.test(s.trim());
 
-  // Quitar patrones como "REGION SUR 5 LIMA", "REGION NORTE 2 LIMA", "REGION CENTRO LIMA", etc.
-  d = d.replace(/^REGION\s+(SUR|NORTE|CENTRO|ESTE|OESTE)?\s*\d*\s*LIMA\s*/i, "");
-  // Quitar "LIMA " al inicio
-  d = d.replace(/^LIMA\s*[-–:]*\s*/i, "");
-  // Quitar "REGION " genérico
-  d = d.replace(/^REGION\s+\d*\s*/i, "");
+  if (rawDistrito && !isInvalidCuadrilla(rawDistrito)) {
+    let d = rawDistrito.trim();
+    // Quitar patrones como "REGION SUR 5 LIMA", "REGION NORTE 2 LIMA", etc.
+    d = d.replace(/^REGION\s+(SUR|NORTE|CENTRO|ESTE|OESTE)?\s*\d*\s*LIMA\s*/i, "");
+    d = d.replace(/^LIMA\s*[-–:]*\s*/i, "");
+    d = d.replace(/^REGION\s+\d*\s*/i, "");
+    d = d.trim();
+    if (d && !isInvalidCuadrilla(d)) {
+      return d.toUpperCase();
+    }
+  }
 
-  return d.trim().toUpperCase();
+  // 🏙️ Lista oficial de distritos de Lima y Callao para extracción inteligente de la dirección
+  const LIMA_DISTRITOS = [
+    "SAN JUAN DE LURIGANCHO", "SAN JUAN DE MIRAFLORES", "VILLA MARIA DEL TRIUNFO",
+    "VILLA EL SALVADOR", "SAN MARTIN DE PORRES", "SANTIAGO DE SURCO", "SURCO",
+    "MAGDALENA DEL MAR", "PUEBLO LIBRE", "PUENTE PIEDRA", "PUNTA HERMOSA", "PUNTA NEGRA",
+    "SAN BARTOLO", "SAN BORJA", "SAN ISIDRO", "SAN LUIS", "SAN MIGUEL", "SANTA ANITA",
+    "SANTA MARIA DEL MAR", "SANTA ROSA", "CARMEN DE LA LEGUA", "LOS OLIVOS", "LURIGANCHO",
+    "CHORRILLOS", "MIRAFLORES", "BARRANCO", "SURQUILLO", "LA MOLINA", "LA VICTORIA",
+    "EL AGUSTINO", "INDEPENDENCIA", "JESUS MARIA", "BREÑA", "COMAS", "CARABAYLLO",
+    "LURIN", "PACHACAMAC", "PUCUSANA", "ANCON", "CHACLACAYO", "CIENEGUILLA", "RIMAC",
+    "BELLAVISTA", "LA PERLA", "LA PUNTA", "VENTANILLA", "MI PERU", "CALLAO"
+  ];
+
+  const fullText = `${direccion || ""} ${rawDistrito || ""} ${localidad || ""}`.toUpperCase();
+  for (const dist of LIMA_DISTRITOS) {
+    const reg = new RegExp(`\\b${dist}\\b`, "i");
+    if (reg.test(fullText)) {
+      return dist === "SURCO" ? "SANTIAGO DE SURCO" : dist;
+    }
+  }
+
+  return rawDistrito && !isInvalidCuadrilla(rawDistrito) ? rawDistrito.toUpperCase().trim() : "-";
 };
 
 /**
@@ -362,13 +386,14 @@ export const getOrders = async (filters?: {
           tipoTrabajo: finalTipoTrabajo,
           dni: (() => {
             const d = String(raw.numero_documento || raw.dni || raw.documento || raw.ruc || "").trim();
-            if (/(CESPEDES|SGA|^[KO]\s*\d+)/i.test(d)) {
+            // Descartar si es "0", texto de cuadrilla, o código de CTO/caja (como W-36PLT84-24)
+            if (!d || d === "0" || d === "null" || d === "undefined" || /(CESPEDES|SGA|^[KO]\s*\d+|^W-|^WN-)/i.test(d)) {
               return "";
             }
             return d;
           })(),
           direccion: String(raw.direccion || raw.direccion_instalacion || ""),
-          distrito: cleanDistrito(raw.region_zona || raw.distrito || raw.localidad || ""),
+          distrito: cleanDistrito(raw.region_zona || raw.distrito || raw.localidad || "", raw.direccion, raw.localidad),
           cto: extractCTO(raw.datos_tecnicos) || String(raw.cto || ""),
           cajaPosicionPasivo: String(raw.caja_posicion_pasivo || raw.caja_pasivo || raw.caja || ""),
           acta: String(raw.numero_acta || raw.acta || ""),
