@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from "react";
+import "leaflet/dist/leaflet.css";
+import { MapContainer, TileLayer, Polyline, CircleMarker, Popup, useMap } from "react-leaflet";
+import type { LatLngBoundsExpression, LatLngExpression } from "leaflet";
 import {
   X,
   MapPin,
@@ -18,6 +21,61 @@ import {
 } from "lucide-react";
 import { RecorridoTecnicoResponse, ParadaGps } from "../types/mobilityTypes";
 import { getRecorridoTecnico } from "../services/mobilityService";
+
+interface RouteMapLayerProps {
+  points: Array<{ lat: number; lng: number; label: string; cliente?: string; direccion?: string }>;
+  roadRoute: LatLngExpression[];
+  selectedPoint: { lat: number; lng: number } | null;
+  onSelect: (point: RouteMapLayerProps["points"][number]) => void;
+}
+
+const RouteMapLayer: React.FC<RouteMapLayerProps> = ({ points, roadRoute, selectedPoint, onSelect }) => {
+  const map = useMap();
+  const coordinates = points.map((point) => [point.lat, point.lng] as LatLngExpression);
+  const bounds = coordinates as LatLngBoundsExpression;
+
+  useEffect(() => {
+    if (coordinates.length === 1) {
+      map.setView(coordinates[0], 14);
+    } else if (coordinates.length > 1) {
+      map.fitBounds(bounds, { padding: [28, 28] });
+    }
+  }, [map, points]);
+
+  return (
+    <>
+      {coordinates.length > 1 && (
+        <Polyline
+          positions={roadRoute.length > 1 ? roadRoute : coordinates}
+          pathOptions={{ color: "#0f766e", weight: 5, opacity: 0.85 }}
+        />
+      )}
+      {points.map((point, index) => {
+        const isSelected = selectedPoint?.lat === point.lat && selectedPoint?.lng === point.lng;
+        return (
+          <CircleMarker
+            key={`${point.lat}-${point.lng}-${index}`}
+            center={[point.lat, point.lng]}
+            radius={isSelected ? 10 : 7}
+            pathOptions={{
+              color: isSelected ? "#0f172a" : "#0f766e",
+              fillColor: isSelected ? "#facc15" : "#14b8a6",
+              fillOpacity: 1,
+              weight: 3,
+            }}
+            eventHandlers={{ click: () => onSelect(point) }}
+          >
+            <Popup>
+              <strong>{point.label}</strong>
+              {point.cliente && <div>{point.cliente}</div>}
+              {point.direccion && <div>{point.direccion}</div>}
+            </Popup>
+          </CircleMarker>
+        );
+      })}
+    </>
+  );
+};
 
 interface Props {
   isOpen: boolean;
@@ -42,6 +100,7 @@ export const TechnicianRouteMapModal: React.FC<Props> = ({
 }) => {
   const [data, setData] = useState<RecorridoTecnicoResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [roadRoute, setRoadRoute] = useState<LatLngExpression[]>([]);
   const [vistaActiva, setVistaActiva] = useState<"ordenes" | "gps">(modoInicial);
   const [paradaSeleccionada, setParadaSeleccionada] = useState<ParadaGps | null>(null);
 
@@ -100,8 +159,39 @@ export const TechnicianRouteMapModal: React.FC<Props> = ({
     ? Number(paradasMostradas[0].lng)
     : -77.042793;
 
-  // Mapa OpenStreetMap embebido
-  const osmEmbedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${centerLng - 0.04}%2C${centerLat - 0.04}%2C${centerLng + 0.04}%2C${centerLat + 0.04}&layer=mapnik&marker=${centerLat}%2C${centerLng}`;
+  const puntosMapa = paradasMostradas.map((point, index) => ({
+    lat: Number(point.lat),
+    lng: Number(point.lng),
+    label: point.orden_visita ? `Cliente #${point.orden_visita}` : `Punto ${index + 1}`,
+    cliente: point.cliente,
+    direccion: point.direccion?.split("||")[0],
+  })).filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+
+  useEffect(() => {
+    let cancelado = false;
+    const puntosRuta = puntosMapa.map((point) => `${point.lng},${point.lat}`).join(";");
+
+    if (puntosMapa.length < 2) {
+      setRoadRoute([]);
+      return () => { cancelado = true; };
+    }
+
+    fetch(`https://router.project-osrm.org/route/v1/driving/${puntosRuta}?overview=full&geometries=geojson&steps=false`)
+      .then((response) => {
+        if (!response.ok) throw new Error("No se pudo calcular la ruta por carretera");
+        return response.json();
+      })
+      .then((result) => {
+        if (cancelado) return;
+        const coordinates = result.routes?.[0]?.geometry?.coordinates || [];
+        setRoadRoute(coordinates.map(([lng, lat]: [number, number]) => [lat, lng] as LatLngExpression));
+      })
+      .catch(() => {
+        if (!cancelado) setRoadRoute([]);
+      });
+
+    return () => { cancelado = true; };
+  }, [vistaActiva, data]);
 
   const esMoto =
     (cuadrilla || "").toLowerCase().includes("motowin") ||
@@ -250,12 +340,28 @@ export const TechnicianRouteMapModal: React.FC<Props> = ({
             
             {/* 1. VISOR DE MAPA EMBEBIDO (7 Columnas) */}
             <div className="lg:col-span-7 bg-slate-100 rounded-3xl overflow-hidden border border-slate-200 shadow-inner flex flex-col h-[380px] lg:h-[460px] relative">
-              <iframe
-                title="Mapa de Ruta"
-                src={osmEmbedUrl}
-                className="w-full h-full border-0"
-                loading="lazy"
-              />
+              <MapContainer
+                center={[centerLat, centerLng] as LatLngExpression}
+                zoom={13}
+                scrollWheelZoom
+                className="w-full h-full"
+              >
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+                <RouteMapLayer
+                  points={puntosMapa}
+                  roadRoute={roadRoute}
+                  selectedPoint={paradaSeleccionada ? { lat: Number(paradaSeleccionada.lat), lng: Number(paradaSeleccionada.lng) } : null}
+                  onSelect={(point) => {
+                    const selected = paradasMostradas.find(
+                      (item) => Number(item.lat) === point.lat && Number(item.lng) === point.lng
+                    );
+                    if (selected) setParadaSeleccionada(selected);
+                  }}
+                />
+              </MapContainer>
 
               {/* Botón flotante para abrir en Google Maps */}
               <div className="absolute bottom-3 right-3 z-10">

@@ -20,11 +20,15 @@ import {
   TecnicoOption,
   getStoredTasksProgressMap,
   saveTaskProgress,
+  getOrderAlerts,
+  OrderAlertsResponse,
 } from "./services/orderService";
+import { GestorAlertsModal } from "./components/GestorAlertsModal";
 import { extractCuadrillaKey, getUniqueCuadrillas, getUniqueCuadrillasWithOptions, extractCuadrillaMemberName } from "./utils/cuadrillaUtils";
 import { deduplicateTechnicians } from "./utils/nameNormalizer";
 import { TIPOS_TRABAJO_CATALOGO } from "./utils/tipoTrabajoMapper";
 import { API_URL } from "../../config/api";
+import { authService } from "../../services/authService";
 import { Loader2, AlertCircle, RefreshCw } from "lucide-react";
 
 /**
@@ -131,23 +135,37 @@ export const OrdersPage: React.FC = () => {
     [filters.fechaDesde, filters.fechaHasta, filters.search, todayStr]
   );
 
-  // 👤 Datos del usuario / gestor actual desde sesión o URL (con soporte standalone)
-  const isStandalone = typeof window !== "undefined" && window.self === window.top;
+  // 👤 Datos del usuario / gestor actual desde sesión activa en authService o URL
+  const authUser = authService.getCurrentUser();
+  const queryParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
 
   const currentUserId = useMemo(() => {
-    const p = new URLSearchParams(window.location.search);
-    return p.get("userId") || localStorage.getItem("userId") || (isStandalone ? "59" : "");
-  }, [isStandalone]);
+    return (
+      authUser?.id_usuario?.toString() ||
+      queryParams?.get("userId") ||
+      localStorage.getItem("userId") ||
+      ""
+    );
+  }, [authUser, queryParams]);
 
   const currentUserName = useMemo(() => {
-    const p = new URLSearchParams(window.location.search);
-    return p.get("userName") || localStorage.getItem("userName") || (isStandalone ? "DANNY ALEJANDRO MAMANI TORRES" : "Gestor de Órdenes");
-  }, [isStandalone]);
+    return (
+      authUser?.nombreCompleto ||
+      (authUser?.nombres ? `${authUser.nombres} ${(authUser as any).primer_apellido || authUser.apellidos || ""}`.trim() : "") ||
+      queryParams?.get("userName") ||
+      localStorage.getItem("userName") ||
+      "Gestor de Órdenes"
+    );
+  }, [authUser, queryParams]);
 
   const currentRolNombre = useMemo(() => {
-    const p = new URLSearchParams(window.location.search);
-    return p.get("rolNombre") || localStorage.getItem("rolNombre") || (isStandalone ? "ADMINISTRACION" : "GESTION");
-  }, [isStandalone]);
+    return (
+      authUser?.rol ||
+      queryParams?.get("rolNombre") ||
+      localStorage.getItem("rolNombre") ||
+      "GESTION"
+    );
+  }, [authUser, queryParams]);
 
   // 🟢 Heartbeat en vivo para marcar usuario como ONLINE en el Dashboard
   useEffect(() => {
@@ -533,6 +551,53 @@ export const OrdersPage: React.FC = () => {
   // Estado para el modal de tareas en tiempo real de Fénix
   const [selectedOrderForTasks, setSelectedOrderForTasks] = useState<Order | null>(null);
 
+  // 🚨 Alertas Operativas de Gestión (Técnicos sin orden, Actas pendientes > 10 min, Tramos en riesgo)
+  const [alertsData, setAlertsData] = useState<OrderAlertsResponse | null>(null);
+  const [alertsLoading, setAlertsLoading] = useState<boolean>(false);
+  const [isAlertsModalOpen, setIsAlertsModalOpen] = useState<boolean>(false);
+
+  const loadAlerts = useCallback(async () => {
+    try {
+      setAlertsLoading(true);
+      const data = await getOrderAlerts(filters.fechaDesde || todayStr);
+      setAlertsData(data);
+    } catch (err) {
+      console.warn("Aviso al cargar alertas de gestión:", err);
+    } finally {
+      setAlertsLoading(false);
+    }
+  }, [filters.fechaDesde, todayStr]);
+
+  // Cargar alertas operativas al cambiar fecha
+  useEffect(() => {
+    loadAlerts();
+  }, [loadAlerts]);
+
+  // Abrir modal de tareas por número de orden desde las alertas
+  const handleOpenTasksByOrderNumber = useCallback((num: string) => {
+    const cleanNum = String(num || "").trim();
+    const found = orders.find(
+      (o) =>
+        String(o.numeroOrden || "").trim() === cleanNum ||
+        String(o.ot || "").trim() === cleanNum ||
+        String(o.ticket || "").trim() === cleanNum
+    );
+    if (found) {
+      setSelectedOrderForTasks(found);
+    } else {
+      setSelectedOrderForTasks({
+        id: 0,
+        fecha: filters.fechaDesde || todayStr,
+        celular: "",
+        inconcert: false,
+        ticket: cleanNum,
+        numeroOrden: cleanNum,
+        cliente: "Cliente Fénix",
+        status: "Iniciada",
+      });
+    }
+  }, [orders, filters.fechaDesde, todayStr]);
+
   // ⚡ Tareas en vivo bajo demanda: el progreso de tareas se carga y persiste orden por orden al interactuar con el modal
   const [tasksProgressMap, setTasksProgressMap] = useState<Record<string, { total: number; done: number; pct: number }>>(
     () => getStoredTasksProgressMap()
@@ -553,10 +618,15 @@ export const OrdersPage: React.FC = () => {
         <OrdersToolbar
           filters={filters}
           onFilterChange={setFilters}
-          onSync={handleSync}
+          onSync={() => {
+            handleSync();
+            loadAlerts();
+          }}
           totalCount={baseFilteredOrders.length}
           cuadrillas={cuadrillasDisponibles}
           stats={stats}
+          alertsCount={alertsData?.resumen.total_alertas || 0}
+          onOpenAlerts={() => setIsAlertsModalOpen(true)}
         />
       </div>
 
@@ -666,6 +736,17 @@ export const OrdersPage: React.FC = () => {
           onProgressUpdate={handleTaskProgressUpdate}
         />
       )}
+
+      {/* MODAL DE ALERTAS OPERATIVAS DE GESTIÓN */}
+      <GestorAlertsModal
+        isOpen={isAlertsModalOpen}
+        onClose={() => setIsAlertsModalOpen(false)}
+        alertsData={alertsData}
+        loading={alertsLoading}
+        onRefresh={loadAlerts}
+        onSelectOrderForTasks={handleOpenTasksByOrderNumber}
+        onFilterBySearch={(term) => setFilters((prev) => ({ ...prev, search: term }))}
+      />
     </div>
   );
 };

@@ -826,4 +826,78 @@ export const registrarLogAuditoria = async (data: {
   }
 };
 
+/**
+ * 🚨 10. Alertas Operativas para Gestión (Técnicos sin orden, Actas pendientes, Tramos en riesgo)
+ */
+export interface TecnicoSinOrdenAlert {
+  id_usuario: number;
+  documento: string;
+  nombre_completo: string;
+  cuadrilla: string;
+  estado_asistencia: string;
+  hora_entrada: string | null;
+  asistio_hoy: boolean;
+  tipo_alerta?: "sin_orden" | "desocupado";
+  total_ordenes?: number;
+  ordenes_finalizadas?: number;
+  hora_fin?: string | null;
+  proximo_tramo?: string;
+  mensaje: string;
+  whatsapp_msg?: string;
+}
+
+export interface ActaPendienteAlert {
+  id_orden: number;
+  numero_orden: string;
+  cliente: string;
+  tecnico: string;
+  cuadrilla: string;
+  estado_orden: string;
+  total_tareas: number;
+  tareas_finalizadas: number;
+  porcentaje_avance: number;
+  minutos_espera: number;
+  fecha_sincronizacion: string;
+  mensaje: string;
+}
+
+export interface TramoRiesgoAlert {
+  id_orden: number;
+  numero_orden: string;
+  cliente: string;
+  tecnico: string;
+  cuadrilla: string;
+  estado_orden: string;
+  tramo: string;
+  vencido: boolean;
+  minutos_diferencia: number;
+  mensaje: string;
+}
+
+export interface OrderAlertsResponse {
+  success: boolean;
+  fecha: string;
+  resumen: {
+    total_alertas: number;
+    tecnicos_sin_orden_count: number;
+    actas_pendientes_count: number;
+    tramos_riesgo_count: number;
+  };
+  alertas: {
+    tecnicos_sin_orden: TecnicoSinOrdenAlert[];
+    actas_pendientes: ActaPendienteAlert[];
+    tramos_riesgo: TramoRiesgoAlert[];
+  };
+}
+
+export const getOrderAlerts = async (fecha?: string): Promise<OrderAlertsResponse> => {
+  const params = new URLSearchParams();
+  if (fecha) params.set("fecha", fecha);
+  params.set("t", String(Date.now()));
+
+  const res = await fetch(`${API_URL}/api/ordenes/alertas-gestion?${params.toString()}`);
+  if (!res.ok) throw new Error("Error al obtener alertas de gestión");
+  return res.json();
+};
+
 

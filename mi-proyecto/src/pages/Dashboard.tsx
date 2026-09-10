@@ -5,6 +5,7 @@ import { getEmpleados , getHistorialEstados } from "../services/employeeService"
 import { API_URL } from "../config/api";
 import { useReactToPrint } from "react-to-print";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
+import { authService } from "../services/authService";
 
 interface DashboardProps {
   selectedEmpProp?: Employee | null;
@@ -12,6 +13,9 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ selectedEmpProp, onDataUpdated }: DashboardProps) {
+  const canCrearEmpleado = authService.hasAnyPermission(["usuarios.crear", "trabajadores.crear"]);
+  const canEditarEmpleado = authService.hasAnyPermission(["usuarios.editar", "trabajadores.editar"]);
+
   const [empleados, setEmpleados] = useState<Employee[]>([]);
   const [selectedEmpleado, setSelectedEmpleado] = useState<Employee | null>(selectedEmpProp || null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -172,15 +176,17 @@ export default function Dashboard({ selectedEmpProp, onDataUpdated }: DashboardP
 
         <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto justify-start xl:justify-end">
           
+          {canCrearEmpleado && (
+            <button
+              onClick={() => { setModoEdicion(false); setIsModalOpen(true); }}
+              className="rounded-xl bg-teal-600 px-6 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-teal-700 transition-colors whitespace-nowrap cursor-pointer"
+            >
+              + Nuevo Empleado
+            </button>
+          )}
+
           <Dialog open={isModalOpen} onOpenChange={(isOpen) => { if (isOpen) setIsModalOpen(true); }}>
-            {/* @ts-ignore */}
-            <DialogTrigger asChild>
-              <button onClick={() => { setModoEdicion(false); setIsModalOpen(true); }} className="rounded-xl bg-teal-600 px-6 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-teal-700 transition-colors whitespace-nowrap">
-                + Nuevo Empleado
-              </button>
-            </DialogTrigger>
-            {/* @ts-ignore */}
-            <DialogContent showCloseButton={false} onPointerDownOutside={(e: any) => e.preventDefault()} onEscapeKeyDown={(e: any) => e.preventDefault()} className="p-6 max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogContent showCloseButton={false} className="p-6 max-w-4xl max-h-[90vh] overflow-y-auto">
               <DialogHeader className="mb-4">
                 <DialogTitle className="flex items-center justify-between text-xl font-bold text-gray-800">
                   {modoEdicion ? "Editar Información del Empleado" : "Registro de Nuevo Empleado"}
@@ -198,11 +204,13 @@ export default function Dashboard({ selectedEmpProp, onDataUpdated }: DashboardP
 
           {selectedEmpleado && (
             <>
-              <button onClick={() => { setModoEdicion(true); setIsModalOpen(true); }} className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-blue-700 transition-colors">
-                Editar Datos
-              </button>
+              {canEditarEmpleado && (
+                <button onClick={() => { setModoEdicion(true); setIsModalOpen(true); }} className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-blue-700 transition-colors cursor-pointer">
+                  Editar Datos
+                </button>
+              )}
 
-              <button onClick={handlePrint} className="flex items-center gap-2 bg-red-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-red-700 transition-colors">
+              <button onClick={handlePrint} className="flex items-center gap-2 bg-red-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-red-700 transition-colors cursor-pointer">
                 Exportar a PDF
               </button>
             </>

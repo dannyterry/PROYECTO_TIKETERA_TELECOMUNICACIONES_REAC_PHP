@@ -287,14 +287,16 @@ export const getMatrizAsistencias = async (desde: string, hasta: string, id_rol?
   return res.json();
 };
 
-export const getDescansos = async () => {
-  const res = await fetch(`${API_URL}/api/asistencias/descansos`);
+export const getDescansos = async (id_rol?: string | number) => {
+  const url = id_rol ? `${API_URL}/api/asistencias/descansos?id_rol=${id_rol}` : `${API_URL}/api/asistencias/descansos`;
+  const res = await fetch(url);
   if (!res.ok) throw new Error("Error al obtener descansos");
   return res.json();
 };
 
 export const programarDescanso = async (data: {
-  id_trabajador: number;
+  id_trabajador?: number;
+  id_usuario?: number;
   fecha_inicio: string;
   fecha_fin: string;
   motivo?: string;

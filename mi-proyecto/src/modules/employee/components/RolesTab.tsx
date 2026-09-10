@@ -24,8 +24,13 @@ import {
   updateArea,
   deleteArea,
 } from "../../../services/employeeService";
+import { authService } from "../../../services/authService";
 
 export const RolesTab: React.FC = () => {
+  const canCrearRol = authService.hasPermission("roles.crear");
+  const canEditarRol = authService.hasPermission("roles.editar");
+  const canEliminarRol = authService.hasPermission("roles.eliminar");
+
   const [activeSubTab, setActiveSubTab] = useState<"roles" | "areas">("roles");
 
   // --- Estado de Roles ---
@@ -299,13 +304,15 @@ export const RolesTab: React.FC = () => {
               >
                 <RotateCw size={16} className={loadingRoles ? "animate-spin text-teal-600" : ""} />
               </button>
-              <button
-                onClick={handleAbrirCrearRol}
-                className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-2xl text-xs font-bold flex items-center gap-2 shadow-md shadow-teal-600/20 transition-all cursor-pointer active:scale-95"
-              >
-                <Plus size={16} />
-                <span>Crear Rol</span>
-              </button>
+              {canCrearRol && (
+                <button
+                  onClick={handleAbrirCrearRol}
+                  className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-2xl text-xs font-bold flex items-center gap-2 shadow-md shadow-teal-600/20 transition-all cursor-pointer active:scale-95"
+                >
+                  <Plus size={16} />
+                  <span>Crear Rol</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -368,14 +375,16 @@ export const RolesTab: React.FC = () => {
                           </td>
                           <td className="py-3 px-4 text-right">
                             <div className="inline-flex items-center gap-1">
-                              <button
-                                onClick={() => handleAbrirEditarRol(rol)}
-                                className="p-1.5 text-slate-500 hover:text-teal-600 hover:bg-teal-50 rounded-xl transition-all cursor-pointer"
-                                title="Editar Rol"
-                              >
-                                <Edit2 size={14} />
-                              </button>
-                              {esActivo && (
+                              {canEditarRol && (
+                                <button
+                                  onClick={() => handleAbrirEditarRol(rol)}
+                                  className="p-1.5 text-slate-500 hover:text-teal-600 hover:bg-teal-50 rounded-xl transition-all cursor-pointer"
+                                  title="Editar Rol"
+                                >
+                                  <Edit2 size={14} />
+                                </button>
+                              )}
+                              {canEliminarRol && esActivo && (
                                 <button
                                   onClick={() => handleDesactivarRol(rol)}
                                   className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
@@ -423,13 +432,15 @@ export const RolesTab: React.FC = () => {
               >
                 <RotateCw size={16} className={loadingAreas ? "animate-spin text-teal-600" : ""} />
               </button>
-              <button
-                onClick={handleAbrirCrearArea}
-                className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-2xl text-xs font-bold flex items-center gap-2 shadow-md shadow-teal-600/20 transition-all cursor-pointer active:scale-95"
-              >
-                <Plus size={16} />
-                <span>Crear Área</span>
-              </button>
+              {canCrearRol && (
+                <button
+                  onClick={handleAbrirCrearArea}
+                  className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-2xl text-xs font-bold flex items-center gap-2 shadow-md shadow-teal-600/20 transition-all cursor-pointer active:scale-95"
+                >
+                  <Plus size={16} />
+                  <span>Crear Área</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -496,14 +507,16 @@ export const RolesTab: React.FC = () => {
                           </td>
                           <td className="py-3 px-4 text-right">
                             <div className="inline-flex items-center gap-1">
-                              <button
-                                onClick={() => handleAbrirEditarArea(area)}
-                                className="p-1.5 text-slate-500 hover:text-teal-600 hover:bg-teal-50 rounded-xl transition-all cursor-pointer"
-                                title="Editar Área"
-                              >
-                                <Edit2 size={14} />
-                              </button>
-                              {esActivo && (
+                              {canEditarRol && (
+                                <button
+                                  onClick={() => handleAbrirEditarArea(area)}
+                                  className="p-1.5 text-slate-500 hover:text-teal-600 hover:bg-teal-50 rounded-xl transition-all cursor-pointer"
+                                  title="Editar Área"
+                                >
+                                  <Edit2 size={14} />
+                                </button>
+                              )}
+                              {canEliminarRol && esActivo && (
                                 <button
                                   onClick={() => handleDesactivarArea(area)}
                                   className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"

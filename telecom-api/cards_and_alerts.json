@@ -1,20 +1,21 @@
 {
-  "timestamp": "2026-08-28T15:14:37.316Z",
-  "totalGeneral": 0,
+  "timestamp": "2026-09-09T22:19:49.085Z",
+  "totalGeneral": 15,
   "totalAlertasSur": 0,
+  "resumenZonas": {},
   "cards": {
     "AVERIAS PREFERENTE": {
-      "total": 0,
+      "total": 5,
       "zonas": {},
       "ordenes": []
     },
     "AVERIAS ALTO VALOR": {
-      "total": 0,
+      "total": 5,
       "zonas": {},
       "ordenes": []
     },
     "MOTOWIN ZONAS": {
-      "total": 0,
+      "total": 5,
       "zonas": {},
       "ordenes": []
     }

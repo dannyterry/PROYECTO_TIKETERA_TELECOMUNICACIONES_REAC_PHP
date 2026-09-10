@@ -12,9 +12,19 @@ import {
   Calendar,
   Clock,
   AlertTriangle,
+  FileSpreadsheet,
+  Save,
+  Check,
+  Tag,
+  FileText,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import { EquipoRetirado } from "../types/inventoryTypes";
-import { getEquiposRecogidos, internarEquipoRecogido } from "../services/inventoryService";
+import {
+  getEquiposRecogidos,
+  internarEquipoRecogido,
+  actualizarEquipoRecogido,
+} from "../services/inventoryService";
 
 export const RetrievedEquipmentTab: React.FC = () => {
   const [equipos, setEquipos] = useState<EquipoRetirado[]>([]);
@@ -24,10 +34,27 @@ export const RetrievedEquipmentTab: React.FC = () => {
   const [filtroFechaDesde, setFiltroFechaDesde] = useState<string>("");
   const [filtroFechaHasta, setFiltroFechaHasta] = useState<string>("");
 
+  // Edición en línea de Guía de Remisión WIN y PROID
+  const [guiasEditadas, setGuiasEditadas] = useState<{ [id: number]: string }>({});
+  const [proidsEditados, setProidsEditados] = useState<{ [id: number]: string }>({});
+  const [guardandoId, setGuardandoId] = useState<number | null>(null);
+  const [guardadoExitoId, setGuardadoExitoId] = useState<number | null>(null);
+
   const cargarEquipos = () => {
     setLoading(true);
     getEquiposRecogidos()
-      .then((data) => setEquipos(data || []))
+      .then((data) => {
+        setEquipos(data || []);
+        // Inicializar mapas de edición
+        const initialGuias: { [id: number]: string } = {};
+        const initialProids: { [id: number]: string } = {};
+        (data || []).forEach((e) => {
+          initialGuias[e.id_equipo_retirado] = e.guia_remision_win || "";
+          initialProids[e.id_equipo_retirado] = e.proid || "";
+        });
+        setGuiasEditadas(initialGuias);
+        setProidsEditados(initialProids);
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   };
@@ -35,6 +62,66 @@ export const RetrievedEquipmentTab: React.FC = () => {
   useEffect(() => {
     cargarEquipos();
   }, []);
+
+  const handleGuardarDatosEquipo = async (id: number) => {
+    try {
+      setGuardandoId(id);
+      const guia = guiasEditadas[id] || "";
+      const proidVal = proidsEditados[id] || "";
+      await actualizarEquipoRecogido(id, {
+        guia_remision_win: guia,
+        proid: proidVal,
+      });
+
+      setEquipos((prev) =>
+        prev.map((e) =>
+          e.id_equipo_retirado === id
+            ? { ...e, guia_remision_win: guia, proid: proidVal }
+            : e
+        )
+      );
+
+      setGuardadoExitoId(id);
+      setTimeout(() => setGuardadoExitoId(null), 2500);
+    } catch (err: any) {
+      alert("Error al guardar: " + (err.response?.data?.error || err.message));
+    } finally {
+      setGuardandoId(null);
+    }
+  };
+
+  const handleExportarExcel = () => {
+    if (equiposFiltrados.length === 0) {
+      alert("No hay equipos para exportar con los filtros seleccionados.");
+      return;
+    }
+
+    const dataToExport = equiposFiltrados.map((e, idx) => ({
+      "N°": idx + 1,
+      "Acta / Ticket": e.ticket || `REQ-${e.id_orden}`,
+      "Cliente": e.cliente || "S/D",
+      "Dirección": e.direccion || "S/D",
+      "Distrito": e.distrito || "S/D",
+      "Código Producto": e.codigo_producto || "ONT/MESH",
+      "Tipo de Equipo": e.tipo_equipo || "ONT",
+      "Número de Serie (S/N)": e.numero_serie,
+      "ID Modelo": proidsEditados[e.id_equipo_retirado] ?? e.proid ?? "S/P",
+      "Guía de Remisión WIN": guiasEditadas[e.id_equipo_retirado] ?? e.guia_remision_win ?? "PENDIENTE",
+      "Técnico que Retiró": e.tecnico_nombre || "S/N",
+      "Cuadrilla": e.cuadrilla || "S/C",
+      "Fecha de Recojo": e.fecha_recojo ? e.fecha_recojo.slice(0, 19).replace("T", " ") : "-",
+      "Fecha Internado en Almacén": e.fecha_internamiento ? e.fecha_internamiento.slice(0, 19).replace("T", " ") : "-",
+      "Recibido Por": e.recibido_por || "-",
+      "Motivo de Retiro": e.motivo_retiro || "Avería / Retiro",
+      "Estado": e.estado === "En_Poder_Tecnico" ? "En Poder del Técnico" : "Internado en Almacén",
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Equipos Recogidos");
+    const fecha = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `Equipos_Recogidos_WIN_${fecha}.xlsx`);
+  };
 
   const handleInternar = async (
     id_equipo_retirado: number,
@@ -59,6 +146,9 @@ export const RetrievedEquipmentTab: React.FC = () => {
     const matchTxt =
       !txt ||
       e.numero_serie.toLowerCase().includes(txt) ||
+      (e.proid || "").toLowerCase().includes(txt) ||
+      (proidsEditados[e.id_equipo_retirado] || "").toLowerCase().includes(txt) ||
+      (e.guia_remision_win || "").toLowerCase().includes(txt) ||
       e.ticket?.toLowerCase().includes(txt) ||
       e.cliente?.toLowerCase().includes(txt) ||
       e.tecnico_nombre?.toLowerCase().includes(txt);
@@ -221,22 +311,35 @@ export const RetrievedEquipmentTab: React.FC = () => {
               type="text"
               value={filtroTexto}
               onChange={(e) => setFiltroTexto(e.target.value)}
-              placeholder="Buscar S/N, ticket, cliente..."
+              placeholder="Buscar S/N, ID de modelo, ticket, cliente..."
               className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none"
             />
           </div>
+
+          {/* Botón Exportar a Excel */}
+          <button
+            type="button"
+            onClick={handleExportarExcel}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition-all shadow-xs cursor-pointer shrink-0"
+            title="Exportar listado completo a Excel (.xlsx) con Cliente, Acta, Código, Serie, ID Modelo y Guía WIN"
+          >
+            <FileSpreadsheet size={15} />
+            <span>Exportar Excel</span>
+          </button>
         </div>
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
-          3. TABLA DE EQUIPOS RECOGIDOS
+          3. TABLA DE EQUIPOS RECOGIDOS CON GUÍA WIN & ID DE MODELO
       ───────────────────────────────────────────────────────────── */}
       <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
         <table className="w-full text-left text-xs">
           <thead className="bg-slate-50/80 text-slate-400 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
             <tr>
               <th className="py-3.5 px-4">Equipo & Serie (S/N)</th>
-              <th className="py-3.5 px-4">Cliente & Ticket</th>
+              <th className="py-3.5 px-4">ID Modelo</th>
+              <th className="py-3.5 px-4">Guía Remisión WIN</th>
+              <th className="py-3.5 px-4">Cliente & Ticket / Acta</th>
               <th className="py-3.5 px-4">Técnico que Retiró</th>
               <th className="py-3.5 px-4">Motivo Retiro</th>
               <th className="py-3.5 px-4">Fecha Recojo</th>
@@ -248,7 +351,7 @@ export const RetrievedEquipmentTab: React.FC = () => {
           <tbody className="divide-y divide-slate-100">
             {equiposFiltrados.length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-10 text-center text-slate-400 font-bold">
+                <td colSpan={10} className="py-10 text-center text-slate-400 font-bold">
                   No hay equipos recogidos registrados con los filtros actuales.
                 </td>
               </tr>
@@ -263,7 +366,7 @@ export const RetrievedEquipmentTab: React.FC = () => {
                 return (
                   <tr key={eq.id_equipo_retirado} className="hover:bg-slate-50/60 transition-colors">
                     
-                    {/* Equipo & Serie */}
+                    {/* 1. Equipo & Serie & Código */}
                     <td className="py-3.5 px-4">
                       <div className="flex items-center gap-2">
                         <div className="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
@@ -273,16 +376,84 @@ export const RetrievedEquipmentTab: React.FC = () => {
                           <span className="font-extrabold text-slate-900 block font-mono text-xs">
                             {eq.numero_serie}
                           </span>
-                          <span className="text-[10px] text-slate-500 font-bold">{eq.tipo_equipo}</span>
+                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-bold">
+                            <span>{eq.tipo_equipo}</span>
+                            {eq.codigo_producto && (
+                              <>
+                                <span>•</span>
+                                <span className="text-sky-700 font-mono font-black">{eq.codigo_producto}</span>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </td>
 
-                    {/* Cliente & Ticket */}
+                    {/* 2. ID Modelo */}
                     <td className="py-3.5 px-4">
-                      <div className="font-bold text-slate-900 truncate max-w-[180px]">{eq.cliente}</div>
+                      <div className="min-w-[110px]">
+                        <input
+                          type="text"
+                          placeholder="ID Modelo..."
+                          title="ID Modelo de la caja"
+                          value={proidsEditados[eq.id_equipo_retirado] ?? eq.proid ?? ""}
+                          onChange={(e) =>
+                            setProidsEditados((prev) => ({
+                              ...prev,
+                              [eq.id_equipo_retirado]: e.target.value.toUpperCase(),
+                            }))
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleGuardarDatosEquipo(eq.id_equipo_retirado);
+                          }}
+                          className="w-full px-2 py-1 bg-slate-50 focus:bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-800 uppercase focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                        />
+                      </div>
+                    </td>
+
+                    {/* 3. Guía de Remisión WIN (Editable con Guardado Rápido) */}
+                    <td className="py-3.5 px-4">
+                      <div className="flex items-center gap-1.5 min-w-[160px]">
+                        <input
+                          type="text"
+                          placeholder="Digitar Guía WIN..."
+                          value={guiasEditadas[eq.id_equipo_retirado] ?? eq.guia_remision_win ?? ""}
+                          onChange={(e) =>
+                            setGuiasEditadas((prev) => ({
+                              ...prev,
+                              [eq.id_equipo_retirado]: e.target.value.toUpperCase(),
+                            }))
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleGuardarDatosEquipo(eq.id_equipo_retirado);
+                          }}
+                          className="w-full px-2.5 py-1 bg-white border border-slate-300 rounded-lg text-xs font-mono font-black text-indigo-950 placeholder:text-slate-400 focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 shadow-2xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleGuardarDatosEquipo(eq.id_equipo_retirado)}
+                          disabled={guardandoId === eq.id_equipo_retirado}
+                          className={`p-1.5 rounded-lg border transition-all cursor-pointer shrink-0 shadow-2xs ${
+                            guardadoExitoId === eq.id_equipo_retirado
+                              ? "bg-emerald-500 text-white border-emerald-600 animate-pulse"
+                              : "bg-sky-50 hover:bg-sky-600 text-sky-700 hover:text-white border-sky-200"
+                          }`}
+                          title="Guardar Guía y PROID en Almacén"
+                        >
+                          {guardadoExitoId === eq.id_equipo_retirado ? (
+                            <Check size={13} />
+                          ) : (
+                            <Save size={13} />
+                          )}
+                        </button>
+                      </div>
+                    </td>
+
+                    {/* 4. Cliente & Ticket / N° Acta */}
+                    <td className="py-3.5 px-4">
+                      <div className="font-bold text-slate-900 truncate max-w-[170px]">{eq.cliente}</div>
                       <span className="text-[10px] font-mono text-indigo-700 font-bold block">
-                        Ticket: #{eq.ticket}
+                        Ticket / Acta: #{eq.ticket}
                       </span>
                     </td>
 

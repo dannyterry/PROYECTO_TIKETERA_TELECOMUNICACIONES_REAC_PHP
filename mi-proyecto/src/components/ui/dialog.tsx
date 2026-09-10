@@ -41,9 +41,13 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  onPointerDownOutside,
+  onEscapeKeyDown,
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
+  onPointerDownOutside?: any
+  onEscapeKeyDown?: any
 }) {
   return (
     <DialogPortal>

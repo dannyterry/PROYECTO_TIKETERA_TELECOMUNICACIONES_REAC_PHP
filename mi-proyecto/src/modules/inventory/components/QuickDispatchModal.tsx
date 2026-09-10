@@ -19,9 +19,10 @@ import {
   Car,
   FileText,
   Sparkles,
+  AlertTriangle,
 } from "lucide-react";
 import { ProductoStock, DespachoPayload } from "../types/inventoryTypes";
-import { despacharATecnico, getTecnicoDotacionCompleta } from "../services/inventoryService";
+import { despacharATecnico, getTecnicoDotacionCompleta, verificarSerieDespacho } from "../services/inventoryService";
 import axios from "axios";
 import { API_URL } from "../../../config/api";
 
@@ -48,6 +49,8 @@ export const QuickDispatchModal: React.FC<Props> = ({
   // Pistoleo de series para Equipos ONT / Mesh
   const [serieInput, setSerieInput] = useState("");
   const [seriesPistoleadas, setSeriesPistoleadas] = useState<string[]>([]);
+  const [verificandoSerie, setVerificandoSerie] = useState(false);
+  const [errorPistoleo, setErrorPistoleo] = useState<string | null>(null);
   const [observaciones, setObservaciones] = useState("Dotación desde almacén");
 
   // Asignación de Actas / Guías por Rango Correlativo (Sin escáner)
@@ -136,16 +139,43 @@ export const QuickDispatchModal: React.FC<Props> = ({
   };
 
   // Escaneo continuo con pistola de código de barras para equipos ONT/Mesh
-  const handlePistolear = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && serieInput.trim()) {
-      e.preventDefault();
-      const clean = serieInput.trim().toUpperCase();
-      if (!seriesPistoleadas.includes(clean)) {
-        const nuevas = [...seriesPistoleadas, clean];
+  const handlePistolear = async (e?: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e && e.key !== "Enter") return;
+    if (e) e.preventDefault();
+    if (!serieInput.trim()) return;
+
+    const clean = serieInput.trim().toUpperCase();
+    setErrorPistoleo(null);
+
+    if (seriesPistoleadas.includes(clean)) {
+      setErrorPistoleo(`⚠️ La serie "${clean}" ya fue agregada.`);
+      setSerieInput("");
+      return;
+    }
+
+    try {
+      setVerificandoSerie(true);
+      const res = await verificarSerieDespacho(clean, producto?.id_producto);
+      if (res.disponible && res.equipo) {
+        const numSerie = res.equipo.numero_serie;
+        if (seriesPistoleadas.includes(numSerie)) {
+          setErrorPistoleo(`⚠️ La serie "${numSerie}" ya está en la lista.`);
+          setSerieInput("");
+          return;
+        }
+        const nuevas = [...seriesPistoleadas, numSerie];
         setSeriesPistoleadas(nuevas);
         setCantidad(nuevas.length);
         setSerieInput("");
+      } else {
+        setErrorPistoleo(res.error || `⛔ La serie "${clean}" no está disponible en Almacén Central.`);
+        setSerieInput("");
       }
+    } catch (err: any) {
+      setErrorPistoleo(err.response?.data?.error || err.message || `⛔ Error al verificar serie.`);
+      setSerieInput("");
+    } finally {
+      setVerificandoSerie(false);
     }
   };
 
@@ -186,10 +216,10 @@ export const QuickDispatchModal: React.FC<Props> = ({
       if (esActa) {
         // Generar lote de actas correlativas automáticamente
         const actasGeneradas = generarSeriesActas();
-        seriesFinalesPayload = actasGeneradas.map((s) => ({ numero_serie: s, id_producto: producto.id_producto }));
+        seriesFinalesPayload = actasGeneradas.map((s) => ({ numero_serie: s, id_producto: producto.id_producto, es_talonario: true }));
         cantidadFinal = actasGeneradas.length;
       } else if (esEquipo) {
-        seriesFinalesPayload = seriesPistoleadas.map((s) => ({ numero_serie: s, id_producto: producto.id_producto }));
+        seriesFinalesPayload = seriesPistoleadas.map((s) => ({ numero_serie: s, id_producto: producto.id_producto, es_talonario: false }));
         cantidadFinal = seriesPistoleadas.length;
       }
 
@@ -462,30 +492,34 @@ export const QuickDispatchModal: React.FC<Props> = ({
               <div className="flex gap-2">
                 <input
                   type="text"
-                  placeholder="Escanea con la pistola o digita el serial..."
+                  disabled={verificandoSerie}
+                  placeholder={verificandoSerie ? "Verificando en almacén..." : "Escanea con la pistola o digita el serial..."}
                   value={serieInput}
-                  onChange={(e) => setSerieInput(e.target.value)}
+                  onChange={(e) => {
+                    setSerieInput(e.target.value);
+                    if (errorPistoleo) setErrorPistoleo(null);
+                  }}
                   onKeyDown={handlePistolear}
                   className="flex-1 p-2 bg-white border border-emerald-300 rounded-xl text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-emerald-400"
                   autoFocus
                 />
                 <button
                   type="button"
-                  onClick={() => {
-                    if (serieInput.trim()) {
-                      const clean = serieInput.trim().toUpperCase();
-                      if (!seriesPistoleadas.includes(clean)) {
-                        setSeriesPistoleadas([...seriesPistoleadas, clean]);
-                        setCantidad(seriesPistoleadas.length + 1);
-                        setSerieInput("");
-                      }
-                    }
-                  }}
-                  className="px-3 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 cursor-pointer"
+                  disabled={verificandoSerie}
+                  onClick={() => handlePistolear()}
+                  className="px-3 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 cursor-pointer disabled:opacity-50"
                 >
                   <Plus size={14} />
                 </button>
               </div>
+
+              {/* Error de pistoleo */}
+              {errorPistoleo && (
+                <div className="p-2 bg-rose-50 border border-rose-200 rounded-xl text-[11px] text-rose-800 font-bold flex items-center gap-1.5 animate-fade-in">
+                  <AlertTriangle size={14} className="text-rose-600 shrink-0" />
+                  <span>{errorPistoleo}</span>
+                </div>
+              )}
 
               {/* Tags de Series */}
               {seriesPistoleadas.length > 0 && (

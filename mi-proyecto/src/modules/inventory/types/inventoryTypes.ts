@@ -4,11 +4,18 @@ export interface ProductoStock {
   nombre: string;
   descripcion?: string;
   categoria: string;
+  id_categoria?: number;
+  estado?: string;
+  stand?: string;
+  fila?: number;
+  ubicacion?: string;
+  proid?: string;
   stock_minimo: number;
   maneja_serie: number | boolean;
   es_drop: number | boolean;
   precio_compra: number;
   stock_central: number;
+  stock_segundo_uso?: number;
   stock_en_tecnicos: number;
   series_disponibles: number;
   fecha_ingreso?: string;
@@ -25,6 +32,7 @@ export interface StockTecnicoDetalle {
   id_producto: number;
   producto_nombre: string;
   producto_codigo: string;
+  proid?: string;
   categoria: string;
   es_drop: number;
   stock: number;
@@ -41,9 +49,14 @@ export interface StockTecnicoDetalle {
 export interface SerieTecnicoDetalle {
   id_trabajador_serie: number;
   id_trabajador: number;
+  id_producto?: number;
   tecnico_nombre: string;
   numero_serie: string;
   equipo_nombre: string;
+  equipo_codigo?: string;
+  equipo_proid?: string;
+  id_equipo?: string;
+  codigo_serie?: string;
   producto_nombre?: string;
   estado: string;
   fecha_asignacion: string;
@@ -71,7 +84,10 @@ export interface CompraItemPayload {
   id_producto: number;
   cantidad: number;
   precio: number;
-  series: string[];
+  series: Array<string | { numero_serie: string; proid?: string }>;
+  stand?: string;
+  fila?: number;
+  proid?: string;
 }
 
 export interface CompraPayload {
@@ -80,17 +96,28 @@ export interface CompraPayload {
   razon_social_proveedor?: string;
   direccion_proveedor?: string;
   telefono_proveedor?: string;
-  tipo_comprobante: "Factura" | "Boleta";
+  tipo_comprobante: string;
   numero_comprobante: string;
   fecha: string;
   items: CompraItemPayload[];
   observaciones?: string;
 }
 
+export interface EquipoDespachoPistoleado {
+  id_producto_serie?: number;
+  id_producto?: number;
+  numero_serie: string;
+  codigo_serie?: string | null;
+  proid?: string | null;
+  producto_nombre?: string;
+  categoria?: string;
+  es_talonario?: boolean;
+}
+
 export interface DespachoPayload {
   id_trabajador: number;
-  items: { id_producto: number; cantidad: number }[];
-  series_pistoleadas: { numero_serie: string }[];
+  items: { id_producto: number; cantidad: number; es_segundo_uso?: boolean }[];
+  series_pistoleadas: { numero_serie: string; id_producto?: number; es_talonario?: boolean }[];
   observaciones?: string;
 }
 
@@ -99,6 +126,9 @@ export interface EquipoRetirado {
   id_orden: number;
   tipo_equipo: string;
   numero_serie: string;
+  proid?: string;
+  codigo_producto?: string;
+  guia_remision_win?: string;
   motivo_retiro: string;
   estado: "En_Poder_Tecnico" | "Internado_Almacen" | "Defectuoso" | "Baja";
   fecha_recojo: string;
@@ -177,6 +207,9 @@ export interface ProductoSerieItem {
   id_producto_serie: number;
   id_producto: number;
   numero_serie: string;
+  codigo_serie?: string | null;
+  id_equipo?: string | null;
+  proid?: string | null;
   estado_serie: "DISPONIBLE" | "RESERVADO" | "VENDIDO" | "DEFECTUOSO" | "BAJA" | "CONSUMIDO";
   fecha_ingreso?: string;
   id_trabajador?: number | null;

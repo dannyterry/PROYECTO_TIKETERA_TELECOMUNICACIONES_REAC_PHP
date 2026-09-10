@@ -108,11 +108,15 @@ export const OrderTasksModal: React.FC<OrderTasksModalProps> = ({
 
       if (orderNumber) {
         saveTaskProgress(String(orderNumber), prog);
-        onProgressUpdateRef.current?.(String(orderNumber), prog);
+        setTimeout(() => {
+          onProgressUpdateRef.current?.(String(orderNumber), prog);
+        }, 0);
       }
       if (orderId) {
         saveTaskProgress(String(orderId), prog);
-        onProgressUpdateRef.current?.(String(orderId), prog);
+        setTimeout(() => {
+          onProgressUpdateRef.current?.(String(orderId), prog);
+        }, 0);
       }
     },
     [orderNumber, orderId]

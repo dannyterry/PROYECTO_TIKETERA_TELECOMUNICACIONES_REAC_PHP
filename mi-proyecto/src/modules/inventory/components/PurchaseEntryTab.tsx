@@ -34,14 +34,28 @@ interface Props {
   onCompraRegistrada: () => void;
 }
 
+const STAND_OPTIONS = ["A", "B", "C", "D", "E", "F", "G", "H"];
+const FILA_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+export interface SerieIngreso {
+  numero_serie: string;
+  id_equipo?: string;
+  proid?: string;
+  codigo_serie?: string;
+}
+
 interface ItemRow {
   id_producto: number;
+  codigo?: string;
   nombre: string;
   categoria: string;
   cantidad: number;
   precio: number;
   maneja_serie: boolean;
-  series: string[];
+  series: SerieIngreso[];
+  stand?: string;
+  fila?: number;
+  busquedaProducto?: string;
 }
 
 export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrada }) => {
@@ -64,9 +78,11 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
   const [mensajeXmlExito, setMensajeXmlExito] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const serieInputRef = useRef<HTMLInputElement>(null);
+  const idEquipoInputRef = useRef<HTMLInputElement>(null);
 
   // 1. Datos Comprobante & Proveedor
-  const [tipoComprobante, setTipoComprobante] = useState<"Factura" | "Boleta">("Factura");
+  const [tipoComprobante, setTipoComprobante] = useState<"Factura" | "Boleta" | "Guía de Remisión" | "Nota de Ingreso (NIA)">("Factura");
   const [numeroComprobante, setNumeroComprobante] = useState("");
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
 
@@ -83,6 +99,9 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
     rowIndex: number | null;
     nombre: string;
     codigo: string;
+    proid: string;
+    stand: string;
+    fila: number;
     maneja_serie: boolean;
     es_drop: boolean;
     stock_minimo: number;
@@ -95,6 +114,9 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
     rowIndex: null,
     nombre: "",
     codigo: "",
+    proid: "",
+    stand: "A",
+    fila: 1,
     maneja_serie: false,
     es_drop: false,
     stock_minimo: 5,
@@ -135,9 +157,9 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
     const padLen = Math.max(5, inicio.replace(/\D/g, "").length || 5);
     const parseFin = parseInicio + Math.max(1, cantidad) - 1;
 
-    const generated: string[] = [];
+    const generated: SerieIngreso[] = [];
     for (let i = parseInicio; i <= parseFin; i++) {
-      generated.push(`${prefijo}${String(i).padStart(padLen, "0")}`);
+      generated.push({ numero_serie: `${prefijo}${String(i).padStart(padLen, "0")}` });
     }
 
     setItems((prev) =>
@@ -159,26 +181,35 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
   const [items, setItems] = useState<ItemRow[]>(() => {
     const defaultProd = productos[0] || {
       id_producto: 1,
+      codigo: "ONT",
       nombre: "ONT",
       categoria: "EQUIPOS",
       maneja_serie: true,
       precio_compra: 145.0,
+      stand: "A",
+      fila: 1,
     };
     return [
       {
         id_producto: defaultProd.id_producto,
+        codigo: defaultProd.codigo || "ONT",
         nombre: defaultProd.nombre,
         categoria: (defaultProd.categoria || "EQUIPOS").toUpperCase(),
         cantidad: 10,
         precio: Number(defaultProd.precio_compra) || 145.0,
         maneja_serie: Boolean(defaultProd.maneja_serie || defaultProd.categoria === "EQUIPOS"),
         series: [],
+        stand: defaultProd.stand || "A",
+        fila: defaultProd.fila || 1,
       },
     ];
   });
 
   // 5. Pistoleo temporal
   const [serieInput, setSerieInput] = useState("");
+  const [serieIdEquipoInput, setSerieIdEquipoInput] = useState("");
+  const [serieProidInput, setSerieProidInput] = useState("");
+  const [modoDoblePistola, setModoDoblePistola] = useState(true);
   const [itemIndexParaSeries, setItemIndexParaSeries] = useState<number>(0);
 
   // Sincronizar catálogo cuando cambien los productos externos
@@ -197,6 +228,69 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
       })
       .catch(console.error);
   }, []);
+
+  // Helper para normalizar y limpiar texto en búsquedas
+  const cleanStr = (s: string) =>
+    (s || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
+
+  // Helper para ordenar productos por relevancia en búsquedas
+  const rankProductos = <T extends { nombre: string; codigo?: string; categoria?: string; proid?: string }>(
+    lista: T[],
+    query: string,
+    catActual?: string
+  ): T[] => {
+    const q = cleanStr(query);
+    if (!q) return lista;
+
+    return [...lista]
+      .filter((p) => {
+        const n = cleanStr(p.nombre);
+        const c = cleanStr(p.codigo || "");
+        const pr = cleanStr(p.proid || "");
+        return n.includes(q) || c.includes(q) || pr.includes(q);
+      })
+      .sort((a, b) => {
+        const na = cleanStr(a.nombre);
+        const nb = cleanStr(b.nombre);
+        const ca = cleanStr(a.codigo || "");
+        const cb = cleanStr(b.codigo || "");
+
+        // 1. Coincidencia exacta de nombre o código (ej: "DROP" === "drop") -> MÁXIMA PRIORIDAD
+        const exactA = na === q || ca === q;
+        const exactB = nb === q || cb === q;
+        if (exactA && !exactB) return -1;
+        if (!exactA && exactB) return 1;
+
+        // 2. Coincidencia exacta de palabra completa (ej: "DROP" en "CABLE DROP")
+        const wordsA = na.split(/\s+/);
+        const wordsB = nb.split(/\s+/);
+        const wordA = wordsA.includes(q);
+        const wordB = wordsB.includes(q);
+        if (wordA && !wordB) return -1;
+        if (!wordA && wordB) return 1;
+
+        // 3. Empieza con la búsqueda (ej: "DROP FIBRA" antes de "PORTA DROP")
+        const startsA = na.startsWith(q) || ca.startsWith(q);
+        const startsB = nb.startsWith(q) || cb.startsWith(q);
+        if (startsA && !startsB) return -1;
+        if (!startsA && startsB) return 1;
+
+        // 4. Si pertenece a la categoría actual de la fila
+        if (catActual && catActual !== "TODAS") {
+          const catA = (a.categoria || "").trim().toUpperCase() === catActual.toUpperCase();
+          const catB = (b.categoria || "").trim().toUpperCase() === catActual.toUpperCase();
+          if (catA && !catB) return -1;
+          if (!catA && catB) return 1;
+        }
+
+        // 5. Orden alfabético
+        return na.localeCompare(nb);
+      });
+  };
 
   // Helper para filtrar productos por categoría
   const getProductosPorCategoria = (catName: string) => {
@@ -306,6 +400,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
             if (matchProd) {
               return {
                 id_producto: matchProd.id_producto,
+                codigo: matchProd.codigo || "EQP",
                 nombre: matchProd.nombre,
                 categoria: (matchProd.categoria || "MATERIALES").toUpperCase(),
                 cantidad: xmlIt.cantidad,
@@ -322,6 +417,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
 
               return {
                 id_producto: 0,
+                codigo: esProbableEquipo ? "EQP" : "MAT",
                 nombre: xmlIt.descripcion,
                 categoria: esProbableEquipo ? "EQUIPOS" : "MATERIALES",
                 cantidad: xmlIt.cantidad,
@@ -414,39 +510,111 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
   };
 
   // Pistoleo continuo con pistola de código de barras
+  const procesarAgregarSerie = (snRaw: string, idEquipoRaw?: string, proidRaw?: string) => {
+    let clean = snRaw.trim().toUpperCase();
+    let idEquipo = idEquipoRaw ? idEquipoRaw.trim().toUpperCase() : "";
+    let proid = proidRaw ? proidRaw.trim().toUpperCase() : "";
+
+    // Si la serie viene con tabulador o coma (pistoleo 2D / QR o pegado combinado)
+    if (clean.includes("\t") || clean.includes(",")) {
+      const parts = clean.split(/[\t,]+/);
+      clean = parts[0].trim().toUpperCase();
+      if (parts.length >= 3) {
+        if (!idEquipo) idEquipo = parts[1].trim().toUpperCase();
+        if (!proid) proid = parts[2].trim().toUpperCase();
+      } else if (parts.length === 2) {
+        if (!idEquipo) idEquipo = parts[1].trim().toUpperCase();
+      }
+    }
+
+    if (!clean) return;
+
+    const currentItem = items[itemIndexParaSeries];
+    if (!currentItem) return;
+
+    // 1. Validar si ya se completó el cupo de la cantidad indicada
+    if (currentItem.series.length >= currentItem.cantidad) {
+      alert(
+        `⚠️ LÍMITE DE CANTIDAD ALCANZADO:\n\nYa ingresaste las ${currentItem.cantidad} unidades para "${currentItem.nombre}".\n\nSi deseas agregar más equipos, primero aumenta la casilla "Cant." (Cantidad).`
+      );
+      setSerieInput("");
+      setSerieIdEquipoInput("");
+      setSerieProidInput("");
+      return;
+    }
+
+    // 2. Validar duplicados de Serie dentro de toda la compra actual
+    const existeEnEste = currentItem.series.some((s) => s.numero_serie === clean);
+    const existeEnOtro = items.some(
+      (it, idx) => idx !== itemIndexParaSeries && it.series.some((s) => s.numero_serie === clean)
+    );
+
+    if (existeEnEste || existeEnOtro) {
+      alert(`⚠️ SERIE DUPLICADA:\n\nLa serie "${clean}" ya fue ingresada en esta compra.\n\nCada equipo debe tener un número de serie único e irrepetible.`);
+      setSerieInput("");
+      setTimeout(() => serieInputRef.current?.focus(), 50);
+      return;
+    }
+
+    // 3. Validar duplicados de ID de Equipo si se especificó
+    if (idEquipo) {
+      const existeIdEnEste = currentItem.series.some((s) => s.id_equipo === idEquipo);
+      const existeIdEnOtro = items.some(
+        (it, idx) => idx !== itemIndexParaSeries && it.series.some((s) => s.id_equipo === idEquipo)
+      );
+      if (existeIdEnEste || existeIdEnOtro) {
+        alert(`⚠️ ID DE EQUIPO DUPLICADO:\n\nEl ID de equipo "${idEquipo}" ya fue ingresado en esta compra.\n\nCada equipo debe tener un ID de equipo único e irrepetible.`);
+        setSerieIdEquipoInput("");
+        setTimeout(() => idEquipoInputRef.current?.focus(), 50);
+        return;
+      }
+    }
+
+    const nextIndex = currentItem.series.length + 1;
+    const modelPrefix = currentItem.codigo || "EQP";
+    const codigoSerieAuto = `${modelPrefix}-S${String(nextIndex).padStart(3, "0")}`;
+
+    const nuevaSerieObj: SerieIngreso = {
+      numero_serie: clean,
+      id_equipo: idEquipo || undefined,
+      proid: proid || undefined,
+      codigo_serie: codigoSerieAuto,
+    };
+
+    setItems((prev) =>
+      prev.map((it, idx) =>
+        idx === itemIndexParaSeries
+          ? { ...it, series: [...it.series, nuevaSerieObj] }
+          : it
+      )
+    );
+
+    // Limpiar serie e ID de equipo para pistoleo continuo; el ID de Modelo se mantiene fijo
+    setSerieInput("");
+    setSerieIdEquipoInput("");
+    setTimeout(() => serieInputRef.current?.focus(), 50);
+  };
+
   const handlePistolearSerie = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && serieInput.trim()) {
       e.preventDefault();
-      const clean = serieInput.trim().toUpperCase();
-      const currentItem = items[itemIndexParaSeries];
-      if (!currentItem) return;
-
-      // 1. Validar si ya se completó el cupo de la cantidad indicada
-      if (currentItem.series.length >= currentItem.cantidad) {
-        alert(
-          `⚠️ LÍMITE DE CANTIDAD ALCANZADO:\n\nYa ingresaste las ${currentItem.cantidad} series para "${currentItem.nombre}".\n\nSi deseas pistolear más unidades, primero aumenta la casilla "Cantidad".`
-        );
-        setSerieInput("");
-        return;
+      // Si el modo doble pistola está activo y no se ha pistoleado aún el ID de equipo, saltar el foco a ID Equipo
+      if (modoDoblePistola && !serieIdEquipoInput.trim()) {
+        idEquipoInputRef.current?.focus();
+      } else {
+        procesarAgregarSerie(serieInput, serieIdEquipoInput, serieProidInput);
       }
+    }
+  };
 
-      // 2. Validar duplicados dentro de toda la compra actual
-      const existeEnOtro = items.some((it, idx) => idx !== itemIndexParaSeries && it.series.includes(clean));
-      if (currentItem.series.includes(clean) || existeEnOtro) {
-        alert(`⚠️ SERIE DUPLICADA:\n\nLa serie "${clean}" ya fue ingresada en esta compra.\n\nCada equipo debe tener un número de serie único e irrepetible.`);
-        setSerieInput("");
-        return;
+  const handlePistolearIdEquipo = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (serieInput.trim()) {
+        procesarAgregarSerie(serieInput, serieIdEquipoInput, serieProidInput);
+      } else {
+        serieInputRef.current?.focus();
       }
-
-      const nuevasSeries = [...currentItem.series, clean];
-      setItems((prev) =>
-        prev.map((it, idx) =>
-          idx === itemIndexParaSeries
-            ? { ...it, series: nuevasSeries }
-            : it
-        )
-      );
-      setSerieInput("");
     }
   };
 
@@ -454,7 +622,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
     setItems((prev) =>
       prev.map((it, idx) =>
         idx === itemIdx
-          ? { ...it, series: it.series.filter((s) => s !== serieAEliminar) }
+          ? { ...it, series: it.series.filter((s) => s.numero_serie !== serieAEliminar) }
           : it
       )
     );
@@ -470,12 +638,15 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
       ...prev,
       {
         id_producto: prodDefault?.id_producto || 0,
+        codigo: prodDefault?.codigo || "MAT",
         nombre: prodDefault?.nombre || "Seleccione producto...",
         categoria: catDefault,
         cantidad: 1,
         precio: Number(prodDefault?.precio_compra) || 0,
         maneja_serie: Boolean(prodDefault?.maneja_serie || catDefault === "EQUIPOS"),
         series: [],
+        stand: prodDefault?.stand || "A",
+        fila: prodDefault?.fila || 1,
       },
     ]);
   };
@@ -501,10 +672,13 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
               ...it,
               categoria: catUpper,
               id_producto: firstProd.id_producto,
+              codigo: firstProd.codigo || "EQP",
               nombre: firstProd.nombre,
               precio: Number(firstProd.precio_compra) || it.precio || 0,
               maneja_serie: Boolean(firstProd.maneja_serie || catUpper === "EQUIPOS"),
               series: [],
+              stand: firstProd.stand || it.stand || "A",
+              fila: firstProd.fila || it.fila || 1,
             }
             : it
         )
@@ -517,6 +691,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
               ...it,
               categoria: catUpper,
               id_producto: 0,
+              codigo: "EQP",
               nombre: `Sin productos en ${catUpper} (Crear nuevo)`,
               maneja_serie: catUpper === "EQUIPOS",
               series: [],
@@ -539,14 +714,57 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
           ? {
             ...it,
             id_producto: prod.id_producto,
+            codigo: prod.codigo || "EQP",
             nombre: prod.nombre,
             categoria: (prod.categoria || it.categoria || "GENERAL").toUpperCase(),
             precio: Number(prod.precio_compra) || it.precio || 0,
             maneja_serie: Boolean(prod.maneja_serie || prod.categoria === "EQUIPOS"),
             series: it.id_producto === prod.id_producto ? it.series : [],
+            stand: prod.stand || it.stand || "A",
+            fila: prod.fila || it.fila || 1,
           }
           : it
       )
+    );
+  };
+
+  // Buscador predictivo en fila de compra: busca en todo el catálogo de productos con algoritmo de ranking
+  // Si encuentra coincidencia (ej: "drop", "fono", "zte", "alicate"), prioriza coincidencia exacta y cambia automáticamente la categoría y producto
+  const handleBusquedaProductoChange = (index: number, txt: string) => {
+    const q = cleanStr(txt);
+
+    if (q.length >= 1) {
+      const matches = rankProductos(localProductos, q, items[index]?.categoria);
+
+      if (matches.length > 0) {
+        const match = matches[0];
+        const catMatch = (match.categoria || "MATERIALES").toUpperCase().trim();
+
+        setItems((prev) =>
+          prev.map((it, idx) =>
+            idx === index
+              ? {
+                  ...it,
+                  busquedaProducto: txt,
+                  categoria: catMatch,
+                  id_producto: match.id_producto,
+                  codigo: match.codigo || "EQP",
+                  nombre: match.nombre,
+                  precio: Number(match.precio_compra) || it.precio || 0,
+                  maneja_serie: Boolean(match.maneja_serie || catMatch === "EQUIPOS"),
+                  series: it.id_producto === match.id_producto ? it.series : [],
+                  stand: match.stand || it.stand || "A",
+                  fila: match.fila || it.fila || 1,
+                }
+              : it
+          )
+        );
+        return;
+      }
+    }
+
+    setItems((prev) =>
+      prev.map((it, idx) => (idx === index ? { ...it, busquedaProducto: txt } : it))
     );
   };
 
@@ -561,6 +779,9 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
       rowIndex,
       nombre: "",
       codigo: "",
+      proid: "",
+      stand: "A",
+      fila: 1,
       maneja_serie: esEquipo,
       es_drop: false,
       stock_minimo: 5,
@@ -584,6 +805,9 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
         nombre: modalNuevoProd.nombre.trim().toUpperCase(),
         categoria: modalNuevoProd.categoria,
         codigo: modalNuevoProd.codigo.trim().toUpperCase() || undefined,
+        proid: modalNuevoProd.proid.trim().toUpperCase() || undefined,
+        stand: modalNuevoProd.stand,
+        fila: modalNuevoProd.fila,
         stock_minimo: Number(modalNuevoProd.stock_minimo) || 5,
         maneja_serie: modalNuevoProd.maneja_serie,
         es_drop: modalNuevoProd.es_drop,
@@ -604,11 +828,14 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
               ? {
                 ...it,
                 id_producto: nuevoProd.id_producto,
+                codigo: nuevoProd.codigo || "EQP",
                 nombre: nuevoProd.nombre,
                 categoria: nuevoProd.categoria,
                 precio: Number(nuevoProd.precio_compra) || it.precio || 0,
                 maneja_serie: Boolean(nuevoProd.maneja_serie || nuevoProd.categoria === "EQUIPOS"),
                 series: [],
+                stand: nuevoProd.stand || modalNuevoProd.stand,
+                fila: nuevoProd.fila || modalNuevoProd.fila,
               }
               : it
           )
@@ -664,38 +891,87 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
     }
   };
 
-  // Procesar Pegado Masivo de Series desde Excel / Portapapeles
+  // Procesar Pegado Masivo de Series desde Excel / Portapapeles (1 o 2 columnas)
   const handleImportarSeriesMasivas = () => {
     const raw = modalPegarSeries.textoPegado;
     if (!raw.trim()) return;
-
-    // Dividir por saltos de línea, tabulaciones o comas
-    const lines = raw
-      .split(/[\r\n,\t]+/)
-      .map((s) => s.trim().toUpperCase())
-      .filter((s) => s.length >= 3);
 
     const rowIdx = modalPegarSeries.itemIndex;
     const currentItem = items[rowIdx];
     if (!currentItem) return;
 
-    // Unir series existentes con las nuevas ignorando duplicados
-    const seriesUnicas = Array.from(new Set([...currentItem.series, ...lines]));
+    const rawLines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const nuevasSeries: SerieIngreso[] = [];
+    const seriesExistentesSet = new Set(currentItem.series.map((s) => s.numero_serie));
+    const idEquiposExistentesSet = new Set(
+      currentItem.series.filter((s) => s.id_equipo).map((s) => s.id_equipo!.toUpperCase())
+    );
 
-    if (seriesUnicas.length > currentItem.cantidad) {
+    const modelPrefix = currentItem.codigo || "EQP";
+    let nextNum = currentItem.series.length + 1;
+
+    for (const line of rawLines) {
+      const parts = line.split(/[\t,;]+/).map((p) => p.trim().toUpperCase()).filter(Boolean);
+      if (parts.length >= 3) {
+        const sn = parts[0];
+        const idEq = parts[1];
+        const pId = parts[2];
+        if (sn.length >= 3 && !seriesExistentesSet.has(sn)) {
+          nuevasSeries.push({
+            numero_serie: sn,
+            id_equipo: idEq || undefined,
+            proid: pId || undefined,
+            codigo_serie: `${modelPrefix}-S${String(nextNum).padStart(3, "0")}`,
+          });
+          seriesExistentesSet.add(sn);
+          if (idEq) idEquiposExistentesSet.add(idEq);
+          nextNum++;
+        }
+      } else if (parts.length === 2) {
+        const sn = parts[0];
+        const idEq = parts[1];
+        if (sn.length >= 3 && !seriesExistentesSet.has(sn)) {
+          nuevasSeries.push({
+            numero_serie: sn,
+            id_equipo: idEq || undefined,
+            proid: serieProidInput.trim().toUpperCase() || undefined,
+            codigo_serie: `${modelPrefix}-S${String(nextNum).padStart(3, "0")}`,
+          });
+          seriesExistentesSet.add(sn);
+          if (idEq) idEquiposExistentesSet.add(idEq);
+          nextNum++;
+        }
+      } else if (parts.length === 1) {
+        const sn = parts[0];
+        if (sn.length >= 3 && !seriesExistentesSet.has(sn)) {
+          nuevasSeries.push({
+            numero_serie: sn,
+            id_equipo: undefined,
+            proid: serieProidInput.trim().toUpperCase() || undefined,
+            codigo_serie: `${modelPrefix}-S${String(nextNum).padStart(3, "0")}`,
+          });
+          seriesExistentesSet.add(sn);
+          nextNum++;
+        }
+      }
+    }
+
+    const totalSeries = [...currentItem.series, ...nuevasSeries];
+
+    if (totalSeries.length > currentItem.cantidad) {
       const confirmActualizar = confirm(
-        `Has pegado ${seriesUnicas.length} series únicas, pero la cantidad configurada en la fila es de ${currentItem.cantidad} unidades.\n\n¿Deseas actualizar la cantidad de compra a ${seriesUnicas.length} unidades para que coincida exactamente?`
+        `Has pegado ${totalSeries.length} series únicas, pero la cantidad configurada en la fila es de ${currentItem.cantidad} unidades.\n\n¿Deseas actualizar la cantidad de compra a ${totalSeries.length} unidades para que coincida exactamente?`
       );
       if (confirmActualizar) {
         setItems((prev) =>
           prev.map((it, idx) =>
             idx === rowIdx
-              ? { ...it, series: seriesUnicas, cantidad: seriesUnicas.length }
+              ? { ...it, series: totalSeries, cantidad: totalSeries.length }
               : it
           )
         );
       } else {
-        const recortadas = seriesUnicas.slice(0, currentItem.cantidad);
+        const recortadas = totalSeries.slice(0, currentItem.cantidad);
         setItems((prev) =>
           prev.map((it, idx) =>
             idx === rowIdx ? { ...it, series: recortadas } : it
@@ -705,7 +981,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
     } else {
       setItems((prev) =>
         prev.map((it, idx) =>
-          idx === rowIdx ? { ...it, series: seriesUnicas } : it
+          idx === rowIdx ? { ...it, series: totalSeries } : it
         )
       );
     }
@@ -717,9 +993,23 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!numeroComprobante.trim()) {
-      alert("Por favor ingresa el número de factura o boleta.");
-      return;
+
+    let numCompFinal = numeroComprobante.trim();
+    if (tipoComprobante === "Nota de Ingreso (NIA)") {
+      if (!numCompFinal) {
+        const hoy = new Date();
+        numCompFinal = `NIA-${hoy.getFullYear()}-${String(Date.now()).slice(-5)}`;
+        setNumeroComprobante(numCompFinal);
+      }
+    } else {
+      if (!numCompFinal) {
+        alert(
+          `Por favor ingresa el número de ${
+            tipoComprobante === "Guía de Remisión" ? "guía de remisión" : "comprobante (factura/boleta)"
+          }.`
+        );
+        return;
+      }
     }
     if (items.length === 0) {
       alert("Agrega al menos un producto a la compra.");
@@ -759,18 +1049,20 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
       setGuardando(true);
       const payload: CompraPayload = {
         id_proveedor: idProveedorSeleccionado,
-        ruc_proveedor: ruc,
-        razon_social_proveedor: razonSocial,
-        direccion_proveedor: direccion,
-        telefono_proveedor: telefono,
+        ruc_proveedor: ruc.trim() || undefined,
+        razon_social_proveedor: razonSocial.trim() || (tipoComprobante === "Nota de Ingreso (NIA)" ? "INGRESO INTERNO / SIN PROVEEDOR" : undefined),
+        direccion_proveedor: direccion.trim() || undefined,
+        telefono_proveedor: telefono.trim() || undefined,
         tipo_comprobante: tipoComprobante,
-        numero_comprobante: numeroComprobante,
+        numero_comprobante: numCompFinal,
         fecha,
         items: items.map((it) => ({
           id_producto: it.id_producto,
           cantidad: it.cantidad,
-          precio: it.precio,
+          precio: Number(it.precio) || 0,
           series: it.series,
+          stand: it.stand,
+          fila: it.fila,
         })),
       };
 
@@ -904,27 +1196,63 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
 
             {/* Tipo de Comprobante */}
             <div>
-              <label className="block text-xs font-bold text-slate-600 mb-1">Tipo Comprobante</label>
+              <label className="block text-xs font-bold text-slate-600 mb-1">Tipo de Ingreso / Comprobante</label>
               <select
                 value={tipoComprobante}
-                onChange={(e: any) => setTipoComprobante(e.target.value)}
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"
+                onChange={(e: any) => {
+                  const val = e.target.value;
+                  setTipoComprobante(val);
+                  if (val === "Nota de Ingreso (NIA)") {
+                    if (!numeroComprobante || numeroComprobante.startsWith("NIA-")) {
+                      const hoy = new Date();
+                      setNumeroComprobante(`NIA-${hoy.getFullYear()}-${String(Date.now()).slice(-5)}`);
+                    }
+                  } else if (numeroComprobante.startsWith("NIA-")) {
+                    setNumeroComprobante("");
+                  }
+                }}
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs cursor-pointer shadow-2xs focus:bg-white focus:ring-2 focus:ring-emerald-400"
               >
-                <option value="Factura">Factura Electrónica</option>
-                <option value="Boleta">Boleta de Venta</option>
+                <option value="Factura">🧾 Factura Electrónica</option>
+                <option value="Boleta">🧾 Boleta de Venta</option>
+                <option value="Guía de Remisión">🚚 Guía de Remisión (WIN / Proveedor)</option>
+                <option value="Nota de Ingreso (NIA)">⚡ Nota de Ingreso a Almacén (NIA / Sin Comprobante)</option>
               </select>
             </div>
 
             {/* N° Comprobante */}
             <div>
-              <label className="block text-xs font-bold text-slate-600 mb-1">N° Comprobante *</label>
+              <label className="block text-xs font-bold text-slate-600 mb-1 flex items-center justify-between">
+                <span>
+                  {tipoComprobante === "Nota de Ingreso (NIA)"
+                    ? "N° Nota de Ingreso (Automático)"
+                    : tipoComprobante === "Guía de Remisión"
+                    ? "N° Guía de Remisión *"
+                    : "N° Comprobante *"}
+                </span>
+                {tipoComprobante === "Nota de Ingreso (NIA)" && (
+                  <span className="text-[10px] font-black text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">
+                    AUTO
+                  </span>
+                )}
+              </label>
               <input
                 type="text"
-                required
-                placeholder="Ej: F001-0008472"
+                required={tipoComprobante !== "Nota de Ingreso (NIA)"}
+                placeholder={
+                  tipoComprobante === "Nota de Ingreso (NIA)"
+                    ? "Ej: NIA-2026-0001 (Automático)"
+                    : tipoComprobante === "Guía de Remisión"
+                    ? "Ej: T001-0004523"
+                    : "Ej: F001-0008472"
+                }
                 value={numeroComprobante}
                 onChange={(e) => setNumeroComprobante(e.target.value)}
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-xs"
+                className={`w-full p-2.5 rounded-xl font-mono font-bold text-xs shadow-2xs transition-all ${
+                  tipoComprobante === "Nota de Ingreso (NIA)"
+                    ? "bg-emerald-50/80 border border-emerald-300 text-emerald-950 focus:bg-white focus:ring-2 focus:ring-emerald-400"
+                    : "bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-400"
+                }`}
               />
             </div>
 
@@ -942,7 +1270,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                 <input
                   type="text"
                   maxLength={11}
-                  placeholder="Digita RUC (11 dígitos)..."
+                  placeholder={tipoComprobante === "Nota de Ingreso (NIA)" ? "Opcional (Ingreso Interno)..." : "Digita RUC (11 dígitos)..."}
                   value={ruc}
                   onChange={(e) => handleRucChange(e.target.value)}
                   className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-xs focus:bg-white"
@@ -960,10 +1288,17 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
 
             {/* Razón Social */}
             <div>
-              <label className="block text-xs font-bold text-slate-600 mb-1">Razón Social / Proveedor</label>
+              <label className="block text-xs font-bold text-slate-600 mb-1 flex items-center justify-between">
+                <span>Razón Social / Proveedor</span>
+                {tipoComprobante === "Nota de Ingreso (NIA)" && (
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                    Opcional
+                  </span>
+                )}
+              </label>
               <input
                 type="text"
-                placeholder="Nombre del proveedor..."
+                placeholder={tipoComprobante === "Nota de Ingreso (NIA)" ? "Opcional (Ingreso Interno sin Proveedor)..." : "Nombre del proveedor..."}
                 value={razonSocial}
                 onChange={(e) => setRazonSocial(e.target.value)}
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:bg-white"
@@ -1030,7 +1365,19 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
           <div className="space-y-3">
             {items.map((it, idx) => {
               const esEquipo = it.maneja_serie || it.categoria === "EQUIPOS";
-              const prodsDeCat = getProductosPorCategoria(it.categoria);
+              // Si el usuario escribió en el buscador de la fila, mostrar resultados rankeados globalmente
+              let prodsDeCat: ProductoStock[] = [];
+              if (it.busquedaProducto && it.busquedaProducto.trim().length >= 1) {
+                prodsDeCat = rankProductos(localProductos, it.busquedaProducto, it.categoria);
+              } else {
+                prodsDeCat = getProductosPorCategoria(it.categoria);
+              }
+
+              // Asegurar que el producto seleccionado actualmente esté en el select
+              if (it.id_producto && !prodsDeCat.some((p) => p.id_producto === it.id_producto)) {
+                const prodActual = localProductos.find((p) => p.id_producto === it.id_producto);
+                if (prodActual) prodsDeCat = [prodActual, ...prodsDeCat];
+              }
 
               return (
                 <div
@@ -1040,10 +1387,10 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                       : "bg-slate-50/60 border-slate-200/90"
                     }`}
                 >
-                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
 
                     {/* 1. Selector de Categoría (Paso 1) */}
-                    <div className="sm:col-span-3">
+                    <div className="sm:col-span-2">
                       <label className="block text-[11px] font-black text-indigo-700 uppercase tracking-wider mb-1 flex items-center gap-1">
                         <Layers size={13} className="text-indigo-600" />
                         <span>1. Categoría</span>
@@ -1061,21 +1408,48 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                       </select>
                     </div>
 
+                    {/* 🔍 Buscador Rápido de Producto / Auto-detección entre Categoría y Producto */}
+                    <div className="sm:col-span-2">
+                      <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1">
+                        <Search size={13} className="text-slate-500" />
+                        <span>Buscar</span>
+                      </label>
+                      <div className="relative">
+                        <Search size={13} className="absolute left-2.5 top-3 text-slate-400 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={it.busquedaProducto || ""}
+                          onChange={(e) => handleBusquedaProductoChange(idx, e.target.value)}
+                          placeholder="🔍 Buscar..."
+                          className="w-full pl-8 pr-7 py-2.5 bg-white border border-slate-200 focus:border-indigo-500 rounded-xl text-xs font-bold text-slate-800 outline-none transition-all placeholder-slate-400 shadow-2xs"
+                        />
+                        {it.busquedaProducto && (
+                          <button
+                            type="button"
+                            onClick={() => handleBusquedaProductoChange(idx, "")}
+                            className="absolute right-2 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer p-0.5"
+                          >
+                            <X size={12} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
                     {/* 2. Selector de Producto de esa Categoría (Paso 2) + Botón "+ Nuevo" */}
-                    <div className="sm:col-span-4">
+                    <div className="sm:col-span-3">
                       <div className="flex items-center justify-between mb-1">
-                        <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1">
-                          <Package size={13} className="text-slate-600" />
+                        <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1 truncate">
+                          <Package size={13} className="text-slate-600 shrink-0" />
                           <span>2. Producto</span>
                         </label>
                         <button
                           type="button"
                           onClick={() => abrirModalNuevoProducto(it.categoria, idx)}
-                          className="text-[10px] font-black text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5 cursor-pointer"
+                          className="text-[10px] font-black text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5 cursor-pointer shrink-0"
                           title="Crear un nuevo producto en esta categoría"
                         >
                           <Plus size={11} />
-                          <span>+ Crear Nuevo</span>
+                          <span>+ Crear</span>
                         </button>
                       </div>
 
@@ -1098,7 +1472,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                           )}
                           {prodsDeCat.map((p) => (
                             <option key={p.id_producto} value={p.id_producto}>
-                              {p.nombre} ({p.codigo}) {p.maneja_serie ? "• 🏷️ Serie" : ""}
+                              {p.nombre} ({p.codigo}) {it.busquedaProducto ? `• [${p.categoria || "MATERIAL"}]` : ""} {p.maneja_serie ? "• 🏷️ Serie" : ""}
                             </option>
                           ))}
                           <option value="__NEW__" className="text-indigo-600 font-black bg-indigo-50">
@@ -1117,10 +1491,46 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                       </div>
                     </div>
 
-                    {/* 3. Cantidad */}
+                    {/* 4. Ubicación Almacén (Stand A-H & Fila 1-10) */}
                     <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                        Cantidad
+                      <label className="block text-[11px] font-black text-sky-800 uppercase tracking-wider mb-1 flex items-center gap-1">
+                        <Building2 size={12} className="text-sky-600" />
+                        <span>Ubicación</span>
+                      </label>
+                      <div className="grid grid-cols-2 gap-1">
+                        <select
+                          value={it.stand || "A"}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setItems((prev) => prev.map((item, i) => (i === idx ? { ...item, stand: val } : item)));
+                          }}
+                          className="w-full p-2 bg-sky-50/70 border border-sky-200 rounded-xl font-black text-xs text-sky-950 shadow-2xs focus:ring-2 focus:ring-sky-400"
+                          title="Stand (A a H)"
+                        >
+                          {STAND_OPTIONS.map((st) => (
+                            <option key={st} value={st}>Std {st}</option>
+                          ))}
+                        </select>
+                        <select
+                          value={it.fila || 1}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setItems((prev) => prev.map((item, i) => (i === idx ? { ...item, fila: val } : item)));
+                          }}
+                          className="w-full p-2 bg-sky-50/70 border border-sky-200 rounded-xl font-black text-xs text-sky-950 shadow-2xs focus:ring-2 focus:ring-sky-400"
+                          title="Fila (1 a 10)"
+                        >
+                          {FILA_OPTIONS.map((fl) => (
+                            <option key={fl} value={fl}>Fila {fl}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* 5. Cantidad */}
+                    <div className="sm:col-span-1">
+                      <label className="block text-[11px] font-bold text-slate-500 mb-1 text-center">
+                        Cant.
                       </label>
                       <input
                         type="number"
@@ -1136,45 +1546,51 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                       />
                     </div>
 
-                    {/* 4. Precio Unitario */}
-                    <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                        Precio Unit. (S/)
+                    {/* 6. Precio Unitario */}
+                    <div className="sm:col-span-1">
+                      <label className="block text-[10px] font-bold text-slate-500 mb-1 truncate text-right" title="Precio Unitario (S/)">
+                        Precio
                       </label>
                       <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={it.precio}
+                        type="text"
+                        inputMode="decimal"
+                        value={it.precio === 0 ? "" : it.precio}
+                        placeholder="0.00"
                         onChange={(e) => {
-                          const val = Number(e.target.value);
+                          const raw = e.target.value.replace(/[^0-9.]/g, "");
+                          const parts = raw.split(".");
+                          const clean = parts.length > 2 ? parts[0] + "." + parts.slice(1).join("") : raw;
                           setItems((prev) =>
-                            prev.map((item, i) => (i === idx ? { ...item, precio: val } : item))
+                            prev.map((item, i) => (i === idx ? { ...item, precio: clean as any } : item))
                           );
                         }}
-                        className="w-full p-2.5 bg-white border border-slate-200 rounded-xl font-bold font-mono text-xs text-slate-900 text-right shadow-2xs"
+                        onBlur={() => {
+                          const val = parseFloat(String(it.precio || 0));
+                          setItems((prev) =>
+                            prev.map((item, i) => (i === idx ? { ...item, precio: isNaN(val) ? 0 : Number(val.toFixed(2)) } : item))
+                          );
+                        }}
+                        className="w-full p-2.5 bg-white border border-slate-200 rounded-xl font-bold font-mono text-xs text-slate-900 text-right shadow-2xs focus:ring-2 focus:ring-emerald-400"
                       />
                     </div>
 
-                    {/* 5. Subtotal */}
-                    <div className="sm:col-span-1 text-right">
-                      <span className="block text-[10px] font-bold text-slate-400 uppercase">Subtotal</span>
-                      <span className="text-xs font-black text-slate-900 font-mono block truncate">
-                        S/ {(it.cantidad * it.precio).toFixed(2)}
-                      </span>
-                    </div>
-
-                    {/* Eliminar Ítem */}
-                    <div className="sm:col-span-12 lg:col-span-1 flex justify-end">
+                    {/* 7. Subtotal & Eliminar */}
+                    <div className="sm:col-span-1 flex flex-col justify-between items-end h-[58px]">
                       <button
                         type="button"
                         onClick={() => handleRemoveItem(idx)}
                         disabled={items.length === 1}
-                        className="p-2 text-slate-400 hover:text-rose-600 disabled:opacity-20 transition-colors cursor-pointer"
+                        className="p-1 text-slate-400 hover:text-rose-600 disabled:opacity-20 transition-colors cursor-pointer"
                         title="Eliminar ítem"
                       >
-                        <Trash2 size={16} />
+                        <Trash2 size={15} />
                       </button>
+                      <div className="text-right">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Subtotal</span>
+                        <span className="text-xs font-black text-slate-900 font-mono block truncate">
+                          S/ {(it.cantidad * it.precio).toFixed(2)}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -1244,10 +1660,11 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                           <button
                             type="button"
                             onClick={() => setItemIndexParaSeries(idx)}
-                            className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-all ${itemIndexParaSeries === idx
+                            className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                              itemIndexParaSeries === idx
                                 ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
                                 : "bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100"
-                              }`}
+                            }`}
                           >
                             {itemIndexParaSeries === idx ? "⚡ Escáner Activo" : "Activar Pistola"}
                           </button>
@@ -1255,79 +1672,157 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                       </div>
 
                       {itemIndexParaSeries === idx && (
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            placeholder={
-                              it.series.length >= it.cantidad
-                                ? `✅ Cupo completo (${it.cantidad} de ${it.cantidad} ingresadas). Aumenta cantidad si deseas agregar más.`
-                                : `Apunta la pistola o digita la serie (${it.series.length + 1} de ${it.cantidad}) y presiona ENTER...`
-                            }
-                            disabled={it.series.length >= it.cantidad}
-                            value={serieInput}
-                            onChange={(e) => setSerieInput(e.target.value)}
-                            onKeyDown={handlePistolearSerie}
-                            className={`flex-1 p-2 rounded-xl text-xs font-mono font-bold focus:outline-none transition-all ${it.series.length >= it.cantidad
-                                ? "bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed"
-                                : "bg-emerald-50/30 border border-emerald-300 text-slate-900 focus:ring-2 focus:ring-emerald-400"
-                              }`}
-                          />
-                          <button
-                            type="button"
-                            disabled={it.series.length >= it.cantidad}
-                            onClick={() => {
-                              if (serieInput.trim()) {
-                                const clean = serieInput.trim().toUpperCase();
-                                if (it.series.length >= it.cantidad) {
-                                  alert(
-                                    `⚠️ LÍMITE DE CANTIDAD ALCANZADO:\n\nYa ingresaste las ${it.cantidad} series para "${it.nombre}".\n\nSi deseas agregar más unidades, primero aumenta la casilla "Cantidad".`
-                                  );
-                                  setSerieInput("");
-                                  return;
+                        <div className="bg-slate-50/90 p-3.5 rounded-2xl border border-slate-200 space-y-2.5 shadow-xs">
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
+                            <span className="text-[11px] font-black text-slate-800 flex items-center gap-1.5">
+                              <span>⚡ Pistoleo y Registro de Equipos</span>
+                              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                {it.series.length} de {it.cantidad} ingresadas
+                              </span>
+                            </span>
+                            <label className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-600 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={modoDoblePistola}
+                                onChange={(e) => setModoDoblePistola(e.target.checked)}
+                                className="w-3.5 h-3.5 text-cyan-600 rounded border-slate-300 focus:ring-cyan-500 cursor-pointer"
+                              />
+                              <span>⚡ Salto automático a ID Equipo al pistolear Serie</span>
+                            </label>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
+                            {/* 1. Serie / MAC (Pistola o Manual) * */}
+                            <div className="sm:col-span-4 flex flex-col">
+                              <span className="text-[10px] font-black text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1">
+                                <span>Serie / MAC (Pistola o Manual) *</span>
+                              </span>
+                              <input
+                                ref={serieInputRef}
+                                type="text"
+                                placeholder={
+                                  it.series.length >= it.cantidad
+                                    ? `✅ Cupo completo (${it.cantidad} de ${it.cantidad})`
+                                    : `Pistolear Serie (${it.series.length + 1} de ${it.cantidad})...`
                                 }
-                                const existeEnOtro = items.some((otherIt, otherIdx) => otherIdx !== idx && otherIt.series.includes(clean));
-                                if (it.series.includes(clean) || existeEnOtro) {
-                                  alert(`⚠️ SERIE DUPLICADA:\n\nLa serie "${clean}" ya fue ingresada en esta compra.\n\nCada equipo debe tener un número de serie único e irrepetible.`);
-                                  setSerieInput("");
-                                  return;
-                                }
-                                const nuevas = [...it.series, clean];
-                                setItems((prev) =>
-                                  prev.map((item, i) =>
-                                    i === idx
-                                      ? { ...item, series: nuevas }
-                                      : item
-                                  )
-                                );
-                                setSerieInput("");
-                              }
-                            }}
-                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold cursor-pointer shadow-xs transition-all"
-                            title={it.series.length >= it.cantidad ? "Cupo de series completo" : "Agregar serie"}
-                          >
-                            <Plus size={14} />
-                          </button>
+                                disabled={it.series.length >= it.cantidad}
+                                value={serieInput}
+                                onChange={(e) => setSerieInput(e.target.value)}
+                                onKeyDown={handlePistolearSerie}
+                                className={`w-full p-2 rounded-xl text-xs font-mono font-bold focus:outline-none transition-all h-[38px] ${
+                                  it.series.length >= it.cantidad
+                                    ? "bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed"
+                                    : "bg-white border border-emerald-400 text-slate-900 focus:ring-2 focus:ring-emerald-400 shadow-2xs"
+                                }`}
+                              />
+                            </div>
+
+                            {/* 2. ID Equipo (Pistola o Manual) */}
+                            <div className="sm:col-span-4 flex flex-col">
+                              <span className="text-[10px] font-black text-cyan-900 uppercase tracking-wider mb-1 flex items-center gap-1">
+                                <span>ID Equipo (Pistola o Manual)</span>
+                              </span>
+                              <input
+                                ref={idEquipoInputRef}
+                                type="text"
+                                placeholder="Pistolear o digitar ID Equipo..."
+                                disabled={it.series.length >= it.cantidad}
+                                value={serieIdEquipoInput}
+                                onChange={(e) => setSerieIdEquipoInput(e.target.value)}
+                                onKeyDown={handlePistolearIdEquipo}
+                                className="w-full p-2 rounded-xl text-xs font-mono font-bold bg-white border border-cyan-300 text-cyan-950 placeholder:text-cyan-400/60 focus:ring-2 focus:ring-cyan-400 focus:outline-none shadow-2xs h-[38px]"
+                                title="ID de equipo único (código de operador WIN o ID de equipo). Se puede pistolear o digitar."
+                              />
+                            </div>
+
+                            {/* 3. ID Modelo (Opcional) */}
+                            <div className="sm:col-span-3 flex flex-col">
+                              <span className="text-[10px] font-black text-purple-800 uppercase tracking-wider mb-1 flex items-center gap-1">
+                                <span>ID Modelo (Opcional)</span>
+                              </span>
+                              <input
+                                type="text"
+                                placeholder="Ej: ZTE-F670L..."
+                                disabled={it.series.length >= it.cantidad}
+                                value={serieProidInput}
+                                onChange={(e) => setSerieProidInput(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    procesarAgregarSerie(serieInput, serieIdEquipoInput, serieProidInput);
+                                  }
+                                }}
+                                className="w-full p-2 rounded-xl text-xs font-mono font-bold bg-white border border-purple-200 text-purple-950 placeholder:text-purple-300 focus:ring-2 focus:ring-purple-400 focus:outline-none shadow-2xs h-[38px]"
+                                title="Código o ID Modelo de este equipo (ej: ZTE-F670L). Se mantiene fijo para todos los equipos de este lote."
+                              />
+                            </div>
+
+                            {/* Botón Agregar */}
+                            <div className="sm:col-span-1 flex items-end">
+                              <button
+                                type="button"
+                                disabled={it.series.length >= it.cantidad || !serieInput.trim()}
+                                onClick={() => procesarAgregarSerie(serieInput, serieIdEquipoInput, serieProidInput)}
+                                className="w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold cursor-pointer shadow-xs transition-all shrink-0 flex items-center gap-1 justify-center h-[38px]"
+                                title={it.series.length >= it.cantidad ? "Cupo completo" : "Agregar este equipo"}
+                              >
+                                <Plus size={15} />
+                                <span>Agregar</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="text-[11px] text-slate-500 font-medium flex items-center gap-1.5 flex-wrap pt-0.5">
+                            <span className="text-emerald-600 font-bold">💡 Tip:</span>
+                            <span>La <strong>Serie / MAC</strong> y el <strong>ID Equipo</strong> son únicos para cada equipo pistoleado. El <strong>ID Modelo</strong> se mantiene fijo para agilizar el ingreso.</span>
+                          </div>
                         </div>
                       )}
 
-                      {/* Series Tags */}
+                      {/* Series Tags con Serie, ID Equipo y Modelo */}
                       {it.series.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pt-1">
-                          {it.series.map((sn) => (
-                            <span
-                              key={sn}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-800 border border-slate-300 rounded-md text-[10px] font-mono font-bold shadow-2xs"
-                            >
-                              <span>{sn}</span>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveSerie(idx, sn)}
-                                className="text-slate-400 hover:text-rose-600 cursor-pointer"
+                        <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pt-1">
+                          {it.series.map((sObj, sIdx) => {
+                            const sn = typeof sObj === "string" ? sObj : sObj.numero_serie;
+                            const idEq = typeof sObj === "string" ? "" : (sObj.id_equipo || "");
+                            const pId = typeof sObj === "string" ? "" : (sObj.proid || "");
+                            const cSerie = typeof sObj === "string" ? "" : (sObj.codigo_serie || `${it.codigo || "EQP"}-S${String(sIdx + 1).padStart(3, "0")}`);
+                            return (
+                              <div
+                                key={sIdx}
+                                className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-xl text-xs font-mono font-bold shadow-2xs transition-all"
                               >
-                                <X size={11} />
-                              </button>
-                            </span>
-                          ))}
+                                <span className="text-[10px] font-black text-emerald-800 bg-emerald-100/90 px-2 py-0.5 rounded-md border border-emerald-300 flex items-center gap-1">
+                                  🏷️ {cSerie}
+                                </span>
+                                <span className="text-slate-950 font-mono font-bold">
+                                  SN: {sn}
+                                </span>
+                                {idEq && (
+                                  <span className="text-cyan-900 bg-cyan-100 px-2 py-0.5 rounded-md border border-cyan-300 font-black text-[10px] flex items-center gap-1">
+                                    ⚡ ID Eq: {idEq}
+                                  </span>
+                                )}
+                                {pId ? (
+                                  <span className="text-purple-800 bg-purple-100 px-2 py-0.5 rounded-md border border-purple-300 font-black text-[10px] flex items-center gap-1">
+                                    🏷️ Mod: {pId}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 font-normal text-[10px] italic">
+                                    (Sin Modelo)
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveSerie(idx, sn)}
+                                  className="text-slate-400 hover:text-rose-600 cursor-pointer ml-1 p-0.5 rounded hover:bg-rose-50 transition-colors"
+                                  title="Eliminar este equipo de la compra"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -1559,6 +2054,21 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                 )}
               </div>
 
+              {/* ID Modelo */}
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1 flex items-center justify-between">
+                  <span>ID Modelo</span>
+                  <span className="text-slate-400 font-normal text-[11px]">(Opcional)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej: ONT-HG8145V5 / Dejar en blanco si no tiene..."
+                  value={modalNuevoProd.proid}
+                  onChange={(e) => setModalNuevoProd((prev) => ({ ...prev, proid: e.target.value }))}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-xs text-slate-900 uppercase focus:bg-white focus:ring-2 focus:ring-indigo-400"
+                />
+              </div>
+
               {/* Stock Mínimo y Precio Unitario */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1587,6 +2097,40 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                     onChange={(e) => setModalNuevoProd((prev) => ({ ...prev, precio_compra: Number(e.target.value) }))}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-xs text-right"
                   />
+                </div>
+              </div>
+
+              {/* Ubicación Física en Almacén (Stand A-H, Fila 1-10) */}
+              <div className="p-3 bg-sky-50/70 rounded-2xl border border-sky-200">
+                <label className="block text-xs font-black text-sky-900 mb-2 flex items-center gap-1.5">
+                  <Building2 size={14} className="text-sky-700" />
+                  <span>Ubicación Inicial en Almacén (Stand y Fila)</span>
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <span className="block text-[11px] font-bold text-sky-800 mb-1">Stand (Módulo):</span>
+                    <select
+                      value={modalNuevoProd.stand}
+                      onChange={(e) => setModalNuevoProd((prev) => ({ ...prev, stand: e.target.value }))}
+                      className="w-full p-2 bg-white border border-sky-300 rounded-xl font-black text-xs text-sky-950 shadow-2xs"
+                    >
+                      {STAND_OPTIONS.map((st) => (
+                        <option key={st} value={st}>Stand {st}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <span className="block text-[11px] font-bold text-sky-800 mb-1">Fila (Nivel):</span>
+                    <select
+                      value={modalNuevoProd.fila}
+                      onChange={(e) => setModalNuevoProd((prev) => ({ ...prev, fila: Number(e.target.value) }))}
+                      className="w-full p-2 bg-white border border-sky-300 rounded-xl font-black text-xs text-sky-950 shadow-2xs"
+                    >
+                      {FILA_OPTIONS.map((fl) => (
+                        <option key={fl} value={fl}>Fila {fl}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -1667,13 +2211,19 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
 
             {/* Instrucción y Textarea */}
             <div className="space-y-2">
-              <p className="text-xs text-slate-600">
-                Copia la columna de números de serie desde tu hoja de <strong>Excel</strong>, <strong>CSV</strong> o bloc de notas y pégala directamente en el cuadro:
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Copia y pega las series desde tu hoja de <strong>Excel</strong> o <strong>CSV</strong>. Soporta pegar <strong>1, 2 o 3 columnas</strong>:
+                <br />
+                • <strong>3 columnas:</strong> Serie / MAC &nbsp;|&nbsp; ID Equipo &nbsp;|&nbsp; ID Modelo
+                <br />
+                • <strong>2 columnas:</strong> Serie / MAC &nbsp;|&nbsp; ID Equipo (o ID Modelo)
+                <br />
+                • <strong>1 columna:</strong> Solo Serie / MAC
               </p>
 
               <textarea
                 rows={8}
-                placeholder="Ejemplo:&#10;SN2026ONT0001&#10;SN2026ONT0002&#10;SN2026ONT0003&#10;SN2026ONT0004..."
+                placeholder={"Ejemplo con 3 columnas desde Excel:\nSN2026ONT0001\tWIN-EQP-001\tZTE-F670L\nSN2026ONT0002\tWIN-EQP-002\tZTE-F670L\n\nEjemplo con 2 columnas (Serie + ID Equipo):\nSN2026ONT0001\tWIN-EQP-001\nSN2026ONT0002\tWIN-EQP-002\n\nO solo números de serie:\nSN2026ONT0001\nSN2026ONT0002..."}
                 value={modalPegarSeries.textoPegado}
                 onChange={(e) => setModalPegarSeries((prev) => ({ ...prev, textoPegado: e.target.value }))}
                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl font-mono text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-400 focus:outline-none"
@@ -1682,21 +2232,28 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
 
               {/* Estadísticas de Series en Tiempo Real */}
               {(() => {
-                const detected = modalPegarSeries.textoPegado
-                  .split(/[\r\n,\t]+/)
-                  .map((s) => s.trim().toUpperCase())
-                  .filter((s) => s.length >= 3);
-                const unique = Array.from(new Set(detected));
-                const duplicatesCount = detected.length - unique.length;
+                const lines = modalPegarSeries.textoPegado.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+                const detectedSN = lines.map((l) => l.split(/[\t,;]+/)[0]?.trim().toUpperCase()).filter((s) => s && s.length >= 3);
+                const uniqueSN = Array.from(new Set(detectedSN));
+                const duplicatesCount = detectedSN.length - uniqueSN.length;
+                const withIdEquipo = lines.filter((l) => {
+                  const parts = l.split(/[\t,;]+/);
+                  return parts.length >= 2 && Boolean(parts[1]?.trim());
+                }).length;
 
                 return (
                   <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-slate-100 rounded-xl text-[11px] font-mono">
                     <span className="text-slate-600">
-                      Total detectadas: <strong className="text-slate-900">{detected.length}</strong>
+                      Filas: <strong className="text-slate-900">{lines.length}</strong>
                     </span>
                     <span className="text-emerald-700">
-                      ✨ Válidas únicas: <strong className="font-bold">{unique.length}</strong>
+                      ✨ Series únicas: <strong className="font-bold">{uniqueSN.length}</strong>
                     </span>
+                    {withIdEquipo > 0 && (
+                      <span className="text-cyan-800 font-bold bg-cyan-50 px-2 py-0.5 rounded border border-cyan-200">
+                        ⚡ Con ID Equipo: {withIdEquipo}
+                      </span>
+                    )}
                     {duplicatesCount > 0 && (
                       <span className="text-amber-700">
                         ⚠️ Duplicadas omitidas: <strong>{duplicatesCount}</strong>

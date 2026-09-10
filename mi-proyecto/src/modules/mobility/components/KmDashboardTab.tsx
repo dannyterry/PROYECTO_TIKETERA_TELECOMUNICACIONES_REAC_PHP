@@ -30,6 +30,11 @@ interface Props {
   loading: boolean;
 }
 
+const formatKm = (value: number) => {
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+};
+
 export const KmDashboardTab: React.FC<Props> = ({
   inspecciones,
   resumen,
@@ -416,7 +421,7 @@ export const KmDashboardTab: React.FC<Props> = ({
                                 : "bg-emerald-100 text-emerald-800 font-bold"
                             }`}
                           >
-                            {diff > 0 ? `+${diff}` : diff} km
+                            {diff > 0 ? `+${formatKm(diff)}` : formatKm(diff)} km
                           </span>
                         ) : (
                           <span className="text-slate-400 font-normal text-xs">--</span>

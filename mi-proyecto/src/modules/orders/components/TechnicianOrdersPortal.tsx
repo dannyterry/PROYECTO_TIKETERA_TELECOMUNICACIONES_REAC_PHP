@@ -421,7 +421,20 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
         paddingTop: "max(env(safe-area-inset-top, 8px), 12px)",
       }}
     >
-      
+      {/* Brand Header Móvil */}
+      <div className="flex items-center justify-between px-1">
+        <img
+          src="/assets/images/LOGO_CORPORACION.png"
+          alt="Corporación Céspedes"
+          className="h-7 w-auto object-contain"
+        />
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+            En línea
+          </span>
+        </div>
+      </div>
       {/* ─────────────────────────────────────────────────────────────
           0. AVISO AMIGABLE DE DESCANSO PROGRAMADO
       ───────────────────────────────────────────────────────────── */}

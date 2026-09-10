@@ -28,6 +28,7 @@ import {
   Download,
   FileSpreadsheet,
   Undo2,
+  PackagePlus,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -38,12 +39,16 @@ import {
   ProductoSeriesResumen,
 } from "../types/inventoryTypes";
 import { QuickDispatchModal } from "./QuickDispatchModal";
+import { QuickStockEntryModal } from "./QuickStockEntryModal";
 import {
   getActasTecnicos,
   getProductoSeries,
   actualizarEstadoSerie,
   getTrazabilidadSerie,
   devolverMaterialTecnico,
+  actualizarIdEquipoSerie,
+  actualizarProidSerie,
+  actualizarUbicacionProducto,
 } from "../services/inventoryService";
 
 interface Props {
@@ -53,6 +58,9 @@ interface Props {
   loading: boolean;
   onRefresh?: () => void;
 }
+
+const STAND_OPTIONS = ["A", "B", "C", "D", "E", "F", "G", "H"];
+const FILA_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 export const StockOverviewTab: React.FC<Props> = ({
   productos,
@@ -79,6 +87,15 @@ export const StockOverviewTab: React.FC<Props> = ({
 
   // Modal de Despacho Rápido
   const [modalDespacho, setModalDespacho] = useState<{
+    isOpen: boolean;
+    producto: ProductoStock | null;
+  }>({
+    isOpen: false,
+    producto: null,
+  });
+
+  // Modal de Ingreso Rápido de Stock
+  const [modalIngreso, setModalIngreso] = useState<{
     isOpen: boolean;
     producto: ProductoStock | null;
   }>({
@@ -135,6 +152,48 @@ export const StockOverviewTab: React.FC<Props> = ({
   });
   const [filtroSerieTecnicoTexto, setFiltroSerieTecnicoTexto] = useState("");
 
+  // Ubicación inline editable en tabla de Almécen Central
+  const [guardandoUbicacion, setGuardandoUbicacion] = useState<number | null>(null);
+  const [modalUbicacion, setModalUbicacion] = useState<{
+    isOpen: boolean;
+    producto: ProductoStock | null;
+    stand: string;
+    fila: number;
+  }>({
+    isOpen: false,
+    producto: null,
+    stand: "A",
+    fila: 1,
+  });
+
+  const abrirModalUbicacion = (producto: ProductoStock) => {
+    setModalUbicacion({
+      isOpen: true,
+      producto,
+      stand: producto.stand || "A",
+      fila: producto.fila ?? 1,
+    });
+  };
+
+  const guardarUbicacionModal = async () => {
+    if (!modalUbicacion.producto) return;
+
+    setGuardandoUbicacion(modalUbicacion.producto.id_producto);
+    try {
+      await actualizarUbicacionProducto(modalUbicacion.producto.id_producto, {
+        stand: modalUbicacion.stand,
+        fila: modalUbicacion.fila,
+      });
+      if (onRefresh) onRefresh();
+      setModalUbicacion({ isOpen: false, producto: null, stand: "A", fila: 1 });
+    } catch (err) {
+      console.error("Error al guardar ubicación:", err);
+      alert("No se pudo guardar la ubicación del producto.");
+    } finally {
+      setGuardandoUbicacion(null);
+    }
+  };
+
   // 🚨 Filtro de Semáforo de Stock Crítico
   const [filtroSoloCritico, setFiltroSoloCritico] = useState(false);
 
@@ -168,17 +227,26 @@ export const StockOverviewTab: React.FC<Props> = ({
   const exportarAExcel = () => {
     try {
       // Hoja 1: Stock Central (Categoría primero, luego Producto y Código)
-      const dataCentral = productos.map((p) => ({
-        "Categoría": p.categoria || "GENERAL",
-        "Producto": p.nombre,
-        "Código": p.codigo || "-",
-        "Stock Central": p.stock_central || 0,
-        "Stock en Técnicos / Móviles": p.stock_en_tecnicos || 0,
-        "Stock Total Empresa": (p.stock_central || 0) + (p.stock_en_tecnicos || 0),
-        "Stock Mínimo": p.stock_minimo || 0,
-        "Estado del Stock": (p.stock_central || 0) <= (p.stock_minimo || 0) ? " CRÍTICO / REPONER" : "ÓPTIMO",
-        "Fecha Último Ingreso": p.fecha_ingreso ? p.fecha_ingreso.replace("T", " ") : "-"
-      }));
+      const dataCentral = productos.map((p) => {
+        const stockNuevo = Number(p.stock_central || 0);
+        const stockSegundoUso = Number(p.stock_segundo_uso || 0);
+        const totalCentral = stockNuevo + stockSegundoUso;
+
+        return {
+          "Categoría": p.categoria || "GENERAL",
+          "Producto": p.nombre,
+          "Código": p.codigo || "-",
+          "Costo de Compra": Number(p.precio_compra || 0),
+          "Stock Nuevo": stockNuevo,
+          "Segundo Uso": stockSegundoUso,
+          "Total Central": totalCentral,
+          "Stock en Técnicos / Móviles": p.stock_en_tecnicos || 0,
+          "Total Empresa": totalCentral + Number(p.stock_en_tecnicos || 0),
+          "Stock Mínimo": p.stock_minimo || 0,
+          "Estado del Stock": stockNuevo <= (p.stock_minimo || 0) ? "CRÍTICO / REPONER" : "ÓPTIMO",
+          "Fecha Último Ingreso": p.fecha_ingreso ? p.fecha_ingreso.replace("T", " ") : "-"
+        };
+      });
 
       // Hoja 2: Stock en Móviles / Camionetas (Categoría primero, luego Producto y Código)
       const dataMoviles = stockPorTecnico.map((s) => ({
@@ -201,6 +269,9 @@ export const StockOverviewTab: React.FC<Props> = ({
         })
         .map((st) => ({
           "Técnico": st.tecnico_nombre,
+          "Código Serie": st.codigo_serie || "",
+          "ID Equipo": st.id_equipo || "",
+          "ID Modelo": st.equipo_proid || "",
           "Equipo": st.equipo_nombre,
           "Número de Serie (MAC/SN)": st.numero_serie,
           "Estado": st.estado || "Asignada",
@@ -217,9 +288,12 @@ export const StockOverviewTab: React.FC<Props> = ({
         { wch: 18 }, // Categoría
         { wch: 30 }, // Producto
         { wch: 14 }, // Código
-        { wch: 15 }, // Stock Central
+        { wch: 18 }, // Costo de Compra
+        { wch: 14 }, // Stock Nuevo
+        { wch: 14 }, // Segundo Uso
+        { wch: 16 }, // Total Central
         { wch: 25 }, // Stock en Técnicos / Móviles
-        { wch: 20 }, // Stock Total Empresa
+        { wch: 20 }, // Total Empresa
         { wch: 14 }, // Stock Mínimo
         { wch: 22 }, // Estado del Stock
         { wch: 22 }, // Fecha Último Ingreso
@@ -239,6 +313,9 @@ export const StockOverviewTab: React.FC<Props> = ({
 
       wsSeries["!cols"] = [
         { wch: 28 }, // Técnico
+        { wch: 16 }, // Código Serie
+        { wch: 18 }, // ID Equipo
+        { wch: 16 }, // ID Modelo
         { wch: 24 }, // Equipo
         { wch: 26 }, // Número de Serie (MAC/SN)
         { wch: 16 }, // Estado
@@ -333,6 +410,66 @@ export const StockOverviewTab: React.FC<Props> = ({
       }
     } catch (err) {
       console.error("Error al actualizar estado de la serie:", err);
+    }
+  };
+
+  const [serieEditandoIdEquipo, setSerieEditandoIdEquipo] = useState<{ id: number; valor: string } | null>(null);
+  const [guardandoIdEquipo, setGuardandoIdEquipo] = useState(false);
+
+  const handleGuardarIdEquipoSerie = async () => {
+    if (!serieEditandoIdEquipo) return;
+    try {
+      setGuardandoIdEquipo(true);
+      const nuevoValor = serieEditandoIdEquipo.valor ? serieEditandoIdEquipo.valor.trim().toUpperCase() : "";
+      await actualizarIdEquipoSerie(serieEditandoIdEquipo.id, nuevoValor);
+      setDetalleSeries((prev: any) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          series: (prev.series || []).map((s: any) =>
+            s.id_producto_serie === serieEditandoIdEquipo.id
+              ? { ...s, id_equipo: nuevoValor || null }
+              : s
+          ),
+        };
+      });
+      setSerieEditandoIdEquipo(null);
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      console.error("Error al actualizar ID de Equipo de la serie:", err);
+      alert(err.response?.data?.error || "Error al actualizar el ID de equipo.");
+    } finally {
+      setGuardandoIdEquipo(false);
+    }
+  };
+
+  const [serieEditandoProid, setSerieEditandoProid] = useState<{ id: number; valor: string } | null>(null);
+  const [guardandoProid, setGuardandoProid] = useState(false);
+
+  const handleGuardarProidSerie = async () => {
+    if (!serieEditandoProid) return;
+    try {
+      setGuardandoProid(true);
+      const nuevoValor = serieEditandoProid.valor ? serieEditandoProid.valor.trim().toUpperCase() : "";
+      await actualizarProidSerie(serieEditandoProid.id, nuevoValor);
+      setDetalleSeries((prev: any) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          series: (prev.series || []).map((s: any) =>
+            s.id_producto_serie === serieEditandoProid.id
+              ? { ...s, proid: nuevoValor || null }
+              : s
+          ),
+        };
+      });
+      setSerieEditandoProid(null);
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      console.error("Error al actualizar Product ID de la serie:", err);
+      alert("Error al actualizar el Product ID del equipo.");
+    } finally {
+      setGuardandoProid(false);
     }
   };
 
@@ -784,10 +921,20 @@ export const StockOverviewTab: React.FC<Props> = ({
                           <span>{item.producto_nombre}</span>
                           <span className="font-mono text-[10px] text-slate-400 font-normal">({item.codigo_serie || item.producto_codigo})</span>
                         </div>
-                        <div className="flex items-center gap-2 mt-0.5">
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                           <span className="font-mono font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 text-[11px]">
                             {item.numero_serie}
                           </span>
+                          {item.id_equipo && (
+                            <span className="font-mono font-bold text-cyan-800 bg-cyan-50 px-1.5 py-0.5 rounded border border-cyan-200 text-[10px]">
+                              ⚡ ID Eq: {item.id_equipo}
+                            </span>
+                          )}
+                          {item.proid && (
+                            <span className="font-mono font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 text-[10px]">
+                              Mod: {item.proid}
+                            </span>
+                          )}
                           <button
                             type="button"
                             onClick={() => copiarSerie(item.numero_serie)}
@@ -976,8 +1123,12 @@ export const StockOverviewTab: React.FC<Props> = ({
               <tr>
                 <th className="py-3.5 px-4">Código / Producto</th>
                 <th className="py-3.5 px-4">Categoría</th>
+                <th className="py-3.5 px-4 text-right">Costo Compra</th>
+                <th className="py-3.5 px-3 text-center">Ubicación</th>
                 <th className="py-3.5 px-4 text-center">Control</th>
-                <th className="py-3.5 px-4 text-right">Stock Central</th>
+                <th className="py-3.5 px-4 text-right">Stock Nuevo</th>
+                <th className="py-3.5 px-4 text-right">Segundo Uso</th>
+                <th className="py-3.5 px-4 text-right">Total Central</th>
                 <th className="py-3.5 px-4 text-right">En Carros</th>
                 <th className="py-3.5 px-4 text-right">Total Empresa</th>
                 <th className="py-3.5 px-4 text-center">Estado</th>
@@ -987,14 +1138,17 @@ export const StockOverviewTab: React.FC<Props> = ({
             <tbody className="divide-y divide-slate-100">
               {productosFiltrados.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400 text-xs font-bold">
+                  <td colSpan={12} className="py-12 text-center text-slate-400 text-xs font-bold">
                     No se encontraron productos en esta categoría o búsqueda.
                   </td>
                 </tr>
               ) : (
                 productosFiltrados.map((p) => {
-                  const stockTotal = Number(p.stock_central) + Number(p.stock_en_tecnicos);
-                  const esCritico = Number(p.stock_central) <= Number(p.stock_minimo);
+                  const stockNuevo = Number(p.stock_central || 0);
+                  const stockSegundoUso = Number(p.stock_segundo_uso || 0);
+                  const totalCentral = stockNuevo + stockSegundoUso;
+                  const stockTotal = totalCentral + Number(p.stock_en_tecnicos || 0);
+                  const esCritico = stockNuevo <= Number(p.stock_minimo || 0);
                   const catInfo = getCatBadge(p.categoria);
                   const esActaProd = esCatActa(p.categoria) || p.nombre.toUpperCase().includes("ACTA") || p.nombre.toUpperCase().includes("GUIA");
 
@@ -1018,6 +1172,49 @@ export const StockOverviewTab: React.FC<Props> = ({
                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${catInfo.bg}`}>
                           {catInfo.text}
                         </span>
+                      </td>
+
+                      <td className="py-3.5 px-4 text-right font-black font-mono text-[11px] text-emerald-700">
+                        <span className="inline-flex items-center justify-end gap-1.5 px-2.5 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-800 shadow-2xs whitespace-nowrap">
+                          <span>S/</span>
+                          <span>{Number(p.precio_compra || 0).toFixed(2)}</span>
+                        </span>
+                      </td>
+
+                      {/* UBICACIÓN: Stand + Fila con estilo tipo asignación */}
+                      <td className="py-2.5 px-3 text-center">
+                        <button
+                          type="button"
+                          disabled={guardandoUbicacion === p.id_producto}
+                          onClick={() => abrirModalUbicacion(p)}
+                          className={`inline-flex items-center justify-center gap-1.5 min-w-[118px] px-2.5 py-1.5 rounded-full border text-[10px] font-black transition-all cursor-pointer ${
+                            p.stand && p.fila
+                              ? "bg-sky-50 text-sky-800 border-sky-200 hover:bg-sky-100"
+                              : "bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100"
+                          } ${guardandoUbicacion === p.id_producto ? "opacity-60 cursor-not-allowed" : ""}`}
+                          title={p.stand && p.fila ? `Ubicación actual: Stand ${p.stand} · Fila ${p.fila}` : "Asignar ubicación en almacén"}
+                        >
+                          {guardandoUbicacion === p.id_producto ? (
+                            <>
+                              <RefreshCw size={10} className="animate-spin" />
+                              <span>Guardando...</span>
+                            </>
+                          ) : p.stand && p.fila ? (
+                            <>
+                              <span className="inline-flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-sky-500"></span>
+                                <span>{`Stand ${p.stand} · Fila ${p.fila}`}</span>
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="inline-flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                                <span>Sin asignar</span>
+                              </span>
+                            </>
+                          )}
+                        </button>
                       </td>
                       <td className="py-3.5 px-4 text-center">
                         {esActaProd ? (
@@ -1043,7 +1240,13 @@ export const StockOverviewTab: React.FC<Props> = ({
                         )}
                       </td>
                       <td className="py-3.5 px-4 text-right font-black font-mono text-sm text-slate-900">
-                        {p.stock_central}
+                        {stockNuevo}
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-bold font-mono text-amber-700">
+                        {stockSegundoUso}
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-black font-mono text-slate-900">
+                        {totalCentral}
                       </td>
                       <td className="py-3.5 px-4 text-right font-bold font-mono text-cyan-700">
                         {p.stock_en_tecnicos}
@@ -1066,7 +1269,7 @@ export const StockOverviewTab: React.FC<Props> = ({
                       </td>
                       <td className="py-3.5 px-4 text-center">
                         <div className="flex items-center justify-center gap-1.5">
-                          {Number(p.stock_central || 0) > 0 ? (
+                          {Number(totalCentral || 0) > 0 ? (
                             <button
                               type="button"
                               onClick={() => setModalDespacho({ isOpen: true, producto: p })}
@@ -1079,12 +1282,22 @@ export const StockOverviewTab: React.FC<Props> = ({
                           ) : (
                             <button
                               type="button"
-                              onClick={() => alert(`⚠️ Sin Stock en Almacén Central:\nNo hay unidades disponibles de "${p.nombre}" para despachar.\nDebes registrar una compra o ingreso en la pestaña de Compras primero.`)}
-                              className="px-2.5 py-1 bg-slate-100 hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-slate-200 hover:border-rose-200 rounded-xl font-bold text-[11px] flex items-center gap-1.5 transition-all cursor-pointer"
-                              title="Sin stock disponible en central para despachar"
+                              onClick={() => setModalIngreso({ isOpen: true, producto: p })}
+                              className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl font-bold text-[11px] flex items-center gap-1.5 transition-all cursor-pointer"
+                              title="Registrar ingreso rápido de stock"
                             >
-                              <AlertTriangle size={11} className="text-amber-500" />
-                              <span>Sin Stock</span>
+                              <PackagePlus size={11} />
+                              <span>Ingresar</span>
+                            </button>
+                          )}
+                          {Number(totalCentral || 0) > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setModalIngreso({ isOpen: true, producto: p })}
+                              className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl font-bold text-[11px] transition-all cursor-pointer shadow-2xs"
+                              title="Registrar ingreso rápido de stock"
+                            >
+                              <PackagePlus size={13} />
                             </button>
                           )}
                           {Boolean(p.maneja_serie) && (
@@ -1451,6 +1664,101 @@ export const StockOverviewTab: React.FC<Props> = ({
         </div>
       )}
 
+      {/* Modal de ubicación en almacén */}
+      {modalUbicacion.isOpen && modalUbicacion.producto && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/45 backdrop-blur-[1px] p-4">
+          <div className="w-full max-w-[400px] rounded-[22px] bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.25)] border border-slate-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-100 text-sky-700 border border-sky-200">
+                  <Building2 size={18} />
+                </div>
+                <div>
+                  <h3 className="text-[16px] font-black text-slate-900">Ubicación en Almacén</h3>
+                  <p className="text-[12px] font-black uppercase tracking-[0.08em] text-slate-500 mt-0.5">
+                    {modalUbicacion.producto.codigo}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setModalUbicacion({ isOpen: false, producto: null, stand: "A", fila: 1 })}
+                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition-all cursor-pointer"
+                title="Cerrar"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50/80 px-3 py-3 text-center text-slate-700">
+              <p className="text-[13px] font-medium leading-relaxed">
+                Indica en qué stand y fila física se encuentra almacenado este producto para que el personal lo localice inmediatamente.
+              </p>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1.5 block text-[11px] font-black text-slate-800 uppercase tracking-wide">
+                  Stand (A a H):
+                </label>
+                <select
+                  value={modalUbicacion.stand}
+                  onChange={(e) => setModalUbicacion((prev) => ({ ...prev, stand: e.target.value }))}
+                  className="w-full rounded-xl border border-sky-300 bg-white px-3 py-2.5 text-sm font-black text-sky-950 shadow-sm focus:border-sky-400 focus:outline-none"
+                >
+                  {STAND_OPTIONS.map((st) => (
+                    <option key={st} value={st}>Stand {st}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-[11px] font-black text-slate-800 uppercase tracking-wide">
+                  Fila (1 a 10):
+                </label>
+                <select
+                  value={modalUbicacion.fila}
+                  onChange={(e) => setModalUbicacion((prev) => ({ ...prev, fila: Number(e.target.value) }))}
+                  className="w-full rounded-xl border border-sky-300 bg-white px-3 py-2.5 text-sm font-black text-sky-950 shadow-sm focus:border-sky-400 focus:outline-none"
+                >
+                  {FILA_OPTIONS.map((fl) => (
+                    <option key={fl} value={fl}>Fila {fl}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-sky-300 bg-sky-50 p-2.5 text-center shadow-inner">
+              <div className="flex items-center justify-center gap-2 text-sky-900">
+                <span className="inline-flex h-3 w-3 rounded-full bg-red-400"></span>
+                <span className="text-[13px] font-black">
+                  {`Stand ${modalUbicacion.stand} · Fila ${modalUbicacion.fila}`}
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setModalUbicacion({ isOpen: false, producto: null, stand: "A", fila: 1 })}
+                className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 text-xs font-bold transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={guardarUbicacionModal}
+                disabled={guardandoUbicacion === modalUbicacion.producto?.id_producto}
+                className="px-5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-black transition-all cursor-pointer shadow-[0_6px_18px_rgba(14,165,233,0.35)] disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {guardandoUbicacion === modalUbicacion.producto?.id_producto ? "Guardando..." : "Guardar Ubicación"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Despacho Rápido */}
       {modalDespacho.isOpen && modalDespacho.producto && (
         <QuickDispatchModal
@@ -1461,6 +1769,16 @@ export const StockOverviewTab: React.FC<Props> = ({
             if (onRefresh) onRefresh();
             cargarActas();
           }}
+        />
+      )}
+
+      {/* Modal Ingreso Rápido */}
+      {modalIngreso.isOpen && modalIngreso.producto && (
+        <QuickStockEntryModal
+          isOpen={modalIngreso.isOpen}
+          onClose={() => setModalIngreso({ isOpen: false, producto: null })}
+          producto={modalIngreso.producto}
+          onStockIngresado={() => onRefresh?.()}
         />
       )}
 
@@ -1828,6 +2146,8 @@ export const StockOverviewTab: React.FC<Props> = ({
                   return (
                     s.numero_serie.toLowerCase().includes(q) ||
                     (s.codigo_serie || "").toLowerCase().includes(q) ||
+                    (s.id_equipo || "").toLowerCase().includes(q) ||
+                    (s.proid || "").toLowerCase().includes(q) ||
                     (s.tecnico_nombre || "").toLowerCase().includes(q) ||
                     (s.tecnico_cuadrilla || "").toLowerCase().includes(q) ||
                     (s.vehiculo_placa || "").toLowerCase().includes(q)
@@ -1851,7 +2171,9 @@ export const StockOverviewTab: React.FC<Props> = ({
                           <tr>
                             <th className="py-2.5 px-3">#</th>
                             <th className="py-2.5 px-3">Código Serie</th>
-                            <th className="py-2.5 px-3">Serie de Fábrica</th>
+                            <th className="py-2.5 px-3">ID Equipo</th>
+                            <th className="py-2.5 px-3">ID Modelo</th>
+                            <th className="py-2.5 px-3">Serie de Fábrica / MAC</th>
                             <th className="py-2.5 px-3">Estado</th>
                             <th className="py-2.5 px-3">Ubicación / Técnico</th>
                             <th className="py-2.5 px-3">Cuadrilla / Placa</th>
@@ -1878,6 +2200,116 @@ export const StockOverviewTab: React.FC<Props> = ({
                                     </span>
                                   ) : (
                                     <span className="text-slate-400 font-mono text-[10px]">-</span>
+                                  )}
+                                </td>
+                                {/* COLUMNA: ID EQUIPO */}
+                                <td className="py-2 px-3 font-mono">
+                                  {serieEditandoIdEquipo?.id === s.id_producto_serie ? (
+                                    <div className="flex items-center gap-1">
+                                      <input
+                                        type="text"
+                                        value={serieEditandoIdEquipo?.valor || ""}
+                                        onChange={(e) => setSerieEditandoIdEquipo({ id: s.id_producto_serie, valor: e.target.value.toUpperCase() })}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") handleGuardarIdEquipoSerie();
+                                          if (e.key === "Escape") setSerieEditandoIdEquipo(null);
+                                        }}
+                                        placeholder="ID Equipo..."
+                                        className="w-28 px-2 py-0.5 text-xs font-mono font-bold bg-white border border-cyan-400 rounded-lg focus:outline-none shadow-2xs"
+                                        autoFocus
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={handleGuardarIdEquipoSerie}
+                                        disabled={guardandoIdEquipo}
+                                        className="p-1 bg-cyan-600 hover:bg-cyan-700 text-white rounded-md cursor-pointer transition-all shadow-2xs"
+                                        title="Guardar ID Equipo"
+                                      >
+                                        <Check size={12} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setSerieEditandoIdEquipo(null)}
+                                        className="p-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-md cursor-pointer transition-all"
+                                        title="Cancelar"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    </div>
+                                  ) : s.id_equipo ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setSerieEditandoIdEquipo({ id: s.id_producto_serie, valor: s.id_equipo })}
+                                      className="group inline-flex items-center gap-1.5 font-bold text-cyan-800 bg-cyan-50 hover:bg-cyan-100 px-2 py-0.5 rounded-md border border-cyan-200 text-[11px] cursor-pointer transition-colors shadow-2xs"
+                                      title="Toca para editar ID Equipo"
+                                    >
+                                      <span>⚡ {s.id_equipo}</span>
+                                      <span className="text-[10px] text-cyan-400 group-hover:text-cyan-700">✏️</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setSerieEditandoIdEquipo({ id: s.id_producto_serie, valor: "" })}
+                                      className="inline-flex items-center gap-1 text-slate-400 hover:text-cyan-700 font-mono text-[11px] border border-dashed border-slate-300 hover:border-cyan-400 px-2 py-0.5 rounded-md cursor-pointer hover:bg-cyan-50/50 transition-all"
+                                      title="Asignar ID Equipo a esta serie"
+                                    >
+                                      <span>+ ID Eq</span>
+                                    </button>
+                                  )}
+                                </td>
+                                {/* COLUMNA: ID MODELO */}
+                                <td className="py-2 px-3 font-mono">
+                                  {serieEditandoProid?.id === s.id_producto_serie ? (
+                                    <div className="flex items-center gap-1">
+                                      <input
+                                        type="text"
+                                        value={serieEditandoProid?.valor || ""}
+                                        onChange={(e) => setSerieEditandoProid({ id: s.id_producto_serie, valor: e.target.value.toUpperCase() })}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") handleGuardarProidSerie();
+                                          if (e.key === "Escape") setSerieEditandoProid(null);
+                                        }}
+                                        placeholder="Ej: ZTE-F670L..."
+                                        className="w-28 px-2 py-0.5 text-xs font-mono font-bold bg-white border border-indigo-400 rounded-lg focus:outline-none shadow-2xs"
+                                        autoFocus
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={handleGuardarProidSerie}
+                                        disabled={guardandoProid}
+                                        className="p-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md cursor-pointer transition-all shadow-2xs"
+                                        title="Guardar ID Modelo"
+                                      >
+                                        <Check size={12} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setSerieEditandoProid(null)}
+                                        className="p-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-md cursor-pointer transition-all"
+                                        title="Cancelar"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    </div>
+                                  ) : s.proid ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setSerieEditandoProid({ id: s.id_producto_serie, valor: s.proid })}
+                                      className="group inline-flex items-center gap-1.5 font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-md border border-indigo-200 text-[11px] cursor-pointer transition-colors shadow-2xs"
+                                      title="Toca para editar ID Modelo"
+                                    >
+                                      <span>{s.proid}</span>
+                                      <span className="text-[10px] text-indigo-400 group-hover:text-indigo-700">✏️</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setSerieEditandoProid({ id: s.id_producto_serie, valor: "" })}
+                                      className="inline-flex items-center gap-1 text-slate-400 hover:text-indigo-600 font-mono text-[11px] border border-dashed border-slate-300 hover:border-indigo-400 px-2 py-0.5 rounded-md cursor-pointer hover:bg-indigo-50/50 transition-all"
+                                      title="Agregar Product ID a este equipo"
+                                    >
+                                      <span>+ ID Mod</span>
+                                    </button>
                                   )}
                                 </td>
                                 <td className="py-2 px-3 font-mono font-black text-slate-900 text-[11px]">
@@ -1981,11 +2413,23 @@ export const StockOverviewTab: React.FC<Props> = ({
                           {/* Código Correlativo de Serie y Serie de Fábrica */}
                           <div className="flex items-start justify-between gap-1.5">
                             <div className="min-w-0 flex-1">
-                              {s.codigo_serie && (
-                                <span className="inline-block text-[10px] font-black font-mono px-1.5 py-0.5 bg-indigo-100 text-indigo-800 rounded-md border border-indigo-200 mb-1">
-                                  🏷️ {s.codigo_serie}
-                                </span>
-                              )}
+                              <div className="flex items-center gap-1 flex-wrap mb-1">
+                                {s.codigo_serie && (
+                                  <span className="inline-block text-[10px] font-black font-mono px-1.5 py-0.5 bg-indigo-100 text-indigo-800 rounded-md border border-indigo-200" title="Código Serie">
+                                    🏷️ {s.codigo_serie}
+                                  </span>
+                                )}
+                                {s.id_equipo && (
+                                  <span className="inline-block text-[10px] font-black font-mono px-1.5 py-0.5 bg-cyan-100 text-cyan-800 rounded-md border border-cyan-200" title="ID Equipo">
+                                    ⚡ {s.id_equipo}
+                                  </span>
+                                )}
+                                {s.proid && (
+                                  <span className="inline-block text-[10px] font-black font-mono px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded-md border border-purple-200" title="ID Modelo">
+                                    Mod: {s.proid}
+                                  </span>
+                                )}
+                              </div>
                               <span className="font-mono font-black text-xs text-slate-900 tracking-wide block truncate" title={s.numero_serie}>
                                 {s.numero_serie}
                               </span>
@@ -2212,21 +2656,38 @@ export const StockOverviewTab: React.FC<Props> = ({
               </div>
 
               {/* Botón Copiar Todas las Series */}
-              {modalSeriesTecnico.item.series_disponibles && modalSeriesTecnico.item.series_disponibles.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const all = (modalSeriesTecnico.item?.series_disponibles || []).join("\n");
-                    navigator.clipboard.writeText(all);
-                    setCopiadoSerie("TODAS_TEC");
-                    setTimeout(() => setCopiadoSerie(null), 2000);
-                  }}
-                  className="px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all"
-                >
-                  <Copy size={13} className="text-slate-600" />
-                  <span>{copiadoSerie === "TODAS_TEC" ? "✅ ¡Series Copiadas!" : "Copiar Todas las Series"}</span>
-                </button>
-              )}
+              {(() => {
+                const item = modalSeriesTecnico.item!;
+                const seriesRicas = seriesTecnicos.filter(
+                  (s) =>
+                    s.id_trabajador === item.id_trabajador &&
+                    (s.id_producto
+                      ? s.id_producto === item.id_producto
+                      : s.equipo_nombre.trim().toUpperCase() === item.producto_nombre.trim().toUpperCase())
+                );
+                const haySeries =
+                  seriesRicas.length > 0 ||
+                  (item.series_disponibles && item.series_disponibles.length > 0);
+                if (!haySeries) return null;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const todas =
+                        seriesRicas.length > 0
+                          ? seriesRicas.map((s) => s.numero_serie).join("\n")
+                          : (item.series_disponibles || []).join("\n");
+                      navigator.clipboard.writeText(todas);
+                      setCopiadoSerie("TODAS_TEC");
+                      setTimeout(() => setCopiadoSerie(null), 2000);
+                    }}
+                    className="px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all"
+                  >
+                    <Copy size={13} className="text-slate-600" />
+                    <span>{copiadoSerie === "TODAS_TEC" ? "✅ ¡Series Copiadas!" : "Copiar Todas las Series"}</span>
+                  </button>
+                );
+              })()}
             </div>
 
             {/* Buscador de Series */}
@@ -2236,7 +2697,7 @@ export const StockOverviewTab: React.FC<Props> = ({
                 type="text"
                 value={filtroSerieTecnicoTexto}
                 onChange={(e) => setFiltroSerieTecnicoTexto(e.target.value)}
-                placeholder="Buscar por número de serie..."
+                placeholder="Buscar por serie o ID Equipo..."
                 className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none"
               />
             </div>
@@ -2244,12 +2705,37 @@ export const StockOverviewTab: React.FC<Props> = ({
             {/* Listado de Tarjetas de Series */}
             <div className="overflow-y-auto flex-1 max-h-[340px] p-1">
               {(() => {
-                const todasLasSeries = modalSeriesTecnico.item.series_disponibles || [];
-                const filtradas = todasLasSeries.filter((sn) =>
-                  sn.toLowerCase().includes(filtroSerieTecnicoTexto.toLowerCase())
+                const item = modalSeriesTecnico.item!;
+                // Cruzar por id_producto exacto (igual que el backend) con fallback por nombre
+                const seriesRicas = seriesTecnicos.filter(
+                  (s) =>
+                    s.id_trabajador === item.id_trabajador &&
+                    (s.id_producto
+                      ? s.id_producto === item.id_producto
+                      : s.equipo_nombre.trim().toUpperCase() === item.producto_nombre.trim().toUpperCase())
                 );
 
-                if (filtradas.length === 0) {
+                // Si no hay data rica, fallback a series_disponibles (solo strings)
+                const usarFallback = seriesRicas.length === 0;
+                const fallbackSeries = item.series_disponibles || [];
+
+                const q = filtroSerieTecnicoTexto.toLowerCase();
+
+                const filtradasRicas = seriesRicas.filter(
+                  (s) =>
+                    s.numero_serie.toLowerCase().includes(q) ||
+                    (s.id_equipo || "").toLowerCase().includes(q) ||
+                    (s.equipo_proid || "").toLowerCase().includes(q)
+                );
+                const filtradasFallback = fallbackSeries.filter((sn) =>
+                  sn.toLowerCase().includes(q)
+                );
+
+                const hayResultados = usarFallback
+                  ? filtradasFallback.length > 0
+                  : filtradasRicas.length > 0;
+
+                if (!hayResultados) {
                   return (
                     <div className="py-10 text-center text-slate-400 text-xs font-bold border border-dashed border-slate-200 rounded-2xl">
                       {filtroSerieTecnicoTexto
@@ -2259,32 +2745,87 @@ export const StockOverviewTab: React.FC<Props> = ({
                   );
                 }
 
+                if (usarFallback) {
+                  // Fallback: solo strings simples, sin id_equipo
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                      {filtradasFallback.map((sn, idx) => (
+                        <div
+                          key={idx}
+                          className="p-3 bg-emerald-50/50 hover:bg-emerald-50 border border-emerald-200 hover:border-emerald-400 rounded-2xl transition-all flex items-center justify-between gap-2 shadow-2xs"
+                        >
+                          <div className="flex items-center gap-2 truncate">
+                            <QrCode size={16} className="text-emerald-700 shrink-0" />
+                            <span className="font-mono font-black text-xs text-slate-900 truncate">{sn}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => copiarSerie(sn)}
+                            className="p-1.5 bg-white hover:bg-emerald-100 border border-emerald-200 text-emerald-800 rounded-lg cursor-pointer transition-all shrink-0"
+                            title="Copiar serie"
+                          >
+                            {copiadoSerie === sn ? (
+                              <Check size={13} className="text-emerald-600" />
+                            ) : (
+                              <Copy size={13} className="text-emerald-600" />
+                            )}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
+
+                // Vista rica: objetos SerieTecnicoDetalle con id_equipo
                 return (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                    {filtradas.map((sn, idx) => (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {filtradasRicas.map((s, idx) => (
                       <div
                         key={idx}
-                        className="p-3 bg-emerald-50/50 hover:bg-emerald-50 border border-emerald-200 hover:border-emerald-400 rounded-2xl transition-all flex items-center justify-between gap-2 shadow-2xs"
+                        className="p-3 bg-emerald-50/50 hover:bg-emerald-50 border border-emerald-200 hover:border-emerald-400 rounded-2xl transition-all shadow-2xs"
                       >
-                        <div className="flex items-center gap-2 truncate">
-                          <QrCode size={16} className="text-emerald-700 shrink-0" />
-                          <span className="font-mono font-black text-xs text-slate-900 truncate">
-                            {sn}
-                          </span>
+                        {/* Badges: ID Equipo y Modelo */}
+                        <div className="flex flex-wrap items-center gap-1 mb-1.5">
+                          {s.id_equipo && (
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] font-black font-mono px-1.5 py-0.5 bg-cyan-100 text-cyan-800 rounded-md border border-cyan-200 cursor-pointer"
+                              title="Copiar ID Equipo"
+                              onClick={() => copiarSerie(s.id_equipo!)}
+                            >
+                              ⚡ {s.id_equipo}
+                            </span>
+                          )}
+                          {s.equipo_proid && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-black font-mono px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded-md border border-purple-200">
+                              Mod: {s.equipo_proid}
+                            </span>
+                          )}
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => copiarSerie(sn)}
-                          className="p-1.5 bg-white hover:bg-emerald-100 border border-emerald-200 text-emerald-800 rounded-lg cursor-pointer transition-all shrink-0"
-                          title="Copiar serie"
-                        >
-                          {copiadoSerie === sn ? (
-                            <Check size={13} className="text-emerald-600" />
-                          ) : (
-                            <Copy size={13} className="text-emerald-600" />
-                          )}
-                        </button>
+                        {/* Número de Serie + acciones */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <QrCode size={15} className="text-emerald-700 shrink-0" />
+                            <span
+                              className="font-mono font-black text-xs text-slate-900 truncate"
+                              title={s.numero_serie}
+                            >
+                              {s.numero_serie}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => copiarSerie(s.numero_serie)}
+                            className="p-1.5 bg-white hover:bg-emerald-100 border border-emerald-200 text-emerald-800 rounded-lg cursor-pointer transition-all shrink-0"
+                            title="Copiar serie"
+                          >
+                            {copiadoSerie === s.numero_serie ? (
+                              <Check size={13} className="text-emerald-600" />
+                            ) : (
+                              <Copy size={13} className="text-emerald-600" />
+                            )}
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>

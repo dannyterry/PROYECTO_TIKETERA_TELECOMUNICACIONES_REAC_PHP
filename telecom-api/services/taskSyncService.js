@@ -409,10 +409,39 @@ async function sincronizarTareasOrdenSeguro(numeroOrden, idOrdenOpt = null, forz
     // Silencioso
   }
 
-  const esOrdenTerminada = datosBD.pct === 100 ||
-    ['Finalizada', 'Finalizados', 'Cancelada', 'Cancelado', 'Anulada', 'Anulado', 'Regestion'].includes(estadoOrden);
+  // Detección estricta de tarea Acta de Conformidad
+  const tieneTareaActa = datosBD.tareas.some(t => {
+    const tit = (t.titulo || t.nombre || t.tarea || '').toUpperCase();
+    return tit.includes('ACTA') || tit.includes('CONFORMIDAD');
+  });
 
-  // Si la orden está terminada y ya tiene tareas en BD: Jamás volver a consultar Fénix (0ms)
+  const tieneActaFinalizada = datosBD.tareas.some(t => {
+    const tit = (t.titulo || t.nombre || t.tarea || '').toUpperCase();
+    const est = (t.estado || t.status || '').toLowerCase();
+    return (tit.includes('ACTA') || tit.includes('CONFORMIDAD')) && !est.includes('pend');
+  });
+
+  // 🛡️ REGLA OPERATIVA ESTRICTA:
+  // Aunque una orden figure "Finalizada" en el sistema, si su Acta de Conformidad sigue
+  // pendiente o su avance es menor al 85%, el sistema NO la congelará. Consultará a Fénix
+  // para traer siempre el acta de cierre, la hora de finalización y las fotos actualizadas.
+  let esOrdenTerminada = false;
+  const esEstadoCierre = ['Finalizada', 'Finalizados', 'Cancelada', 'Cancelado', 'Anulada', 'Anulado', 'Regestion'].includes(estadoOrden);
+
+  if (['Cancelada', 'Cancelado', 'Anulada', 'Anulado', 'Regestion'].includes(estadoOrden)) {
+    // Órdenes canceladas/anuladas no requieren acta técnica de cliente
+    esOrdenTerminada = datosBD.tareas.length > 0;
+  } else if (esEstadoCierre || datosBD.pct === 100) {
+    if (tieneTareaActa) {
+      // Si la orden maneja Acta de Conformidad, es mandatorio que el Acta esté Finalizada Y pct >= 85%
+      esOrdenTerminada = tieneActaFinalizada && datosBD.pct >= 85;
+    } else {
+      // Si no tiene tarea de acta, requiere al menos 85% de avance
+      esOrdenTerminada = datosBD.pct >= 85;
+    }
+  }
+
+  // Si la orden está verdaderamente terminada con su acta de cierre en BD: Congelada (0ms)
   if (esOrdenTerminada && datosBD.tareas.length > 0 && !forzar) {
     enriquecerObservacionesOrden(cleanNum, datosBD.tareas).catch(() => {});
     return {
@@ -480,10 +509,10 @@ async function sincronizarTareasOrdenSeguro(numeroOrden, idOrdenOpt = null, forz
 
         await delay(800); // Pausa de cortesía para Fénix
 
-        // Obtener tareas con timeout de 15 segundos
+        // Obtener tareas con timeout de 25 segundos
         const tareasFenix = await withTimeout(
           obtenerTareasOrden(ordeVisiId),
-          15000,
+          25000,
           `Timeout Fénix obteniendo tareas para #${cleanNum}`
         );
 
@@ -502,6 +531,33 @@ async function sincronizarTareasOrdenSeguro(numeroOrden, idOrdenOpt = null, forz
 
           // Guardar y actualizar estados en la BD
           await guardarTareasEnBD(finalIdOrden, cleanNum, tareasFenix);
+
+          // 🕒 Detectar Acta de Conformidad y hora de finalización
+          const actaFenix = tareasFenix.find(t => {
+            const tit = (t.titulo || t.nombre || '').toUpperCase();
+            return tit.includes('ACTA') || tit.includes('CONFORMIDAD');
+          });
+          const actaFenixFinalizada = actaFenix && !String(actaFenix.estado || '').toLowerCase().includes('pend');
+
+          // Si el acta de cierre ya está finalizada, enriquecerla de inmediato para guardar fotos del acta
+          // y registrar la hora de finalización en el estado de la orden
+          if (actaFenixFinalizada && actaFenix.id) {
+            obtenerDetalleTarea(actaFenix.id, actaFenix.index).then(async (det) => {
+              if (det) {
+                await guardarDetalleTareaEnBD(cleanNum, actaFenix.id, det);
+                const horaFin = det.tiempos?.fin || det.tiempos?.termino;
+                if (horaFin) {
+                  await pool.query(`
+                    UPDATE ordenes 
+                    SET fin_visita = COALESCE(fin_visita, ?), 
+                        estado = CASE WHEN estado IN ('Iniciada', 'En camino') THEN 'Finalizada' ELSE estado END,
+                        fecha_actualizacion = NOW() 
+                    WHERE numero = ?
+                  `, [horaFin, cleanNum]).catch(() => {});
+                }
+              }
+            }).catch(() => {});
+          }
 
           // Enriquecer observaciones automáticamente en segundo plano (fire & forget)
           enriquecerObservacionesOrden(cleanNum, tareasFenix).catch(() => {});
@@ -577,12 +633,24 @@ async function sincronizarTareasOrdenesActivas() {
     isSyncingActiveOrders = true;
 
     // Buscar órdenes activas de hoy (Iniciada o En camino)
+    // O órdenes marcadas como Finalizada hoy que aún tienen su Acta pendiente o avance < 85%
     const [activas] = await pool.query(`
-      SELECT id_orden, numero, cliente, cuadrilla, estado
-      FROM ordenes
-      WHERE estado IN ('Iniciada', 'En camino')
-        AND (DATE(COALESCE(fecha_solicitud, fecha_visita, fecha_creacion, NOW())) = CURDATE())
-      ORDER BY id_orden DESC
+      SELECT o.id_orden, o.numero, o.cliente, o.cuadrilla, o.estado
+      FROM ordenes o
+      LEFT JOIN orden_tareas_cache tc ON o.numero = tc.numero_orden
+      WHERE (
+        (o.estado IN ('Iniciada', 'En camino'))
+        OR (
+          o.estado IN ('Finalizada', 'Finalizados')
+          AND (
+            tc.numero_orden IS NULL 
+            OR tc.progreso_porcentaje < 85
+            OR (tc.tareas_json LIKE '%ACTA%' AND tc.tareas_json LIKE '%Pendiente%')
+          )
+        )
+      )
+      AND (DATE(COALESCE(o.fecha_solicitud, o.fecha_visita, o.fecha_creacion, NOW())) = CURDATE())
+      ORDER BY (o.estado IN ('Finalizada', 'Finalizados')) DESC, o.id_orden DESC
       LIMIT 15
     `);
 

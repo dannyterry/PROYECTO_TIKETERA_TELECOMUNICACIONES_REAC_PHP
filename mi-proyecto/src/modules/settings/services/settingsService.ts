@@ -16,6 +16,7 @@ export interface MotivoItem {
 export interface TipoTrabajoItem {
   id_tipo_trabajo: number;
   nombre: string;
+  precio_cespedes?: number | string;
   estado: "Activo" | "Inactivo";
 }
 
@@ -95,7 +96,7 @@ export const getTiposTrabajo = async (): Promise<TipoTrabajoItem[]> => {
   return res.json();
 };
 
-export const createTipoTrabajo = async (data: { nombre: string; estado?: string }) => {
+export const createTipoTrabajo = async (data: { nombre: string; precio_cespedes?: number; estado?: string }) => {
   const res = await fetch(`${API_URL}/api/tipos-trabajo`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -108,7 +109,10 @@ export const createTipoTrabajo = async (data: { nombre: string; estado?: string 
   return res.json();
 };
 
-export const updateTipoTrabajo = async (id: number, data: { nombre?: string; estado?: string }) => {
+export const updateTipoTrabajo = async (
+  id: number,
+  data: { nombre?: string; precio_cespedes?: number; actualizar_motivos?: boolean; estado?: string }
+) => {
   const res = await fetch(`${API_URL}/api/tipos-trabajo/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

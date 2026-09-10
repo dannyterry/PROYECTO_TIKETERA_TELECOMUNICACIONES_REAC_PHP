@@ -60,7 +60,7 @@ const CATALOGO_AREAS: Record<
       },
       asistencias: {
         nombre: "Control de Asistencias & Descansos",
-        acciones: ["ver", "crear", "editar", "exportar"],
+        acciones: ["ver", "crear", "editar", "exportar", "ver_dni", "ver_todos_roles"],
       },
       permisos: {
         nombre: "Matriz de Permisos",
@@ -138,6 +138,8 @@ const TODAS_ACCIONES = [
   "sincronizar",
   "exportar",
   "ver_stock",
+  "ver_dni",
+  "ver_todos_roles",
 ];
 
 export const PermisosTab: React.FC = () => {
@@ -236,6 +238,7 @@ export const PermisosTab: React.FC = () => {
     try {
       setGuardando(true);
       await savePermisosRol(rolSeleccionado.id_rol, Array.from(clavesActivas));
+      window.dispatchEvent(new Event("permissionsUpdated"));
       setRolSeleccionado(null);
       cargarResumen();
     } catch (err: any) {
@@ -246,9 +249,14 @@ export const PermisosTab: React.FC = () => {
   };
 
   const handleLimpiarRol = async (rol: RolPermisoResumen) => {
+    if (rol.id_rol === 1) {
+      alert("El rol Administrador cuenta con acceso global y sus permisos están protegidos.");
+      return;
+    }
     if (!window.confirm(`¿Quitar todos los permisos del rol "${rol.nombre_rol}"?`)) return;
     try {
       await deletePermisosRol(rol.id_rol);
+      window.dispatchEvent(new Event("permissionsUpdated"));
       cargarResumen();
     } catch (err: any) {
       alert("Error al limpiar permisos: " + err.message);
@@ -448,11 +456,16 @@ export const PermisosTab: React.FC = () => {
                           <thead>
                             <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold uppercase text-slate-400">
                               <th className="py-2.5 px-3">Módulo</th>
-                              {TODAS_ACCIONES.map((acc) => (
-                                <th key={acc} className="py-2.5 px-2 text-center">
-                                  {acc.replace("_", " ")}
-                                </th>
-                              ))}
+                              {TODAS_ACCIONES.map((acc) => {
+                                let label = acc.replace("_", " ");
+                                if (acc === "ver_dni") label = "DNI / Rol";
+                                if (acc === "ver_todos_roles") label = "Todos Roles";
+                                return (
+                                  <th key={acc} className="py-2.5 px-2 text-center whitespace-nowrap">
+                                    {label}
+                                  </th>
+                                );
+                              })}
                               <th className="py-2.5 px-2 text-center">Todos</th>
                             </tr>
                           </thead>

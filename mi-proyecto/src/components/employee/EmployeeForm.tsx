@@ -653,7 +653,20 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
       </div>
 
       <div className="flex flex-col gap-1.5"><label className="text-xs font-medium text-gray-700">Fecha Ingreso</label><Input name="fechaIngreso" value={formData.fechaIngreso} onChange={handleChange} type="date" className="w-full" /></div>
-      <div className="flex flex-col gap-1.5"><label className="text-xs font-medium text-gray-700">Opción personal</label><select name="opcionPersonal" value={formData.opcionPersonal} onChange={handleChange} className={selectClass}><option value="">Seleccione</option><option value="autonomo">Autónomo</option><option value="directo">Directo</option></select></div>
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-gray-700">Opción personal</label>
+        <select
+          name="opcionPersonal"
+          value={formData.opcionPersonal?.toLowerCase() || ""}
+          onChange={handleChange}
+          className={selectClass}
+        >
+          <option value="">Seleccione</option>
+          <option value="autonomo">Autónomo</option>
+          <option value="directo">Directo</option>
+          <option value="subcontrata">Subcontrata</option>
+        </select>
+      </div>
       
       <div className="flex flex-col gap-1.5"><label className="text-xs font-medium text-gray-700">Régimen Pensionario (AFP/ONP)</label><select name="regimenPensionario" value={formData.regimenPensionario} onChange={(e) => { handleChange(e); if (!e.target.value.includes("AFP")) { setFormData(prev => ({ ...prev, regimenPensionario: e.target.value, tipoComision: "", cuspp: "" })); } }} className={selectClass}><option value="">Elegir Régimen</option><option value="ONP">ONP</option><option value="AFP Integra">AFP Integra</option><option value="AFP Prima">AFP Prima</option><option value="AFP Habitat">AFP Habitat</option><option value="AFP Profuturo">AFP Profuturo</option></select></div>
       {esAFP && (<div className="flex flex-col gap-1.5 animate-in fade-in zoom-in duration-300"><label className="text-xs font-bold text-emerald-700">Tipo de Comisión AFP</label><select name="tipoComision" value={formData.tipoComision} onChange={handleChange} className={`${selectClass} border-emerald-400 bg-emerald-50`}><option value="">Seleccione Comisión...</option><option value="flujo">Comisión sobre Flujo</option><option value="saldo">Comisión Anual sobre Saldo</option></select></div>)}

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { OrderFilters } from "../types/Order";
 import { Input } from "../../../components/ui/input";
 import { Button } from "../../../components/ui/button";
-import { RotateCw, Search, Calendar, Filter, X, Layers } from "lucide-react";
+import { RotateCw, Search, Calendar, Filter, X, Layers, Bell } from "lucide-react";
 
 interface OrdersToolbarProps {
   filters: OrderFilters;
@@ -16,6 +16,8 @@ interface OrdersToolbarProps {
     amarillos: number;
     agendadas: number;
   };
+  alertsCount?: number;
+  onOpenAlerts?: () => void;
 }
 
 export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
@@ -25,6 +27,8 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
   totalCount,
   cuadrillas = [],
   stats = { verdes: 0, azules: 0, amarillos: 0, agendadas: 0 },
+  alertsCount = 0,
+  onOpenAlerts,
 }) => {
   // Temporizador regresivo de sincronización en vivo (ej. 60s)
   const [countdown, setCountdown] = useState(60);
@@ -35,7 +39,9 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
       if (document.hidden) return;
       setCountdown((prev) => {
         if (prev <= 1) {
-          onSync();
+          setTimeout(() => {
+            onSync();
+          }, 0);
           return 60;
         }
         return prev - 1;
@@ -122,7 +128,7 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
         {/* TÍTULO Y CONTADORES POR COLOR */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
-            <div className="p-2 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700">
+            <div className="p-2 rounded-xl bg-sky-50 border border-sky-200 text-sky-700">
               <Layers size={20} />
             </div>
             <div>
@@ -200,11 +206,32 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
           </div>
         </div>
 
-        {/* BOTÓN DE SINCRONIZACIÓN CON TEMPORIZADOR REGRESIVO */}
+        {/* BOTÓN DE ALERTAS DE GESTIÓN Y SINCRONIZACIÓN */}
         <div className="flex items-center gap-2 self-end lg:self-auto">
+          {onOpenAlerts && (
+            <button
+              type="button"
+              onClick={onOpenAlerts}
+              className={`relative flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black border transition-all cursor-pointer shadow-xs ${
+                alertsCount > 0
+                  ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-amber-500/25 ring-2 ring-amber-300"
+                  : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200"
+              }`}
+              title="Centro de Alertas Operativas (Técnicos sin orden, Actas pendientes, Tramos)"
+            >
+              <Bell size={14} className={alertsCount > 0 ? "animate-bounce" : ""} />
+              <span>Alertas</span>
+              {alertsCount > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-red-600 text-white animate-pulse">
+                  {alertsCount}
+                </span>
+              )}
+            </button>
+          )}
+
           <Button
             onClick={handleManualSync}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-xl shadow-xs flex items-center gap-2 text-xs transition-all cursor-pointer"
+            className="bg-sky-600 hover:bg-sky-700 text-white font-bold px-4 py-2 rounded-xl shadow-xs flex items-center gap-2 text-xs transition-all cursor-pointer shadow-sky-600/20"
           >
             <RotateCw size={14} className={isSyncing ? "animate-spin" : ""} />
             <span>Sincronizar ({countdown}s)</span>
@@ -225,7 +252,7 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
             <button
               type="button"
               onClick={handleSetToday}
-              className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer"
+              className="text-[10px] font-bold text-sky-600 hover:text-sky-800 cursor-pointer"
               title="Filtrar solo el día de hoy"
             >
               📅 Hoy
@@ -236,7 +263,7 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
               type="date"
               value={filters.fechaDesde}
               onChange={(e) => onFilterChange({ ...filters, fechaDesde: e.target.value })}
-              className="w-full bg-slate-50 border-slate-300 text-xs focus:ring-indigo-500"
+              className="w-full bg-slate-50 border-slate-300 text-xs focus:ring-sky-500"
             />
           </div>
         </div>
@@ -251,7 +278,7 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
               type="date"
               value={filters.fechaHasta}
               onChange={(e) => onFilterChange({ ...filters, fechaHasta: e.target.value })}
-              className="w-full bg-slate-50 border-slate-300 text-xs focus:ring-indigo-500"
+              className="w-full bg-slate-50 border-slate-300 text-xs focus:ring-sky-500"
             />
           </div>
         </div>
@@ -264,7 +291,7 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
           <select
             value={filters.status}
             onChange={(e) => onFilterChange({ ...filters, status: e.target.value })}
-            className="w-full h-9 rounded-md border border-slate-300 bg-slate-50 px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer font-medium"
+            className="w-full h-9 rounded-md border border-slate-300 bg-slate-50 px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer font-medium"
           >
             <option value="Todos">🌐 Todos los Estados</option>
             <option value="Verdes">🟢 Verde (Iniciada / Proceso)</option>
@@ -282,9 +309,9 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
           <select
             value={filters.cuadrilla || "Todos"}
             onChange={(e) => onFilterChange({ ...filters, cuadrilla: e.target.value })}
-            className={`w-full h-9 rounded-md border px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer font-bold ${
+            className={`w-full h-9 rounded-md border px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer font-bold ${
               filters.cuadrilla && filters.cuadrilla !== "Todos"
-                ? "bg-indigo-50 border-indigo-400 text-indigo-900"
+                ? "bg-sky-50 border-sky-400 text-sky-900"
                 : "bg-slate-50 border-slate-300 text-slate-800"
             }`}
           >
@@ -309,7 +336,7 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
           <select
             value={filters.inconcert}
             onChange={(e) => onFilterChange({ ...filters, inconcert: e.target.value })}
-            className="w-full h-9 rounded-md border border-slate-300 bg-slate-50 px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer font-medium"
+            className="w-full h-9 rounded-md border border-slate-300 bg-slate-50 px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer font-medium"
           >
             <option value="Todos">📞 Inconcert: Todos</option>
             <option value="Si">✅ Con llamada Inconcert (Sí)</option>
@@ -341,7 +368,7 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
                 value={localSearch}
                 onChange={(e) => setLocalSearch(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="w-full bg-slate-50 border-slate-300 text-xs pl-3 pr-7 focus:ring-indigo-500 font-medium"
+                className="w-full bg-slate-50 border-slate-300 text-xs pl-3 pr-7 focus:ring-sky-500 font-medium"
               />
               {localSearch && (
                 <button
@@ -358,7 +385,7 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
             <button
               type="button"
               onClick={() => handleExecuteSearch()}
-              className="h-9 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-md text-xs font-bold flex items-center gap-1 shadow-xs transition-all cursor-pointer shrink-0"
+              className="h-9 px-3 bg-sky-600 hover:bg-sky-700 active:scale-95 text-white rounded-md text-xs font-bold flex items-center gap-1 shadow-xs shadow-sky-600/20 transition-all cursor-pointer shrink-0"
               title="Buscar (o presiona ENTER)"
             >
               <Search size={13} />

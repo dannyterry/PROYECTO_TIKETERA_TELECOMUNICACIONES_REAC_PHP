@@ -275,8 +275,8 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
           <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">Directorio de Personal</h1>
           <p className="text-xs text-slate-500 mt-0.5">Gestiona, busca y exporta información de Recursos Humanos y SSOMA.</p>
         </div>
-        <div className="bg-teal-50 border border-teal-200 px-3.5 py-1.5 rounded-xl text-teal-800 text-xs font-bold shadow-xs flex items-center gap-2 self-start sm:self-auto">
-          <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse"></span>
+        <div className="bg-sky-50 border border-sky-200 px-3.5 py-1.5 rounded-xl text-sky-800 text-xs font-bold shadow-xs flex items-center gap-2 self-start sm:self-auto">
+          <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse"></span>
           <span>{filteredEmpleados.length} Registros</span>
         </div>
       </div>
@@ -303,7 +303,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
             <select 
               value={filtroEstado} 
               onChange={(e) => setFiltroEstado(e.target.value)}
-              className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
+              className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer"
             >
               <option value="Todos">👥 Todos los estados</option>
               <option value="Activo">🟢 Solo Activos</option>
@@ -323,7 +323,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                 <button 
                   type="button" 
                   onClick={limpiarRoles} 
-                  className="text-[10px] text-teal-600 hover:text-red-500 font-semibold cursor-pointer"
+                  className="text-[10px] text-sky-600 hover:text-red-500 font-semibold cursor-pointer"
                   title="Ver todos los roles"
                 >
                   Limpiar
@@ -336,8 +336,8 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
               type="button"
               onClick={() => setIsOpenRoles(!isOpenRoles)}
               className={`w-full h-10 rounded-md border px-3 py-2 text-sm flex items-center justify-between bg-background transition-all cursor-pointer ${
-                isOpenRoles ? "ring-2 ring-teal-500 border-teal-500" : "border-input hover:border-gray-400"
-              } ${rolesSeleccionados.length > 0 ? "bg-teal-50/50 font-semibold text-teal-900 border-teal-300 shadow-2xs" : "text-gray-700"}`}
+                isOpenRoles ? "ring-2 ring-sky-500 border-sky-500" : "border-input hover:border-gray-400"
+              } ${rolesSeleccionados.length > 0 ? "bg-sky-50/50 font-semibold text-sky-900 border-sky-300 shadow-2xs" : "text-gray-700"}`}
             >
               <div className="flex items-center gap-1.5 truncate">
                 <span className="text-xs">🎭</span>
@@ -365,7 +365,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                     placeholder="Buscar rol en la lista..."
                     value={searchRol}
                     onChange={(e) => setSearchRol(e.target.value)}
-                    className="w-full h-8 text-xs px-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    className="w-full h-8 text-xs px-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
                     autoFocus
                   />
                 )}
@@ -375,7 +375,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                   <button
                     type="button"
                     onClick={limpiarRoles}
-                    className={`hover:text-teal-700 transition-colors cursor-pointer ${rolesSeleccionados.length === 0 ? "text-teal-700 font-bold" : ""}`}
+                    className={`hover:text-sky-700 transition-colors cursor-pointer ${rolesSeleccionados.length === 0 ? "text-sky-700 font-bold" : ""}`}
                   >
                     {rolesSeleccionados.length === 0 ? "✓ Mostrando todos" : "Mostrar todos"}
                   </button>
@@ -401,7 +401,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                         onClick={() => toggleRol(rol)}
                         className={`flex items-center justify-between p-2 rounded-lg text-xs cursor-pointer select-none transition-colors ${
                           isChecked
-                            ? "bg-teal-50 text-teal-900 font-bold border border-teal-200"
+                            ? "bg-sky-50 text-sky-900 font-bold border border-sky-200"
                             : "hover:bg-gray-50 text-gray-700"
                         }`}
                       >
@@ -410,7 +410,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                             type="checkbox"
                             checked={isChecked}
                             onChange={() => {}} // Manejado por onClick del div contenedor
-                            className="rounded border-gray-300 text-teal-600 focus:ring-teal-500 h-4 w-4 cursor-pointer accent-teal-600"
+                            className="rounded border-gray-300 text-sky-600 focus:ring-sky-500 h-4 w-4 cursor-pointer accent-sky-600"
                           />
                           <span>{rol}</span>
                         </div>
@@ -436,7 +436,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                   <button
                     type="button"
                     onClick={() => setIsOpenRoles(false)}
-                    className="px-3 py-1 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-lg shadow-xs transition-colors cursor-pointer"
+                    className="px-3 py-1 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-lg shadow-xs transition-colors cursor-pointer"
                   >
                     Listo
                   </button>
@@ -452,57 +452,53 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
             <select 
               value={filtroSCTR} 
               onChange={(e) => setFiltroSCTR(e.target.value)}
-              className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
+              className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer"
             >
-              <option value="Todos">🛡️ Mostrar Todos</option>
-              <option value="Con SCTR">✅ Tienen SCTR asignado</option>
-              <option value="Sin SCTR">❌ Sin SCTR registrado</option>
-              <option value="Por Vencer / Vencido">⚠️ Vencido o por vencer (30 días)</option>
+              <option value="Todos">🛡️ Todos los estados SCTR</option>
+              <option value="Sin SCTR">❌ Sin SCTR asignado</option>
+              <option value="Con SCTR">✅ Con SCTR activo</option>
+              <option value="Por Vencer / Vencido">⚠️ Por Vencer o Vencido</option>
             </select>
           </div>
 
-          {/* 5. Mes de Vencimiento SCTR */}
-          <div className="w-full relative">
-            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">
-              Mes Vencimiento SCTR
-            </label>
-            <div className="flex gap-2">
-              <Input 
-                type="month" 
-                value={mesVencimiento} 
-                onChange={(e) => setMesVencimiento(e.target.value)} 
-                className="w-full bg-white border-gray-300 focus:ring-teal-500" 
-                title="Selecciona el mes y año de vencimiento"
-              />
+          {/* 5. Filtro por Mes de Vencimiento */}
+          <div className="w-full">
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">Mes Venc. SCTR</label>
               {mesVencimiento && (
-                <Button 
-                  variant="outline" 
+                <button 
+                  type="button" 
                   onClick={() => setMesVencimiento("")} 
-                  className="px-3 border-gray-300 text-red-500 hover:bg-red-50"
-                  title="Limpiar mes"
+                  className="text-[10px] text-sky-600 hover:text-red-500 font-semibold cursor-pointer"
                 >
-                  ✕
-                </Button>
+                  Borrar
+                </button>
               )}
             </div>
+            <Input 
+              type="month" 
+              value={mesVencimiento} 
+              onChange={(e) => setMesVencimiento(e.target.value)} 
+              className="w-full bg-white border-gray-300 focus:ring-sky-500" 
+            />
           </div>
 
         </div>
 
-        {/* Chips de Roles seleccionados */}
+        {/* Chips de Roles Seleccionados */}
         {rolesSeleccionados.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-gray-100 text-xs">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mr-1">Filtro por roles activo:</span>
+          <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-gray-100">
+            <span className="text-xs text-gray-500 font-semibold mr-1">Filtrando por:</span>
             {rolesSeleccionados.map((rol) => (
               <span
                 key={rol}
-                className="inline-flex items-center gap-1.5 bg-teal-50 text-teal-800 border border-teal-200 px-2.5 py-1 rounded-lg text-xs font-semibold shadow-2xs"
+                className="inline-flex items-center gap-1.5 bg-sky-50 text-sky-800 border border-sky-200 px-2.5 py-1 rounded-lg text-xs font-semibold shadow-2xs"
               >
-                <span>🎭 {rol}</span>
+                <span>{rol}</span>
                 <button
                   type="button"
                   onClick={() => toggleRol(rol)}
-                  className="text-teal-600 hover:text-red-500 font-bold ml-0.5 cursor-pointer text-xs"
+                  className="text-sky-600 hover:text-red-500 font-bold ml-0.5 cursor-pointer text-xs"
                   title={`Quitar rol ${rol}`}
                 >
                   ✕
@@ -564,7 +560,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
             <tbody className="bg-white">
               {filteredEmpleados.length > 0 ? (
                 filteredEmpleados.map((emp) => (
-                  <tr key={emp.id} onClick={() => onSelectEmployee(emp)} className="cursor-pointer hover:bg-teal-50/50 transition-colors border-b border-gray-100">
+                  <tr key={emp.id} onClick={() => onSelectEmployee(emp)} className="cursor-pointer hover:bg-sky-50/50 transition-colors border-b border-gray-100">
                     
                     <td className="py-4 px-6 border-b border-gray-100">
                       <div className="flex flex-col gap-1 items-start">
@@ -572,11 +568,24 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                           {emp.area || "Sin área"}
                         </span>
                         {emp.rolNombre ? (
-                          <span className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 text-[11px] px-2 py-0.5 rounded-md font-bold border border-indigo-200">
+                          <span className="inline-flex items-center gap-1 bg-sky-50 text-sky-700 text-[11px] px-2 py-0.5 rounded-md font-bold border border-sky-200">
                             <span className="text-[10px]">🎭</span> {emp.rolNombre}
                           </span>
                         ) : (
                           <span className="text-[10px] text-gray-400 italic px-1">Sin rol</span>
+                        )}
+                        {emp.opcionPersonal && (
+                          <span
+                            className={`inline-block text-[10px] px-2 py-0.5 rounded-md font-bold capitalize ${
+                              emp.opcionPersonal.toLowerCase().includes("subcontrat")
+                                ? "bg-purple-50 text-purple-700 border border-purple-200"
+                                : emp.opcionPersonal.toLowerCase().includes("autonom")
+                                ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                : "bg-slate-100 text-slate-700 border border-slate-200"
+                            }`}
+                          >
+                            {emp.opcionPersonal}
+                          </span>
                         )}
                       </div>
                     </td>
@@ -597,7 +606,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                           </div>
                           <div className="flex items-center gap-1.5 text-gray-700 mt-1">
                             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider font-sans">Pass:</span>
-                            <span className="font-semibold text-indigo-700 truncate">{emp.password || "N/A"}</span>
+                            <span className="font-semibold text-sky-700 truncate">{emp.password || "N/A"}</span>
                           </div>
                         </div>
                         <button

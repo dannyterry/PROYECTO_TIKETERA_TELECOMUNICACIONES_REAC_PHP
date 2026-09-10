@@ -10,6 +10,7 @@ import {
   Filter,
   FileSpreadsheet,
   RotateCw,
+  RotateCcw,
   Eye,
   X,
   AlertCircle,
@@ -78,6 +79,14 @@ export const PaymentsPage: React.FC = () => {
     consultarPagos(hoy, hoy, estadoLiquidacion);
   };
 
+  const handleLimpiar = () => {
+    setDesde(hoy);
+    setHasta(hoy);
+    setEstadoLiquidacion("");
+    setFiltroTexto("");
+    consultarPagos(hoy, hoy, "");
+  };
+
   const handleConsultar = (e: React.FormEvent) => {
     e.preventDefault();
     consultarPagos();
@@ -133,7 +142,7 @@ export const PaymentsPage: React.FC = () => {
       {/* Header General del Módulo */}
       <div className="bg-white border-b border-slate-200/80 px-6 py-4 flex flex-wrap items-center justify-between gap-4 shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-black shadow-xs">
+          <div className="w-11 h-11 rounded-2xl bg-sky-50 text-sky-600 border border-sky-100 flex items-center justify-center font-black shadow-xs">
             <Coins size={22} />
           </div>
           <div>
@@ -150,7 +159,7 @@ export const PaymentsPage: React.FC = () => {
           <button
             type="button"
             onClick={exportarExcel}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition-all cursor-pointer"
+            className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm shadow-sky-600/20 transition-all cursor-pointer"
           >
             <FileSpreadsheet size={15} />
             <span>Exportar CSV</span>
@@ -171,7 +180,7 @@ export const PaymentsPage: React.FC = () => {
               type="date"
               value={desde}
               onChange={(e) => setDesde(e.target.value)}
-              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500"
+              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-sky-500"
             />
           </div>
 
@@ -181,7 +190,7 @@ export const PaymentsPage: React.FC = () => {
               type="date"
               value={hasta}
               onChange={(e) => setHasta(e.target.value)}
-              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500"
+              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-sky-500"
             />
           </div>
 
@@ -190,7 +199,7 @@ export const PaymentsPage: React.FC = () => {
             <select
               value={estadoLiquidacion}
               onChange={(e) => setEstadoLiquidacion(e.target.value)}
-              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500"
+              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-sky-500"
             >
               <option value="">Todas</option>
               <option value="liquidada">Liquidadas</option>
@@ -210,9 +219,19 @@ export const PaymentsPage: React.FC = () => {
           </button>
 
           <button
+            type="button"
+            onClick={handleLimpiar}
+            title="Limpiar filtros y volver al día de hoy"
+            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+          >
+            <RotateCcw size={14} />
+            <span>Limpiar Filtro</span>
+          </button>
+
+          <button
             type="submit"
             disabled={loading}
-            className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 shadow-md shadow-indigo-600/20 disabled:opacity-50"
+            className="px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 shadow-md shadow-sky-600/20 disabled:opacity-50"
           >
             {loading ? <RotateCw className="animate-spin" size={14} /> : <Search size={14} />}
             <span>Consultar</span>
@@ -223,7 +242,7 @@ export const PaymentsPage: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           {/* Ingreso WIN */}
           <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black shrink-0">
+            <div className="w-12 h-12 rounded-2xl bg-sky-50 text-sky-600 border border-sky-100 flex items-center justify-center font-black shrink-0">
               <DollarSign size={24} />
             </div>
             <div className="min-w-0">
@@ -370,7 +389,7 @@ export const PaymentsPage: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => handleAbrirDetalle(t)}
-                          className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-[11px] font-black transition-all cursor-pointer flex items-center gap-1.5 mx-auto"
+                          className="px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200/80 rounded-xl text-[11px] font-black transition-all cursor-pointer flex items-center gap-1.5 mx-auto"
                         >
                           <Eye size={13} />
                           <span>Detalle</span>
@@ -392,7 +411,7 @@ export const PaymentsPage: React.FC = () => {
             <div className="p-5 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
-                  <Receipt size={18} className="text-indigo-600" />
+                  <Receipt size={18} className="text-sky-600" />
                   <span>Detalle de Liquidación: {tecnicoSeleccionado?.tecnico}</span>
                 </h3>
                 <p className="text-xs text-slate-500 font-medium">
@@ -434,8 +453,8 @@ export const PaymentsPage: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
-                      {ordenesDetalle.map((ord) => (
-                        <tr key={ord.id_orden} className="hover:bg-slate-50/60">
+                      {ordenesDetalle.map((ord, idx) => (
+                        <tr key={`${ord.id_orden}-${idx}`} className="hover:bg-slate-50/60">
                           <td className="p-3 font-bold text-slate-900">{ord.numero}</td>
                           <td className="p-3 text-slate-500">{ord.fecha_visita ? ord.fecha_visita.substring(0, 10) : "-"}</td>
                           <td className="p-3 truncate max-w-[150px]">{ord.cliente}</td>

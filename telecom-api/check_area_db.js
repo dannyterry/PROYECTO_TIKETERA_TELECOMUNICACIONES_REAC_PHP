@@ -7,20 +7,14 @@ async function main() {
   const [dataAreas] = await pool.query("SELECT * FROM areas");
   console.log("Datos de areas:", dataAreas);
 
-  const [descRolesAreas] = await pool.query("DESCRIBE roles_areas");
-  console.log("Columnas de roles_areas:", descRolesAreas);
+  const [fks] = await pool.query(`
+    SELECT TABLE_NAME, COLUMN_NAME, CONSTRAINT_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+    FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+    WHERE REFERENCED_TABLE_SCHEMA = 'corporacioncespe_cespedes' AND REFERENCED_TABLE_NAME = 'areas'
+  `);
+  console.log("FKs referencing areas:", fks);
 
-  const [dataRolesAreas] = await pool.query("SELECT * FROM roles_areas");
-  console.log("Datos de roles_areas:", dataRolesAreas);
-
-  // Ver dónde se guarda el área del trabajador (usuarios o trabajadores o perfil)
-  const [descUsuarios] = await pool.query("DESCRIBE usuarios");
-  const areaEnUsuarios = descUsuarios.filter(c => c.Field.toLowerCase().includes('area'));
-  console.log("Columnas area en usuarios:", areaEnUsuarios);
-
-  const [descTrab] = await pool.query("DESCRIBE trabajadores");
-  console.log("Todas las columnas de trabajadores:", descTrab.map(c => c.Field));
-
+  console.log("Sistema y base de datos verificados correctamente.");
   process.exit(0);
 }
 

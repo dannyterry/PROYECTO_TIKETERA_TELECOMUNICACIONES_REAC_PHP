@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { API_URL } from "../../config/api";
+import { authService } from "../../services/authService";
 import {
   MessageSquare,
   Send,
@@ -43,9 +44,20 @@ interface TeamChatProps {
   userName?: string;
   userRol?: string;
   rolNombre?: string;
+  hideBar?: boolean;
+  leftSlot?: React.ReactNode;
+  rightSlot?: React.ReactNode;
 }
 
-export const TeamChat: React.FC<TeamChatProps> = ({ userId, userName, userRol, rolNombre }) => {
+export const TeamChat: React.FC<TeamChatProps> = ({
+  userId,
+  userName,
+  userRol,
+  rolNombre,
+  hideBar = false,
+  leftSlot,
+  rightSlot,
+}) => {
   // 🔒 Permisos: Chat Grupal (Canal 24/7) solo para Administración (1), RRHH (5) y Almacén (3)
   // Gestión (4) puede chatear de forma INDIVIDUAL y directa con cualquier usuario 1 a 1.
   const canUseGroupChat =
@@ -86,7 +98,7 @@ export const TeamChat: React.FC<TeamChatProps> = ({ userId, userName, userRol, r
   // 🛡️ Abrir chat con validación de auto-chat (Early return si es el mismo usuario logueado)
   const handleAbrirChat = (user: OnlineUser) => {
     if (!user || !user.id_usuario) return;
-    const currentUid = userId || (typeof window !== "undefined" && window.self === window.top ? "59" : "");
+    const currentUid = userId || authService.getCurrentUser()?.id_usuario?.toString() || "";
     if (String(user.id_usuario) === String(currentUid)) return;
 
     setActiveTab(user.id_usuario);
@@ -108,6 +120,7 @@ export const TeamChat: React.FC<TeamChatProps> = ({ userId, userName, userRol, r
 
   // 1. Cargar usuarios online periódicamente (cada 15s)
   useEffect(() => {
+    if (hideBar) return;
     const fetchOnline = () => {
       if (document.hidden) return;
       fetch(`${API_URL}/api/auditoria/usuarios-online`)
@@ -116,7 +129,7 @@ export const TeamChat: React.FC<TeamChatProps> = ({ userId, userName, userRol, r
           if (Array.isArray(data)) {
             setUsuariosOnline(data);
             if (!canUseGroupChat && !targetUser && data.length > 0) {
-              const currentUid = userId || (typeof window !== "undefined" && window.self === window.top ? "59" : "");
+              const currentUid = userId || authService.getCurrentUser()?.id_usuario?.toString() || "";
               const otro = data.find((u) => String(u.id_usuario) !== String(currentUid));
               if (otro) {
                 setTargetUser(otro);
@@ -134,13 +147,14 @@ export const TeamChat: React.FC<TeamChatProps> = ({ userId, userName, userRol, r
       }
     }, 15000);
     return () => clearInterval(interval);
-  }, [canUseGroupChat, userId]);
+  }, [canUseGroupChat, userId, hideBar]);
 
   // 🔔 1.1 Polling continuo de mensajes no leídos (cada 30s con validación de visibilidad)
   useEffect(() => {
+    if (hideBar) return;
     const fetchNoLeidos = () => {
       if (document.hidden) return;
-      const currentUid = userId || (typeof window !== "undefined" && window.self === window.top ? "59" : "");
+      const currentUid = userId || authService.getCurrentUser()?.id_usuario?.toString() || "";
       if (!currentUid) return;
 
       fetch(`${API_URL}/api/chat/noleidos?id_usuario=${currentUid}`)
@@ -161,11 +175,11 @@ export const TeamChat: React.FC<TeamChatProps> = ({ userId, userName, userRol, r
       }
     }, 30000); // Consulta cada 30 segundos
     return () => clearInterval(interval);
-  }, [userId]);
+  }, [userId, hideBar]);
 
   // 2. Cargar mensajes del canal o chat privado activo (cada 5s si está abierto)
   useEffect(() => {
-    if (!isOpen || isMinimized) return;
+    if (hideBar || !isOpen || isMinimized) return;
     if (!activeTab && activeTab !== 0) return;
 
     const fetchMensajes = () => {
@@ -192,7 +206,7 @@ export const TeamChat: React.FC<TeamChatProps> = ({ userId, userName, userRol, r
       }
     }, 5000);
     return () => clearInterval(interval);
-  }, [isOpen, isMinimized, activeTab, userId]);
+  }, [isOpen, isMinimized, activeTab, userId, hideBar]);
 
   useEffect(() => {
     scrollToBottom();
@@ -260,100 +274,122 @@ export const TeamChat: React.FC<TeamChatProps> = ({ userId, userName, userRol, r
   return (
     <>
       {/* ─────────────────────────────────────────────────────────────
-          1. BARRA SUPERIOR DE PERSONAL ONLINE Y ACCESO A CHAT DIRECTO
+          1. BARRA SUPERIOR INTEGRADA: MENÚ, LOGO, CHAT 24/7, PERSONAL EN LÍNEA Y USUARIO
       ───────────────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-10 w-full bg-slate-900/95 backdrop-blur-md border-b border-slate-700/60 px-4 py-2 flex items-center gap-2 shadow-md overflow-x-auto scrollbar-none">
-        
-        {/* Indicador de Conectados */}
-        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 shrink-0 pr-1">
-          <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-          <span className="text-white font-black">{totalOnline}</span> En línea:
-        </span>
-
-        {/* 📢 Botón Chat Grupal (Canal 24/7) - Solo para Admin, RRHH y Almacén, junto a los nombres */}
-        {canUseGroupChat && (
-          <button
-            onClick={() => {
-              setActiveTab("general");
-              setTargetUser(null);
-              setIsOpen(true);
-              setIsMinimized(false);
-            }}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-xl font-black text-xs transition-all shrink-0 cursor-pointer shadow-xs border ${
-              isOpen && activeTab === "general"
-                ? "bg-indigo-600 text-white border-indigo-400 shadow-indigo-500/30"
-                : "bg-gradient-to-r from-indigo-600/90 to-purple-600/90 hover:from-indigo-500 hover:to-purple-500 text-white border-indigo-500/40"
-            }`}
-            title="Abrir Canal Grupal 24/7 de Equipo"
-          >
-            <MessageSquare size={13} className="animate-bounce" />
-            <span>Canal Grupal</span>
-            <span className="bg-white/20 px-1.5 py-0.2 rounded-md text-[9px] font-mono">24/7</span>
-          </button>
+      <div className="sticky top-0 z-20 w-full bg-white border-b border-slate-200/90 px-3 md:px-4 py-1.5 flex items-center justify-between gap-2.5 shadow-2xs">
+        {/* Slot Izquierdo: Botón Hamburguesa 3 rayitas + Logo */}
+        {leftSlot && (
+          <div className="flex items-center gap-2.5 shrink-0">
+            {leftSlot}
+          </div>
         )}
 
-        {/* Avatares de Personal en Línea (Hacer clic abre el chat individual de una vez) */}
-        {usuariosOnline.map((user) => {
-          const isOnline = user.esta_online === 1;
-          const isMe = String(user.id_usuario) === String(userId);
-          const isCurrentActive = isOpen && activeTab === user.id_usuario;
-          const cantNoLeidos = noLeidosPorUsuario[user.id_usuario] || 0;
-          const hasUnread = cantNoLeidos > 0 && !isMe;
+        {/* Centro: Chat Grupal 24/7 y Avatares de Personal Online (Desplazable horizontalmente) */}
+        {!hideBar ? (
+          <div className="flex-1 min-w-0 flex items-center gap-2 overflow-x-auto scrollbar-none py-0.5">
+            {/* Indicador de Conectados */}
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 shrink-0 pr-1">
+              <Radio className="w-3.5 h-3.5 text-emerald-500 animate-pulse" />
+              <span className="text-slate-900 font-black">{totalOnline}</span> En línea:
+            </span>
 
-          return (
-            <button
-              key={user.id_usuario}
-              onClick={() => {
-                if (!isMe) {
-                  handleAbrirChat(user);
-                }
-              }}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer border ${
-                hasUnread
-                  ? "bg-emerald-500 hover:bg-emerald-600 text-white font-black border-emerald-300 ring-4 ring-emerald-400/80 shadow-lg shadow-emerald-500/50 animate-bounce scale-105"
-                  : isCurrentActive
-                  ? "bg-purple-600 text-white border-purple-400 shadow-md shadow-purple-600/30"
-                  : isOnline
-                  ? "bg-slate-800 hover:bg-slate-700 text-slate-200 border-emerald-500/40 shadow-xs"
-                  : "bg-slate-900/60 text-slate-400 border-slate-800 opacity-60"
-              }`}
-              title={
-                hasUnread
-                  ? `¡${user.nombre_completo} te envió ${cantNoLeidos} mensaje(s)! Haz clic para leer.`
-                  : isMe
-                  ? "Tu usuario (Conectado)"
-                  : `Click para chatear en privado con ${user.nombre_completo}`
-              }
-            >
-              <span className="relative flex h-2 w-2">
-                {(isOnline || hasUnread) && (
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                )}
-                <span
-                  className={`relative inline-flex rounded-full h-2 w-2 ${
-                    hasUnread ? "bg-white" : isOnline ? "bg-emerald-500" : "bg-slate-500"
+            {/* 📢 Botón Chat Grupal (Canal 24/7) - Solo para Admin, RRHH y Almacén, junto a los nombres */}
+            {canUseGroupChat && (
+              <button
+                onClick={() => {
+                  setActiveTab("general");
+                  setTargetUser(null);
+                  setIsOpen(true);
+                  setIsMinimized(false);
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-xl font-black text-xs transition-all shrink-0 cursor-pointer shadow-xs border ${
+                  isOpen && activeTab === "general"
+                    ? "bg-sky-700 text-white border-sky-800 shadow-sky-600/30"
+                    : "bg-sky-600 hover:bg-sky-700 text-white border-sky-500"
+                }`}
+                title="Abrir Canal Grupal 24/7 de Equipo"
+              >
+                <MessageSquare size={13} className="animate-bounce" />
+                <span>Canal Grupal</span>
+                <span className="bg-white/20 px-1.5 py-0.2 rounded-md text-[9px] font-mono">24/7</span>
+              </button>
+            )}
+
+            {/* Avatares de Personal en Línea (Hacer clic abre el chat individual de una vez) */}
+            {usuariosOnline.map((user) => {
+              const isOnline = user.esta_online === 1;
+              const isMe = String(user.id_usuario) === String(userId);
+              const isCurrentActive = isOpen && activeTab === user.id_usuario;
+              const cantNoLeidos = noLeidosPorUsuario[user.id_usuario] || 0;
+              const hasUnread = cantNoLeidos > 0 && !isMe;
+
+              return (
+                <button
+                  key={user.id_usuario}
+                  onClick={() => {
+                    if (!isMe) {
+                      handleAbrirChat(user);
+                    }
+                  }}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer border ${
+                    hasUnread
+                      ? "bg-emerald-500 hover:bg-emerald-600 text-white font-black border-emerald-300 ring-4 ring-emerald-400/80 shadow-lg shadow-emerald-500/50 animate-bounce scale-105"
+                      : isCurrentActive
+                      ? "bg-sky-600 text-white border-sky-600 shadow-sm"
+                      : isOnline
+                      ? "bg-slate-50 hover:bg-sky-50 text-slate-700 border-slate-200 shadow-2xs hover:border-sky-300"
+                      : "bg-slate-100/60 text-slate-400 border-slate-200/60 opacity-60"
                   }`}
-                ></span>
-              </span>
-              <span className="truncate max-w-[120px]">{user.nombre_completo.split(" ")[0]}</span>
-              {hasUnread ? (
-                <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-white text-emerald-800 font-black shadow-xs animate-pulse">
-                  📩 {cantNoLeidos} {cantNoLeidos === 1 ? "nuevo" : "nuevos"}
-                </span>
-              ) : (
-                <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-mono">
-                  {user.rol_nombre || "Personal"}
-                </span>
-              )}
-            </button>
-          );
-        })}
+                  title={
+                    hasUnread
+                      ? `¡${user.nombre_completo} te envió ${cantNoLeidos} mensaje(s)! Haz clic para leer.`
+                      : isMe
+                      ? "Tu usuario (Conectado)"
+                      : `Click para chatear en privado con ${user.nombre_completo}`
+                  }
+                >
+                  <span className="relative flex h-2 w-2">
+                    {(isOnline || hasUnread) && (
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    )}
+                    <span
+                      className={`relative inline-flex rounded-full h-2 w-2 ${
+                        hasUnread ? "bg-white" : isOnline ? "bg-emerald-500" : "bg-slate-400"
+                      }`}
+                    ></span>
+                  </span>
+                  <span className="truncate max-w-[120px]">{user.nombre_completo.split(" ")[0]}</span>
+                  {hasUnread ? (
+                    <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-white text-emerald-800 font-black shadow-xs animate-pulse">
+                      📩 {cantNoLeidos} {cantNoLeidos === 1 ? "nuevo" : "nuevos"}
+                    </span>
+                  ) : (
+                    <span className={`text-[9px] px-1 py-0.2 rounded font-mono ${
+                      isCurrentActive ? "bg-white/20 text-white" : "bg-white text-slate-500 border border-slate-200"
+                    }`}>
+                      {user.rol_nombre || "Personal"}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex-1 min-w-0" />
+        )}
+
+        {/* Slot Derecho: Perfil de Usuario y Cerrar Sesión */}
+        {rightSlot && (
+          <div className="flex items-center gap-2 shrink-0 pl-1 border-l border-slate-200">
+            {rightSlot}
+          </div>
+        )}
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
           2. VENTANA FLOTANTE DE CHAT INTERACTIVO (SLACK / WHATSAPP STYLE)
       ───────────────────────────────────────────────────────────── */}
-      {isOpen && (
+      {!hideBar && isOpen && (
         <div
           className={`fixed bottom-4 right-4 z-50 w-96 bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 rounded-3xl shadow-2xl flex flex-col transition-all duration-300 ${
             isMinimized ? "h-14 overflow-hidden" : "h-[500px]"
@@ -556,10 +592,10 @@ export const TeamChat: React.FC<TeamChatProps> = ({ userId, userName, userRol, r
       {/* ─────────────────────────────────────────────────────────────
           3. 🟢 ALERTA FLOTANTE VERDE RADIANTE (CUANDO ALGUIEN TE ESCRIBE)
       ───────────────────────────────────────────────────────────── */}
-      {totalNoLeidos > 0 && (!isOpen || isMinimized) && (
+      {!hideBar && totalNoLeidos > 0 && (!isOpen || isMinimized) && (
         <div
           onClick={() => {
-            const currentUid = userId || (typeof window !== "undefined" && window.self === window.top ? "59" : "");
+            const currentUid = userId || authService.getCurrentUser()?.id_usuario?.toString() || "";
             const primerEmisorId = Object.keys(noLeidosPorUsuario).find(
               (k) => (noLeidosPorUsuario[Number(k)] || 0) > 0 && String(k) !== String(currentUid)
             );

@@ -92,7 +92,8 @@ async function fetchLookerOrders(customHeaders = null, retry = true) {
     "cookie": session.cookie,
     "x-rap-xsrf-token": session.x_rap_xsrf_token
   };
-  const targetUrl = session.url || 'https://datastudio.google.com/u/0/batchedDataV2?appVersion=20260823_0000';
+  const appVer = session.appVersion || '20260823_0000';
+  const targetUrl = `https://datastudio.google.com/u/0/batchedDataV2?appVersion=${appVer}`;
 
   const queryFields = [
     { name: "qt_2d9467as5d", datasetNs: "d0", tableNs: "t0", dataTransformation: { sourceFieldName: "_3355_" } }, // Ticket
@@ -254,8 +255,33 @@ async function fetchLookerOrders(customHeaders = null, retry = true) {
   return orders;
 }
 
+const DISTRITOS_SUR = [
+  'CHORRILLOS', 'VILLA EL SALVADOR', 'VILLA MARIA DEL TRIUNFO', 'LURIN', 
+  'SAN JUAN DE MIRAFLORES', 'SANTIAGO DE SURCO', 'SURCO', 'PACHACAMAC', 
+  'SAN BARTOLO', 'PUNTA HERMOSA', 'PUNTA NEGRA', 'PUCUSANA', 'SANTA MARIA DEL MAR'
+];
+
+const DISTRITOS_CENTRO = [
+  'LIMA', 'CERCADO', 'BREÑA', 'LA VICTORIA', 'LINCE', 'JESUS MARIA', 'MAGDALENA', 
+  'PUEBLO LIBRE', 'SAN MIGUEL', 'MIRAFLORES', 'SAN ISIDRO', 'SURQUILLO', 'BARRANCO'
+];
+
+const DISTRITOS_NORTE = [
+  'COMAS', 'LOS OLIVOS', 'SAN MARTIN DE PORRES', 'INDEPENDENCIA', 'PUENTE PIEDRA', 
+  'CARABAYLLO', 'ANCON', 'SANTA ROSA'
+];
+
+const DISTRITOS_ESTE = [
+  'ATE', 'SANTA ANITA', 'EL AGUSTINO', 'SAN JUAN DE LURIGANCHO', 'LA MOLINA', 
+  'CIENEGUILLA', 'CHACLACAYO', 'LURIGANCHO', 'CHOSICA'
+];
+
+const DISTRITOS_CALLAO = [
+  'BELLAVISTA', 'CALLAO', 'CARMEN DE LA LEGUA', 'LA PERLA', 'LA PUNTA', 'VENTANILLA', 'MI PERU'
+];
+
 /**
- * Agrupa las órdenes en las 3 tarjetas grandes y genera las alertas de Zona Sur
+ * Agrupa las órdenes en las 3 tarjetas grandes y genera las alertas y resumen por zona
  */
 function processCardsAndAlerts(orders) {
   const cards = {
@@ -265,6 +291,7 @@ function processCardsAndAlerts(orders) {
   };
 
   const alertasSur = [];
+  const resumenZonas = {};
 
   orders.forEach(o => {
     const tipo = (o.vehiculo_tipo || '').toUpperCase().trim();
@@ -282,8 +309,34 @@ function processCardsAndAlerts(orders) {
     card.total++;
     card.ordenes.push(o);
 
-    const zona = (o.zona_nodo || 'SIN ZONA').trim();
-    const esSur = zona.toUpperCase().startsWith('SUR');
+    // Resolución inteligente de zona geográfica
+    const rawZona = (o.zona_nodo || '').trim();
+    const rawDist = (o.distrito || '').trim();
+    const zUpper = rawZona.toUpperCase();
+    const dUpper = rawDist.toUpperCase();
+
+    let zona = 'ZONA GENERAL';
+    let esSur = false;
+
+    if (zUpper.includes('SUR') || DISTRITOS_SUR.some(d => dUpper.includes(d) || zUpper.includes(d))) {
+      zona = zUpper.includes('SUR') ? rawZona : (rawDist ? `SUR (${rawDist})` : 'ZONA SUR');
+      esSur = true;
+    } else if (zUpper.includes('CENTRO') || DISTRITOS_CENTRO.some(d => dUpper.includes(d) || zUpper.includes(d))) {
+      zona = zUpper.includes('CENTRO') ? rawZona : (rawDist ? `CENTRO (${rawDist})` : 'ZONA CENTRO');
+    } else if (zUpper.includes('NORTE') || DISTRITOS_NORTE.some(d => dUpper.includes(d) || zUpper.includes(d))) {
+      zona = zUpper.includes('NORTE') ? rawZona : (rawDist ? `NORTE (${rawDist})` : 'ZONA NORTE');
+    } else if (zUpper.includes('CALLAO') || DISTRITOS_CALLAO.some(d => dUpper.includes(d) || zUpper.includes(d))) {
+      zona = zUpper.includes('CALLAO') ? rawZona : (rawDist ? `CALLAO (${rawDist})` : 'CALLAO');
+    } else if (zUpper.includes('ESTE') || DISTRITOS_ESTE.some(d => dUpper.includes(d) || zUpper.includes(d))) {
+      zona = zUpper.includes('ESTE') ? rawZona : (rawDist ? `ESTE (${rawDist})` : 'ZONA ESTE');
+    } else if (rawZona) {
+      zona = rawZona;
+    } else if (rawDist) {
+      zona = rawDist;
+    }
+
+    // Registrar en resumen general de zonas
+    resumenZonas[zona] = (resumenZonas[zona] || 0) + 1;
 
     if (!card.zonas[zona]) {
       card.zonas[zona] = {
@@ -308,7 +361,9 @@ function processCardsAndAlerts(orders) {
     else zObj.franjas['otros']++;
 
     // Distritos
-    zObj.distritos[o.distrito] = (zObj.distritos[o.distrito] || 0) + 1;
+    if (o.distrito) {
+      zObj.distritos[o.distrito] = (zObj.distritos[o.distrito] || 0) + 1;
+    }
 
     // ALERTA ZONA SUR
     if (esSur) {
@@ -331,72 +386,15 @@ function processCardsAndAlerts(orders) {
     timestamp: new Date().toISOString(),
     totalGeneral: orders.length,
     totalAlertasSur: alertasSur.length,
+    resumenZonas: resumenZonas,
     cards: cards,
     alertasSur: alertasSur
   };
 }
 
-// Ejecución directa si se invoca por línea de comandos
-if (require.main === module) {
-  (async () => {
-    try {
-      console.log('📡 Consultando Looker Studio en tiempo real...');
-      const orders = await fetchLookerOrders();
-      console.log(`✅ ${orders.length} órdenes recibidas.`);
-
-      const result = processCardsAndAlerts(orders);
-
-      console.log('\n===============================================================');
-      console.log('📊 TARJETAS PRINCIPALES (ZONAS Y TOTALES)');
-      console.log('===============================================================');
-
-      for (const [cardName, cardData] of Object.entries(result.cards)) {
-        console.log(`\n🎴 [${cardName}] ➔ TOTAL: ${cardData.total}`);
-        console.log('───────────────────────────────────────────────────────────────');
-        if (cardData.total === 0) {
-          console.log('  (Sin datos)');
-          continue;
-        }
-
-        const tableZonas = Object.values(cardData.zonas).map(z => ({
-          'Zona': z.esSur ? `🚨 ${z.zona}` : z.zona,
-          '08:00-11:59': z.franjas['08:00-11:59'],
-          '12:00-15:59': z.franjas['12:00-15:59'],
-          '16:00-20:00': z.franjas['16:00-20:00'],
-          'Total Zona': z.total,
-          'Distritos': Object.entries(z.distritos).map(([d, c]) => `${d} (${c})`).join(', ')
-        }));
-
-        console.table(tableZonas);
-      }
-
-      console.log('\n===============================================================');
-      console.log(`🚨 ALERTAS DE ZONA SUR DETECTADAS (${result.totalAlertasSur} ÓRDENES)`);
-      console.log('===============================================================');
-      if (result.totalAlertasSur > 0) {
-        console.table(result.alertasSur.map(a => ({
-          'Alerta': a.alerta,
-          'Tarjeta': a.tarjeta,
-          'Ticket': a.ticket,
-          'Distrito': a.distrito,
-          'Dirección': a.direccion,
-          'Franja': a.franja_horaria,
-          'Motivo': a.motivo
-        })));
-      } else {
-        console.log('✅ No hay órdenes pendientes en Zona Sur.');
-      }
-
-      fs.writeFileSync('d:/proyecrh/telecom-api/cards_and_alerts.json', JSON.stringify(result, null, 2));
-      console.log('\n💾 Datos guardados en cards_and_alerts.json');
-    } catch (err) {
-      console.error('❌ Error al procesar:', err.message);
-    }
-  })();
-}
-
 module.exports = {
-  LOOKER_CONFIG,
   fetchLookerOrders,
-  processCardsAndAlerts
+  processCardsAndAlerts,
+  getActiveSession,
+  LOOKER_CONFIG
 };

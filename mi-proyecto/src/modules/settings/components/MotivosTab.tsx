@@ -70,9 +70,11 @@ export const MotivosTab: React.FC = () => {
   const handleAbrirCrear = () => {
     setMotivoEditando(null);
     setNombre("");
-    setTipoTrabajo(tiposTrabajo[0]?.nombre || "VISITA EXTERNA");
-    setPrecioCompra("0.00");
-    setPrecioVenta("0.00");
+    const primerTipo = tiposTrabajo[0]?.nombre || "VISITA EXTERNA";
+    setTipoTrabajo(primerTipo);
+    setPrecioCompra("90.00");
+    const found = tiposTrabajo.find((t) => t.nombre.toUpperCase() === primerTipo.toUpperCase());
+    setPrecioVenta(found && found.precio_cespedes !== undefined ? String(found.precio_cespedes) : "40.00");
     setEstado("Activo");
     setLimites([]);
     setErrorMsg("");
@@ -160,9 +162,9 @@ export const MotivosTab: React.FC = () => {
   });
 
   return (
-    <div className="space-y-4 font-sans">
-      {/* Barra de Filtros */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+    <div className="flex-1 min-h-0 flex flex-col space-y-4 font-sans">
+      {/* Barra de Filtros Estática */}
+      <div className="shrink-0 bg-white flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl border border-slate-200/80 shadow-xs">
         <div className="relative min-w-[240px] flex-1 sm:flex-initial">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
           <input
@@ -178,7 +180,7 @@ export const MotivosTab: React.FC = () => {
           <button
             onClick={cargarDatos}
             disabled={loading}
-            className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 rounded-xl transition-all cursor-pointer disabled:opacity-50"
+            className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 rounded-xl transition-all cursor-pointer disabled:opacity-50 shadow-2xs"
             title="Recargar"
           >
             <RotateCw size={16} className={loading ? "animate-spin text-indigo-600" : ""} />
@@ -193,20 +195,20 @@ export const MotivosTab: React.FC = () => {
         </div>
       </div>
 
-      {/* Tabla de Motivos */}
-      <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                <th className="py-3.5 px-4">ID</th>
-                <th className="py-3.5 px-4">Motivo de Liquidación</th>
-                <th className="py-3.5 px-4">Tipo Trabajo</th>
-                <th className="py-3.5 px-4 text-center">Compra</th>
-                <th className="py-3.5 px-4 text-center">Venta</th>
-                <th className="py-3.5 px-4 text-center">Límites Material</th>
-                <th className="py-3.5 px-4 text-center">Estado</th>
-                <th className="py-3.5 px-4 text-right">Acciones</th>
+      {/* Tabla de Motivos con Cabecera Fija */}
+      <div className="flex-1 min-h-0 bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col">
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto scrollbar-thin">
+          <table className="w-full text-left border-separate border-spacing-0 text-xs">
+            <thead className="sticky top-0 z-20 bg-slate-100/95 backdrop-blur-xs shadow-xs">
+              <tr>
+                <th className="sticky top-0 z-20 py-3.5 px-4 bg-slate-100/95 text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200">ID</th>
+                <th className="sticky top-0 z-20 py-3.5 px-4 bg-slate-100/95 text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200">Motivo de Liquidación</th>
+                <th className="sticky top-0 z-20 py-3.5 px-4 bg-slate-100/95 text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200">Tipo Trabajo</th>
+                <th className="sticky top-0 z-20 py-3.5 px-4 text-center bg-slate-100/95 text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200">Precio WIN</th>
+                <th className="sticky top-0 z-20 py-3.5 px-4 text-center bg-slate-100/95 text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200">Precio Céspedes</th>
+                <th className="sticky top-0 z-20 py-3.5 px-4 text-center bg-slate-100/95 text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200">Límites Material</th>
+                <th className="sticky top-0 z-20 py-3.5 px-4 text-center bg-slate-100/95 text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200">Estado</th>
+                <th className="sticky top-0 z-20 py-3.5 px-4 text-right bg-slate-100/95 text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
@@ -356,13 +358,20 @@ export const MotivosTab: React.FC = () => {
                   </label>
                   <select
                     value={tipoTrabajo}
-                    onChange={(e) => setTipoTrabajo(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setTipoTrabajo(val);
+                      const found = tiposTrabajo.find((t) => t.nombre.toUpperCase() === val.toUpperCase());
+                      if (found && found.precio_cespedes !== undefined) {
+                        setPrecioVenta(String(found.precio_cespedes));
+                      }
+                    }}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500"
                   >
                     <option value="">Seleccione...</option>
                     {tiposTrabajo.map((t) => (
                       <option key={t.id_tipo_trabajo} value={t.nombre}>
-                        {t.nombre}
+                        {t.nombre} {t.precio_cespedes !== undefined ? `(S/ ${parseFloat(String(t.precio_cespedes)).toFixed(2)})` : ""}
                       </option>
                     ))}
                     <option value="VISITA EXTERNA">VISITA EXTERNA</option>
@@ -388,7 +397,7 @@ export const MotivosTab: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Precio Compra (S/)
+                    Precio WIN (S/)
                   </label>
                   <input
                     type="number"
@@ -400,7 +409,7 @@ export const MotivosTab: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Precio Venta (S/)
+                    Precio Céspedes (S/)
                   </label>
                   <input
                     type="number"

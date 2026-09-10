@@ -26,6 +26,8 @@ export const TiposTrabajoTab: React.FC = () => {
   const [modalAbierto, setModalAbierto] = useState(false);
   const [tipoEditando, setTipoEditando] = useState<TipoTrabajoItem | null>(null);
   const [nombre, setNombre] = useState("");
+  const [precioCespedes, setPrecioCespedes] = useState("0.00");
+  const [actualizarMotivos, setActualizarMotivos] = useState(true);
   const [estado, setEstado] = useState<"Activo" | "Inactivo">("Activo");
   const [guardando, setGuardando] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -49,6 +51,8 @@ export const TiposTrabajoTab: React.FC = () => {
   const handleAbrirCrear = () => {
     setTipoEditando(null);
     setNombre("");
+    setPrecioCespedes("0.00");
+    setActualizarMotivos(true);
     setEstado("Activo");
     setErrorMsg("");
     setModalAbierto(true);
@@ -57,6 +61,8 @@ export const TiposTrabajoTab: React.FC = () => {
   const handleAbrirEditar = (t: TipoTrabajoItem) => {
     setTipoEditando(t);
     setNombre(t.nombre);
+    setPrecioCespedes(String(t.precio_cespedes || "0.00"));
+    setActualizarMotivos(true);
     setEstado(t.estado || "Activo");
     setErrorMsg("");
     setModalAbierto(true);
@@ -73,16 +79,17 @@ export const TiposTrabajoTab: React.FC = () => {
       setGuardando(true);
       setErrorMsg("");
 
+      const payload = {
+        nombre: nombre.trim().toUpperCase(),
+        precio_cespedes: parseFloat(precioCespedes) || 0,
+        actualizar_motivos: actualizarMotivos,
+        estado,
+      };
+
       if (tipoEditando) {
-        await updateTipoTrabajo(tipoEditando.id_tipo_trabajo, {
-          nombre: nombre.trim().toUpperCase(),
-          estado,
-        });
+        await updateTipoTrabajo(tipoEditando.id_tipo_trabajo, payload);
       } else {
-        await createTipoTrabajo({
-          nombre: nombre.trim().toUpperCase(),
-          estado,
-        });
+        await createTipoTrabajo(payload);
       }
 
       setModalAbierto(false);
@@ -110,9 +117,9 @@ export const TiposTrabajoTab: React.FC = () => {
   });
 
   return (
-    <div className="space-y-4 font-sans">
-      {/* Barra de Filtros */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+    <div className="flex-1 min-h-0 flex flex-col space-y-4 font-sans">
+      {/* Barra de Filtros Estática */}
+      <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
         <div className="relative min-w-[240px] flex-1 sm:flex-initial">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
           <input
@@ -143,29 +150,30 @@ export const TiposTrabajoTab: React.FC = () => {
         </div>
       </div>
 
-      {/* Tabla */}
-      <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                <th className="py-3.5 px-4">ID</th>
-                <th className="py-3.5 px-4">Nombre del Tipo de Trabajo</th>
-                <th className="py-3.5 px-4 text-center">Estado</th>
-                <th className="py-3.5 px-4 text-right">Acciones</th>
+      {/* Tabla con Cabecera Fija */}
+      <div className="flex-1 min-h-0 bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col">
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto scrollbar-thin">
+          <table className="w-full text-left border-separate border-spacing-0 text-xs">
+            <thead className="sticky top-0 z-20 bg-slate-100/95 backdrop-blur-xs shadow-xs">
+              <tr>
+                <th className="sticky top-0 z-20 py-3.5 px-4 bg-slate-100/95 text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200">ID</th>
+                <th className="sticky top-0 z-20 py-3.5 px-4 bg-slate-100/95 text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200">Nombre del Tipo de Trabajo</th>
+                <th className="sticky top-0 z-20 py-3.5 px-4 text-center bg-slate-100/95 text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200">Precio Céspedes</th>
+                <th className="sticky top-0 z-20 py-3.5 px-4 text-center bg-slate-100/95 text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200">Estado</th>
+                <th className="sticky top-0 z-20 py-3.5 px-4 text-right bg-slate-100/95 text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
               {loading ? (
                 <tr>
-                  <td colSpan={4} className="py-12 text-center text-slate-400">
+                  <td colSpan={5} className="py-12 text-center text-slate-400">
                     <RotateCw className="animate-spin inline-block mr-2 text-indigo-600" size={18} />
                     Cargando tipos de trabajo...
                   </td>
                 </tr>
               ) : tiposFiltrados.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="py-12 text-center text-slate-400">
+                  <td colSpan={5} className="py-12 text-center text-slate-400">
                     No se encontraron tipos de trabajo.
                   </td>
                 </tr>
@@ -179,6 +187,11 @@ export const TiposTrabajoTab: React.FC = () => {
                       </td>
                       <td className="py-3 px-4">
                         <span className="font-bold text-slate-900 text-xs">{t.nombre}</span>
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <span className="inline-block px-2.5 py-0.5 rounded-lg font-mono text-xs font-black bg-emerald-50 text-emerald-800 border border-emerald-200">
+                          S/ {parseFloat(String(t.precio_cespedes || 0)).toFixed(2)}
+                        </span>
                       </td>
                       <td className="py-3 px-4 text-center">
                         <span
@@ -235,7 +248,7 @@ export const TiposTrabajoTab: React.FC = () => {
                     {tipoEditando ? "Editar Tipo de Trabajo" : "Nuevo Tipo de Trabajo"}
                   </h3>
                   <p className="text-xs text-slate-500 font-medium">
-                    Categorización operativa para órdenes y motivos
+                    Categorización operativa y precios unificados
                   </p>
                 </div>
               </div>
@@ -268,6 +281,43 @@ export const TiposTrabajoTab: React.FC = () => {
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 uppercase focus:outline-none focus:border-indigo-500"
                 />
               </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Precio Céspedes (S/) <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">S/</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={precioCespedes}
+                    onChange={(e) => setPrecioCespedes(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Tarifa base oficial asignada a las órdenes de este tipo de trabajo.
+                </p>
+              </div>
+
+              {tipoEditando && (
+                <div className="p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl">
+                  <label className="flex items-start gap-2 text-xs font-medium text-indigo-900 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={actualizarMotivos}
+                      onChange={(e) => setActualizarMotivos(e.target.checked)}
+                      className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>
+                      <strong>Unificar automáticamente:</strong> Actualizar el Precio Céspedes en todos los motivos de liquidación vinculados a este tipo de trabajo.
+                    </span>
+                  </label>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">

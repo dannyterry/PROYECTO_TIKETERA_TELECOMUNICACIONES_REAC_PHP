@@ -7,12 +7,7 @@ import {
   ChevronUp,
   X,
   RefreshCw,
-  Clock,
-  MapPin,
-  Eye,
-  CheckCircle2,
-  Radio,
-  ExternalLink
+  MapPin
 } from "lucide-react";
 
 interface ZonaDetail {
@@ -51,6 +46,7 @@ interface LookerResponse {
   timestamp: string;
   totalGeneral: number;
   totalAlertasSur: number;
+  resumenZonas?: Record<string, number>;
   cards: {
     "AVERIAS PREFERENTE": CardData;
     "AVERIAS ALTO VALOR": CardData;
@@ -65,7 +61,6 @@ export const LookerCardsAlertBanner: React.FC = () => {
   const [expanded, setExpanded] = useState<boolean>(false);
   const [dismissed, setDismissed] = useState<boolean>(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
-  const [activeTab, setActiveTab] = useState<"ALL" | "SUR">("ALL");
 
   const lastAlertCountRef = useRef<number>(0);
 
@@ -109,46 +104,56 @@ export const LookerCardsAlertBanner: React.FC = () => {
   const totalSur = data.totalAlertasSur || 0;
   const hayAlertaSur = totalSur > 0;
 
-  // 1. Si NO hay ninguna orden en Zona Sur, no mostrar nada
-  if (!hayAlertaSur) {
+  // 🛡️ REGLA OPERATIVA: Solo trabajamos con ZONA SUR.
+  // Si no hay órdenes en Zona Sur, no se muestra nada.
+  if (!hayAlertaSur || dismissed) {
     return null;
   }
 
-  // 2. Si el usuario cerró la tarjeta, desaparecer completamente
-  if (dismissed) {
-    return null;
-  }
-
-  // 3. Conteo exclusivo de órdenes en ZONA SUR por cada categoría
-  const surAverias = data.alertasSur.filter(
+  // Conteo exclusivo de órdenes en ZONA SUR por cada categoría
+  const surAverias = data.alertasSur?.filter(
     (a) => a.tarjeta === "AVERIAS PREFERENTE" || a.tarjeta === "AVERIAS"
-  ).length;
+  ).length || 0;
 
-  const surAltoValor = data.alertasSur.filter(
+  const surAltoValor = data.alertasSur?.filter(
     (a) => a.tarjeta === "AVERIAS ALTO VALOR" || a.tarjeta === "ALTO VALOR"
-  ).length;
+  ).length || 0;
 
-  const surMotowin = data.alertasSur.filter(
+  const surMotowin = data.alertasSur?.filter(
     (a) => a.tarjeta === "MOTOWIN ZONAS" || a.tarjeta === "MOTOWIN"
-  ).length;
+  ).length || 0;
+
+  // Filtrar exclusivamente zonas que pertenezcan al SUR
+  const zonasSurMap: Record<string, number> = {};
+  if (data.resumenZonas) {
+    for (const [zNom, cant] of Object.entries(data.resumenZonas)) {
+      if (zNom.toUpperCase().includes("SUR")) {
+        zonasSurMap[zNom] = cant;
+      }
+    }
+  }
+  if (Object.keys(zonasSurMap).length === 0 && data.alertasSur) {
+    for (const a of data.alertasSur) {
+      const z = a.zona || "ZONA SUR";
+      zonasSurMap[z] = (zonasSurMap[z] || 0) + 1;
+    }
+  }
 
   return (
-    <div className={`shrink-0 border-b transition-all duration-200 ${
-      hayAlertaSur ? "bg-gradient-to-r from-red-50 via-amber-50 to-orange-50 border-red-200 shadow-sm" : "bg-slate-50 border-slate-200"
-    }`}>
-      {/* 🚀 BARRA PRINCIPAL COMPACTA (3 TARJETAS EXCLUSIVAS ZONA SUR + ALERTA) */}
+    <div className="shrink-0 border-b bg-gradient-to-r from-red-50 via-amber-50 to-orange-50 border-red-200 shadow-sm transition-all duration-200">
+      {/* 🚀 BARRA PRINCIPAL COMPACTA (EXCLUSIVA ZONA SUR) */}
       <div className="px-3 py-1.5 flex flex-wrap items-center justify-between gap-2">
         
-        {/* LADO IZQUIERDO: Título y Alerta de Zona Sur */}
+        {/* LADO IZQUIERDO: Título y Tarjetas de Zona Sur */}
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-600 text-white font-extrabold text-xs shadow-sm animate-pulse">
             <AlertTriangle size={14} className="shrink-0" />
             <span>🚨 ¡ALERTA ZONA SUR: {totalSur} {totalSur === 1 ? "ORDEN" : "ÓRDENES"}!</span>
           </div>
 
-          {/* 3 MINI TARJETAS CON CONTEO EXCLUSIVO DE ZONA SUR */}
+          {/* 3 MINI TARJETAS EXCLUSIVAS ZONA SUR */}
           <div className="flex items-center gap-1.5">
-            {/* 1. AVERIAS (SUR) */}
+            {/* 1. AVERIAS */}
             <div className={`flex items-center gap-1 px-2 py-0.5 rounded-md border ${
               surAverias > 0
                 ? "bg-[#FF8F00]/15 border-[#FF8F00] text-[#b35b00]"
@@ -160,7 +165,7 @@ export const LookerCardsAlertBanner: React.FC = () => {
               </span>
             </div>
 
-            {/* 2. ALTO VALOR (SUR) */}
+            {/* 2. ALTO VALOR */}
             <div className={`flex items-center gap-1 px-2 py-0.5 rounded-md border ${
               surAltoValor > 0
                 ? "bg-cyan-100 border-cyan-400 text-cyan-800"
@@ -172,7 +177,7 @@ export const LookerCardsAlertBanner: React.FC = () => {
               </span>
             </div>
 
-            {/* 3. MOTOWIN (SUR) */}
+            {/* 3. MOTOWIN */}
             <div className={`flex items-center gap-1 px-2 py-0.5 rounded-md border ${
               surMotowin > 0
                 ? "bg-emerald-100 border-emerald-400 text-emerald-800"
@@ -185,18 +190,23 @@ export const LookerCardsAlertBanner: React.FC = () => {
             </div>
           </div>
 
-          {/* Resumen rápido de Zonas Sur detectadas */}
-          {hayAlertaSur && (
-            <div className="flex items-center gap-1 text-[11px] text-red-900 font-semibold">
-              <MapPin size={12} className="text-red-600 shrink-0" />
-              <span>
-                {Array.from(new Set(data.alertasSur.map(a => a.zona))).join(", ")}
+          {/* 📍 ZONAS SUR DISPONIBLES */}
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className="text-[10px] uppercase font-bold text-red-900 ml-1">Zonas Sur:</span>
+            {Object.entries(zonasSurMap).map(([zNom, cant]) => (
+              <span
+                key={zNom}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border bg-red-100/90 border-red-300 text-red-900 shadow-2xs"
+              >
+                <MapPin size={10} className="text-red-600" />
+                <span>{zNom}:</span>
+                <span className="font-mono font-black">{cant}</span>
               </span>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
 
-        {/* LADO DERECHO: Botones de Acción (Expandir / Refrescar / Cerrar) */}
+        {/* LADO DERECHO: Acciones */}
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] text-slate-400 font-mono hidden md:inline">
             Act: {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
@@ -227,80 +237,77 @@ export const LookerCardsAlertBanner: React.FC = () => {
             ) : (
               <>
                 <ChevronDown size={12} />
-                Ver Zonas y Horarios
+                Ver Detalle Zonas
               </>
             )}
           </button>
 
-          {/* BOTÓN DE CERRAR ALERTA VISUALIZADA */}
           <button
             onClick={() => setDismissed(true)}
             className="p-1 text-slate-400 hover:text-slate-700 hover:bg-black/10 rounded transition-colors"
-            title="Cerrar / Ocultar alerta (volverá a aparecer si entran nuevas zonas Sur)"
+            title="Cerrar banner (volverá a aparecer si entran nuevas órdenes de Looker Sur)"
           >
             <X size={13} />
           </button>
         </div>
       </div>
 
-      {/* 🚀 SECCIÓN EXPANDIDA: TABLAS DE LAS 3 TARJETAS CON ZONAS Y TRAMOS HORARIOS */}
+      {/* 🚀 SECCIÓN EXPANDIDA: TABLAS EXCLUSIVAS DE ZONA SUR */}
       {expanded && (
-        <div className="px-3 pb-2.5 pt-1 border-t border-slate-200/80 bg-white/95">
+        <div className="px-3 pb-2.5 pt-1 border-t border-red-200/80 bg-white/95">
           
-          {/* Si hay alertas de Zona Sur, mostrar tabla destacada arriba */}
-          {hayAlertaSur && (
-            <div className="mb-2 p-2 rounded-lg bg-red-50 border border-red-200">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[11px] font-black text-red-900 flex items-center gap-1">
-                  <Flame size={13} className="text-red-600" />
-                  DETALLE DE ÓRDENES EN ZONA SUR ({data.alertasSur.length})
-                </span>
-                <span className="text-[10px] text-red-700 font-semibold">
-                  Prioridad de Despacho Inmediato
-                </span>
-              </div>
-              <div className="overflow-x-auto max-h-36 overflow-y-auto custom-scrollbar">
-                <table className="w-full text-[10px] border-collapse">
-                  <thead>
-                    <tr className="bg-red-200/70 text-red-950 text-left font-bold uppercase">
-                      <th className="py-1 px-1.5">Tarjeta</th>
-                      <th className="py-1 px-1.5">Zona</th>
-                      <th className="py-1 px-1.5">Distrito</th>
-                      <th className="py-1 px-1.5">Ticket</th>
-                      <th className="py-1 px-1.5">Dirección</th>
-                      <th className="py-1 px-1.5">Franja</th>
-                      <th className="py-1 px-1.5">Motivo</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.alertasSur.map((al, idx) => (
-                      <tr key={idx} className="border-b border-red-100 hover:bg-red-100/50">
-                        <td className="py-1 px-1.5 font-bold text-red-800">
-                          {al.tarjeta === 'AVERIAS PREFERENTE' ? 'AVERIAS' : al.tarjeta === 'MOTOWIN ZONAS' ? 'MOTOWIN' : 'ALTO VALOR'}
-                        </td>
-                        <td className="py-1 px-1.5 font-black text-red-700">{al.zona}</td>
-                        <td className="py-1 px-1.5 font-semibold text-slate-800">{al.distrito}</td>
-                        <td className="py-1 px-1.5 font-mono text-blue-700 font-bold">{al.ticket}</td>
-                        <td className="py-1 px-1.5 max-w-[220px] truncate text-slate-700" title={al.direccion}>{al.direccion}</td>
-                        <td className="py-1 px-1.5 font-semibold text-purple-700">{al.franja_horaria}</td>
-                        <td className="py-1 px-1.5 text-slate-600">{al.motivo}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+          {/* TABLA PRINCIPAL DE ÓRDENES EN ZONA SUR */}
+          <div className="mb-2 p-2 rounded-lg bg-red-50 border border-red-200">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[11px] font-black text-red-900 flex items-center gap-1">
+                <Flame size={13} className="text-red-600" />
+                DETALLE DE ÓRDENES EN ZONA SUR ({data.alertasSur.length})
+              </span>
+              <span className="text-[10px] text-red-700 font-semibold">
+                Prioridad de Despacho Inmediato
+              </span>
             </div>
-          )}
+            <div className="overflow-x-auto max-h-36 overflow-y-auto custom-scrollbar">
+              <table className="w-full text-[10px] border-collapse">
+                <thead>
+                  <tr className="bg-red-200/70 text-red-950 text-left font-bold uppercase">
+                    <th className="py-1 px-1.5">Tarjeta</th>
+                    <th className="py-1 px-1.5">Zona</th>
+                    <th className="py-1 px-1.5">Distrito</th>
+                    <th className="py-1 px-1.5">Ticket</th>
+                    <th className="py-1 px-1.5">Dirección</th>
+                    <th className="py-1 px-1.5">Franja</th>
+                    <th className="py-1 px-1.5">Motivo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.alertasSur.map((al, idx) => (
+                    <tr key={idx} className="border-b border-red-100 hover:bg-red-100/50">
+                      <td className="py-1 px-1.5 font-bold text-red-800">
+                        {al.tarjeta === 'AVERIAS PREFERENTE' ? 'AVERIAS' : al.tarjeta === 'MOTOWIN ZONAS' ? 'MOTOWIN' : 'ALTO VALOR'}
+                      </td>
+                      <td className="py-1 px-1.5 font-black text-red-700">{al.zona}</td>
+                      <td className="py-1 px-1.5 font-semibold text-slate-800">{al.distrito}</td>
+                      <td className="py-1 px-1.5 font-mono text-blue-700 font-bold">{al.ticket}</td>
+                      <td className="py-1 px-1.5 max-w-[220px] truncate text-slate-700" title={al.direccion}>{al.direccion}</td>
+                      <td className="py-1 px-1.5 font-semibold text-purple-700">{al.franja_horaria}</td>
+                      <td className="py-1 px-1.5 text-slate-600">{al.motivo}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
-          {/* GRID DE LAS 3 TARJETAS (ESTILO IDÉNTICO AL LOOKER STUDIO) */}
+          {/* GRID DE LAS 3 TARJETAS (SOLO ZONAS SUR) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
             
-            {/* 1. AVERIAS (SOLO ZONA SUR) */}
+            {/* 1. AVERIAS (SUR) */}
             <div className="rounded-lg border border-[#FF8F00]/40 overflow-hidden shadow-2xs">
               <div className="bg-[#FF8F00] text-white px-2 py-1 flex items-center justify-between">
-                <span className="font-extrabold text-[11px] tracking-wide">AVERIAS (SUR)</span>
+                <span className="font-extrabold text-[11px] tracking-wide">AVERIAS PREFERENTE (SUR)</span>
                 <span className="bg-white text-[#d86900] px-1.5 py-0.2 rounded font-mono font-black text-[11px]">
-                  TOTAL SUR: {surAverias}
+                  TOTAL: {surAverias}
                 </span>
               </div>
               <div className="max-h-40 overflow-y-auto custom-scrollbar">
@@ -316,9 +323,9 @@ export const LookerCardsAlertBanner: React.FC = () => {
                   </thead>
                   <tbody>
                     {Object.values(data.cards["AVERIAS PREFERENTE"]?.zonas || {})
-                      .filter((z) => z.esSur)
+                      .filter((z) => z.esSur || z.zona.toUpperCase().includes("SUR"))
                       .map((z, i) => (
-                        <tr key={i} className="border-b border-orange-100 bg-red-50/70 font-bold text-red-950">
+                        <tr key={i} className="border-b bg-red-50/70 font-bold text-red-950 border-orange-100">
                           <td className="py-1 px-1.5 flex items-center gap-1">
                             <Flame size={11} className="text-red-600 shrink-0" />
                             <span>{z.zona}</span>
@@ -329,20 +336,20 @@ export const LookerCardsAlertBanner: React.FC = () => {
                           <td className="py-1 px-1.5 text-right font-mono font-black text-red-900">{z.total}</td>
                         </tr>
                       ))}
-                    {Object.values(data.cards["AVERIAS PREFERENTE"]?.zonas || {}).filter((z) => z.esSur).length === 0 && (
-                      <tr><td colSpan={5} className="p-2 text-center text-slate-400 italic">Sin zonas Sur pendientes</td></tr>
+                    {Object.values(data.cards["AVERIAS PREFERENTE"]?.zonas || {}).filter((z) => z.esSur || z.zona.toUpperCase().includes("SUR")).length === 0 && (
+                      <tr><td colSpan={5} className="p-2 text-center text-slate-400 italic">Sin órdenes Sur pendientes</td></tr>
                     )}
                   </tbody>
                 </table>
               </div>
             </div>
 
-            {/* 2. AVERIAS ALTO VALOR (SOLO ZONA SUR) */}
+            {/* 2. ALTO VALOR (SUR) */}
             <div className="rounded-lg border border-cyan-300 overflow-hidden shadow-2xs">
               <div className="bg-cyan-600 text-white px-2 py-1 flex items-center justify-between">
                 <span className="font-extrabold text-[11px] tracking-wide">ALTO VALOR (SUR)</span>
                 <span className="bg-white text-cyan-800 px-1.5 py-0.2 rounded font-mono font-black text-[11px]">
-                  TOTAL SUR: {surAltoValor}
+                  TOTAL: {surAltoValor}
                 </span>
               </div>
               <div className="max-h-40 overflow-y-auto custom-scrollbar">
@@ -358,9 +365,9 @@ export const LookerCardsAlertBanner: React.FC = () => {
                   </thead>
                   <tbody>
                     {Object.values(data.cards["AVERIAS ALTO VALOR"]?.zonas || {})
-                      .filter((z) => z.esSur)
+                      .filter((z) => z.esSur || z.zona.toUpperCase().includes("SUR"))
                       .map((z, i) => (
-                        <tr key={i} className="border-b border-cyan-100 bg-red-50/70 font-bold text-red-950">
+                        <tr key={i} className="border-b bg-red-50/70 font-bold text-red-950 border-cyan-100">
                           <td className="py-1 px-1.5 flex items-center gap-1">
                             <Flame size={11} className="text-red-600 shrink-0" />
                             <span>{z.zona}</span>
@@ -371,20 +378,20 @@ export const LookerCardsAlertBanner: React.FC = () => {
                           <td className="py-1 px-1.5 text-right font-mono font-black text-red-900">{z.total}</td>
                         </tr>
                       ))}
-                    {Object.values(data.cards["AVERIAS ALTO VALOR"]?.zonas || {}).filter((z) => z.esSur).length === 0 && (
-                      <tr><td colSpan={5} className="p-2 text-center text-slate-400 italic">Sin zonas Sur pendientes</td></tr>
+                    {Object.values(data.cards["AVERIAS ALTO VALOR"]?.zonas || {}).filter((z) => z.esSur || z.zona.toUpperCase().includes("SUR")).length === 0 && (
+                      <tr><td colSpan={5} className="p-2 text-center text-slate-400 italic">Sin órdenes Sur pendientes</td></tr>
                     )}
                   </tbody>
                 </table>
               </div>
             </div>
 
-            {/* 3. MOTOWIN (SOLO ZONA SUR) */}
+            {/* 3. MOTOWIN (SUR) */}
             <div className="rounded-lg border border-emerald-400 overflow-hidden shadow-2xs">
               <div className="bg-emerald-600 text-white px-2 py-1 flex items-center justify-between">
-                <span className="font-extrabold text-[11px] tracking-wide">MOTOWIN (SUR)</span>
+                <span className="font-extrabold text-[11px] tracking-wide">MOTOWIN ZONAS (SUR)</span>
                 <span className="bg-white text-emerald-800 px-1.5 py-0.2 rounded font-mono font-black text-[11px]">
-                  TOTAL SUR: {surMotowin}
+                  TOTAL: {surMotowin}
                 </span>
               </div>
               <div className="max-h-40 overflow-y-auto custom-scrollbar">
@@ -400,9 +407,9 @@ export const LookerCardsAlertBanner: React.FC = () => {
                   </thead>
                   <tbody>
                     {Object.values(data.cards["MOTOWIN ZONAS"]?.zonas || {})
-                      .filter((z) => z.esSur)
+                      .filter((z) => z.esSur || z.zona.toUpperCase().includes("SUR"))
                       .map((z, i) => (
-                        <tr key={i} className="border-b border-emerald-100 bg-red-50/70 font-bold text-red-950">
+                        <tr key={i} className="border-b bg-red-50/70 font-bold text-red-950 border-emerald-100">
                           <td className="py-1 px-1.5 flex items-center gap-1">
                             <Flame size={11} className="text-red-600 shrink-0" />
                             <span>{z.zona}</span>
@@ -413,8 +420,8 @@ export const LookerCardsAlertBanner: React.FC = () => {
                           <td className="py-1 px-1.5 text-right font-mono font-black text-red-900">{z.total}</td>
                         </tr>
                       ))}
-                    {Object.values(data.cards["MOTOWIN ZONAS"]?.zonas || {}).filter((z) => z.esSur).length === 0 && (
-                      <tr><td colSpan={5} className="p-2 text-center text-slate-400 italic">Sin zonas Sur pendientes</td></tr>
+                    {Object.values(data.cards["MOTOWIN ZONAS"]?.zonas || {}).filter((z) => z.esSur || z.zona.toUpperCase().includes("SUR")).length === 0 && (
+                      <tr><td colSpan={5} className="p-2 text-center text-slate-400 italic">Sin órdenes Sur pendientes</td></tr>
                     )}
                   </tbody>
                 </table>

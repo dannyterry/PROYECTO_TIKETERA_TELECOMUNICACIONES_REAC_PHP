@@ -46,6 +46,7 @@ interface ItemVerificacion {
   devuelve: boolean;
   cantidad_devuelta: number;
   observaciones: string;
+  es_segundo_uso?: boolean;
 }
 
 export const TechnicianLiquidationTab: React.FC<Props> = ({
@@ -113,6 +114,7 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
       devuelve: true,
       cantidad_devuelta: p.stock, // Por defecto se asume que entrega todo lo asignado
       observaciones: "",
+      es_segundo_uso: true,
     }));
     setItemsVerificacion(items);
 
@@ -621,6 +623,7 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
           ? Math.max(0, it.cantidad_esperada - (Number(it.cantidad_devuelta) || 0))
           : it.cantidad_esperada,
         observaciones: it.observaciones,
+        es_segundo_uso: it.es_segundo_uso !== false,
       }));
 
       const seriesDevueltasTodas = Object.entries(seriesVerificadas)

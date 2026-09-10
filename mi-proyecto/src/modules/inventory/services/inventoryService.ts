@@ -1,5 +1,6 @@
 import axios from "axios";
 import { API_URL } from "../../../config/api";
+import { authService } from "../../../services/authService";
 import {
   ProductoStock,
   StockTecnicoDetalle,
@@ -81,8 +82,26 @@ export const crearProducto = async (payload: {
   maneja_serie?: boolean | number;
   es_drop?: boolean | number;
   precio_compra?: number;
+  stand?: string;
+  fila?: number;
+  proid?: string;
 }): Promise<{ success: boolean; message: string; producto: ProductoStock }> => {
   const res = await api.post("/almacen/productos", payload);
+  return res.data;
+};
+
+export const actualizarProducto = async (
+  id: number,
+  payload: {
+    nombre: string;
+    id_categoria?: number;
+    codigo?: string;
+    descripcion?: string;
+    stock_minimo?: number;
+    estado?: string;
+  }
+): Promise<{ success: boolean; message: string; id_producto: number; nombre: string }> => {
+  const res = await api.put(`/almacen/productos/${id}`, payload);
   return res.data;
 };
 
@@ -98,6 +117,13 @@ export const registrarCompra = async (payload: CompraPayload) => {
 
 export const despacharATecnico = async (payload: DespachoPayload) => {
   const res = await api.post("/almacen/despacho-tecnico", payload);
+  return res.data;
+};
+
+export const verificarSerieDespacho = async (serie: string, idProducto?: number) => {
+  const res = await api.get(`/almacen/verificar-serie-despacho/${encodeURIComponent(serie)}`, {
+    params: idProducto ? { id_producto: idProducto } : undefined,
+  });
   return res.data;
 };
 
@@ -126,11 +152,67 @@ export const getEquiposRecogidos = async (): Promise<EquipoRetirado[]> => {
   return res.data;
 };
 
+export const actualizarEquipoRecogido = async (id: number, payload: {
+  guia_remision_win?: string;
+  proid?: string;
+  codigo_producto?: string;
+  observaciones?: string;
+}) => {
+  const res = await api.put(`/almacen/equipos-recogidos/${id}`, payload);
+  return res.data;
+};
+
+export const actualizarUbicacionProducto = async (id: number, payload: {
+  stand?: string | null;
+  fila?: number | null;
+  proid?: string | null;
+}) => {
+  const user = authService.getCurrentUser();
+  const res = await api.put(`/almacen/productos/${id}/ubicacion`, {
+    ...payload,
+    id_usuario: user?.id_usuario,
+    usuario_nombre: user?.nombreCompleto || user?.usuario || user?.nombres,
+  });
+  return res.data;
+};
+
+export const actualizarPrecioProducto = async (id: number, precio_compra: number) => {
+  const user = authService.getCurrentUser();
+  const res = await api.put(`/almacen/productos/${id}/precio`, {
+    precio_compra,
+    id_usuario: user?.id_usuario,
+    usuario_nombre: user?.nombreCompleto || user?.usuario || user?.nombres,
+  });
+  return res.data;
+};
+
+export const actualizarIdEquipoSerie = async (idProductoSerie: number, id_equipo: string) => {
+  const res = await api.put(`/almacen/producto-series/${idProductoSerie}/id-equipo`, { id_equipo });
+  return res.data;
+};
+
+export const actualizarProidSerie = async (idProductoSerie: number, proid: string) => {
+  const res = await api.put(`/almacen/producto-series/${idProductoSerie}/proid`, { proid });
+  return res.data;
+};
+
+export const actualizarStockSegundoUso = async (id: number, payload: {
+  cantidad_segundo_uso: number;
+  motivo?: string;
+  tecnico_nombre?: string;
+}) => {
+  const res = await api.put(`/almacen/productos/${id}/stock-segundo-uso`, payload);
+  return res.data;
+};
+
 export const internarEquipoRecogido = async (payload: {
   id_equipo_retirado: number;
   estado_destino: string;
   recibido_por?: string;
   observaciones?: string;
+  guia_remision_win?: string;
+  proid?: string;
+  codigo_producto?: string;
 }) => {
   const res = await api.post("/almacen/internar-equipo", payload);
   return res.data;
