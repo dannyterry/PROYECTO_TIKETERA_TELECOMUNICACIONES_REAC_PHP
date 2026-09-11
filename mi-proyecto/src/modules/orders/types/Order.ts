@@ -27,6 +27,9 @@ export interface Order {
   tramo?: string;
   status: OrderStatus;
   cuadrilla?: string;
+  asignacionManual?: boolean;
+  cuadrillaOrigenFenix?: string;
+  fechaAsignacionManual?: string;
   observacionesAtencion?: string;
   motivoFinalizacion?: string;
   motivoCancelacion?: string;

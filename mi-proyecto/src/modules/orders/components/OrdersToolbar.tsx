@@ -15,6 +15,7 @@ interface OrdersToolbarProps {
     azules: number;
     amarillos: number;
     agendadas: number;
+    ordenamientos: number;
   };
   alertsCount?: number;
   onOpenAlerts?: () => void;
@@ -26,7 +27,7 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
   onSync,
   totalCount,
   cuadrillas = [],
-  stats = { verdes: 0, azules: 0, amarillos: 0, agendadas: 0 },
+  stats = { verdes: 0, azules: 0, amarillos: 0, agendadas: 0, ordenamientos: 0 },
   alertsCount = 0,
   onOpenAlerts,
 }) => {
@@ -203,6 +204,20 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
               <span>Regestión / Canceladas:</span>
               <span className="font-mono">{stats.amarillos}</span>
             </span>
+
+            <span
+              onClick={() => onFilterChange({ ...filters, status: filters.status === "Ordenamientos" ? "Todos" : "Ordenamientos" })}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${
+                filters.status === "Ordenamientos"
+                  ? "bg-violet-600 text-white border-violet-700 ring-2 ring-violet-300"
+                  : "bg-violet-50 text-violet-900 border-violet-200 hover:bg-violet-100"
+              }`}
+              title="Mostrar únicamente órdenes de ordenamiento"
+            >
+              <span className="w-2 h-2 rounded-full bg-violet-500"></span>
+              <span>Ordenamientos:</span>
+              <span className="font-mono">{stats.ordenamientos}</span>
+            </span>
           </div>
         </div>
 
@@ -298,6 +313,7 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
             <option value="Finalizadas">🔵 Celeste (Finalizada)</option>
             <option value="Amarillos">🟡 Amarillo (Regestión / Cancelada)</option>
             <option value="Agendadas">⚪ Gris (Agendada / Asignada / En camino)</option>
+            <option value="Ordenamientos">🟣 Ordenamientos</option>
           </select>
         </div>
 

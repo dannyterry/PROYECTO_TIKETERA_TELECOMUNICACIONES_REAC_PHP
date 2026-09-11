@@ -120,5 +120,5 @@ console.log('\n====================================================');
 console.log('🎉 ¡TODOS LOS PAQUETES LISTOS PARA SUBIR!');
 console.log('1. frontend_react_puro_public_html.zip (Para poner directamente en public_html)');
 console.log('2. telecom_api_listo_hosting.zip (Para api.corporacioncespedes.com)');
-console.log('3. migracion_hosting_2026_09_09.sql (Para phpMyAdmin o ejecución directa)');
+console.log('3. migracion_hosting_2026_09_10.sql (Para phpMyAdmin o ejecución directa)');
 console.log('====================================================');

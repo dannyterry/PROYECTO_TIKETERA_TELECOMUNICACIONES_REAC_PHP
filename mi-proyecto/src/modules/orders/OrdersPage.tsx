@@ -14,6 +14,7 @@ import {
   updateOrderObservacionLlamada,
   updateOrderObservacionesAtencion,
   updateOrderTecnico,
+  restaurarCuadrillaFenix,
   updateOrderTipoTrabajo,
   syncOrdersFromWin,
   registrarLogAuditoria,
@@ -62,6 +63,9 @@ const normStatus = (str?: string): string => {
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
 };
+
+const esOrdenamiento = (cuadrilla?: string): boolean =>
+  String(cuadrilla || "").trim().toUpperCase().startsWith("O");
 
 export const OrdersPage: React.FC = () => {
   const todayStr = useMemo(() => getTodayLocal(), []);
@@ -315,9 +319,14 @@ export const OrdersPage: React.FC = () => {
         if (filters.inconcert === "No" && order.inconcert) return false;
       }
 
+      // Los ordenamientos permanecen ocultos salvo que se active su filtro específico.
+      if (esOrdenamiento(order.cuadrilla)) {
+        return filters.status === "Ordenamientos";
+      }
+
       return true;
     });
-  }, [orders, filters.fechaDesde, filters.fechaHasta, filters.search, filters.tecnico, filters.cuadrilla, filters.inconcert, todayStr]);
+  }, [orders, filters.fechaDesde, filters.fechaHasta, filters.search, filters.tecnico, filters.cuadrilla, filters.inconcert, filters.status, todayStr]);
 
   // 2. Estadísticas reactivas calculadas dinámicamente sobre los resultados filtrados
   const stats = useMemo(() => {
@@ -325,8 +334,13 @@ export const OrdersPage: React.FC = () => {
     let amarillos = 0;
     let azules = 0;
     let agendadas = 0;
+    let ordenamientos = 0;
 
     baseFilteredOrders.forEach((o) => {
+      if (esOrdenamiento(o.cuadrilla)) {
+        ordenamientos++;
+        return;
+      }
       const s = normStatus(o.status);
       if (s.includes("INICIAD") || s.includes("PROCESO")) {
         verdes++;
@@ -352,12 +366,17 @@ export const OrdersPage: React.FC = () => {
       }
     });
 
-    return { verdes, azules, amarillos, agendadas };
-  }, [baseFilteredOrders]);
+    const ordenamientosTotal = orders.filter((o) => esOrdenamiento(o.cuadrilla)).length;
+    return { verdes, azules, amarillos, agendadas, ordenamientos: ordenamientosTotal || ordenamientos };
+  }, [baseFilteredOrders, orders]);
 
   // 3. Filtrado final por Estado / Color (cuando se hace clic en una píldora de color)
   const filteredOrders = useMemo(() => {
     if (!filters.status || filters.status === "Todos") {
+      return baseFilteredOrders;
+    }
+
+    if (filters.status === "Ordenamientos") {
       return baseFilteredOrders;
     }
 
@@ -480,6 +499,8 @@ export const OrdersPage: React.FC = () => {
 
     const newIdTecnico = targetTech?.idTecnico;
 
+    const finalCuadrilla = targetTech?.cuadrilla || targetOrder?.cuadrilla;
+
     setOrders((prev) =>
       prev.map((o) =>
         o.id === orderId
@@ -487,14 +508,15 @@ export const OrdersPage: React.FC = () => {
             ...o,
             tecnico: technicianName,
             idTecnico: newIdTecnico,
-            cuadrilla: targetTech?.cuadrilla || o.cuadrilla,
+            cuadrilla: finalCuadrilla,
+            asignacionManual: true,
           }
           : o
       )
     );
 
     try {
-      await updateOrderTecnico(orderId, technicianName, newIdTecnico, targetOrder?.numeroOrden);
+      await updateOrderTecnico(orderId, technicianName, newIdTecnico, targetOrder?.numeroOrden, finalCuadrilla);
       registrarLogAuditoria({
         id_usuario: currentUserId ? Number(currentUserId) : null,
         usuario_nombre: currentUserName || "Gestor de Órdenes",
@@ -502,10 +524,44 @@ export const OrdersPage: React.FC = () => {
         modulo: "ORDENES",
         accion: "ASIGNACION_TECNICO",
         id_referencia: targetOrder?.ticket || orderId,
-        descripcion: `Asignó técnico/cuadrilla: ${technicianName} en Ticket ${targetOrder?.ticket || orderId}`,
+        descripcion: `Asignó técnico/cuadrilla manual blindado: ${technicianName} en Ticket ${targetOrder?.ticket || orderId}`,
       });
     } catch (err) {
       console.error("Error al asignar técnico en BD:", err);
+    }
+  };
+
+  // Restaurar cuadrilla y técnico original de Fénix (desbloqueo manual)
+  const handleRestoreCuadrillaFenix = async (orderId: number) => {
+    const targetOrder = orders.find((o) => o.id === orderId);
+    try {
+      const res = await restaurarCuadrillaFenix(orderId, targetOrder?.numeroOrden);
+      if (res && res.success) {
+        setOrders((prev) =>
+          prev.map((o) =>
+            o.id === orderId
+              ? {
+                ...o,
+                tecnico: res.tecnico_asignado || o.tecnico,
+                idTecnico: res.id_tecnico || o.idTecnico,
+                cuadrilla: res.cuadrilla || o.cuadrilla,
+                asignacionManual: false,
+              }
+              : o
+          )
+        );
+        registrarLogAuditoria({
+          id_usuario: currentUserId ? Number(currentUserId) : null,
+          usuario_nombre: currentUserName || "Gestor de Órdenes",
+          rol_nombre: currentRolNombre,
+          modulo: "ORDENES",
+          accion: "RESTAURAR_CUADRILLA_FENIX",
+          id_referencia: targetOrder?.ticket || orderId,
+          descripcion: `Restauró orden a cuadrilla original Fénix: ${res.cuadrilla || ""} en Ticket ${targetOrder?.ticket || orderId}`,
+        });
+      }
+    } catch (err) {
+      console.error("Error al restaurar cuadrilla Fénix en BD:", err);
     }
   };
 
@@ -547,6 +603,21 @@ export const OrdersPage: React.FC = () => {
       setIsSyncingFenix(false);
     }
   }, [loadData, filters.fechaDesde, filters.fechaHasta, todayStr]);
+
+  // 🚀 Auto-sincronización inicial automática si hoy no tiene órdenes en BD al cargar la página
+  const hasAutoSyncedInitialRef = useRef<boolean>(false);
+  useEffect(() => {
+    if (
+      !loading &&
+      orders.length === 0 &&
+      (!filters.fechaDesde || filters.fechaDesde === todayStr) &&
+      !filters.search &&
+      !hasAutoSyncedInitialRef.current
+    ) {
+      hasAutoSyncedInitialRef.current = true;
+      handleSync();
+    }
+  }, [loading, orders.length, filters.fechaDesde, filters.search, todayStr, handleSync]);
 
   // Estado para el modal de tareas en tiempo real de Fénix
   const [selectedOrderForTasks, setSelectedOrderForTasks] = useState<Order | null>(null);
@@ -675,6 +746,7 @@ export const OrdersPage: React.FC = () => {
             onUpdateObservacionLlamada={handleUpdateObservacionLlamada}
             onUpdateObservacionesAtencion={handleUpdateObservacionesAtencion}
             onAssignTechnician={handleAssignTechnician}
+            onRestoreCuadrillaFenix={handleRestoreCuadrillaFenix}
             onUpdateTipoTrabajo={handleUpdateTipoTrabajo}
             onViewTasks={(order) => setSelectedOrderForTasks(order)}
             onViewClientHistory={(clientName) => setSelectedClientForHistory(clientName)}

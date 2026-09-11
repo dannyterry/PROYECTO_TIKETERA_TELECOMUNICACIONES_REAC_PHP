@@ -128,6 +128,7 @@ export const InventoryPage: React.FC = () => {
 
   const handleTabChange = (t: InventoryTabType) => {
     setTabActiva(t);
+    window.location.hash = t;
   };
 
   return (
@@ -214,6 +215,7 @@ export const InventoryPage: React.FC = () => {
           seriesTecnicos={seriesTecnicos}
           loading={loading}
           onRefresh={cargarDatos}
+          onNavigateToTab={handleTabChange}
         />
       )}
 

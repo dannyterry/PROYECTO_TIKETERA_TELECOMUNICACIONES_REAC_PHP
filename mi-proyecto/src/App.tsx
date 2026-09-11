@@ -211,6 +211,8 @@ export default function App() {
     currentView === "movilidad" ||
     currentView === "vehiculos" ||
     currentView === "combustibles" ||
+    currentView === "combustible" ||
+    currentView === "flota" ||
     currentView === "inspecciones" ||
     currentView === "checklist-tecnico";
 
@@ -221,8 +223,12 @@ export default function App() {
     currentView === "compras" ||
     currentView === "despacho" ||
     currentView === "recogidos" ||
+    currentView === "devolucion" ||
+    currentView === "devoluciones" ||
     currentView === "liquidacion" ||
     currentView === "liquidaciones" ||
+    currentView === "liquidaciones_ordenes" ||
+    currentView === "liquidaciones-ordenes" ||
     currentView === "productos" ||
     currentView === "categorias" ||
     currentView === "proveedores";
@@ -325,13 +331,13 @@ export default function App() {
       {/* Backdrop oscuro al desplegar el menú lateral */}
       {!sidebarColapsado && (
         <div
-          className="fixed inset-0 bg-slate-900/40 z-40 backdrop-blur-[1px] transition-opacity animate-in fade-in duration-150"
+          className="fixed inset-0 bg-slate-900/40 z-50 backdrop-blur-[1px] transition-opacity animate-in fade-in duration-150"
           onClick={() => setSidebarColapsado(true)}
         />
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-72 bg-slate-50 text-slate-700 flex flex-col justify-between transition-transform duration-200 ease-in-out border-r border-slate-200 shadow-2xl select-none ${
+        className={`fixed inset-y-0 left-0 z-[55] w-72 bg-slate-50 text-slate-700 flex flex-col justify-between transition-transform duration-200 ease-in-out border-r border-slate-200 shadow-2xl select-none ${
           sidebarColapsado ? "-translate-x-full pointer-events-none" : "translate-x-0"
         }`}
       >
@@ -406,6 +412,15 @@ export default function App() {
                 {rolNombre}
               </span>
             </div>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0 cursor-pointer"
+              title="Cerrar Sesión"
+            >
+              <LogOut size={16} />
+            </button>
           </div>
         </div>
       </aside>
@@ -467,16 +482,25 @@ export default function App() {
 
               {/* Menú Desplegable de Usuario (Solo Cerrar Sesión) */}
               {menuUsuarioAbierto && (
-                <div className="absolute right-0 mt-2 w-44 bg-white rounded-2xl shadow-2xl border border-slate-200/90 p-1.5 z-[999] animate-in fade-in zoom-in-95 duration-100">
-                  <button
-                    type="button"
-                    onClick={handleLogout}
-                    className="w-full px-3 py-2 text-left text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl flex items-center gap-2.5 cursor-pointer transition-colors"
-                  >
-                    <LogOut size={15} />
-                    <span>Cerrar Sesión</span>
-                  </button>
-                </div>
+                <>
+                  <div
+                    className="fixed inset-0 z-[998]"
+                    onClick={() => setMenuUsuarioAbierto(false)}
+                  />
+                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-2xl border border-slate-200/90 p-1.5 z-[999] animate-in fade-in zoom-in-95 duration-100">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuUsuarioAbierto(false);
+                        handleLogout();
+                      }}
+                      className="w-full px-3 py-2.5 text-left text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl flex items-center gap-2.5 cursor-pointer transition-colors"
+                    >
+                      <LogOut size={15} />
+                      <span>Cerrar Sesión</span>
+                    </button>
+                  </div>
+                </>
               )}
             </div>
           }

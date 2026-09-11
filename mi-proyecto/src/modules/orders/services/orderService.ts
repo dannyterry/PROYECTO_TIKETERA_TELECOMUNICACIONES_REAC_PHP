@@ -381,6 +381,9 @@ export const getOrders = async (filters?: {
             : calculateTramo(raw.fecha_solicitud || raw.fechasolicitud || raw.fecha_visita || raw.fechavisita || raw.fecha),
           status: normalizeOrderStatus(raw.estado || raw.status || raw.estado_orden),
           cuadrilla: String(raw.cuadrilla || raw.nombre_cuadrilla || ""),
+          asignacionManual: Boolean(raw.asignacion_manual === 1 || raw.asignacion_manual === true || raw.asignacion_manual === "1"),
+          cuadrillaOrigenFenix: raw.cuadrilla_origen_fenix ? String(raw.cuadrilla_origen_fenix) : undefined,
+          fechaAsignacionManual: raw.fecha_asignacion_manual ? String(raw.fecha_asignacion_manual) : undefined,
           tipoAveria: String(raw.motivo_trabajo || raw.tipo_averia || raw.motivo || raw.averia || ""),
           tipoTrabajoAsignado: rawTipoTrabajoAsignado || autoPairedTipoTrabajo || "",
           tipoTrabajo: finalTipoTrabajo,
@@ -448,13 +451,14 @@ export const getTecnicos = async (): Promise<TecnicoOption[]> => {
 };
 
 /**
- * 🚀 3. Asignar técnico a una orden en BD
+ * 🚀 3. Asignar técnico a una orden en BD (con blindaje contra sobreescritura de Fénix)
  */
 export const updateOrderTecnico = async (
   orderId: number | string,
   tecnicoNombre: string,
   idTecnico?: number | string,
-  numero?: string
+  numero?: string,
+  cuadrilla?: string
 ) => {
   const response = await fetch(`${API_URL}/ordenes/${orderId}/tecnico`, {
     method: "PUT",
@@ -462,10 +466,26 @@ export const updateOrderTecnico = async (
     body: JSON.stringify({
       id_tecnico: idTecnico || null,
       tecnico: tecnicoNombre,
+      cuadrilla: cuadrilla || null,
       numero: numero || String(orderId)
     }),
   });
   if (!response.ok) throw new Error("Error al asignar técnico en la base de datos");
+  return await response.json();
+};
+
+/**
+ * 🔄 3.1 Restaurar orden a técnico y cuadrilla original de Fénix
+ */
+export const restaurarCuadrillaFenix = async (orderId: number | string, numero?: string) => {
+  const response = await fetch(`${API_URL}/ordenes/${orderId}/restaurar-cuadrilla-fenix`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      numero: numero || String(orderId)
+    }),
+  });
+  if (!response.ok) throw new Error("Error al restaurar cuadrilla original de Fénix");
   return await response.json();
 };
 

@@ -2450,7 +2450,7 @@ app.get('/ordenes/:numero/historial-estados', async (req, res) => {
 app.put('/ordenes/:id/tecnico', async (req, res) => {
   try {
     const { id } = req.params;
-    const { id_tecnico, id_tecnico_reemplazo, tecnico, numero } = req.body || {};
+    const { id_tecnico, id_tecnico_reemplazo, tecnico, cuadrilla, numero } = req.body || {};
     const searchParam = numero || id;
 
     let finalIdTecnico = id_tecnico || null;
@@ -2475,7 +2475,7 @@ app.put('/ordenes/:id/tecnico', async (req, res) => {
       // Cargar lista de usuarios para resolver IDs con máxima precisión
       let allUsers = [];
       try {
-        const [uRows] = await pool.query("SELECT id_usuario, nombres, apellidos, primer_apellido, segundo_apellido FROM usuarios");
+        const [uRows] = await pool.query("SELECT id_usuario, nombres, apellidos, primer_apellido, segundo_apellido, cuadrilla FROM usuarios");
         allUsers = uRows || [];
       } catch (e) {}
 
@@ -2505,23 +2505,134 @@ app.put('/ordenes/:id/tecnico', async (req, res) => {
       }
     }
 
-    // Actualizar en tabla ordenes: id_tecnico (T1), id_tecnico_reemplazo (T2) y tecnico_asignado (solo Titular T1)
+    // Resolver cuadrilla si no vino explícita pero tenemos al técnico
+    let finalCuadrilla = cuadrilla || null;
+    if (!finalCuadrilla && finalIdTecnico) {
+      try {
+        const [uCuad] = await pool.query("SELECT cuadrilla FROM usuarios WHERE id_usuario = ? LIMIT 1", [finalIdTecnico]);
+        if (uCuad.length > 0 && uCuad[0].cuadrilla) {
+          finalCuadrilla = uCuad[0].cuadrilla;
+        }
+      } catch (eCuad) {}
+    }
+
+    // Actualizar en tabla ordenes: id_tecnico (T1), id_tecnico_reemplazo (T2), tecnico_asignado y blindaje manual
+    // Preservar la cuadrilla_origen_fenix si aún no estaba respaldada
     await pool.query(
       `UPDATE ordenes 
-       SET id_tecnico = ?, id_tecnico_reemplazo = ?, tecnico_asignado = ?
+       SET 
+         cuadrilla_origen_fenix = COALESCE(cuadrilla_origen_fenix, cuadrilla),
+         id_tecnico = ?, 
+         id_tecnico_reemplazo = ?, 
+         tecnico_asignado = ?,
+         cuadrilla = COALESCE(?, cuadrilla),
+         asignacion_manual = 1,
+         fecha_asignacion_manual = NOW()
        WHERE id_orden = ? OR numero = ?`,
-      [finalIdTecnico || null, finalIdTecnico2 || null, nombreTitularGuardar || null, id, searchParam]
+      [finalIdTecnico || null, finalIdTecnico2 || null, nombreTitularGuardar || null, finalCuadrilla || null, id, searchParam]
     );
 
     res.json({
       success: true,
-      message: "Técnico(s) asignado(s) correctamente",
+      message: "Técnico(s) asignado(s) y blindado(s) contra sobreescritura de Fénix",
       id_tecnico: finalIdTecnico,
       id_tecnico_reemplazo: finalIdTecnico2,
-      tecnico_asignado: nombreTitularGuardar
+      tecnico_asignado: nombreTitularGuardar,
+      cuadrilla: finalCuadrilla,
+      asignacion_manual: 1
     });
   } catch (error) {
     console.error("Error al asignar técnico en BD:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- 2.1 RESTAURAR TÉCNICO Y CUADRILLA ORIGINAL DE FÉNIX (QUITAR BLINDAJE MANUAL) ---
+app.post('/ordenes/:id/restaurar-cuadrilla-fenix', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { numero } = req.body || {};
+    const searchParam = numero || id;
+
+    // Obtener orden y su cuadrilla_origen_fenix
+    const [rows] = await pool.query(
+      "SELECT id_orden, numero, cuadrilla_origen_fenix, cuadrilla FROM ordenes WHERE id_orden = ? OR numero = ? LIMIT 1",
+      [id, searchParam]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Orden no encontrada" });
+    }
+
+    const orden = rows[0];
+    const targetCuadrilla = orden.cuadrilla_origen_fenix || orden.cuadrilla;
+
+    // Obtener técnicos de la BD para resolver quién correspondía a esa cuadrilla
+    let autoIdTecnico = null;
+    let autoNombreTecnico = null;
+
+    if (targetCuadrilla) {
+      const [techUsers] = await pool.query("SELECT id_usuario, nombres, apellidos, primer_apellido, segundo_apellido FROM usuarios");
+      let str = String(targetCuadrilla).trim();
+      const sgaMatch = str.match(/\bSGA[\s-_:•|/\\]+(.+)$/i);
+      if (sgaMatch && sgaMatch[1] && sgaMatch[1].trim().length > 2) {
+        str = sgaMatch[1].trim();
+      }
+      const rawName = str
+        .replace(/^(?:[A-Z]\s*\d+\s*(?:MOTOWIN|CESPEDES|TRASLADO|SGA|WIN)?|CESPEDES|SGA|MOTOWIN|WIN|CONTRATISTA|MIGRACION|TRASLADO|INSTALACION)[\s-_:•|/\\]+/gi, '')
+        .replace(/^(?:CESPEDES|SGA|MOTOWIN|WIN|CONTRATISTA|MIGRACION|TRASLADO|INSTALACION)[\s-_:•|/\\]+/gi, '')
+        .replace(/^[-_:•|/\\.\s]+/, '')
+        .replace(/[-_:•|/\\.\s]+$/, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (rawName && rawName.length > 2) {
+        const normRaw = rawName.toUpperCase();
+        const found = (techUsers || []).find((u) => {
+          const full1 = `${u.nombres || ''} ${u.apellidos || ''}`.toUpperCase().trim();
+          const full2 = `${u.nombres || ''} ${u.primer_apellido || ''} ${u.segundo_apellido || ''}`.toUpperCase().trim();
+          if (full1 && (normRaw === full1 || normRaw.includes(full1) || full1.includes(normRaw))) return true;
+          if (full2 && (normRaw === full2 || normRaw.includes(full2) || full2.includes(normRaw))) return true;
+
+          const nameParts = (u.nombres || '').toUpperCase().split(/\s+/).filter(p => p.length > 2);
+          const apeParts = (u.apellidos || u.primer_apellido || '').toUpperCase().split(/\s+/).filter(p => p.length > 2);
+          const hasName = nameParts.some(p => normRaw.includes(p));
+          const hasApe = apeParts.some(p => normRaw.includes(p));
+          return hasName && hasApe;
+        });
+
+        if (found) {
+          autoIdTecnico = found.id_usuario;
+          autoNombreTecnico = `${found.nombres} ${found.apellidos || found.primer_apellido || ''}`.trim();
+        } else {
+          autoNombreTecnico = rawName;
+        }
+      }
+    }
+
+    await pool.query(
+      `UPDATE ordenes 
+       SET 
+         asignacion_manual = 0,
+         fecha_asignacion_manual = NULL,
+         cuadrilla = COALESCE(?, cuadrilla),
+         id_tecnico = ?,
+         id_tecnico_reemplazo = NULL,
+         tecnico_asignado = ?
+       WHERE id_orden = ? OR numero = ?`,
+      [targetCuadrilla || null, autoIdTecnico, autoNombreTecnico, id, searchParam]
+    );
+
+    res.json({
+      success: true,
+      message: "Orden restaurada a la cuadrilla y técnico original de Fénix",
+      cuadrilla: targetCuadrilla,
+      id_tecnico: autoIdTecnico,
+      tecnico_asignado: autoNombreTecnico,
+      asignacion_manual: 0
+    });
+  } catch (error) {
+    console.error("Error al restaurar cuadrilla Fénix en BD:", error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -2663,6 +2774,24 @@ app.put('/ordenes/:id/observaciones-atencion', async (req, res) => {
     if (cols6.length === 0) {
       await pool.query("ALTER TABLE ordenes ADD COLUMN id_tecnico_reemplazo INT(11) DEFAULT NULL AFTER id_tecnico");
       console.log("✅ [DB] Columna 'id_tecnico_reemplazo' creada exitosamente en tabla 'ordenes'.");
+    }
+
+    const [cols7] = await pool.query("SHOW COLUMNS FROM ordenes LIKE 'asignacion_manual'");
+    if (cols7.length === 0) {
+      await pool.query("ALTER TABLE ordenes ADD COLUMN asignacion_manual TINYINT(1) DEFAULT 0");
+      console.log("✅ [DB] Columna 'asignacion_manual' creada exitosamente en tabla 'ordenes'.");
+    }
+
+    const [cols8] = await pool.query("SHOW COLUMNS FROM ordenes LIKE 'fecha_asignacion_manual'");
+    if (cols8.length === 0) {
+      await pool.query("ALTER TABLE ordenes ADD COLUMN fecha_asignacion_manual DATETIME DEFAULT NULL");
+      console.log("✅ [DB] Columna 'fecha_asignacion_manual' creada exitosamente en tabla 'ordenes'.");
+    }
+
+    const [cols9] = await pool.query("SHOW COLUMNS FROM ordenes LIKE 'cuadrilla_origen_fenix'");
+    if (cols9.length === 0) {
+      await pool.query("ALTER TABLE ordenes ADD COLUMN cuadrilla_origen_fenix VARCHAR(255) DEFAULT NULL");
+      console.log("✅ [DB] Columna 'cuadrilla_origen_fenix' creada exitosamente en tabla 'ordenes'.");
     }
   } catch (e) {}
 })();
@@ -2906,7 +3035,15 @@ app.get('/api/movilidad/vehiculos', async (req, res) => {
       LEFT JOIN modelos mo ON v.id_modelo = mo.id_modelo
       LEFT JOIN tipos_vehiculo tv ON v.id_tipo_vehiculo = tv.id_tipo_vehiculo
       LEFT JOIN combustibles c ON v.id_combustible = c.id_combustible
-      LEFT JOIN trabajadores t ON v.id_vehiculo = t.id_vehiculo AND (t.estado = 'Activo' OR t.estado IS NULL)
+      LEFT JOIN trabajadores t ON v.id_vehiculo = t.id_vehiculo
+        AND (t.estado = 'Activo' OR t.estado IS NULL)
+        AND EXISTS (
+          SELECT 1
+          FROM usuarios tu
+          LEFT JOIN roles tr ON tu.id_rol = tr.id_rol
+          WHERE tu.id_usuario = t.id_usuario
+            AND (tu.id_rol = 2 OR UPPER(COALESCE(tr.nombre, '')) LIKE '%TECNIC%')
+        )
       LEFT JOIN usuarios u ON t.id_usuario = u.id_usuario
       ORDER BY v.placa ASC
     `);
@@ -3200,6 +3337,21 @@ app.put('/api/movilidad/reasignar-vehiculo', async (req, res) => {
     const { id_vehiculo, id_trabajador, motivo_cambio } = req.body;
     if (!id_vehiculo) {
       return res.status(400).json({ error: "id_vehiculo es requerido" });
+    }
+
+    if (id_trabajador) {
+      const [rolRows] = await pool.query(`
+        SELECT u.id_rol, r.nombre AS rol_nombre
+        FROM trabajadores t
+        JOIN usuarios u ON t.id_usuario = u.id_usuario
+        LEFT JOIN roles r ON u.id_rol = r.id_rol
+        WHERE t.id_trabajador = ?
+      `, [id_trabajador]);
+      const rol = rolRows[0];
+      const esTecnico = rol && (Number(rol.id_rol) === 2 || String(rol.rol_nombre || '').toUpperCase().includes('TECNIC'));
+      if (!esTecnico) {
+        return res.status(400).json({ error: "Solo se pueden asignar vehículos a usuarios con rol Técnico." });
+      }
     }
 
     // 1. Quitar vehículo de cualquier trabajador anterior
@@ -4047,6 +4199,7 @@ app.get('/api/almacen/stock-general', async (req, res) => {
         p.maneja_serie,
         p.es_drop,
         p.precio_compra,
+        p.categoria_liquidar,
         COALESCE((SELECT MAX(ps.fecha_ingreso) FROM producto_series ps WHERE ps.id_producto = p.id_producto), p.fecha_creacion) AS fecha_ingreso,
         c.nombre AS categoria,
         COALESCE((SELECT SUM(s.cantidad) FROM stock s WHERE s.id_producto = p.id_producto AND (s.id_almacen = 1 OR s.id_almacen IS NULL)), 0) AS stock_central,
@@ -4932,6 +5085,330 @@ app.post('/api/almacen/compras', async (req, res) => {
       id_compra: idCompra
     });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- 📦 3.1 HISTORIAL DE COMPRAS REGISTRADAS CON DETALLES & SERIES ---
+app.get('/api/almacen/compras', async (req, res) => {
+  try {
+    const [compras] = await pool.query(`
+      SELECT 
+        c.id_compra,
+        c.id_proveedor,
+        c.id_almacen,
+        c.fecha,
+        c.total,
+        c.estado,
+        c.tipo_comprobante,
+        c.numero_comprobante,
+        c.observaciones,
+        c.fecha_creacion,
+        pr.razon_social AS proveedor_nombre,
+        pr.ruc AS proveedor_ruc,
+        pr.telefono AS proveedor_telefono
+      FROM compras c
+      LEFT JOIN proveedores pr ON c.id_proveedor = pr.id_proveedor
+      ORDER BY c.id_compra DESC
+    `);
+
+    if (compras.length === 0) {
+      return res.json([]);
+    }
+
+    const idsCompras = compras.map(c => c.id_compra);
+    const [detalles] = await pool.query(`
+      SELECT 
+        dc.id_detalle_compra,
+        dc.id_compra,
+        dc.id_producto,
+        dc.cantidad,
+        dc.precio,
+        dc.subtotal,
+        dc.series_ingresadas,
+        p.codigo AS producto_codigo,
+        p.nombre AS producto_nombre,
+        cat.nombre AS categoria_nombre
+      FROM detalle_compras dc
+      JOIN productos p ON dc.id_producto = p.id_producto
+      LEFT JOIN categorias cat ON p.id_categoria = cat.id_categoria
+      WHERE dc.id_compra IN (?)
+    `, [idsCompras]);
+
+    // Mapear detalles a cada compra
+    const detallesPorCompra = {};
+    for (const d of detalles) {
+      if (!detallesPorCompra[d.id_compra]) {
+        detallesPorCompra[d.id_compra] = [];
+      }
+      detallesPorCompra[d.id_compra].push({
+        ...d,
+        series_array: d.series_ingresadas ? d.series_ingresadas.split(',').map(s => s.trim()).filter(Boolean) : []
+      });
+    }
+
+    const resultado = compras.map(c => ({
+      ...c,
+      items: detallesPorCompra[c.id_compra] || [],
+      total_items: (detallesPorCompra[c.id_compra] || []).reduce((acc, it) => acc + Number(it.cantidad || 0), 0)
+    }));
+
+    res.json(resultado);
+  } catch (error) {
+    console.error("Error al obtener historial de compras:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- 📦 3.2 ANULAR COMPRA CON VALIDACIÓN ESTRICTA Y REVERSIÓN DE KARDEX ---
+app.post('/api/almacen/compras/:id/anular', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const idCompra = Number(req.params.id);
+    const { motivo } = req.body || {};
+
+    if (!idCompra) {
+      connection.release();
+      return res.status(400).json({ error: "ID de compra inválido." });
+    }
+
+    // 1. Obtener la compra
+    const [compraRows] = await connection.query("SELECT * FROM compras WHERE id_compra = ?", [idCompra]);
+    if (compraRows.length === 0) {
+      connection.release();
+      return res.status(404).json({ error: "La compra no existe." });
+    }
+
+    const compra = compraRows[0];
+    if (compra.estado === 'ANULADA') {
+      connection.release();
+      return res.status(400).json({ error: "Esta compra ya se encuentra ANULADA previamente." });
+    }
+
+    // 2. Obtener los detalles de la compra
+    const [detalles] = await connection.query(`
+      SELECT dc.*, p.nombre AS producto_nombre, p.maneja_serie 
+      FROM detalle_compras dc
+      JOIN productos p ON dc.id_producto = p.id_producto
+      WHERE dc.id_compra = ?
+    `, [idCompra]);
+
+    if (detalles.length === 0) {
+      connection.release();
+      return res.status(400).json({ error: "La compra no tiene ítems asociados." });
+    }
+
+    // 3. Extraer todas las series ingresadas en esta compra
+    const todasSeries = [];
+    for (const d of detalles) {
+      if (d.series_ingresadas) {
+        const sns = d.series_ingresadas.split(',').map(s => s.trim()).filter(Boolean);
+        todasSeries.push(...sns);
+      }
+    }
+
+    // 4. VALIDACIÓN DE SEGURIDAD ESTRICTA PARA LAS SERIES
+    // Las series NO deben haber sido despachadas a técnicos ni liquidadas en órdenes
+    if (todasSeries.length > 0) {
+      const [seriesEnUso] = await connection.query(`
+        SELECT 
+          ps.numero_serie,
+          ps.estado,
+          p.nombre AS producto_nombre,
+          ts.id_trabajador,
+          TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre
+        FROM producto_series ps
+        JOIN productos p ON ps.id_producto = p.id_producto
+        LEFT JOIN trabajador_series ts ON ps.id_producto_serie = ts.id_producto_serie AND ts.estado = 'Asignada'
+        LEFT JOIN trabajadores t ON ts.id_trabajador = t.id_trabajador
+        LEFT JOIN usuarios u ON t.id_usuario = u.id_usuario
+        WHERE ps.numero_serie IN (?)
+          AND (ps.estado != 'DISPONIBLE' OR ps.id_almacen != 1 OR ts.id_trabajador_serie IS NOT NULL)
+      `, [todasSeries]);
+
+      if (seriesEnUso.length > 0) {
+        const listaDetalles = seriesEnUso.map(s => {
+          const motivoUso = s.tecnico_nombre ? `asignada a ${s.tecnico_nombre}` : `en estado '${s.estado}'`;
+          return `• Serie "${s.numero_serie}" (${s.producto_nombre}): ${motivoUso}`;
+        }).join('\\n');
+
+        connection.release();
+        return res.status(400).json({
+          error: `🚫 No se puede anular la compra porque ${seriesEnUso.length} equipo(s) ya no están disponibles en Almacén Central:\n\n${listaDetalles}\n\nPara anular esta compra, primero el técnico debe devolver las series o deben desvincularse.`
+        });
+      }
+    }
+
+    // 5. Iniciar Transacción de Anulación
+    await connection.beginTransaction();
+
+    const motivoFinal = motivo ? `Motivo: ${String(motivo).trim()}` : "Anulación de ingreso de compra";
+
+    for (const d of detalles) {
+      const prodId = d.id_producto;
+      const cant = Number(d.cantidad) || 0;
+
+      // Descontar stock en Almacén Central (id_almacen = 1)
+      await connection.query(`
+        UPDATE stock 
+        SET cantidad = GREATEST(0, cantidad - ?)
+        WHERE id_producto = ? AND id_almacen = 1
+      `, [cant, prodId]);
+
+      // Si tenía series, eliminarlas de producto_series
+      if (d.series_ingresadas) {
+        const sns = d.series_ingresadas.split(',').map(s => s.trim()).filter(Boolean);
+        if (sns.length > 0) {
+          await connection.query(`
+            DELETE FROM producto_series 
+            WHERE numero_serie IN (?) AND id_producto = ? AND id_almacen = 1
+          `, [sns, prodId]);
+        }
+      }
+
+      // Registrar movimiento de SALIDA por Anulación en Kardex
+      await connection.query(`
+        INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
+        VALUES (?, 1, 'SALIDA', ?, ?, NOW())
+      `, [prodId, cant, `Anulación Compra #${idCompra} (${compra.tipo_comprobante || 'Comp'} ${compra.numero_comprobante || ''}) - ${motivoFinal}`]);
+    }
+
+    // Actualizar estado de la compra a ANULADA
+    const observacionAnulacion = compra.observaciones 
+      ? `${compra.observaciones} | [ANULADA: ${motivoFinal}]`
+      : `[ANULADA: ${motivoFinal}]`;
+
+    await connection.query(`
+      UPDATE compras 
+      SET estado = 'ANULADA', observaciones = ?
+      WHERE id_compra = ?
+    `, [observacionAnulacion, idCompra]);
+
+    await connection.commit();
+    connection.release();
+
+    res.json({
+      success: true,
+      message: `✅ Compra #${idCompra} anulada exitosamente. Se revirtió el stock y se retiraron las series de Almacén Central.`
+    });
+  } catch (error) {
+    await connection.rollback();
+    connection.release();
+    console.error("Error al anular compra:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- 📦 3.3 REASIGNAR SERIE INDIVIDUAL A OTRO PRODUCTO (CORRECCIÓN DE DIGITACIÓN) ---
+app.post('/api/almacen/producto-series/:id/reasignar-producto', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const idProductoSerie = Number(req.params.id);
+    const { nuevo_id_producto, motivo } = req.body || {};
+
+    if (!idProductoSerie || !nuevo_id_producto) {
+      connection.release();
+      return res.status(400).json({ error: "Datos incompletos para reasignar el producto." });
+    }
+
+    // 1. Obtener la serie
+    const [serieRows] = await connection.query(`
+      SELECT ps.*, p.nombre AS producto_origen_nombre, p.codigo AS producto_origen_codigo
+      FROM producto_series ps
+      JOIN productos p ON ps.id_producto = p.id_producto
+      WHERE ps.id_producto_serie = ?
+    `, [idProductoSerie]);
+
+    if (serieRows.length === 0) {
+      connection.release();
+      return res.status(404).json({ error: "La serie no existe." });
+    }
+
+    const serie = serieRows[0];
+
+    // Verificar que esté en Almacén Central y DISPONIBLE
+    if (serie.estado !== 'DISPONIBLE' || serie.id_almacen !== 1) {
+      connection.release();
+      return res.status(400).json({ 
+        error: `La serie "${serie.numero_serie}" está en estado '${serie.estado}'. Solo se pueden reasignar series disponibles en Almacén Central.` 
+      });
+    }
+
+    if (serie.id_producto === Number(nuevo_id_producto)) {
+      connection.release();
+      return res.status(400).json({ error: "La serie ya pertenece a este producto." });
+    }
+
+    // 2. Obtener producto destino
+    const [prodDestinoRows] = await connection.query("SELECT id_producto, nombre, codigo FROM productos WHERE id_producto = ?", [nuevo_id_producto]);
+    if (prodDestinoRows.length === 0) {
+      connection.release();
+      return res.status(404).json({ error: "El producto de destino no existe." });
+    }
+    const prodDestino = prodDestinoRows[0];
+
+    // 3. Iniciar Transacción
+    await connection.beginTransaction();
+
+    // Descontar 1 al producto anterior en Almacén Central
+    await connection.query(`
+      UPDATE stock 
+      SET cantidad = GREATEST(0, cantidad - 1) 
+      WHERE id_producto = ? AND id_almacen = 1
+    `, [serie.id_producto]);
+
+    // Incrementar 1 al nuevo producto en Almacén Central
+    const [stockDestino] = await connection.query("SELECT id_stock FROM stock WHERE id_producto = ? AND id_almacen = 1", [nuevo_id_producto]);
+    if (stockDestino.length > 0) {
+      await connection.query("UPDATE stock SET cantidad = cantidad + 1 WHERE id_stock = ?", [stockDestino[0].id_stock]);
+    } else {
+      await connection.query("INSERT INTO stock (id_producto, id_almacen, cantidad, cantidad_segundo_uso) VALUES (?, 1, 1, 0)", [nuevo_id_producto]);
+    }
+
+    // Generar nuevo correlativo para el nuevo producto
+    const modelCode = (prodDestino.codigo || 'EQ').trim();
+    const [lastSerie] = await connection.query(
+      "SELECT codigo_serie FROM producto_series WHERE id_producto = ? AND codigo_serie IS NOT NULL ORDER BY id_producto_serie DESC LIMIT 1",
+      [nuevo_id_producto]
+    );
+    let nextNum = 1;
+    if (lastSerie.length > 0 && lastSerie[0].codigo_serie) {
+      const m = lastSerie[0].codigo_serie.match(/-S(\d+)$/i);
+      if (m) nextNum = parseInt(m[1], 10) + 1;
+    }
+    const nuevoCodigoSerie = `${modelCode}-S${String(nextNum).padStart(3, '0')}`;
+
+    // Actualizar producto_series
+    await connection.query(`
+      UPDATE producto_series 
+      SET id_producto = ?, codigo_serie = ?
+      WHERE id_producto_serie = ?
+    `, [nuevo_id_producto, nuevoCodigoSerie, idProductoSerie]);
+
+    // Registrar en movimientos
+    const ref = `Corrección: Serie ${serie.numero_serie} movida de [${serie.producto_origen_nombre}] a [${prodDestino.nombre}]. ${motivo || ''}`;
+    await connection.query(`
+      INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
+      VALUES (?, 1, 'SALIDA', 1, ?, NOW())
+    `, [serie.id_producto, ref]);
+
+    await connection.query(`
+      INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
+      VALUES (?, 1, 'ENTRADA', 1, ?, NOW())
+    `, [nuevo_id_producto, ref]);
+
+    await connection.commit();
+    connection.release();
+
+    res.json({
+      success: true,
+      message: `✅ Serie "${serie.numero_serie}" reasignada exitosamente a "${prodDestino.nombre}". Stock de ambos productos actualizado.`,
+      nuevo_codigo_serie: nuevoCodigoSerie
+    });
+  } catch (error) {
+    await connection.rollback();
+    connection.release();
+    console.error("Error al reasignar serie a producto:", error);
     res.status(500).json({ error: error.message });
   }
 });

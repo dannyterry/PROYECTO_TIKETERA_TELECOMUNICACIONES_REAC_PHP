@@ -21,6 +21,7 @@ export interface ProductoStock {
   fecha_ingreso?: string;
   unidad?: string;
   unidad_medida?: string;
+  categoria_liquidar?: string;
 }
 
 export interface StockTecnicoDetalle {
@@ -300,3 +301,34 @@ export interface TecnicoLiqAuditResumen {
   ultima_liquidacion?: string;
 }
 
+export interface CompraDetalleItem {
+  id_detalle_compra: number;
+  id_compra: number;
+  id_producto: number;
+  cantidad: number;
+  precio: number | string;
+  subtotal: number | string;
+  series_ingresadas?: string;
+  series_array: string[];
+  producto_codigo: string;
+  producto_nombre: string;
+  categoria_nombre?: string;
+}
+
+export interface CompraHistorialItem {
+  id_compra: number;
+  id_proveedor?: number | null;
+  id_almacen: number;
+  fecha: string;
+  total: number | string;
+  estado: 'COMPLETADO' | 'COMPLETADA' | 'ANULADA';
+  tipo_comprobante?: string;
+  numero_comprobante?: string;
+  observaciones?: string;
+  fecha_creacion: string;
+  proveedor_nombre?: string;
+  proveedor_ruc?: string;
+  proveedor_telefono?: string;
+  items: CompraDetalleItem[];
+  total_items: number;
+}

@@ -29,6 +29,8 @@ import {
   FileSpreadsheet,
   Undo2,
   PackagePlus,
+  ShoppingCart,
+  ArrowRightLeft,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -49,6 +51,7 @@ import {
   actualizarIdEquipoSerie,
   actualizarProidSerie,
   actualizarUbicacionProducto,
+  reasignarProductoSerie,
 } from "../services/inventoryService";
 
 interface Props {
@@ -57,6 +60,7 @@ interface Props {
   seriesTecnicos: SerieTecnicoDetalle[];
   loading: boolean;
   onRefresh?: () => void;
+  onNavigateToTab?: (tab: any) => void;
 }
 
 const STAND_OPTIONS = ["A", "B", "C", "D", "E", "F", "G", "H"];
@@ -68,6 +72,7 @@ export const StockOverviewTab: React.FC<Props> = ({
   seriesTecnicos,
   loading,
   onRefresh,
+  onNavigateToTab,
 }) => {
   const [subTab, setSubTab] = useState<"central" | "tecnicos" | "actas">("central");
   const [filtroTexto, setFiltroTexto] = useState("");
@@ -137,6 +142,23 @@ export const StockOverviewTab: React.FC<Props> = ({
   const [filtroTecnicoModal, setFiltroTecnicoModal] = useState<string>("todos");
   const [filtroFechaDesde, setFiltroFechaDesde] = useState<string>("");
   const [filtroFechaHasta, setFiltroFechaHasta] = useState<string>("");
+
+  // Modal para Reasignar Serie a Otro Producto (Corrección rápida)
+  const [modalReasignarSerie, setModalReasignarSerie] = useState<{
+    isOpen: boolean;
+    serie: any | null;
+    nuevoIdProducto: number | "";
+    motivo: string;
+    guardando: boolean;
+    error: string | null;
+  }>({
+    isOpen: false,
+    serie: null,
+    nuevoIdProducto: "",
+    motivo: "",
+    guardando: false,
+    error: null,
+  });
 
   // Filtros de fecha para la pestaña de Stock en Camionetas (Móviles)
   const [filtroFechaMovilDesde, setFiltroFechaMovilDesde] = useState<string>("");
@@ -470,6 +492,47 @@ export const StockOverviewTab: React.FC<Props> = ({
       alert("Error al actualizar el Product ID del equipo.");
     } finally {
       setGuardandoProid(false);
+    }
+  };
+
+  const abrirModalReasignarSerie = (serieItem: any) => {
+    setModalReasignarSerie({
+      isOpen: true,
+      serie: serieItem,
+      nuevoIdProducto: "",
+      motivo: "Corrección de producto asignado",
+      guardando: false,
+      error: null,
+    });
+  };
+
+  const handleReasignarSerie = async () => {
+    if (!modalReasignarSerie.serie || !modalReasignarSerie.nuevoIdProducto) return;
+    try {
+      setModalReasignarSerie(prev => ({ ...prev, guardando: true, error: null }));
+      const res = await reasignarProductoSerie(
+        modalReasignarSerie.serie.id_producto_serie,
+        Number(modalReasignarSerie.nuevoIdProducto),
+        modalReasignarSerie.motivo
+      );
+      alert(res.message || "Serie reasignada exitosamente.");
+      const idOrig = modalSeries.producto?.id_producto;
+      setModalReasignarSerie({
+        isOpen: false,
+        serie: null,
+        nuevoIdProducto: "",
+        motivo: "",
+        guardando: false,
+        error: null,
+      });
+      if (idOrig) {
+        const data = await getProductoSeries(idOrig);
+        setDetalleSeries(data);
+      }
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      const msg = err.response?.data?.error || err.message || "Error al reasignar serie.";
+      setModalReasignarSerie(prev => ({ ...prev, error: msg, guardando: false }));
     }
   };
 
@@ -1151,6 +1214,11 @@ export const StockOverviewTab: React.FC<Props> = ({
                   const esCritico = stockNuevo <= Number(p.stock_minimo || 0);
                   const catInfo = getCatBadge(p.categoria);
                   const esActaProd = esCatActa(p.categoria) || p.nombre.toUpperCase().includes("ACTA") || p.nombre.toUpperCase().includes("GUIA");
+                  const esEquipoProd = !esActaProd && (
+                    Boolean(p.maneja_serie) ||
+                    String(p.categoria || "").toUpperCase().includes("EQUIP") ||
+                    String(p.categoria_liquidar || "").toUpperCase() === "EQUIPO"
+                  );
 
                   return (
                     <tr key={p.id_producto} className="hover:bg-slate-50/60 transition-colors">
@@ -1279,6 +1347,22 @@ export const StockOverviewTab: React.FC<Props> = ({
                               <Send size={11} />
                               <span>Despachar</span>
                             </button>
+                          ) : esEquipoProd ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onNavigateToTab) {
+                                  onNavigateToTab("compras");
+                                } else {
+                                  window.location.hash = "compras";
+                                }
+                              }}
+                              className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-xl font-bold text-[11px] flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                              title="Los equipos con serie solo se ingresan por el módulo de Compras (con escaneo de series)"
+                            >
+                              <ShoppingCart size={11} />
+                              <span>Comprar</span>
+                            </button>
                           ) : (
                             <button
                               type="button"
@@ -1290,7 +1374,7 @@ export const StockOverviewTab: React.FC<Props> = ({
                               <span>Ingresar</span>
                             </button>
                           )}
-                          {Number(totalCentral || 0) > 0 && (
+                          {Number(totalCentral || 0) > 0 && !esEquipoProd && (
                             <button
                               type="button"
                               onClick={() => setModalIngreso({ isOpen: true, producto: p })}
@@ -2368,18 +2452,30 @@ export const StockOverviewTab: React.FC<Props> = ({
                                   )}
                                 </td>
                                 <td className="py-2 px-3 text-center">
-                                  <button
-                                    type="button"
-                                    onClick={() => copiarSerie(s.numero_serie)}
-                                    className="p-1 rounded-lg text-slate-400 hover:text-emerald-700 hover:bg-slate-100 transition-all cursor-pointer"
-                                    title="Copiar serie"
-                                  >
-                                    {copiadoSerie === s.numero_serie ? (
-                                      <Check size={14} className="text-emerald-600" />
-                                    ) : (
-                                      <Copy size={14} />
+                                  <div className="flex items-center justify-center gap-1">
+                                    {s.estado_serie === "DISPONIBLE" && (
+                                      <button
+                                        type="button"
+                                        onClick={() => abrirModalReasignarSerie(s)}
+                                        className="p-1 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all cursor-pointer"
+                                        title="Reasignar a otro producto (corregir equivocación)"
+                                      >
+                                        <ArrowRightLeft size={13} />
+                                      </button>
                                     )}
-                                  </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => copiarSerie(s.numero_serie)}
+                                      className="p-1 rounded-lg text-slate-400 hover:text-emerald-700 hover:bg-slate-100 transition-all cursor-pointer"
+                                      title="Copiar serie"
+                                    >
+                                      {copiadoSerie === s.numero_serie ? (
+                                        <Check size={14} className="text-emerald-600" />
+                                      ) : (
+                                        <Copy size={14} />
+                                      )}
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
                             );
@@ -2435,6 +2531,16 @@ export const StockOverviewTab: React.FC<Props> = ({
                               </span>
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
+                              {esAlmacen && (
+                                <button
+                                  type="button"
+                                  onClick={() => abrirModalReasignarSerie(s)}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-white transition-all cursor-pointer"
+                                  title="Reasignar a otro producto (corregir equivocación)"
+                                >
+                                  <ArrowRightLeft size={13} />
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => copiarSerie(s.numero_serie)}
@@ -2599,6 +2705,123 @@ export const StockOverviewTab: React.FC<Props> = ({
                 className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs cursor-pointer transition-all shadow-xs"
               >
                 Cerrar Consulta
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          MODAL: REASIGNAR SERIE INDIVIDUAL A OTRO PRODUCTO (CORRECCIÓN)
+      ───────────────────────────────────────────────────────────── */}
+      {modalReasignarSerie.isOpen && modalReasignarSerie.serie && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in font-sans">
+          <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-2xl w-full max-w-md space-y-4 animate-scale-up">
+            
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black border border-indigo-100 shrink-0">
+                  <ArrowRightLeft size={20} />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-sm">
+                    Reasignar Serie a Otro Producto
+                  </h3>
+                  <span className="text-xs text-slate-400 font-medium">
+                    Corrección de digitación en Almacén Central
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setModalReasignarSerie({ isOpen: false, serie: null, nuevoIdProducto: "", motivo: "", guardando: false, error: null })}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center cursor-pointer transition-all"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Datos de la Serie Actual */}
+            <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-1.5 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500 font-bold">Serie / MAC:</span>
+                <span className="font-mono font-black text-slate-900 bg-white px-2 py-0.5 rounded-lg border border-slate-200">
+                  {modalReasignarSerie.serie.numero_serie}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500 font-bold">Producto Actual:</span>
+                <span className="font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-lg border border-rose-100 truncate max-w-[200px]" title={modalSeries.producto?.nombre}>
+                  {modalSeries.producto?.nombre || "Actual"}
+                </span>
+              </div>
+            </div>
+
+            {/* Selección del Nuevo Producto */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-black text-slate-700 block">
+                Seleccionar Producto Correcto de Destino: *
+              </label>
+              <select
+                value={modalReasignarSerie.nuevoIdProducto}
+                onChange={(e) => setModalReasignarSerie(prev => ({ ...prev, nuevoIdProducto: e.target.value ? Number(e.target.value) : "", error: null }))}
+                className="w-full p-2.5 bg-white border border-indigo-200 rounded-xl font-bold text-xs text-slate-900 focus:ring-2 focus:ring-indigo-400 cursor-pointer shadow-2xs"
+              >
+                <option value="">-- Elige el producto correcto (ej: ONT ZTE, ONT Huawei...) --</option>
+                {productos
+                  .filter(p => p.id_producto !== modalSeries.producto?.id_producto)
+                  .map(p => (
+                    <option key={p.id_producto} value={p.id_producto}>
+                      [{p.categoria || "GENERAL"}] {p.nombre} ({p.codigo})
+                    </option>
+                  ))}
+              </select>
+              <span className="text-[10px] text-slate-400 font-medium block">
+                Se restará 1 unidad al producto actual y se sumará 1 unidad al producto seleccionado.
+              </span>
+            </div>
+
+            {/* Motivo Opcional */}
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">
+                Motivo / Nota (opcional):
+              </label>
+              <input
+                type="text"
+                value={modalReasignarSerie.motivo}
+                onChange={(e) => setModalReasignarSerie(prev => ({ ...prev, motivo: e.target.value }))}
+                placeholder="Ej: Se ingresó por error como Fono Win en lugar de ONT..."
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              />
+            </div>
+
+            {modalReasignarSerie.error && (
+              <div className="p-3 bg-rose-50 rounded-2xl border border-rose-200 text-rose-800 text-xs font-medium">
+                {modalReasignarSerie.error}
+              </div>
+            )}
+
+            {/* Botones */}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={modalReasignarSerie.guardando}
+                onClick={() => setModalReasignarSerie({ isOpen: false, serie: null, nuevoIdProducto: "", motivo: "", guardando: false, error: null })}
+                className="px-4 py-2 border border-slate-200 hover:bg-slate-100 text-slate-600 rounded-xl font-bold text-xs cursor-pointer transition-all"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                disabled={modalReasignarSerie.guardando || !modalReasignarSerie.nuevoIdProducto}
+                onClick={handleReasignarSerie}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black text-xs shadow-md shadow-indigo-600/25 flex items-center gap-1.5 cursor-pointer transition-all disabled:opacity-50"
+              >
+                {modalReasignarSerie.guardando ? <RefreshCw size={14} className="animate-spin" /> : <ArrowRightLeft size={14} />}
+                <span>Confirmar Reasignación</span>
               </button>
             </div>
 

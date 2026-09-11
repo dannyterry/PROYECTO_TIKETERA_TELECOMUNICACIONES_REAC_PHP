@@ -25,9 +25,26 @@ import {
   Check,
   Zap,
   RotateCcw,
+  History,
+  Eye,
+  Ban,
+  Calendar,
+  DollarSign,
+  Clock,
+  ArrowRight,
+  Copy,
 } from "lucide-react";
-import { ProductoStock, Proveedor, CompraPayload } from "../types/inventoryTypes";
-import { getProveedores, registrarCompra, consultarSunatRuc, crearProducto, getCategorias, crearCategoria } from "../services/inventoryService";
+import { ProductoStock, Proveedor, CompraPayload, CompraHistorialItem, CompraDetalleItem } from "../types/inventoryTypes";
+import {
+  getProveedores,
+  registrarCompra,
+  consultarSunatRuc,
+  crearProducto,
+  getCategorias,
+  crearCategoria,
+  getCompras,
+  anularCompra,
+} from "../services/inventoryService";
 
 interface Props {
   productos: ProductoStock[];
@@ -76,6 +93,45 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
   const [consultandoSunat, setConsultandoSunat] = useState(false);
   const [estadoSunat, setEstadoSunat] = useState<string | null>(null);
   const [mensajeXmlExito, setMensajeXmlExito] = useState<string | null>(null);
+
+  // --- 📜 PESTAÑA HISTORIAL DE COMPRAS & AUDITORÍA ---
+  const [subTab, setSubTab] = useState<"nueva" | "historial">("nueva");
+  const [comprasHistorial, setComprasHistorial] = useState<CompraHistorialItem[]>([]);
+  const [cargandoHistorial, setCargandoHistorial] = useState(false);
+  const [busquedaHistorial, setBusquedaHistorial] = useState("");
+  const [filtroEstadoHistorial, setFiltroEstadoHistorial] = useState<"todos" | "COMPLETADO" | "ANULADA">("todos");
+  const [compraDetalleModal, setCompraDetalleModal] = useState<CompraHistorialItem | null>(null);
+  const [modalAnular, setModalAnular] = useState<{
+    isOpen: boolean;
+    compra: CompraHistorialItem | null;
+    motivo: string;
+    guardando: boolean;
+    error: string | null;
+  }>({
+    isOpen: false,
+    compra: null,
+    motivo: "",
+    guardando: false,
+    error: null,
+  });
+
+  const cargarHistorial = async () => {
+    try {
+      setCargandoHistorial(true);
+      const data = await getCompras();
+      setComprasHistorial(data);
+    } catch (e: any) {
+      console.error("Error al cargar historial de compras:", e);
+    } finally {
+      setCargandoHistorial(false);
+    }
+  };
+
+  useEffect(() => {
+    if (subTab === "historial") {
+      cargarHistorial();
+    }
+  }, [subTab]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const serieInputRef = useRef<HTMLInputElement>(null);
@@ -1088,9 +1144,91 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
     }
   };
 
+  const handleConfirmarAnular = async () => {
+    if (!modalAnular.compra) return;
+    try {
+      setModalAnular((prev) => ({ ...prev, guardando: true, error: null }));
+      await anularCompra(modalAnular.compra.id_compra, modalAnular.motivo);
+      alert(`✅ Compra #${modalAnular.compra.id_compra} anulada con éxito. Se revirtió el stock y se retiraron las series del Almacén Central.`);
+      setModalAnular({ isOpen: false, compra: null, motivo: "", guardando: false, error: null });
+      if (compraDetalleModal?.id_compra === modalAnular.compra.id_compra) {
+        setCompraDetalleModal(null);
+      }
+      cargarHistorial();
+      onCompraRegistrada();
+    } catch (err: any) {
+      const msg = err.response?.data?.error || err.message || "Error al anular compra.";
+      setModalAnular((prev) => ({ ...prev, error: msg, guardando: false }));
+    }
+  };
+
+  const historialFiltrado = comprasHistorial.filter((c) => {
+    if (filtroEstadoHistorial !== "todos" && c.estado !== filtroEstadoHistorial) return false;
+    if (!busquedaHistorial) return true;
+    const q = busquedaHistorial.toLowerCase().trim();
+    const matchComp = (c.numero_comprobante || "").toLowerCase().includes(q) || (c.tipo_comprobante || "").toLowerCase().includes(q);
+    const matchProv = (c.proveedor_nombre || "").toLowerCase().includes(q) || (c.proveedor_ruc || "").toLowerCase().includes(q);
+    const matchObs = (c.observaciones || "").toLowerCase().includes(q);
+    const matchItems = c.items && c.items.some(
+      (it) => it.producto_nombre.toLowerCase().includes(q) ||
+        it.producto_codigo.toLowerCase().includes(q) ||
+        (it.series_array && it.series_array.some((sn) => sn.toLowerCase().includes(q)))
+    );
+    return matchComp || matchProv || matchObs || matchItems;
+  });
+
   return (
-    <>
-      <form onSubmit={handleSubmit} className="space-y-6 animate-fade-in font-sans">
+    <div className="space-y-6 animate-fade-in font-sans">
+      {/* ─────────────────────────────────────────────────────────────
+          ENCABEZADO DE GESTIÓN DE COMPRAS CON SWITCH DE SUBPESTAÑAS
+      ───────────────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-3xl border border-slate-200/80 shadow-xs">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shadow-2xs">
+            <ShoppingCart size={20} />
+          </div>
+          <div>
+            <h2 className="text-sm font-black text-slate-900 tracking-tight flex items-center gap-2">
+              <span>Gestión de Compras & Entradas a Almacén</span>
+            </h2>
+            <p className="text-xs text-slate-500 font-medium">
+              Ingreso oficial con escaneo de series, facturas XML e historial de auditoría.
+            </p>
+          </div>
+        </div>
+
+        {/* Switch: Nueva Compra vs Historial */}
+        <div className="flex items-center gap-1.5 bg-slate-100/90 p-1 rounded-2xl border border-slate-200/80">
+          <button
+            type="button"
+            onClick={() => setSubTab("nueva")}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${subTab === "nueva"
+              ? "bg-slate-700 text-white shadow-xs font-bold"
+              : "text-slate-600 hover:text-slate-900"
+              }`}
+          >
+            <ShoppingCart size={15} className={subTab === "nueva" ? "text-slate-200" : "text-slate-400"} />
+            <span>Nueva Compra (Entrada)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSubTab("historial");
+              cargarHistorial();
+            }}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${subTab === "historial"
+              ? "bg-slate-700 text-white shadow-xs font-bold"
+              : "text-slate-600 hover:text-slate-900"
+              }`}
+          >
+            <History size={15} className={subTab === "historial" ? "text-slate-200" : "text-slate-400"} />
+            <span>Historial de Compras ({comprasHistorial.length})</span>
+          </button>
+        </div>
+      </div>
+
+      {subTab === "nueva" ? (
+        <form onSubmit={handleSubmit} className="space-y-6 animate-fade-in font-sans">
 
         {/* ─────────────────────────────────────────────────────────────
             1. DATOS DEL COMPROBANTE & PROVEEDOR INTELIGENTE (CON CARGA XML)
@@ -1878,6 +2016,286 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
         </div>
 
       </form>
+      ) : (
+        /* ─────────────────────────────────────────────────────────────
+            VISTA B: HISTORIAL DE COMPRAS & AUDITORÍA DE ENTRADAS
+        ───────────────────────────────────────────────────────────── */
+        <div className="space-y-6 animate-fade-in font-sans">
+          {/* Tarjetas de Métricas del Historial */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0 shadow-2xs">
+                <ShoppingCart size={22} />
+              </div>
+              <div>
+                <span className="text-[11px] font-bold text-slate-400 block uppercase tracking-wider">Total Compras</span>
+                <span className="text-2xl font-black text-slate-900">{comprasHistorial.length}</span>
+                <span className="text-[10px] text-slate-500 font-medium block mt-0.5">Entradas registradas</span>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0 shadow-2xs">
+                <DollarSign size={22} />
+              </div>
+              <div>
+                <span className="text-[11px] font-bold text-slate-400 block uppercase tracking-wider">Monto Invertido</span>
+                <span className="text-2xl font-black text-emerald-600">
+                  S/ {comprasHistorial.filter(c => c.estado !== 'ANULADA').reduce((acc, c) => acc + Number(c.total || 0), 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                <span className="text-[10px] text-emerald-700 font-medium block mt-0.5">Compras vigentes</span>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-cyan-50 border border-cyan-100 flex items-center justify-center text-cyan-600 shrink-0 shadow-2xs">
+                <Package size={22} />
+              </div>
+              <div>
+                <span className="text-[11px] font-bold text-slate-400 block uppercase tracking-wider">Total Productos</span>
+                <span className="text-2xl font-black text-cyan-700">
+                  {comprasHistorial.filter(c => c.estado !== 'ANULADA').reduce((acc, c) => acc + Number(c.total_items || 0), 0)}
+                </span>
+                <span className="text-[10px] text-slate-500 font-medium block mt-0.5">Unidades y equipos</span>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 shrink-0 shadow-2xs">
+                <Ban size={22} />
+              </div>
+              <div>
+                <span className="text-[11px] font-bold text-slate-400 block uppercase tracking-wider">Compras Anuladas</span>
+                <span className="text-2xl font-black text-rose-600">
+                  {comprasHistorial.filter(c => c.estado === 'ANULADA').length}
+                </span>
+                <span className="text-[10px] text-rose-700 font-medium block mt-0.5">Revertidas de stock</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Filtros y Buscador */}
+          <div className="bg-white rounded-3xl p-4 border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 flex-1 min-w-[260px] max-w-md bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2">
+              <Search size={16} className="text-slate-400 shrink-0" />
+              <input
+                type="text"
+                value={busquedaHistorial}
+                onChange={(e) => setBusquedaHistorial(e.target.value)}
+                placeholder="Buscar por comprobante, proveedor, RUC, serie o producto..."
+                className="w-full bg-transparent text-xs font-medium text-slate-800 focus:outline-none placeholder-slate-400"
+              />
+              {busquedaHistorial && (
+                <button
+                  type="button"
+                  onClick={() => setBusquedaHistorial("")}
+                  className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setFiltroEstadoHistorial("todos")}
+                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                    filtroEstadoHistorial === "todos"
+                      ? "bg-white text-slate-900 shadow-2xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  Todas ({comprasHistorial.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFiltroEstadoHistorial("COMPLETADO")}
+                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                    filtroEstadoHistorial === "COMPLETADO"
+                      ? "bg-white text-emerald-700 shadow-2xs font-extrabold"
+                      : "text-slate-600 hover:text-emerald-700"
+                  }`}
+                >
+                  Vigentes ({comprasHistorial.filter(c => c.estado !== 'ANULADA').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFiltroEstadoHistorial("ANULADA")}
+                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                    filtroEstadoHistorial === "ANULADA"
+                      ? "bg-white text-rose-700 shadow-2xs font-extrabold"
+                      : "text-slate-600 hover:text-rose-700"
+                  }`}
+                >
+                  Anuladas ({comprasHistorial.filter(c => c.estado === 'ANULADA').length})
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={cargarHistorial}
+                disabled={cargandoHistorial}
+                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                title="Refrescar historial"
+              >
+                <RefreshCw size={14} className={cargandoHistorial ? "animate-spin" : ""} />
+                <span>Refrescar</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Tabla del Historial */}
+          <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50/80 text-slate-400 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
+                  <tr>
+                    <th className="py-3.5 px-4">Comprobante / N°</th>
+                    <th className="py-3.5 px-4">Fecha</th>
+                    <th className="py-3.5 px-4">Proveedor / RUC</th>
+                    <th className="py-3.5 px-4">Productos</th>
+                    <th className="py-3.5 px-4 text-center">Series</th>
+                    <th className="py-3.5 px-4 text-right">Total</th>
+                    <th className="py-3.5 px-4 text-center">Estado</th>
+                    <th className="py-3.5 px-4 text-center">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {historialFiltrado.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-12 text-center text-slate-400 font-bold">
+                        {cargandoHistorial ? "Cargando historial de compras..." : "No se encontraron compras con los filtros seleccionados."}
+                      </td>
+                    </tr>
+                  ) : (
+                    historialFiltrado.map((compra) => {
+                      const esAnulada = compra.estado === "ANULADA";
+                      const totalSeries = (compra.items || []).reduce((acc, it) => acc + (it.series_array?.length || 0), 0);
+
+                      return (
+                        <tr
+                          key={compra.id_compra}
+                          className={`hover:bg-slate-50/60 transition-colors ${esAnulada ? "bg-rose-50/20 text-slate-400 opacity-80" : ""}`}
+                        >
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2">
+                              <span className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-black text-[10px] border border-indigo-100 shrink-0">
+                                #{compra.id_compra}
+                              </span>
+                              <div>
+                                <span className="font-extrabold text-slate-900 block">
+                                  {compra.numero_comprobante || "S/N"}
+                                </span>
+                                <span className="text-[10px] font-bold text-slate-400 block font-mono">
+                                  {compra.tipo_comprobante || "Nota de Ingreso"}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <div className="flex items-center gap-1.5 text-slate-600 font-medium">
+                              <Calendar size={13} className="text-slate-400" />
+                              <span>{new Date(compra.fecha).toLocaleDateString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric" })}</span>
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-mono block mt-0.5">
+                              {new Date(compra.fecha_creacion).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-4">
+                            <span className="font-extrabold text-slate-800 block truncate max-w-[220px]">
+                              {compra.proveedor_nombre || "INGRESO DIRECTO / SIN PROVEEDOR"}
+                            </span>
+                            {compra.proveedor_ruc && (
+                              <span className="text-[10px] font-mono text-slate-400 font-bold">
+                                RUC: {compra.proveedor_ruc}
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="py-3 px-4">
+                            <span className="font-extrabold text-slate-700 block">
+                              {compra.total_items} unid. ({compra.items?.length || 0} prod.)
+                            </span>
+                            <span
+                              className="text-[10px] text-slate-400 truncate max-w-[220px] block"
+                              title={compra.items?.map((it) => `${it.cantidad}x ${it.producto_nombre}`).join(', ')}
+                            >
+                              {compra.items?.map((it) => `${it.cantidad}x ${it.producto_nombre}`).slice(0, 2).join(', ')}
+                              {(compra.items?.length || 0) > 2 ? '...' : ''}
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-4 text-center">
+                            {totalSeries > 0 ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-cyan-50 text-cyan-800 border border-cyan-200">
+                                <QrCode size={11} /> {totalSeries} series
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-[10px] font-mono">-</span>
+                            )}
+                          </td>
+
+                          <td className="py-3 px-4 text-right">
+                            <span className={`font-black font-mono text-sm ${esAnulada ? "line-through text-slate-400" : "text-emerald-700"}`}>
+                              S/ {Number(compra.total || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-4 text-center">
+                            {esAnulada ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-200">
+                                <Ban size={11} /> ANULADA
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                <CheckCircle2 size={11} /> COMPLETADA
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="py-3 px-4 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setCompraDetalleModal(compra)}
+                                className="p-1.5 rounded-xl text-indigo-600 hover:bg-indigo-50 border border-indigo-100 transition-all cursor-pointer"
+                                title="Ver detalle completo de productos y series"
+                              >
+                                <Eye size={14} />
+                              </button>
+
+                              {!esAnulada && (
+                                <button
+                                  type="button"
+                                  onClick={() => setModalAnular({
+                                    isOpen: true,
+                                    compra,
+                                    motivo: "",
+                                    guardando: false,
+                                    error: null
+                                  })}
+                                  className="p-1.5 rounded-xl text-rose-600 hover:bg-rose-50 border border-rose-100 transition-all cursor-pointer"
+                                  title="Anular compra y revertir stock"
+                                >
+                                  <Ban size={14} />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─────────────────────────────────────────────────────────────
           3. MODAL FLOTANTE: REGISTRAR NUEVO PRODUCTO EN CATÁLOGO
@@ -2407,6 +2825,257 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
           </div>
         </div>
       )}
-    </>
+
+      {/* ─────────────────────────────────────────────────────────────
+          4. MODAL FLOTANTE: DETALLE DE COMPRA & SERIES INGRESADAS
+      ───────────────────────────────────────────────────────────── */}
+      {compraDetalleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in font-sans">
+          <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-2xl w-full max-w-3xl space-y-4 max-h-[90vh] flex flex-col animate-scale-up">
+            
+            {/* Cabecera */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black border border-indigo-100">
+                  <ShoppingCart size={20} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-extrabold text-slate-900 text-sm">
+                      Compra #{compraDetalleModal.id_compra} - {compraDetalleModal.tipo_comprobante} {compraDetalleModal.numero_comprobante}
+                    </h3>
+                    {compraDetalleModal.estado === 'ANULADA' ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-200">
+                        ANULADA
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        COMPLETADA
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-xs text-slate-400 font-medium">
+                    Fecha: <strong>{new Date(compraDetalleModal.fecha).toLocaleDateString("es-PE")}</strong> • Proveedor: <strong>{compraDetalleModal.proveedor_nombre || "Ingreso Directo"}</strong>
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setCompraDetalleModal(null)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center cursor-pointer transition-all"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Contenido con scroll */}
+            <div className="overflow-y-auto flex-1 space-y-4 pr-1">
+              {compraDetalleModal.observaciones && (
+                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs">
+                  <span className="font-bold text-slate-600 block mb-0.5">Observaciones:</span>
+                  <span className="text-slate-700">{compraDetalleModal.observaciones}</span>
+                </div>
+              )}
+
+              {/* Lista de Productos Comprados */}
+              <div className="space-y-3">
+                <span className="text-xs font-black text-slate-700 uppercase tracking-wider block">
+                  Productos & Equipos Ingresados ({compraDetalleModal.items?.length || 0})
+                </span>
+
+                <div className="border border-slate-200 rounded-2xl overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-slate-400 font-bold uppercase text-[10px] border-b border-slate-200">
+                      <tr>
+                        <th className="py-2.5 px-3">Producto</th>
+                        <th className="py-2.5 px-3">Categoría</th>
+                        <th className="py-2.5 px-3 text-right">Cant.</th>
+                        <th className="py-2.5 px-3 text-right">Precio U.</th>
+                        <th className="py-2.5 px-3 text-right">Subtotal</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {compraDetalleModal.items?.map((it, itIdx) => (
+                        <tr key={itIdx} className="hover:bg-slate-50/50">
+                          <td className="py-2.5 px-3">
+                            <span className="font-bold text-slate-800 block">{it.producto_nombre}</span>
+                            <span className="text-[10px] font-mono text-slate-400">{it.producto_codigo}</span>
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-500 font-medium">
+                            {it.categoria_nombre || "GENERAL"}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-bold text-slate-800">
+                            {it.cantidad}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono text-slate-600">
+                            S/ {Number(it.precio || 0).toFixed(2)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
+                            S/ {Number(it.subtotal || 0).toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Series Ingresadas Desglosadas */}
+              {compraDetalleModal.items?.some(it => it.series_array && it.series_array.length > 0) && (
+                <div className="space-y-2">
+                  <span className="text-xs font-black text-slate-700 uppercase tracking-wider block flex items-center gap-1.5">
+                    <QrCode size={14} className="text-indigo-600" />
+                    <span>Series de Equipos Cargadas</span>
+                  </span>
+
+                  <div className="space-y-2.5">
+                    {compraDetalleModal.items
+                      .filter(it => it.series_array && it.series_array.length > 0)
+                      .map((it, idx) => (
+                        <div key={idx} className="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-extrabold text-slate-800">{it.producto_nombre}</span>
+                            <span className="font-mono text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
+                              {it.series_array.length} series registradas
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                            {it.series_array.map((sn, sIdx) => (
+                              <span
+                                key={sIdx}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white border border-slate-200 text-slate-700 font-mono text-[11px] font-bold shadow-2xs"
+                              >
+                                {sn}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Pie del Modal */}
+            <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400 font-bold">Total de la Compra:</span>
+                <span className="text-lg font-black font-mono text-emerald-700">
+                  S/ {Number(compraDetalleModal.total || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {compraDetalleModal.estado !== 'ANULADA' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setModalAnular({
+                        isOpen: true,
+                        compra: compraDetalleModal,
+                        motivo: "",
+                        guardando: false,
+                        error: null,
+                      });
+                    }}
+                    className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all"
+                  >
+                    <Ban size={14} />
+                    <span>Anular esta Compra</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setCompraDetalleModal(null)}
+                  className="px-4 py-2 border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-xl font-bold text-xs cursor-pointer transition-all"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          5. MODAL FLOTANTE: CONFIRMAR ANULACIÓN DE COMPRA
+      ───────────────────────────────────────────────────────────── */}
+      {modalAnular.isOpen && modalAnular.compra && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in font-sans">
+          <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-2xl w-full max-w-md space-y-4 animate-scale-up">
+            
+            <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
+              <div className="w-10 h-10 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center font-black border border-rose-100 shrink-0">
+                <Ban size={20} />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-slate-900 text-sm">
+                  Anular Compra #{modalAnular.compra.id_compra}
+                </h3>
+                <span className="text-xs text-slate-500">
+                  {modalAnular.compra.tipo_comprobante} {modalAnular.compra.numero_comprobante}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 text-amber-900 text-xs space-y-1">
+              <span className="font-extrabold flex items-center gap-1">
+                <AlertCircle size={14} className="text-amber-600" />
+                <span>Advertencia de Seguridad:</span>
+              </span>
+              <p className="text-[11px] leading-relaxed">
+                Al anular esta compra, se <strong>descontará automáticamente el stock</strong> de Almacén Central y se eliminarán las series ingresadas.
+                Solo es posible si ningún equipo ha sido asignado a un técnico ni instalado.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">
+                Motivo de la anulación (obligatorio):
+              </label>
+              <textarea
+                value={modalAnular.motivo}
+                onChange={(e) => setModalAnular(prev => ({ ...prev, motivo: e.target.value, error: null }))}
+                placeholder="Ej: Error al seleccionar el producto (se ingresó como Fono Win en lugar de ONT)..."
+                rows={3}
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-400"
+              />
+            </div>
+
+            {modalAnular.error && (
+              <div className="p-3 bg-rose-50 rounded-2xl border border-rose-200 text-rose-800 text-xs font-medium whitespace-pre-line">
+                {modalAnular.error}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={modalAnular.guardando}
+                onClick={() => setModalAnular({ isOpen: false, compra: null, motivo: "", guardando: false, error: null })}
+                className="px-4 py-2.5 border border-slate-200 hover:bg-slate-100 text-slate-600 rounded-xl font-bold text-xs cursor-pointer transition-all"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                disabled={modalAnular.guardando || !modalAnular.motivo.trim()}
+                onClick={handleConfirmarAnular}
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-black text-xs shadow-md shadow-rose-600/25 flex items-center gap-1.5 cursor-pointer transition-all disabled:opacity-50"
+              >
+                {modalAnular.guardando ? <RefreshCw size={14} className="animate-spin" /> : <Ban size={14} />}
+                <span>Confirmar Anulación</span>
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+    </div>
   );
 };

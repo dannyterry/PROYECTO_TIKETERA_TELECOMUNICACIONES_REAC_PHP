@@ -688,7 +688,7 @@ async function guardarOrdenesEnBD(ordenes) {
       const autoNombreTecnico = techInfo?.nombre || null;
       const autoTipoTrabajo = resolverTipoTrabajoOficial(o.motivo_finalizacion, o.tipo_trabajo || o.motivo_trabajo, o.estado);
 
-      // 1. Intentar UPDATE (preservando id_tecnico / tecnico_asignado si gestión ya lo asignó manualmente)
+      // 1. Intentar UPDATE blindado (si gestión ya asignó manualmente con asignacion_manual = 1, PRESERVAR id_tecnico, tecnico_asignado y cuadrilla)
       const [updateRes] = await pool.query(
         `UPDATE ordenes SET
           fecha_solicitud = COALESCE(?, fecha_solicitud),
@@ -711,9 +711,10 @@ async function guardarOrdenesEnBD(ordenes) {
           cod_seguimiento_cliente = COALESCE(?, cod_seguimiento_cliente),
           direccion = COALESCE(?, direccion),
           estado = COALESCE(?, estado),
-          cuadrilla = COALESCE(?, cuadrilla),
-          id_tecnico = COALESCE(?, id_tecnico),
-          tecnico_asignado = COALESCE(?, tecnico_asignado),
+          cuadrilla_origen_fenix = COALESCE(?, cuadrilla_origen_fenix),
+          cuadrilla = CASE WHEN asignacion_manual = 1 THEN cuadrilla ELSE COALESCE(?, cuadrilla) END,
+          id_tecnico = CASE WHEN asignacion_manual = 1 THEN id_tecnico ELSE COALESCE(?, id_tecnico) END,
+          tecnico_asignado = CASE WHEN asignacion_manual = 1 THEN tecnico_asignado ELSE COALESCE(?, tecnico_asignado) END,
           tipo_orden = COALESCE(?, tipo_orden),
           motivo = COALESCE(?, motivo),
           ubicacion = COALESCE(?, ubicacion),
@@ -743,7 +744,7 @@ async function guardarOrdenesEnBD(ordenes) {
           o.motivo_finalizacion, o.datos_tecnicos, autoTipoTrabajo || o.tipo_trabajo, autoTipoTrabajo, o.georeferencia,
           o.motivo_cancelacion, o.numero_documento, o.movil, o.codigo_seguimiento,
           o.region_zona, o.fecha_visita, o.cod_seguimiento_cliente, o.direccion,
-          o.estado, o.cuadrilla, autoIdTecnico, autoNombreTecnico, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
+          o.estado, o.cuadrilla, o.cuadrilla, autoIdTecnico, autoNombreTecnico, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
           o.motivo_anulacion, o.motivo_regestion, o.motivo_suspension, o.pais_empresa,
           o.email, o.tipo_ubicacion, o.codigo_postal, o.tipo_documento, o.producto,
           o.id_proyecto, o.proveedor, o.localidad, o.tipo_trabajo || o.motivo_trabajo, o.prioridad,
@@ -761,19 +762,19 @@ async function guardarOrdenesEnBD(ordenes) {
             motivo_finalizacion, datos_tecnicos, tipo_trabajo, tipo_trabajo_asignado, georeferencia,
             motivo_cancelacion, numero_documento, movil, codigo_seguimiento,
             region_zona, fecha_visita, cod_seguimiento_cliente, direccion,
-            estado, cuadrilla, id_tecnico, tecnico_asignado, tipo_orden, motivo, ubicacion, fecha_estado,
+            estado, cuadrilla, cuadrilla_origen_fenix, id_tecnico, tecnico_asignado, tipo_orden, motivo, ubicacion, fecha_estado,
             motivo_anulacion, motivo_regestion, motivo_suspension, pais_empresa,
             email, tipo_ubicacion, codigo_postal, tipo_documento, producto,
             id_proyecto, proveedor, localidad, motivo_trabajo, prioridad,
             historial_estados, fijo, sector_operativo, suscripcion, fecha_creacion
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
           [
             o.numero, o.fecha_solicitud, o.cliente, o.inicio_visita, o.fin_visita,
             o.hora_en_camino, o.hora_asignacion,
             o.motivo_finalizacion, o.datos_tecnicos, autoTipoTrabajo, autoTipoTrabajo || o.tipo_trabajo, o.georeferencia,
             o.motivo_cancelacion, o.numero_documento, o.movil, o.codigo_seguimiento,
             o.region_zona, o.fecha_visita, o.cod_seguimiento_cliente, o.direccion,
-            o.estado, o.cuadrilla, autoIdTecnico, autoNombreTecnico, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
+            o.estado, o.cuadrilla, o.cuadrilla, autoIdTecnico, autoNombreTecnico, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
             o.motivo_anulacion, o.motivo_regestion, o.motivo_suspension, o.pais_empresa,
             o.email, o.tipo_ubicacion, o.codigo_postal, o.tipo_documento, o.producto,
             o.id_proyecto, o.proveedor, o.localidad, o.tipo_trabajo || o.motivo_trabajo, o.prioridad,

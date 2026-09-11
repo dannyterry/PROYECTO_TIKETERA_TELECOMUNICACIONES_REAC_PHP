@@ -276,7 +276,7 @@ export const TeamChat: React.FC<TeamChatProps> = ({
       {/* ─────────────────────────────────────────────────────────────
           1. BARRA SUPERIOR INTEGRADA: MENÚ, LOGO, CHAT 24/7, PERSONAL EN LÍNEA Y USUARIO
       ───────────────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-20 w-full bg-white border-b border-slate-200/90 px-3 md:px-4 py-1.5 flex items-center justify-between gap-2.5 shadow-2xs">
+      <div className="sticky top-0 z-[45] w-full bg-white border-b border-slate-200/90 px-3 md:px-4 py-1.5 flex items-center justify-between gap-2.5 shadow-2xs">
         {/* Slot Izquierdo: Botón Hamburguesa 3 rayitas + Logo */}
         {leftSlot && (
           <div className="flex items-center gap-2.5 shrink-0">

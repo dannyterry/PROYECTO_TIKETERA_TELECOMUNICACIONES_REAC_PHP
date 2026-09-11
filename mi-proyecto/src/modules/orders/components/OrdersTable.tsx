@@ -3,7 +3,7 @@ import { Order } from "../types/Order";
 import { getRowColorByStatus, getBadgeColorByStatus } from "../utils/statusColors";
 import { extractCuadrillaKey, extractCuadrillaMemberName } from "../utils/cuadrillaUtils";
 import { mapTipificacionWinToTipoTrabajo, matchWithCatalog, TIPOS_TRABAJO_CATALOGO } from "../utils/tipoTrabajoMapper";
-import { Phone, Copy, Check, Activity, Eye, ExternalLink, FileText, UserPlus, Users, Edit2, X, User, CheckCircle2 } from "lucide-react";
+import { Phone, Copy, Check, Activity, Eye, ExternalLink, FileText, UserPlus, Users, Edit2, X, User, CheckCircle2, RotateCcw, ShieldCheck } from "lucide-react";
 import { LookerCardsAlertBanner } from "./LookerCardsAlertBanner";
 
 interface OrdersTableProps {
@@ -16,6 +16,7 @@ interface OrdersTableProps {
   onUpdateObservacionLlamada?: (orderId: number, value: string) => void;
   onUpdateObservacionesAtencion?: (orderId: number, value: string) => void;
   onAssignTechnician?: (orderId: number, technician: string) => void;
+  onRestoreCuadrillaFenix?: (orderId: number) => void;
   onUpdateTipoTrabajo?: (orderId: number, tipoTrabajo: string) => void;
   onSelectOrder?: (order: Order) => void;
   onOpenLiquidar?: (order: Order) => void;
@@ -99,6 +100,7 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
   onUpdateObservacionLlamada,
   onUpdateObservacionesAtencion,
   onAssignTechnician,
+  onRestoreCuadrillaFenix,
   onUpdateTipoTrabajo,
   onSelectOrder,
   onOpenLiquidar,
@@ -744,17 +746,30 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                         const t1 = rawTecs[0];
                         const t2 = rawTecs[1];
                         const tecFull = `${t1}${t2 ? ` / ${t2}` : ''}`;
+                        const isManual = Boolean(order.asignacionManual);
 
                         return (
                           <div className="flex items-center gap-1">
                             <button
                               type="button"
                               onClick={() => openAssignModal(order)}
-                              className="flex-1 min-w-0 text-left inline-flex items-center justify-between gap-1 px-1.5 py-0.5 text-[10px] bg-indigo-50/80 hover:bg-indigo-100/90 text-indigo-950 border border-indigo-200/90 hover:border-indigo-300 rounded transition-all cursor-pointer shadow-2xs group"
-                              title="Clic para editar o cambiar técnicos asignados"
+                              className={`flex-1 min-w-0 text-left inline-flex items-center justify-between gap-1 px-1.5 py-0.5 text-[10px] rounded transition-all cursor-pointer shadow-2xs group ${
+                                isManual 
+                                  ? "bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-300"
+                                  : "bg-indigo-50/80 hover:bg-indigo-100/90 text-indigo-950 border border-indigo-200/90 hover:border-indigo-300"
+                              }`}
+                              title={isManual ? "Asignado manualmente por gestión (Blindado contra sobreescritura de Fénix). Clic para editar." : "Clic para editar o cambiar técnicos asignados"}
                             >
                               <div className="flex items-center gap-1 truncate font-medium">
-                                <span className="text-[8px] font-black uppercase text-indigo-700 bg-indigo-200/70 px-1 py-0 rounded font-mono shrink-0">
+                                {isManual && (
+                                  <span className="text-[7.5px] font-black uppercase text-amber-900 bg-amber-200/90 px-1 py-0 rounded font-mono shrink-0 flex items-center gap-0.5" title="Asignación manual de gestión">
+                                    <ShieldCheck size={8} className="text-amber-800" />
+                                    MAN
+                                  </span>
+                                )}
+                                <span className={`text-[8px] font-black uppercase px-1 py-0 rounded font-mono shrink-0 ${
+                                  isManual ? "text-amber-800 bg-amber-200/70" : "text-indigo-700 bg-indigo-200/70"
+                                }`}>
                                   T1
                                 </span>
                                 <span className="truncate font-semibold text-slate-900">{t1}</span>
@@ -768,8 +783,24 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                                   </>
                                 )}
                               </div>
-                              <Edit2 size={10} className="text-indigo-400 group-hover:text-indigo-600 shrink-0 ml-1 opacity-70 group-hover:opacity-100" />
+                              <Edit2 size={10} className="text-slate-400 group-hover:text-indigo-600 shrink-0 ml-1 opacity-70 group-hover:opacity-100" />
                             </button>
+
+                            {isManual && onRestoreCuadrillaFenix && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (window.confirm(`¿Deseas restaurar la orden al técnico y cuadrilla original de Fénix (${order.cuadrillaOrigenFenix || "Fénix"})?`)) {
+                                    onRestoreCuadrillaFenix(order.id);
+                                  }
+                                }}
+                                className="p-0.5 rounded text-amber-700 hover:bg-amber-100 transition-colors cursor-pointer shrink-0"
+                                title={`Restaurar a cuadrilla/técnico original de Fénix: ${order.cuadrillaOrigenFenix || "Cuadrilla Fénix"}`}
+                              >
+                                <RotateCcw size={11} />
+                              </button>
+                            )}
 
                             <button
                               type="button"

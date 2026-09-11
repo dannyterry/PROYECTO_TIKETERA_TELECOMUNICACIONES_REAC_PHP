@@ -17,6 +17,8 @@ import {
   Calendar,
   Shield,
   FileCheck,
+  LayoutGrid,
+  List,
 } from "lucide-react";
 import { Vehiculo, Tecnico, CatalogosFlota } from "../types/mobilityTypes";
 import { reasignarVehiculo, getCatalogosFlota } from "../services/mobilityService";
@@ -38,6 +40,7 @@ export const FleetManagementTab: React.FC<Props> = ({
 }) => {
   const [filtroTexto, setFiltroTexto] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("Todos");
+  const [modoVista, setModoVista] = useState<"tarjetas" | "filas">("tarjetas");
 
   // Catálogos
   const [catalogos, setCatalogos] = useState<CatalogosFlota | null>(null);
@@ -160,6 +163,24 @@ export const FleetManagementTab: React.FC<Props> = ({
 
         {/* Botones de Acción: Catálogo y Nuevo Vehículo */}
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200">
+            <button
+              type="button"
+              onClick={() => setModoVista("tarjetas")}
+              className={`p-2 rounded-xl transition-all cursor-pointer ${modoVista === "tarjetas" ? "bg-white text-cyan-700 shadow-xs" : "text-slate-500 hover:text-slate-800"}`}
+              title="Ver vehículos en tarjetas"
+            >
+              <LayoutGrid size={15} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setModoVista("filas")}
+              className={`p-2 rounded-xl transition-all cursor-pointer ${modoVista === "filas" ? "bg-white text-cyan-700 shadow-xs" : "text-slate-500 hover:text-slate-800"}`}
+              title="Ver vehículos en filas"
+            >
+              <List size={15} />
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => setModalCatalogoAbierto(true)}
@@ -193,15 +214,17 @@ export const FleetManagementTab: React.FC<Props> = ({
           No se encontraron vehículos.
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+        <div className={modoVista === "tarjetas" ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5" : "space-y-2"}>
           {vehiculosFiltrados.map((v) => (
             <div
               key={v.id_vehiculo}
-              className="bg-white rounded-3xl border border-slate-200/80 shadow-xs hover:shadow-md transition-all p-5 flex flex-col justify-between space-y-4 group"
+              className={modoVista === "tarjetas"
+                ? "bg-white rounded-3xl border border-slate-200/80 shadow-xs hover:shadow-md transition-all p-5 flex flex-col justify-between space-y-4 group"
+                : "bg-white rounded-2xl border border-slate-200/80 shadow-xs hover:shadow-md transition-all px-4 py-3 flex flex-wrap items-center gap-4 group"}
             >
               {/* Header Vehículo */}
               <div>
-                <div className="flex items-start justify-between gap-3">
+                <div className={modoVista === "tarjetas" ? "flex items-start justify-between gap-3" : "flex items-center gap-4 min-w-[260px]"}>
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 rounded-2xl bg-cyan-600 text-white flex items-center justify-center font-black text-sm shadow-md shadow-cyan-600/20">
                       <Car size={24} />
@@ -243,7 +266,7 @@ export const FleetManagementTab: React.FC<Props> = ({
                 </div>
 
                 {/* Especificaciones */}
-                <div className="grid grid-cols-3 gap-2 mt-4 text-center">
+                <div className={modoVista === "tarjetas" ? "grid grid-cols-3 gap-2 mt-4 text-center" : "flex items-center gap-2 text-center"}>
                   <div className="bg-slate-50 p-2 rounded-2xl border border-slate-100">
                     <span className="text-[10px] font-bold text-slate-400 uppercase block">Combustible</span>
                     <span className="text-xs font-bold text-slate-800 truncate block">
@@ -265,7 +288,7 @@ export const FleetManagementTab: React.FC<Props> = ({
                 </div>
 
                 {/* Técnico Asignado */}
-                <div className="mt-3 bg-slate-50/80 p-3 rounded-2xl border border-slate-100 flex items-center justify-between">
+                <div className={modoVista === "tarjetas" ? "mt-3 bg-slate-50/80 p-3 rounded-2xl border border-slate-100 flex items-center justify-between" : "bg-slate-50/80 px-3 py-2 rounded-xl border border-slate-100 flex items-center justify-between min-w-[280px] flex-1"}>
                   <div className="flex items-center gap-2 truncate">
                     <User size={16} className="text-cyan-600 shrink-0" />
                     <div className="truncate">
@@ -286,7 +309,7 @@ export const FleetManagementTab: React.FC<Props> = ({
               </div>
 
                 {/* Botones de Acción en cada vehículo */}
-                <div className="flex items-center gap-2 pt-1">
+                <div className={modoVista === "tarjetas" ? "flex items-center gap-2 pt-1" : "flex items-center gap-2 ml-auto"}>
                   <button
                     type="button"
                     onClick={() => handleAbrirEditarVehiculo(v)}

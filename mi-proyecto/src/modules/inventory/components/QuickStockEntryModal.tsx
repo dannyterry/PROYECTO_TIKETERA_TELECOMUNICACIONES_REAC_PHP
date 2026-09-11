@@ -10,6 +10,7 @@ import {
   DollarSign,
   AlertCircle,
   Plus,
+  ShoppingCart,
 } from "lucide-react";
 import { ProductoStock, CompraPayload } from "../types/inventoryTypes";
 import { registrarCompra } from "../services/inventoryService";
@@ -62,6 +63,10 @@ export const QuickStockEntryModal: React.FC<Props> = ({
 
   if (!isOpen || !producto) return null;
 
+  const esEquipo = Boolean(producto.maneja_serie) ||
+    String(producto.categoria || "").toUpperCase().includes("EQUIP") ||
+    String(producto.categoria_liquidar || "").toUpperCase() === "EQUIPO";
+
   const handlePrecioChange = (val: string) => {
     // Permitir vacío o números con hasta un punto decimal (ej: 2.5, 0.80)
     const sanitized = val.replace(/,/g, ".");
@@ -77,6 +82,11 @@ export const QuickStockEntryModal: React.FC<Props> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!producto) return;
+
+    if (esEquipo) {
+      setError("🚫 Los equipos serializados no pueden ingresarse por Ingreso Rápido. Deben registrarse desde el módulo de Compras.");
+      return;
+    }
 
     if (!cantidad || Number(cantidad) <= 0) {
       setError("La cantidad a ingresar debe ser mayor a 0.");
@@ -182,241 +192,220 @@ export const QuickStockEntryModal: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Formulario de Entrada */}
-        <form onSubmit={handleSubmit} className="space-y-4 text-xs font-sans">
-          
-          {error && (
-            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl flex items-center gap-2 font-bold text-xs">
-              <AlertCircle size={16} className="shrink-0" />
-              <span>{error}</span>
+        {esEquipo ? (
+          <div className="space-y-4 py-2">
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl space-y-2.5">
+              <div className="flex items-center gap-2 text-amber-900 font-black text-sm">
+                <AlertCircle size={18} className="text-amber-600 shrink-0" />
+                <span>Ingreso Rápido Restringido para Equipos</span>
+              </div>
+              <p className="text-xs text-amber-800 leading-relaxed">
+                El producto <strong>{producto.nombre}</strong> está catalogado como <strong>Equipo serializado</strong> (ONT, Mesh, Router, etc.).
+              </p>
+              <p className="text-xs text-amber-900 leading-relaxed">
+                Por control de trazabilidad y garantías, los equipos <strong>no pueden ingresarse por Ingreso Rápido</strong> debido a que cada unidad exige el escaneo y registro obligatorio de sus números de serie / MAC.
+              </p>
+              <div className="p-3 bg-white/90 rounded-xl border border-amber-200 text-xs text-amber-950 font-semibold flex items-center gap-2">
+                <span>🛒 Debes registrar la entrada a través del módulo de <strong>Compras & Entrada (Series)</strong>.</span>
+              </div>
             </div>
-          )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            {/* Cantidad a Ingresar */}
-            <div className="space-y-1.5 sm:col-span-2">
-              <label className="text-slate-700 font-black flex items-center justify-between text-xs">
-                <span className="flex items-center gap-1.5">
-                  <Layers size={14} className="text-emerald-600" />
-                  Cantidad a Ingresar *
-                </span>
-                <span className="text-[10px] text-slate-400 font-normal">
-                  Nuevo stock total: {Number(producto.stock_central || 0) + (Number(cantidad) || 0)} unds
-                </span>
-              </label>
-              
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  required
-                  value={cantidad || ""}
-                  onChange={(e) => setCantidad(Number(e.target.value) || 0)}
-                  placeholder="Ej: 50"
-                  className="flex-1 px-3.5 py-2.5 bg-slate-50 border-2 border-emerald-200 focus:border-emerald-500 rounded-xl text-base font-mono font-black text-slate-900 outline-none focus:bg-white transition-all"
-                />
-                
-                {/* Botones de incremento rápido */}
-                <div className="flex items-center gap-1">
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-extrabold text-xs transition-all cursor-pointer"
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.hash = "#compras";
+                  onClose();
+                }}
+                className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-extrabold text-xs transition-all flex items-center gap-2 cursor-pointer shadow-md shadow-purple-600/20"
+              >
+                <ShoppingCart size={15} />
+                <span>Ir al Módulo de Compras (Series)</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* Formulario de Entrada */
+          <form onSubmit={handleSubmit} className="space-y-4 text-xs font-sans">
+            {error && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl flex items-center gap-2 font-bold text-xs">
+                <AlertCircle size={16} className="shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              {/* Cantidad a Ingresar */}
+              <div className="space-y-1.5 sm:col-span-2">
+                <label className="text-slate-700 font-black flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5">
+                    <Layers size={14} className="text-emerald-600" />
+                    Cantidad a Ingresar *
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase">
+                    Se sumará al Stock Central
+                  </span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={cantidad}
+                    onChange={(e) => setCantidad(Number(e.target.value))}
+                    className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-black text-slate-900 focus:bg-white focus:outline-none focus:border-emerald-500 font-mono"
+                    placeholder="Ej. 100"
+                  />
                   <button
                     type="button"
                     onClick={() => sumarCantidad(10)}
-                    className="px-2.5 py-2.5 bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-800 font-black text-xs rounded-xl transition-all cursor-pointer border border-slate-200"
-                    title="Sumar 10 unidades"
+                    className="px-2.5 py-2.5 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-600 rounded-xl font-bold text-xs border border-slate-200 cursor-pointer"
                   >
                     +10
                   </button>
                   <button
                     type="button"
                     onClick={() => sumarCantidad(50)}
-                    className="px-2.5 py-2.5 bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-800 font-black text-xs rounded-xl transition-all cursor-pointer border border-slate-200"
-                    title="Sumar 50 unidades"
+                    className="px-2.5 py-2.5 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-600 rounded-xl font-bold text-xs border border-slate-200 cursor-pointer"
                   >
                     +50
                   </button>
                   <button
                     type="button"
                     onClick={() => sumarCantidad(100)}
-                    className="px-2.5 py-2.5 bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-800 font-black text-xs rounded-xl transition-all cursor-pointer border border-slate-200"
-                    title="Sumar 100 unidades"
+                    className="px-2.5 py-2.5 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-600 rounded-xl font-bold text-xs border border-slate-200 cursor-pointer"
                   >
                     +100
                   </button>
                 </div>
               </div>
-            </div>
 
-            {/* Número de Nota de Ingreso (Automático) */}
-            <div className="space-y-1">
-              <label className="text-slate-700 font-extrabold flex items-center gap-1.5 text-xs">
-                <FileText size={13} className="text-indigo-600" />
-                N° Nota de Ingreso (NIA)
-              </label>
-              <input
-                type="text"
-                value={numeroNia}
-                onChange={(e) => setNumeroNia(e.target.value.toUpperCase())}
-                placeholder="NIA-2026-XXXXX"
-                className="w-full px-3 py-2 bg-indigo-50/50 border border-indigo-200 rounded-xl font-mono font-bold text-indigo-950 outline-none focus:bg-white focus:border-indigo-500 text-xs"
-              />
-              <span className="text-[10px] text-slate-400 block">Generado automáticamente por el sistema</span>
-            </div>
+              {/* Precio de Compra Unitario */}
+              <div className="space-y-1">
+                <label className="text-slate-700 font-black flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5">
+                    <DollarSign size={14} className="text-emerald-600" />
+                    Costo Unitario (S/.)
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-normal">Opcional</span>
+                </label>
+                <input
+                  type="text"
+                  value={precioUnitario}
+                  onChange={(e) => handlePrecioChange(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:border-emerald-500 font-mono"
+                />
+              </div>
 
-            {/* Costo / Precio Unitario (Decimal) */}
-            <div className="space-y-1">
-              <label className="text-slate-700 font-extrabold flex items-center gap-1.5 text-xs">
-                <DollarSign size={13} className="text-emerald-600" />
-                Costo Unitario (S/ - Opcional)
-              </label>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={precioUnitario}
-                onChange={(e) => handlePrecioChange(e.target.value)}
-                placeholder="Ej: 2.50 ó 0.80"
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-800 outline-none focus:bg-white focus:border-emerald-500 text-xs"
-              />
-              <span className="text-[10px] text-slate-400 block">Acepta decimales (ej: 2.5)</span>
-            </div>
+              {/* N° Comprobante / Guía / Nota de Ingreso */}
+              <div className="space-y-1">
+                <label className="text-slate-700 font-black flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5">
+                    <FileText size={14} className="text-emerald-600" />
+                    N° Comprobante / NIA
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-normal">Automático</span>
+                </label>
+                <input
+                  type="text"
+                  value={numeroNia}
+                  onChange={(e) => setNumeroNia(e.target.value)}
+                  placeholder="NIA-2026-XXXXX"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900 focus:bg-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
 
-            {/* Stand & Fila Desplegables Rápidos */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-slate-700 font-extrabold flex items-center gap-1.5 text-xs">
-                  <MapPin size={13} className="text-emerald-600" />
+              {/* Ubicación: Stand */}
+              <div className="space-y-1">
+                <label className="text-slate-700 font-black flex items-center gap-1.5 text-xs">
+                  <MapPin size={14} className="text-emerald-600" />
                   Stand / Módulo
                 </label>
-                {stand && (
-                  <span className="text-[10px] font-black font-mono text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">
-                    Stand {stand}
-                  </span>
-                )}
+                <select
+                  value={stand}
+                  onChange={(e) => setStand(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:bg-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="">-- Sin Stand --</option>
+                  {STAND_OPTIONS.map((st) => (
+                    <option key={st} value={st}>
+                      Stand {st}
+                    </option>
+                  ))}
+                </select>
               </div>
-              <select
-                value={stand}
-                onChange={(e) => setStand(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-black text-slate-800 outline-none focus:bg-white focus:border-emerald-500 text-xs cursor-pointer transition-all"
-              >
-                <option value="">-- Seleccionar Stand (Opcional) --</option>
-                {STAND_OPTIONS.map((st) => (
-                  <option key={st} value={st}>
-                    Stand {st}
-                  </option>
-                ))}
-                {stand && !STAND_OPTIONS.includes(stand) && (
-                  <option value={stand}>Stand {stand} (Actual)</option>
-                )}
-              </select>
-              {/* Botones de 1 clic para Stands frecuentes */}
-              <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
-                {STAND_OPTIONS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setStand(s)}
-                    className={`px-2 py-0.5 text-[10px] font-black rounded-lg transition-all cursor-pointer border ${
-                      stand === s
-                        ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
-                        : "bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border-slate-200"
-                    }`}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
 
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-slate-700 font-extrabold flex items-center gap-1.5 text-xs">
-                  <MapPin size={13} className="text-emerald-600" />
+              {/* Ubicación: Fila */}
+              <div className="space-y-1">
+                <label className="text-slate-700 font-black flex items-center gap-1.5 text-xs">
+                  <MapPin size={14} className="text-emerald-600" />
                   Fila / Nivel
                 </label>
-                {fila && (
-                  <span className="text-[10px] font-black font-mono text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">
-                    Fila {fila}
-                  </span>
-                )}
+                <select
+                  value={fila}
+                  onChange={(e) => setFila(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:bg-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="">-- Sin Fila --</option>
+                  {FILA_OPTIONS.map((f) => (
+                    <option key={f} value={f}>
+                      Fila {f}
+                    </option>
+                  ))}
+                </select>
               </div>
-              <select
-                value={fila}
-                onChange={(e) => setFila(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-black text-slate-800 outline-none focus:bg-white focus:border-emerald-500 text-xs cursor-pointer transition-all"
+
+              {/* Observaciones */}
+              <div className="space-y-1 sm:col-span-2">
+                <label className="text-slate-700 font-black text-xs">Observaciones del Ingreso</label>
+                <input
+                  type="text"
+                  value={observaciones}
+                  onChange={(e) => setObservaciones(e.target.value)}
+                  placeholder="Ej: Recepción directa de proveedor local"
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+            </div>
+
+            {/* Footer Botones */}
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={guardando}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-extrabold text-xs transition-all cursor-pointer"
               >
-                <option value="">-- Seleccionar Fila (Opcional) --</option>
-                {FILA_OPTIONS.map((fl) => (
-                  <option key={fl} value={fl}>
-                    Fila {fl}
-                  </option>
-                ))}
-                {fila && !FILA_OPTIONS.includes(Number(fila)) && (
-                  <option value={fila}>Fila {fila} (Actual)</option>
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={guardando}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white rounded-xl font-extrabold text-xs transition-all flex items-center gap-2 cursor-pointer shadow-md"
+              >
+                {guardando ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Guardando...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 size={16} />
+                    <span>Registrar Ingreso</span>
+                  </>
                 )}
-              </select>
-              {/* Botones de 1 clic para Filas frecuentes */}
-              <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
-                {FILA_OPTIONS.map((f) => (
-                  <button
-                    key={f}
-                    type="button"
-                    onClick={() => setFila(String(f))}
-                    className={`px-2 py-0.5 text-[10px] font-black rounded-lg transition-all cursor-pointer border ${
-                      String(fila) === String(f)
-                        ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
-                        : "bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border-slate-200"
-                    }`}
-                  >
-                    {f}
-                  </button>
-                ))}
-              </div>
+              </button>
             </div>
-
-            {/* Observaciones */}
-            <div className="space-y-1 sm:col-span-2">
-              <label className="text-slate-700 font-extrabold text-xs">
-                Motivo u Observación (Opcional)
-              </label>
-              <input
-                type="text"
-                value={observaciones}
-                onChange={(e) => setObservaciones(e.target.value)}
-                placeholder="Ej: Ingreso directo de stock sobrante / reposición sin factura"
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 outline-none focus:bg-white focus:border-slate-400 text-xs"
-              />
-            </div>
-          </div>
-
-          {/* Footer Botones */}
-          <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2.5">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={guardando}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-extrabold text-xs transition-all cursor-pointer"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={guardando}
-              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white rounded-xl font-extrabold text-xs transition-all flex items-center gap-2 cursor-pointer shadow-md"
-            >
-              {guardando ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>Guardando...</span>
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 size={16} />
-                  <span>Registrar Ingreso</span>
-                </>
-              )}
-            </button>
-          </div>
-        </form>
+          </form>
+        )}
 
       </div>
     </div>

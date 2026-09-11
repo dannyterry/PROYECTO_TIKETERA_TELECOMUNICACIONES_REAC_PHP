@@ -13,6 +13,7 @@ import {
   ActaLiquidacionPayload,
   MotivoItem,
   ActaTecnicoResumen,
+  CompraHistorialItem,
 } from "../types/inventoryTypes";
 
 const api = axios.create({
@@ -303,6 +304,30 @@ export const getMetrajeSugerido = async (numeroOrden: string) => {
   } catch {
     return null;
   }
+};
+
+// --- 📦 COMPRAS: HISTORIAL & ANULACIÓN ---
+export const getCompras = async (): Promise<CompraHistorialItem[]> => {
+  const res = await api.get("/almacen/compras");
+  return res.data || [];
+};
+
+export const anularCompra = async (idCompra: number, motivo?: string) => {
+  const res = await api.post(`/almacen/compras/${idCompra}/anular`, { motivo });
+  return res.data;
+};
+
+// --- 🔄 SERIES: REASIGNAR PRODUCTO (CORRECCIÓN) ---
+export const reasignarProductoSerie = async (
+  idProductoSerie: number,
+  nuevoIdProducto: number,
+  motivo?: string
+) => {
+  const res = await api.post(`/almacen/producto-series/${idProductoSerie}/reasignar-producto`, {
+    nuevo_id_producto: nuevoIdProducto,
+    motivo,
+  });
+  return res.data;
 };
 
 
