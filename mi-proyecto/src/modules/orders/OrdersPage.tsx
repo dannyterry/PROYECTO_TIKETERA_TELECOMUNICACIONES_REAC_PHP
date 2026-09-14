@@ -644,6 +644,45 @@ export const OrdersPage: React.FC = () => {
     loadAlerts();
   }, [loadAlerts]);
 
+  // Filtrar alertas operativas según el filtro de ordenamiento:
+  // Si el filtro "Ordenamientos" NO está activo, se excluyen las cuadrillas que empiezan con 'O'
+  const displayAlertsData = useMemo(() => {
+    if (!alertsData) return null;
+    const mostrarOrdenamientos = filters.status === "Ordenamientos";
+
+    const tecnicosFiltrados = alertsData.alertas.tecnicos_sin_orden.filter((t) => {
+      const esO = esOrdenamiento(t.cuadrilla);
+      return mostrarOrdenamientos ? esO : !esO;
+    });
+
+    const actasFiltradas = alertsData.alertas.actas_pendientes.filter((a) => {
+      const esO = esOrdenamiento(a.cuadrilla);
+      return mostrarOrdenamientos ? esO : !esO;
+    });
+
+    const tramosFiltrados = alertsData.alertas.tramos_riesgo.filter((tr) => {
+      const esO = esOrdenamiento(tr.cuadrilla);
+      return mostrarOrdenamientos ? esO : !esO;
+    });
+
+    const total = tecnicosFiltrados.length + actasFiltradas.length + tramosFiltrados.length;
+
+    return {
+      ...alertsData,
+      resumen: {
+        total_alertas: total,
+        tecnicos_sin_orden_count: tecnicosFiltrados.length,
+        actas_pendientes_count: actasFiltradas.length,
+        tramos_riesgo_count: tramosFiltrados.length,
+      },
+      alertas: {
+        tecnicos_sin_orden: tecnicosFiltrados,
+        actas_pendientes: actasFiltradas,
+        tramos_riesgo: tramosFiltrados,
+      },
+    };
+  }, [alertsData, filters.status]);
+
   // Abrir modal de tareas por número de orden desde las alertas
   const handleOpenTasksByOrderNumber = useCallback((num: string) => {
     const cleanNum = String(num || "").trim();
@@ -697,7 +736,7 @@ export const OrdersPage: React.FC = () => {
           cuadrillas={cuadrillasDisponibles}
           tecnicos={tecnicosDisponibles}
           stats={stats}
-          alertsCount={alertsData?.resumen.total_alertas || 0}
+          alertsCount={displayAlertsData?.resumen.total_alertas || 0}
           onOpenAlerts={() => setIsAlertsModalOpen(true)}
         />
       </div>
@@ -814,7 +853,7 @@ export const OrdersPage: React.FC = () => {
       <GestorAlertsModal
         isOpen={isAlertsModalOpen}
         onClose={() => setIsAlertsModalOpen(false)}
-        alertsData={alertsData}
+        alertsData={displayAlertsData}
         loading={alertsLoading}
         onRefresh={loadAlerts}
         onSelectOrderForTasks={handleOpenTasksByOrderNumber}

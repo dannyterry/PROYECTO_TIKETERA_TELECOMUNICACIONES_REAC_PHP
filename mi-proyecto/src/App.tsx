@@ -571,7 +571,7 @@ export default function App() {
               {/* 5. Pagos y Finanzas a Técnicos */}
               {isPaymentsView && !isTechnicianPortal && (
                 <div className="flex-1 w-full overflow-hidden min-h-0 flex flex-col">
-                  <PaymentsPage />
+                  <PaymentsPage currentUserId={currentUser?.id_usuario} />
                 </div>
               )}
 

@@ -7,6 +7,8 @@ export interface PagoTotales {
   costo_material: number;
   pago_tecnicos: number;
   ganancia: number;
+  total_adelantos?: number;
+  neto_total?: number;
 }
 
 export interface TecnicoPagoItem {
@@ -18,6 +20,8 @@ export interface TecnicoPagoItem {
   costo_material: number;
   pago_tecnico: number;
   ganancia: number;
+  adelantos?: number;
+  neto_a_pagar?: number;
 }
 
 export interface PagoResumenResponse {
@@ -27,6 +31,18 @@ export interface PagoResumenResponse {
   estado?: string;
   totales: PagoTotales;
   tecnicos: TecnicoPagoItem[];
+}
+
+export interface AdelantoTecnicoItem {
+  id_adelanto: number;
+  monto: number;
+  fecha_adelanto: string;
+  metodo_pago: string;
+  numero_operacion?: string;
+  motivo?: string;
+  estado: string;
+  fecha_descuento?: string;
+  observaciones?: string;
 }
 
 export interface OrdenPagoDetalle {
@@ -46,8 +62,9 @@ export interface TecnicoDetalleResponse {
   success: boolean;
   id_trabajador: number;
   tecnico: string;
-  totales: PagoTotales;
+  totales: PagoTotales & { total_adelantos?: number; neto_a_pagar?: number };
   ordenes: OrdenPagoDetalle[];
+  adelantos?: AdelantoTecnicoItem[];
 }
 
 export const getPagosResumen = async (

@@ -1260,6 +1260,31 @@ app.get('/api/pagos/resumen', async (req, res) => {
       }
     });
 
+    // Obtener adelantos pendientes por técnico para calcular neto_a_pagar
+    const [filasAdelantos] = await pool.query(`
+      SELECT 
+        id_trabajador,
+        COALESCE(SUM(monto), 0) AS total_adelanto
+      FROM adelantos_sueldo
+      WHERE estado = 'PENDIENTE'
+      GROUP BY id_trabajador
+    `);
+
+    const adelantosPorTecnico = {};
+    let totalAdelantosGlobal = 0;
+    filasAdelantos.forEach(a => {
+      const monto = Number(a.total_adelanto) || 0;
+      adelantosPorTecnico[a.id_trabajador] = monto;
+      totalAdelantosGlobal = Math.round((totalAdelantosGlobal + monto) * 100) / 100;
+    });
+
+    Object.keys(tecnicosMap).forEach(id => {
+      const item = tecnicosMap[id];
+      const adelanto = adelantosPorTecnico[id] || 0;
+      item.adelantos = adelanto;
+      item.neto_a_pagar = Math.round(Math.max(0, item.pago_tecnico - adelanto) * 100) / 100;
+    });
+
     const tecnicos = Object.values(tecnicosMap).sort((a, b) => b.pago_tecnico - a.pago_tecnico);
 
     res.json({
@@ -1267,7 +1292,11 @@ app.get('/api/pagos/resumen', async (req, res) => {
       fecha_desde: desde,
       fecha_hasta: hasta,
       estado,
-      totales,
+      totales: {
+        ...totales,
+        total_adelantos: totalAdelantosGlobal,
+        neto_total: Math.round(Math.max(0, totales.pago_tecnicos - totalAdelantosGlobal) * 100) / 100
+      },
       tecnicos
     });
   } catch (error) {
@@ -1404,13 +1433,274 @@ app.get('/api/pagos/detalle/:id_trabajador', async (req, res) => {
       nombreTecnico = uRow[0]?.nombre || `Técnico #${id_trabajador}`;
     }
 
+    // Consultar adelantos asociados a este técnico
+    const [adelantosTecnico] = await pool.query(`
+      SELECT 
+        id_adelanto,
+        monto,
+        fecha_adelanto,
+        metodo_pago,
+        numero_operacion,
+        motivo,
+        estado,
+        fecha_descuento,
+        observaciones
+      FROM adelantos_sueldo
+      WHERE id_trabajador = ?
+      ORDER BY fecha_adelanto DESC
+    `, [id_trabajador]);
+
+    const totalAdelantosPendientes = adelantosTecnico
+      .filter(a => a.estado === 'PENDIENTE')
+      .reduce((sum, a) => sum + (Number(a.monto) || 0), 0);
+
     res.json({
       success: true,
       id_trabajador: Number(id_trabajador),
       tecnico: nombreTecnico,
-      totales,
-      ordenes
+      totales: {
+        ...totales,
+        total_adelantos: Math.round(totalAdelantosPendientes * 100) / 100,
+        neto_a_pagar: Math.round(Math.max(0, totales.pago_tecnicos - totalAdelantosPendientes) * 100) / 100
+      },
+      ordenes,
+      adelantos: adelantosTecnico
     });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- 💵 GESTIÓN DE ADELANTOS DE SUELDO ---
+
+// 1. Obtener lista de adelantos con filtros y totales
+app.get('/api/pagos/adelantos', async (req, res) => {
+  try {
+    const { desde, hasta, estado, id_trabajador } = req.query;
+
+    let where = "1=1";
+    const params = [];
+
+    if (desde && hasta) {
+      where += " AND a.fecha_adelanto BETWEEN ? AND ?";
+      params.push(desde, hasta);
+    } else if (desde) {
+      where += " AND a.fecha_adelanto >= ?";
+      params.push(desde);
+    } else if (hasta) {
+      where += " AND a.fecha_adelanto <= ?";
+      params.push(hasta);
+    }
+
+    if (estado && estado !== 'TODOS') {
+      where += " AND a.estado = ?";
+      params.push(estado);
+    }
+
+    if (id_trabajador) {
+      where += " AND a.id_trabajador = ?";
+      params.push(id_trabajador);
+    }
+
+    const sql = `
+      SELECT 
+        a.id_adelanto,
+        a.id_trabajador,
+        a.id_usuario_registro,
+        a.monto,
+        a.fecha_adelanto,
+        a.metodo_pago,
+        a.numero_operacion,
+        a.motivo,
+        a.estado,
+        a.fecha_descuento,
+        a.id_orden_liquidacion,
+        a.observaciones,
+        a.created_at,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS trabajador,
+        u.documento,
+        u.telefono,
+        r.nombre AS rol_nombre,
+        TRIM(CONCAT(COALESCE(ureg.nombres, ''), ' ', COALESCE(ureg.primer_apellido, ureg.apellidos, ''))) AS registrado_por_nombre
+      FROM adelantos_sueldo a
+      LEFT JOIN usuarios u ON u.id_usuario = a.id_trabajador
+      LEFT JOIN roles r ON u.id_rol = r.id_rol
+      LEFT JOIN usuarios ureg ON ureg.id_usuario = a.id_usuario_registro
+      WHERE ${where}
+      ORDER BY a.fecha_adelanto DESC, a.id_adelanto DESC
+    `;
+
+    const [adelantos] = await pool.query(sql, params);
+
+    // Calcular KPIs
+    let total_monto = 0;
+    let total_pendiente = 0;
+    let total_descontado = 0;
+    let total_anulado = 0;
+
+    adelantos.forEach(a => {
+      const monto = Number(a.monto) || 0;
+      if (a.estado !== 'ANULADO') {
+        total_monto = Math.round((total_monto + monto) * 100) / 100;
+      }
+      if (a.estado === 'PENDIENTE') {
+        total_pendiente = Math.round((total_pendiente + monto) * 100) / 100;
+      } else if (a.estado === 'DESCONTADO') {
+        total_descontado = Math.round((total_descontado + monto) * 100) / 100;
+      } else if (a.estado === 'ANULADO') {
+        total_anulado = Math.round((total_anulado + monto) * 100) / 100;
+      }
+    });
+
+    res.json({
+      success: true,
+      totales: {
+        total_monto,
+        total_pendiente,
+        total_descontado,
+        total_anulado,
+        cantidad: adelantos.length
+      },
+      adelantos
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 2. Registrar un nuevo adelanto
+app.post('/api/pagos/adelantos', async (req, res) => {
+  try {
+    const {
+      id_trabajador,
+      id_usuario_registro,
+      monto,
+      fecha_adelanto,
+      metodo_pago,
+      numero_operacion,
+      motivo,
+      observaciones
+    } = req.body;
+
+    if (!id_trabajador || !monto || Number(monto) <= 0) {
+      return res.status(400).json({ error: "El trabajador y un monto mayor a 0 son obligatorios" });
+    }
+
+    const fecha = fecha_adelanto || new Date().toISOString().slice(0, 10);
+    const metodo = metodo_pago || 'Transferencia';
+
+    const [result] = await pool.query(`
+      INSERT INTO adelantos_sueldo (
+        id_trabajador,
+        id_usuario_registro,
+        monto,
+        fecha_adelanto,
+        metodo_pago,
+        numero_operacion,
+        motivo,
+        estado,
+        observaciones
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDIENTE', ?)
+    `, [
+      id_trabajador,
+      id_usuario_registro || null,
+      monto,
+      fecha,
+      metodo,
+      numero_operacion || null,
+      motivo || 'Adelanto de sueldo',
+      observaciones || null
+    ]);
+
+    res.json({
+      success: true,
+      message: "Adelanto registrado correctamente",
+      id_adelanto: result.insertId
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 3. Modificar estado o detalles de un adelanto
+app.put('/api/pagos/adelantos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      monto,
+      fecha_adelanto,
+      metodo_pago,
+      numero_operacion,
+      motivo,
+      estado,
+      observaciones,
+      fecha_descuento
+    } = req.body;
+
+    const fields = [];
+    const values = [];
+
+    if (monto !== undefined) {
+      fields.push("monto = ?");
+      values.push(monto);
+    }
+    if (fecha_adelanto !== undefined) {
+      fields.push("fecha_adelanto = ?");
+      values.push(fecha_adelanto);
+    }
+    if (metodo_pago !== undefined) {
+      fields.push("metodo_pago = ?");
+      values.push(metodo_pago);
+    }
+    if (numero_operacion !== undefined) {
+      fields.push("numero_operacion = ?");
+      values.push(numero_operacion);
+    }
+    if (motivo !== undefined) {
+      fields.push("motivo = ?");
+      values.push(motivo);
+    }
+    if (estado !== undefined) {
+      fields.push("estado = ?");
+      values.push(estado);
+      if (estado === 'DESCONTADO' && !fecha_descuento) {
+        fields.push("fecha_descuento = ?");
+        values.push(new Date().toISOString().slice(0, 10));
+      } else if (estado === 'PENDIENTE') {
+        fields.push("fecha_descuento = NULL");
+      }
+    }
+    if (fecha_descuento !== undefined && estado !== 'PENDIENTE') {
+      fields.push("fecha_descuento = ?");
+      values.push(fecha_descuento);
+    }
+    if (observaciones !== undefined) {
+      fields.push("observaciones = ?");
+      values.push(observaciones);
+    }
+
+    if (fields.length === 0) {
+      return res.status(400).json({ error: "No se proporcionaron campos para actualizar" });
+    }
+
+    values.push(id);
+    await pool.query(`UPDATE adelantos_sueldo SET ${fields.join(", ")} WHERE id_adelanto = ?`, values);
+
+    res.json({
+      success: true,
+      message: "Adelanto actualizado correctamente"
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 4. Eliminar un adelanto
+app.delete('/api/pagos/adelantos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query("DELETE FROM adelantos_sueldo WHERE id_adelanto = ?", [id]);
+    res.json({ success: true, message: "Adelanto eliminado correctamente" });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

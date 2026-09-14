@@ -207,18 +207,9 @@ async function fetchLookerOrders(customHeaders = null, retry = true) {
     body: JSON.stringify(body)
   });
 
-  // Si recibimos 401 o 403 y retry está habilitado, intentar renovar la sesión automáticamente
-  if ((res.status === 401 || res.status === 403) && retry) {
-    console.warn(`⚠️ Sesión expirada (Status ${res.status}). Intentando auto-renovar con Puppeteer...`);
-    try {
-      const { autoRefreshLookerSession } = require('./auto_refresh_session');
-      const refreshed = await autoRefreshLookerSession(true);
-      if (refreshed && refreshed.success) {
-        return await fetchLookerOrders(null, false);
-      }
-    } catch (e) {
-      console.error('Error al auto-renovar sesión:', e.message);
-    }
+  // Si recibimos 401 o 403, informar para que el cliente actualice vía Bookmarklet (100% compatible con Linux)
+  if (res.status === 401 || res.status === 403) {
+    console.warn(`⚠️ Sesión de Looker Studio expirada o no autorizada (Status ${res.status}). Use el Bookmarklet navegador para renovar.`);
   }
 
   if (!res.ok) {
