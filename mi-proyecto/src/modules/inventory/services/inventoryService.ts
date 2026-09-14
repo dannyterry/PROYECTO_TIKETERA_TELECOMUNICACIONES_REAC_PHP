@@ -330,6 +330,10 @@ export const reasignarProductoSerie = async (
   return res.data;
 };
 
-
-
-
+export const actualizarPreciosCompra = async (
+  idCompra: number,
+  items: { id_detalle_compra?: number; id_producto: number; precio: number }[]
+) => {
+  const res = await api.put(`/almacen/compras/${idCompra}/precios`, { items });
+  return res.data;
+};

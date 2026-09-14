@@ -45,8 +45,10 @@ const pool = mysql.createPool({
   dateStrings: true, // Evita desfases de zona horaria UTC (+5h)
   timezone: '-05:00',
   waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
+  connectionLimit: 25,
+  queueLimit: 0,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 10000
 });
 
 // 🇵🇪 Asegurar que cada conexión ejecute la zona horaria oficial de Perú (-05:00)

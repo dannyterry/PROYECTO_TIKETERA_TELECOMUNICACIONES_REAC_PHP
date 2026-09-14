@@ -115,10 +115,14 @@ export const StockOverviewTab: React.FC<Props> = ({
     devolverTodo?: boolean;
     tecnicoNombre?: string;
     idTrabajador?: number;
+    seriesDisponibles?: string[];
+    seriesSeleccionadas?: string[];
   }>({
     isOpen: false,
     item: null,
     devolverTodo: false,
+    seriesDisponibles: [],
+    seriesSeleccionadas: [],
   });
   const [cantidadDevolver, setCantidadDevolver] = useState<number>(1);
   const [motivoDevolucion, setMotivoDevolucion] = useState<string>("Sobrante de instalación / bobina");
@@ -387,6 +391,7 @@ export const StockOverviewTab: React.FC<Props> = ({
           id_trabajador: modalDevolucion.item.id_trabajador,
           id_producto: modalDevolucion.item.id_producto,
           cantidad: cantidadDevolver,
+          series_devueltas: modalDevolucion.seriesSeleccionadas || [],
           motivo: motivoDevolucion,
         });
         alert(`✅ Se devolvieron ${cantidadDevolver} unidades de "${modalDevolucion.item.producto_nombre}" a Almacén Central.`);
@@ -1216,8 +1221,7 @@ export const StockOverviewTab: React.FC<Props> = ({
                   const esActaProd = esCatActa(p.categoria) || p.nombre.toUpperCase().includes("ACTA") || p.nombre.toUpperCase().includes("GUIA");
                   const esEquipoProd = !esActaProd && (
                     Boolean(p.maneja_serie) ||
-                    String(p.categoria || "").toUpperCase().includes("EQUIP") ||
-                    String(p.categoria_liquidar || "").toUpperCase() === "EQUIPO"
+                    String(p.categoria || "").toUpperCase().includes("EQUIP")
                   );
 
                   return (
@@ -1630,12 +1634,25 @@ export const StockOverviewTab: React.FC<Props> = ({
                             <button
                               type="button"
                               onClick={() => {
+                                const seriesDelItem = seriesTecnicos
+                                  .filter(
+                                    (s) =>
+                                      s.id_trabajador === st.id_trabajador &&
+                                      (s.id_producto
+                                        ? s.id_producto === st.id_producto
+                                        : s.equipo_nombre.trim().toUpperCase() === st.producto_nombre.trim().toUpperCase()) &&
+                                      s.estado === "Asignada"
+                                  )
+                                  .map((s) => s.numero_serie);
+
                                 setModalDevolucion({
                                   isOpen: true,
                                   item: st,
                                   devolverTodo: false,
                                   tecnicoNombre: st.tecnico_nombre,
                                   idTrabajador: st.id_trabajador,
+                                  seriesDisponibles: seriesDelItem,
+                                  seriesSeleccionadas: seriesDelItem.slice(0, st.stock),
                                 });
                                 setCantidadDevolver(st.stock);
                                 setMotivoDevolucion("Sobrante de instalación / bobina");
@@ -3188,6 +3205,48 @@ export const StockOverviewTab: React.FC<Props> = ({
                     Máximo permitido: {modalDevolucion.item?.stock}
                   </div>
                 </div>
+
+                {modalDevolucion.seriesDisponibles && modalDevolucion.seriesDisponibles.length > 0 && (
+                  <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-2xl space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-extrabold text-emerald-950 flex items-center gap-1.5">
+                        <QrCode size={13} className="text-emerald-700" />
+                        Series a devolver y liberar:
+                      </span>
+                      <span className="text-[10px] font-bold text-emerald-800 font-mono">
+                        {modalDevolucion.seriesSeleccionadas?.length || 0} de {modalDevolucion.seriesDisponibles.length}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1">
+                      {modalDevolucion.seriesDisponibles.map((sn) => {
+                        const isSel = (modalDevolucion.seriesSeleccionadas || []).includes(sn);
+                        return (
+                          <button
+                            type="button"
+                            key={sn}
+                            onClick={() => {
+                              const curr = modalDevolucion.seriesSeleccionadas || [];
+                              const next = isSel ? curr.filter((s) => s !== sn) : [...curr, sn];
+                              setModalDevolucion((prev) => ({ ...prev, seriesSeleccionadas: next }));
+                              setCantidadDevolver(Math.max(1, next.length));
+                            }}
+                            className={`px-2 py-1 rounded-lg text-[11px] font-mono font-bold border transition-all cursor-pointer flex items-center gap-1 ${
+                              isSel
+                                ? "bg-emerald-600 text-white border-emerald-700 shadow-2xs"
+                                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                            }`}
+                          >
+                            <span>{sn}</span>
+                            {isSel && <Check size={11} />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[10px] text-emerald-700 leading-tight">
+                      * Al confirmar, estas series pasarán automáticamente a <strong>DISPONIBLE</strong> en Almacén Central y podrán despacharse a otro técnico.
+                    </p>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">

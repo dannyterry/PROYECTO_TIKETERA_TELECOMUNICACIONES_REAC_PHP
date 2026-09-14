@@ -30,6 +30,9 @@ interface OrdersTableProps {
  */
 const generarPlantillaOrden = (order: Order): string => {
   const fechaLimpia = order.fecha ? order.fecha.split(" ")[0].split("T")[0] : "-";
+  const geo = (order.georeferencia || "").trim();
+  const mapsUrl = geo ? `https://www.google.com/maps?q=${geo}` : "-";
+
   return [
     `Fecha: ${fechaLimpia}`,
     `Celular: ${order.celular || "-"}`,
@@ -38,6 +41,8 @@ const generarPlantillaOrden = (order: Order): string => {
     `Cliente: ${order.cliente || "-"}`,
     `Dirección: ${order.direccion || "-"}`,
     `Distrito: ${order.distrito || "-"}`,
+    `Coordenadas: ${geo || "-"}`,
+    `Maps: ${mapsUrl}`,
     `CTO: ${order.cto || "-"}`,
     `Código de Pedido: ${order.codigoPedido || "-"}`,
     `OT: ${order.ot || "-"}`,
@@ -262,10 +267,6 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
                 Acta
               </th>
-              {/* 7. TAREAS */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-1.5 text-center border-b-2 border-slate-950">
-                Tareas
-              </th>
               {/* 8. NÚMERO DE TICKET */}
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
                 Número de Ticket
@@ -297,6 +298,10 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
               {/* 16 */}
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
                 Técnico
+              </th>
+              {/* TAREAS (Al costado derecho de Técnico) */}
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-1.5 text-center border-b-2 border-slate-950">
+                Tareas
               </th>
               {/* 17 */}
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
@@ -475,72 +480,6 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                         }
 
                         return <span className="font-mono text-slate-400 font-bold text-[11px]">-</span>;
-                      })()}
-                    </td>
-
-                    {/* 8. Tareas (Supervisión en Tiempo Real / Avance) */}
-                    <td className="py-1 px-1.5 text-center border-b border-slate-950" onClick={(e) => e.stopPropagation()}>
-                      {(() => {
-                        const rawStatus = (order.status || "").toLowerCase();
-                        const isProcesadaOIniciada =
-                          rawStatus.includes("inicia") ||
-                          rawStatus.includes("camino") ||
-                          rawStatus.includes("proceso") ||
-                          rawStatus.includes("procesad");
-
-                        const progress = tasksProgressMap?.[String(order.id)] ||
-                          tasksProgressMap?.[String(order.ot || "")] ||
-                          tasksProgressMap?.[String(order.ticket || "")] ||
-                          tasksProgressMap?.[String(order.numeroOrden || "")];
-
-                        // Prioridad a los datos de la Base de Datos (orden_tareas_cache)
-                        const total = order.totalTareas !== undefined && order.totalTareas !== null
-                          ? order.totalTareas
-                          : (progress && progress.total > 0 ? progress.total : 0);
-
-                        const done = order.tareasFinalizadas !== undefined && order.tareasFinalizadas !== null
-                          ? order.tareasFinalizadas
-                          : (progress && progress.total > 0 ? progress.done : 0);
-
-                        const pct = order.progresoPorcentaje !== undefined && order.progresoPorcentaje !== null
-                          ? order.progresoPorcentaje
-                          : (progress && progress.total > 0 ? progress.pct : (total > 0 ? Math.round((done / total) * 100) : 0));
-
-                        // 1. Si la orden está Procesada o Iniciada (Técnico en campo en vivo)
-                        if (isProcesadaOIniciada) {
-                          return (
-                            <button
-                              type="button"
-                              onClick={() => onViewTasks && onViewTasks(order)}
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black font-mono shadow-2xs border tracking-tight transition-all cursor-pointer hover:scale-102 active:scale-95 whitespace-nowrap ${pct === 100
-                                ? "bg-emerald-600 text-white border-emerald-500 shadow-emerald-500/20"
-                                : pct >= 50
-                                  ? "bg-indigo-600 text-white border-indigo-500 shadow-indigo-500/20"
-                                  : "bg-amber-400 text-slate-950 border-amber-500 shadow-amber-500/20"
-                                }`}
-                              title={`Técnico en campo: ${done}/${total} tareas completadas (${pct}%). Clic para ver tareas en vivo.`}
-                            >
-                              <span className="relative flex h-1.5 w-1.5 shrink-0">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-current"></span>
-                              </span>
-                              <span>{total > 0 ? `${pct}% (${done}/${total})` : `${pct}%`}</span>
-                            </button>
-                          );
-                        }
-
-                        // 2. Para órdenes Finalizadas o de otros estados: botón limpio "Tareas"
-                        return (
-                          <button
-                            type="button"
-                            onClick={() => onViewTasks && onViewTasks(order)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold text-slate-600 hover:text-indigo-700 bg-slate-100/90 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 transition-all cursor-pointer shadow-2xs whitespace-nowrap"
-                            title="Ver tareas registradas en BD"
-                          >
-                            <Activity size={10} className="text-slate-400" />
-                            <span>Tareas</span>
-                          </button>
-                        );
                       })()}
                     </td>
 
@@ -818,6 +757,72 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                               )}
                             </button>
                           </div>
+                        );
+                      })()}
+                    </td>
+
+                    {/* TAREAS (Al costado a la derecha de Técnico) */}
+                    <td className="py-1 px-1.5 text-center border-b border-slate-950" onClick={(e) => e.stopPropagation()}>
+                      {(() => {
+                        const rawStatus = (order.status || "").toLowerCase();
+                        const isProcesadaOIniciada =
+                          rawStatus.includes("inicia") ||
+                          rawStatus.includes("camino") ||
+                          rawStatus.includes("proceso") ||
+                          rawStatus.includes("procesad");
+
+                        const progress = tasksProgressMap?.[String(order.id)] ||
+                          tasksProgressMap?.[String(order.ot || "")] ||
+                          tasksProgressMap?.[String(order.ticket || "")] ||
+                          tasksProgressMap?.[String(order.numeroOrden || "")];
+
+                        // Prioridad a los datos de la Base de Datos (orden_tareas_cache)
+                        const total = order.totalTareas !== undefined && order.totalTareas !== null
+                          ? order.totalTareas
+                          : (progress && progress.total > 0 ? progress.total : 0);
+
+                        const done = order.tareasFinalizadas !== undefined && order.tareasFinalizadas !== null
+                          ? order.tareasFinalizadas
+                          : (progress && progress.total > 0 ? progress.done : 0);
+
+                        const pct = order.progresoPorcentaje !== undefined && order.progresoPorcentaje !== null
+                          ? order.progresoPorcentaje
+                          : (progress && progress.total > 0 ? progress.pct : (total > 0 ? Math.round((done / total) * 100) : 0));
+
+                        // 1. Si la orden está Procesada o Iniciada (Técnico en campo en vivo)
+                        if (isProcesadaOIniciada) {
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => onViewTasks && onViewTasks(order)}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black font-mono shadow-2xs border tracking-tight transition-all cursor-pointer hover:scale-102 active:scale-95 whitespace-nowrap ${pct === 100
+                                ? "bg-emerald-600 text-white border-emerald-500 shadow-emerald-500/20"
+                                : pct >= 50
+                                  ? "bg-indigo-600 text-white border-indigo-500 shadow-indigo-500/20"
+                                  : "bg-amber-400 text-slate-950 border-amber-500 shadow-amber-500/20"
+                                }`}
+                              title={`Técnico en campo: ${done}/${total} tareas completadas (${pct}%). Clic para ver tareas en vivo.`}
+                            >
+                              <span className="relative flex h-1.5 w-1.5 shrink-0">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-current"></span>
+                              </span>
+                              <span>{total > 0 ? `${pct}% (${done}/${total})` : `${pct}%`}</span>
+                            </button>
+                          );
+                        }
+
+                        // 2. Para órdenes Finalizadas o de otros estados: botón limpio "Tareas"
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => onViewTasks && onViewTasks(order)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold text-slate-600 hover:text-indigo-700 bg-slate-100/90 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 transition-all cursor-pointer shadow-2xs whitespace-nowrap"
+                            title="Ver tareas registradas en BD"
+                          >
+                            <Activity size={10} className="text-slate-400" />
+                            <span>Tareas</span>
+                          </button>
                         );
                       })()}
                     </td>

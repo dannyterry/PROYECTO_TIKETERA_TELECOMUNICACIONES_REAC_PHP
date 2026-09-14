@@ -63,6 +63,7 @@ export const MobilityPage: React.FC = () => {
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
   const [tecnicos, setTecnicos] = useState<Tecnico[]>([]);
   const [inspecciones, setInspecciones] = useState<Inspeccion[]>([]);
+  const [dashboardKmInspecciones, setDashboardKmInspecciones] = useState<Inspeccion[]>([]);
   const [cargasCombustible, setCargasCombustible] = useState<CargaCombustible[]>([]);
   const [resumenCombustible, setResumenCombustible] = useState<ResumenCombustible>({
     totalGasto: 0,
@@ -111,6 +112,7 @@ export const MobilityPage: React.FC = () => {
       setVehiculos(vData);
       setTecnicos(tData);
       setInspecciones(iData);
+      setDashboardKmInspecciones(kmData.inspecciones || []);
       setCargasCombustible(cData.registros || []);
       setResumenCombustible(cData.resumen);
       setDashboardKmResumen(kmData.resumen);
@@ -268,7 +270,7 @@ export const MobilityPage: React.FC = () => {
 
       {activeTab === "dashboard" && (
         <KmDashboardTab
-          inspecciones={inspecciones}
+          inspecciones={dashboardKmInspecciones}
           resumen={dashboardKmResumen}
           alertasDesvio={alertasDesvio}
           loading={loading}

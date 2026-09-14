@@ -52,6 +52,20 @@ export interface Vehiculo {
   tecnico_asignado?: string;
   cuadrilla?: string;
   ultimo_km?: number | null;
+  fecha_asignacion?: string | null;
+  motivo_asignacion?: string | null;
+}
+
+export interface AsignacionVehiculo {
+  id_asignacion: number;
+  id_vehiculo: number;
+  id_trabajador: number;
+  fecha_inicio: string;
+  fecha_fin?: string | null;
+  motivo_cambio?: string | null;
+  estado: 'Activa' | 'Finalizada';
+  nombre_tecnico?: string;
+  cuadrilla?: string;
 }
 
 export interface Tecnico {
@@ -68,7 +82,7 @@ export interface Tecnico {
 }
 
 export interface Inspeccion {
-  id_inspeccion: number;
+  id_inspeccion: number | string;
   id_vehiculo: number;
   id_trabajador: number;
   fecha: string;
@@ -85,6 +99,7 @@ export interface Inspeccion {
   km_estimados_ordenes?: number;
   km_gps_app?: number;
   puntos_gps_count?: number;
+  puntos_ruta_count?: number;
   hora_inicio_real?: string;
   hora_cierre_real?: string;
   alerta_inicio_tardio?: boolean;

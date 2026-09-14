@@ -19,11 +19,33 @@ import {
   FileCheck,
   LayoutGrid,
   List,
+  Clock,
+  History,
 } from "lucide-react";
-import { Vehiculo, Tecnico, CatalogosFlota } from "../types/mobilityTypes";
-import { reasignarVehiculo, getCatalogosFlota } from "../services/mobilityService";
+import { Vehiculo, Tecnico, CatalogosFlota, AsignacionVehiculo } from "../types/mobilityTypes";
+import { reasignarVehiculo, getCatalogosFlota, getHistorialAsignaciones } from "../services/mobilityService";
 import { VehicleFormModal } from "./VehicleFormModal";
 import { FleetCatalogModal } from "./FleetCatalogModal";
+
+const formatearFechaHora = (fechaStr?: string | null) => {
+  if (!fechaStr) return "--";
+  try {
+    const clean = String(fechaStr).replace("T", " ").split(".")[0];
+    const parts = clean.split(" ");
+    if (parts.length >= 2) {
+      const [year, month, day] = parts[0].split("-");
+      const [hourStr, minStr] = parts[1].split(":");
+      let hour = parseInt(hourStr, 10);
+      const minute = minStr;
+      const ampm = hour >= 12 ? "p. m." : "a. m.";
+      hour = hour % 12 || 12;
+      return `${day}/${month}/${year.slice(2)}, ${hour}:${minute} ${ampm}`;
+    }
+  } catch {
+    // fallback
+  }
+  return String(fechaStr);
+};
 
 interface Props {
   vehiculos: Vehiculo[];
@@ -55,6 +77,25 @@ export const FleetManagementTab: React.FC<Props> = ({
   const [nuevoTrabajadorId, setNuevoTrabajadorId] = useState<string>("");
   const [motivoCambio, setMotivoCambio] = useState<string>("");
   const [guardando, setGuardando] = useState(false);
+
+  // Modal Historial de Asignaciones
+  const [vehiculoHistorial, setVehiculoHistorial] = useState<Vehiculo | null>(null);
+  const [historialLista, setHistorialLista] = useState<AsignacionVehiculo[]>([]);
+  const [cargandoHistorial, setCargandoHistorial] = useState(false);
+
+  const handleAbrirHistorial = async (v: Vehiculo) => {
+    setVehiculoHistorial(v);
+    setCargandoHistorial(true);
+    try {
+      const data = await getHistorialAsignaciones(v.id_vehiculo);
+      setHistorialLista(data);
+    } catch (err) {
+      console.error("Error al cargar historial de asignaciones:", err);
+      setHistorialLista([]);
+    } finally {
+      setCargandoHistorial(false);
+    }
+  };
 
   const cargarCatalogos = async () => {
     try {
@@ -288,13 +329,21 @@ export const FleetManagementTab: React.FC<Props> = ({
                 </div>
 
                 {/* Técnico Asignado */}
-                <div className={modoVista === "tarjetas" ? "mt-3 bg-slate-50/80 p-3 rounded-2xl border border-slate-100 flex items-center justify-between" : "bg-slate-50/80 px-3 py-2 rounded-xl border border-slate-100 flex items-center justify-between min-w-[280px] flex-1"}>
-                  <div className="flex items-center gap-2 truncate">
+                <div className={modoVista === "tarjetas" ? "mt-3 bg-slate-50/80 p-3 rounded-2xl border border-slate-100 flex items-center justify-between" : "bg-slate-50/80 px-3 py-2 rounded-xl border border-slate-100 flex items-center justify-between min-w-[300px] flex-1"}>
+                  <div className="flex items-center gap-2 truncate flex-1 mr-2">
                     <User size={16} className="text-cyan-600 shrink-0" />
-                    <div className="truncate">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase block">
-                        Conductor Asignado
-                      </span>
+                    <div className="truncate flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">
+                          Conductor Asignado
+                        </span>
+                        {v.fecha_asignacion && v.tecnico_asignado && v.tecnico_asignado !== "Sin asignar" && (
+                          <span className="text-[10px] font-bold text-cyan-700 bg-cyan-100/70 px-1.5 py-0.2 rounded border border-cyan-200 inline-flex items-center gap-0.5 font-mono">
+                            <Clock size={10} className="text-cyan-600" />
+                            {formatearFechaHora(v.fecha_asignacion)}
+                          </span>
+                        )}
+                      </div>
                       <span className="text-xs font-extrabold text-slate-800 truncate block" title={v.tecnico_asignado}>
                         {v.tecnico_asignado || "Sin técnico asignado"}
                       </span>
@@ -309,25 +358,35 @@ export const FleetManagementTab: React.FC<Props> = ({
               </div>
 
                 {/* Botones de Acción en cada vehículo */}
-                <div className={modoVista === "tarjetas" ? "flex items-center gap-2 pt-1" : "flex items-center gap-2 ml-auto"}>
+                <div className={modoVista === "tarjetas" ? "flex items-center gap-2 pt-1" : "flex items-center gap-2 ml-auto shrink-0"}>
                   <button
                     type="button"
                     onClick={() => handleAbrirEditarVehiculo(v)}
-                    className="flex-1 py-2.5 px-3 rounded-2xl border border-slate-200 hover:border-cyan-500 bg-white hover:bg-cyan-50/50 text-slate-700 hover:text-cyan-700 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                    className="flex-1 py-2 px-2.5 rounded-2xl border border-slate-200 hover:border-cyan-500 bg-white hover:bg-cyan-50/50 text-slate-700 hover:text-cyan-700 text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer shadow-xs"
                     title="Editar datos del vehículo"
                   >
-                    <Edit3 size={14} className="text-cyan-600" />
+                    <Edit3 size={13} className="text-cyan-600" />
                     <span>Editar</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleAbrirReasignar(v)}
-                    className="flex-1 py-2.5 px-3 rounded-2xl border border-slate-200 hover:border-cyan-500 bg-white hover:bg-cyan-50/50 text-slate-700 hover:text-cyan-700 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                    className="flex-1 py-2 px-2.5 rounded-2xl border border-slate-200 hover:border-cyan-500 bg-white hover:bg-cyan-50/50 text-slate-700 hover:text-cyan-700 text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer shadow-xs"
                     title="Reasignar conductor"
                   >
-                    <RotateCw size={14} className="text-cyan-600" />
+                    <RotateCw size={13} className="text-cyan-600" />
                     <span>Conductor</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleAbrirHistorial(v)}
+                    className="flex-1 py-2 px-2.5 rounded-2xl border border-slate-200 hover:border-cyan-500 bg-white hover:bg-cyan-50/50 text-slate-700 hover:text-cyan-700 text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer shadow-xs"
+                    title="Historial de conductores"
+                  >
+                    <History size={13} className="text-cyan-600" />
+                    <span>Historial</span>
                   </button>
                 </div>
               </div>
@@ -368,6 +427,16 @@ export const FleetManagementTab: React.FC<Props> = ({
                 <p className="text-xs text-slate-500 font-medium">
                   {vehiculoSeleccionado.marca} {vehiculoSeleccionado.modelo} ({vehiculoSeleccionado.color})
                 </p>
+                {vehiculoSeleccionado.tecnico_asignado && vehiculoSeleccionado.tecnico_asignado !== "Sin asignar" && (
+                  <div className="mt-1 text-[11px] text-cyan-900 font-semibold bg-white px-2 py-0.5 rounded-lg border border-cyan-200">
+                    <span>Conductor actual: <b>{vehiculoSeleccionado.tecnico_asignado}</b></span>
+                    {vehiculoSeleccionado.fecha_asignacion && (
+                      <span className="block text-[10px] text-slate-500 font-mono">
+                        Asignado desde: {formatearFechaHora(vehiculoSeleccionado.fecha_asignacion)}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -454,6 +523,165 @@ export const FleetManagementTab: React.FC<Props> = ({
           onRefresh();
         }}
       />
+
+      {/* ─────────────────────────────────────────────────────────────
+          6. MODAL HISTORIAL DE CONDUCTORES Y ASIGNACIONES
+      ───────────────────────────────────────────────────────────── */}
+      {vehiculoHistorial && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-fade-in">
+          <div className="bg-white rounded-3xl p-6 max-w-2xl w-full shadow-2xl border border-slate-100 space-y-4 max-h-[90vh] flex flex-col">
+            
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5 text-cyan-600 font-extrabold text-base">
+                <History size={22} />
+                <span>Historial de Conductores y Asignaciones</span>
+              </div>
+              <button
+                onClick={() => setVehiculoHistorial(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Vehículo Info Bar */}
+            <div className="p-3 bg-cyan-50/60 rounded-2xl border border-cyan-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-cyan-600 text-white flex items-center justify-center font-black">
+                  <Car size={20} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-black text-slate-900 font-mono tracking-wider">
+                      {vehiculoHistorial.placa}
+                    </span>
+                    <span className="text-xs text-slate-500 font-medium">
+                      {vehiculoHistorial.marca} {vehiculoHistorial.modelo}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-cyan-800 font-bold">
+                    Conductor actual: {vehiculoHistorial.tecnico_asignado || "Sin asignar"}
+                  </span>
+                </div>
+              </div>
+              <span className="text-xs font-black font-mono text-cyan-900 bg-white px-2.5 py-1 rounded-xl border border-cyan-200">
+                {vehiculoHistorial.color || "Vehículo"}
+              </span>
+            </div>
+
+            {/* Contenido / Timeline */}
+            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
+              {cargandoHistorial ? (
+                <div className="py-12 text-center text-slate-400 text-xs font-semibold">
+                  Cargando historial de asignaciones...
+                </div>
+              ) : historialLista.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-xs font-semibold space-y-1">
+                  <User size={32} className="mx-auto text-slate-300 mb-2" />
+                  <p>No se encontraron registros anteriores de asignación para este vehículo.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {historialLista.map((asig, idx) => {
+                    const esVigente =
+                      idx === 0 &&
+                      asig.estado === "Activa" &&
+                      !asig.fecha_fin &&
+                      Boolean(vehiculoHistorial.id_trabajador) &&
+                      vehiculoHistorial.id_trabajador === asig.id_trabajador &&
+                      vehiculoHistorial.tecnico_asignado !== "Sin asignar";
+                    return (
+                      <div
+                        key={asig.id_asignacion || idx}
+                        className={`p-3.5 rounded-2xl border transition-all ${
+                          esVigente
+                            ? "bg-emerald-50/50 border-emerald-200 ring-1 ring-emerald-300/40"
+                            : "bg-slate-50/70 border-slate-200"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <div
+                              className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
+                                esVigente
+                                  ? "bg-emerald-600 text-white"
+                                  : "bg-slate-200 text-slate-600"
+                              }`}
+                            >
+                              <User size={15} />
+                            </div>
+                            <div>
+                              <span className="text-xs font-extrabold text-slate-800 block">
+                                {asig.nombre_tecnico || "Técnico asignado"}
+                              </span>
+                              {asig.cuadrilla && (
+                                <span className="text-[10px] font-bold text-cyan-800 bg-cyan-100/70 px-1.5 py-0.2 rounded">
+                                  {asig.cuadrilla}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <span
+                            className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                              esVigente
+                                ? "bg-emerald-100 text-emerald-800"
+                                : "bg-slate-200 text-slate-600"
+                            }`}
+                          >
+                            {esVigente ? "🟢 Vigente (Actual)" : "Finalizada"}
+                          </span>
+                        </div>
+
+                        {/* Fechas Inicio y Fin */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2.5 pt-2 border-t border-slate-200/50 text-[11px]">
+                          <div>
+                            <span className="text-slate-400 font-medium block">Fecha y Hora de Asignación:</span>
+                            <span className="font-bold text-slate-700 font-mono flex items-center gap-1">
+                              <Clock size={12} className="text-cyan-600" />
+                              {formatearFechaHora(asig.fecha_inicio)}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 font-medium block">Fecha y Hora de Cierre / Relevo:</span>
+                            <span className="font-bold text-slate-700 font-mono">
+                              {asig.fecha_fin
+                                ? formatearFechaHora(asig.fecha_fin)
+                                : esVigente
+                                ? "En uso continuo hasta la actualidad"
+                                : "Relevado / Finalizado"}
+                            </span>
+                          </div>
+                        </div>
+
+                        {asig.motivo_cambio && (
+                          <div className="mt-2 text-[11px] text-slate-500 bg-white/70 p-2 rounded-xl border border-slate-200/60">
+                            <span className="font-bold text-slate-600">Motivo: </span>
+                            <span>{asig.motivo_cambio}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="pt-2 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setVehiculoHistorial(null)}
+                className="px-5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+              >
+                Cerrar
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 };

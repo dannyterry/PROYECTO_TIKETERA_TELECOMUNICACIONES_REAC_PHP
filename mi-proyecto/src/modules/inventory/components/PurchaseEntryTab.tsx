@@ -33,6 +33,7 @@ import {
   Clock,
   ArrowRight,
   Copy,
+  Pencil,
 } from "lucide-react";
 import { ProductoStock, Proveedor, CompraPayload, CompraHistorialItem, CompraDetalleItem } from "../types/inventoryTypes";
 import {
@@ -44,6 +45,7 @@ import {
   crearCategoria,
   getCompras,
   anularCompra,
+  actualizarPreciosCompra,
 } from "../services/inventoryService";
 
 interface Props {
@@ -74,6 +76,30 @@ interface ItemRow {
   fila?: number;
   busquedaProducto?: string;
 }
+
+export const formatFechaVisual = (fechaStr: string | Date | null | undefined): string => {
+  if (!fechaStr) return "-";
+  const str = String(fechaStr).trim();
+  const datePart = str.split("T")[0].split(" ")[0];
+  const parts = datePart.split("-");
+  if (parts.length === 3 && parts[0].length === 4) {
+    const [y, m, d] = parts;
+    return `${d.padStart(2, "0")}/${m.padStart(2, "0")}/${y}`;
+  }
+  return new Date(fechaStr).toLocaleDateString("es-PE");
+};
+
+export const formatHoraVisual = (fechaHoraStr: string | Date | null | undefined): string => {
+  if (!fechaHoraStr) return "";
+  try {
+    const str = String(fechaHoraStr).replace(" ", "T");
+    const d = new Date(str);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+};
 
 export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrada }) => {
   const [localProductos, setLocalProductos] = useState<ProductoStock[]>(productos);
@@ -115,6 +141,65 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
     error: null,
   });
 
+  const [modoEdicionPrecios, setModoEdicionPrecios] = useState(false);
+  const [preciosEditados, setPreciosEditados] = useState<{ [key: string]: number }>({});
+  const [guardandoPrecios, setGuardandoPrecios] = useState(false);
+
+  const handleIniciarEdicionPrecios = () => {
+    if (!compraDetalleModal) return;
+    const iniciales: { [key: string]: number } = {};
+    (compraDetalleModal.items || []).forEach((it) => {
+      const key = it.id_detalle_compra ? String(it.id_detalle_compra) : `prod_${it.id_producto}`;
+      iniciales[key] = Number(it.precio || 0);
+    });
+    setPreciosEditados(iniciales);
+    setModoEdicionPrecios(true);
+  };
+
+  const handleGuardarPrecios = async () => {
+    if (!compraDetalleModal) return;
+    try {
+      setGuardandoPrecios(true);
+      const itemsPayload = (compraDetalleModal.items || []).map((it) => {
+        const key = it.id_detalle_compra ? String(it.id_detalle_compra) : `prod_${it.id_producto}`;
+        const nuevoPrecio = preciosEditados[key] !== undefined ? Number(preciosEditados[key]) : Number(it.precio || 0);
+        return {
+          id_detalle_compra: it.id_detalle_compra,
+          id_producto: it.id_producto,
+          precio: nuevoPrecio,
+        };
+      });
+
+      const res = await actualizarPreciosCompra(compraDetalleModal.id_compra, itemsPayload);
+      alert("✅ ¡Precios actualizados con éxito!");
+      setModoEdicionPrecios(false);
+      await cargarHistorial();
+      if (onCompraRegistrada) onCompraRegistrada();
+
+      setCompraDetalleModal((prev) => {
+        if (!prev) return null;
+        const nuevosItems = (prev.items || []).map((it) => {
+          const key = it.id_detalle_compra ? String(it.id_detalle_compra) : `prod_${it.id_producto}`;
+          const p = preciosEditados[key] !== undefined ? Number(preciosEditados[key]) : Number(it.precio || 0);
+          return {
+            ...it,
+            precio: p,
+            subtotal: p * Number(it.cantidad || 0),
+          };
+        });
+        return {
+          ...prev,
+          total: res.nuevo_total ?? nuevosItems.reduce((acc, it) => acc + Number(it.subtotal || 0), 0),
+          items: nuevosItems,
+        };
+      });
+    } catch (err: any) {
+      alert("Error al actualizar precios: " + (err.response?.data?.error || err.message));
+    } finally {
+      setGuardandoPrecios(false);
+    }
+  };
+
   const cargarHistorial = async () => {
     try {
       setCargandoHistorial(true);
@@ -140,7 +225,13 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
   // 1. Datos Comprobante & Proveedor
   const [tipoComprobante, setTipoComprobante] = useState<"Factura" | "Boleta" | "Guía de Remisión" | "Nota de Ingreso (NIA)">("Factura");
   const [numeroComprobante, setNumeroComprobante] = useState("");
-  const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
+  const [fecha, setFecha] = useState(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  });
 
   const [ruc, setRuc] = useState("");
   const [razonSocial, setRazonSocial] = useState("");
@@ -2198,10 +2289,10 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                           <td className="py-3 px-4 whitespace-nowrap">
                             <div className="flex items-center gap-1.5 text-slate-600 font-medium">
                               <Calendar size={13} className="text-slate-400" />
-                              <span>{new Date(compra.fecha).toLocaleDateString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric" })}</span>
+                              <span>{formatFechaVisual(compra.fecha)}</span>
                             </div>
                             <span className="text-[10px] text-slate-400 font-mono block mt-0.5">
-                              {new Date(compra.fecha_creacion).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}
+                              {formatHoraVisual(compra.fecha_creacion)}
                             </span>
                           </td>
 
@@ -2855,7 +2946,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                     )}
                   </div>
                   <span className="text-xs text-slate-400 font-medium">
-                    Fecha: <strong>{new Date(compraDetalleModal.fecha).toLocaleDateString("es-PE")}</strong> • Proveedor: <strong>{compraDetalleModal.proveedor_nombre || "Ingreso Directo"}</strong>
+                    Fecha: <strong>{formatFechaVisual(compraDetalleModal.fecha)}</strong> • Proveedor: <strong>{compraDetalleModal.proveedor_nombre || "Ingreso Directo"}</strong>
                   </span>
                 </div>
               </div>
@@ -2896,26 +2987,54 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {compraDetalleModal.items?.map((it, itIdx) => (
-                        <tr key={itIdx} className="hover:bg-slate-50/50">
-                          <td className="py-2.5 px-3">
-                            <span className="font-bold text-slate-800 block">{it.producto_nombre}</span>
-                            <span className="text-[10px] font-mono text-slate-400">{it.producto_codigo}</span>
-                          </td>
-                          <td className="py-2.5 px-3 text-slate-500 font-medium">
-                            {it.categoria_nombre || "GENERAL"}
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-bold text-slate-800">
-                            {it.cantidad}
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-mono text-slate-600">
-                            S/ {Number(it.precio || 0).toFixed(2)}
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
-                            S/ {Number(it.subtotal || 0).toFixed(2)}
-                          </td>
-                        </tr>
-                      ))}
+                      {compraDetalleModal.items?.map((it, itIdx) => {
+                        const key = it.id_detalle_compra ? String(it.id_detalle_compra) : `prod_${it.id_producto}`;
+                        const precioActual = modoEdicionPrecios
+                          ? (preciosEditados[key] ?? Number(it.precio || 0))
+                          : Number(it.precio || 0);
+                        const subtotalActual = Number(it.cantidad || 0) * precioActual;
+
+                        return (
+                          <tr key={itIdx} className="hover:bg-slate-50/50">
+                            <td className="py-2.5 px-3">
+                              <span className="font-bold text-slate-800 block">{it.producto_nombre}</span>
+                              <span className="text-[10px] font-mono text-slate-400">{it.producto_codigo}</span>
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-500 font-medium">
+                              {it.categoria_nombre || "GENERAL"}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-bold text-slate-800">
+                              {it.cantidad}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono text-slate-600">
+                              {modoEdicionPrecios ? (
+                                <div className="flex items-center justify-end gap-1">
+                                  <span className="text-slate-400 text-xs">S/</span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={preciosEditados[key] ?? Number(it.precio || 0)}
+                                    onChange={(e) => {
+                                      const val = parseFloat(e.target.value);
+                                      setPreciosEditados((prev) => ({
+                                        ...prev,
+                                        [key]: isNaN(val) ? 0 : val,
+                                      }));
+                                    }}
+                                    className="w-24 px-2 py-1 bg-white border border-indigo-300 rounded-lg text-xs font-mono font-bold text-indigo-900 text-right focus:outline-none focus:ring-1 focus:ring-indigo-500 shadow-2xs"
+                                  />
+                                </div>
+                              ) : (
+                                <span>S/ {precioActual.toFixed(2)}</span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
+                              S/ {subtotalActual.toFixed(2)}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -2963,37 +3082,90 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-400 font-bold">Total de la Compra:</span>
                 <span className="text-lg font-black font-mono text-emerald-700">
-                  S/ {Number(compraDetalleModal.total || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  S/ {(() => {
+                    const totalCalculado = modoEdicionPrecios
+                      ? (compraDetalleModal.items || []).reduce((acc, it) => {
+                          const key = it.id_detalle_compra ? String(it.id_detalle_compra) : `prod_${it.id_producto}`;
+                          const p = preciosEditados[key] ?? Number(it.precio || 0);
+                          return acc + (Number(it.cantidad || 0) * p);
+                        }, 0)
+                      : Number(compraDetalleModal.total || 0);
+                    return totalCalculado.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                  })()}
                 </span>
               </div>
 
               <div className="flex items-center gap-2">
-                {compraDetalleModal.estado !== 'ANULADA' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setModalAnular({
-                        isOpen: true,
-                        compra: compraDetalleModal,
-                        motivo: "",
-                        guardando: false,
-                        error: null,
-                      });
-                    }}
-                    className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all"
-                  >
-                    <Ban size={14} />
-                    <span>Anular esta Compra</span>
-                  </button>
-                )}
+                {modoEdicionPrecios ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setModoEdicionPrecios(false)}
+                      disabled={guardandoPrecios}
+                      className="px-3 py-2 border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-xl font-bold text-xs cursor-pointer transition-all"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleGuardarPrecios}
+                      disabled={guardandoPrecios}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-sm transition-all"
+                    >
+                      {guardandoPrecios ? (
+                        <span>Guardando...</span>
+                      ) : (
+                        <>
+                          <Check size={14} />
+                          <span>Guardar Precios</span>
+                        </>
+                      )}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {compraDetalleModal.estado !== 'ANULADA' && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={handleIniciarEdicionPrecios}
+                          className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all"
+                          title="Editar el costo unitario de los productos de esta compra"
+                        >
+                          <Pencil size={13} />
+                          <span>Editar Precios</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setModalAnular({
+                              isOpen: true,
+                              compra: compraDetalleModal,
+                              motivo: "",
+                              guardando: false,
+                              error: null,
+                            });
+                          }}
+                          className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all"
+                        >
+                          <Ban size={14} />
+                          <span>Anular esta Compra</span>
+                        </button>
+                      </>
+                    )}
 
-                <button
-                  type="button"
-                  onClick={() => setCompraDetalleModal(null)}
-                  className="px-4 py-2 border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-xl font-bold text-xs cursor-pointer transition-all"
-                >
-                  Cerrar
-                </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCompraDetalleModal(null);
+                        setModoEdicionPrecios(false);
+                      }}
+                      className="px-4 py-2 border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-xl font-bold text-xs cursor-pointer transition-all"
+                    >
+                      Cerrar
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 

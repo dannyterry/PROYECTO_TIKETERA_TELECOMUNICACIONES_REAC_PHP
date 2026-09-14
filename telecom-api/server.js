@@ -462,9 +462,16 @@ app.get("/sbs/comisiones", async (req, res) => {
   }
 });
 
+// Cache en memoria para empleados (10 segundos para proteger MySQL ante múltiples peticiones al abrir la app)
+let cacheEmpleados = { data: null, timestamp: 0 };
+
 // --- OBTENER USUARIOS ---
 app.get('/empleados', async (req, res) => {
   try {
+    if (cacheEmpleados.data && Date.now() - cacheEmpleados.timestamp < 10000) {
+      return res.json(cacheEmpleados.data);
+    }
+
     // APLICAMOS UN LEFT JOIN PARA TRAER EL NOMBRE DEL ROL
     const [usuarios] = await pool.query(`
       SELECT u.*, r.nombre AS nombre_rol 
@@ -479,6 +486,7 @@ app.get('/empleados', async (req, res) => {
       hijos: hijos.filter(h => h.id_usuario === user.id_usuario) 
     }));
     
+    cacheEmpleados = { data: usuariosConHijos, timestamp: Date.now() };
     res.json(usuariosConHijos);
   } catch (error) { 
     res.status(500).json({ error: error.message }); 
@@ -545,6 +553,7 @@ app.post('/empleados', upload, async (req, res) => {
       [r.insertId, dateOrNull(d.fechaIngreso)]
     );
 
+    cacheEmpleados.data = null;
     await connection.commit(); res.status(201).json({ message: "Empleado creado" });
   } catch (error) { await connection.rollback(); console.error(error); res.status(500).json({ error: error.message }); } finally { connection.release(); }
 });
@@ -653,6 +662,7 @@ app.put('/empleados/:id', upload, async (req, res) => {
       );
     }
 
+    cacheEmpleados.data = null;
     res.json({ message: "Usuario actualizado" });
   } catch (error) { 
     console.error(error);
@@ -3323,7 +3333,21 @@ app.get('/api/movilidad/vehiculos', async (req, res) => {
           'Sin asignar'
         ) AS tecnico_asignado,
         COALESCE(u.cuadrilla, '') AS cuadrilla,
-        (SELECT MAX(km_fin) FROM vehiculo_inspecciones WHERE id_vehiculo = v.id_vehiculo) AS ultimo_km
+        (SELECT MAX(km_fin) FROM vehiculo_inspecciones WHERE id_vehiculo = v.id_vehiculo) AS ultimo_km,
+        (
+          SELECT va.fecha_inicio 
+          FROM vehiculo_asignaciones va 
+          WHERE va.id_vehiculo = v.id_vehiculo AND va.estado = 'Activa'
+          ORDER BY va.id_asignacion DESC 
+          LIMIT 1
+        ) AS fecha_asignacion,
+        (
+          SELECT va.motivo_cambio 
+          FROM vehiculo_asignaciones va 
+          WHERE va.id_vehiculo = v.id_vehiculo AND va.estado = 'Activa'
+          ORDER BY va.id_asignacion DESC 
+          LIMIT 1
+        ) AS motivo_asignacion
       FROM vehiculos v
       LEFT JOIN marcas m ON v.id_marca = m.id_marca
       LEFT JOIN modelos mo ON v.id_modelo = mo.id_modelo
@@ -3648,11 +3672,30 @@ app.put('/api/movilidad/reasignar-vehiculo', async (req, res) => {
       }
     }
 
-    // 1. Quitar vehículo de cualquier trabajador anterior
+    // 1. Cerrar cualquier asignación activa previa para este vehículo
+    await pool.query(`
+      UPDATE vehiculo_asignaciones 
+      SET fecha_fin = NOW(), estado = 'Finalizada' 
+      WHERE id_vehiculo = ? AND estado = 'Activa'
+    `, [id_vehiculo]);
+
+    // 2. Quitar vehículo de cualquier trabajador anterior
     await pool.query("UPDATE trabajadores SET id_vehiculo = NULL WHERE id_vehiculo = ?", [id_vehiculo]);
 
-    // 2. Si se asigna a un nuevo trabajador
+    // 3. Si se asigna a un nuevo trabajador
     if (id_trabajador) {
+      // Si el trabajador ya tenía otro vehículo asignado, liberarlo
+      await pool.query(`
+        UPDATE vehiculos SET estado = 'Disponible' 
+        WHERE id_vehiculo IN (SELECT id_vehiculo FROM trabajadores WHERE id_trabajador = ? AND id_vehiculo IS NOT NULL)
+      `, [id_trabajador]);
+
+      await pool.query(`
+        UPDATE vehiculo_asignaciones 
+        SET fecha_fin = NOW(), estado = 'Finalizada' 
+        WHERE id_trabajador = ? AND estado = 'Activa'
+      `, [id_trabajador]);
+
       await pool.query("UPDATE trabajadores SET id_vehiculo = ? WHERE id_trabajador = ?", [id_vehiculo, id_trabajador]);
       await pool.query("UPDATE vehiculos SET estado = 'En uso' WHERE id_vehiculo = ?", [id_vehiculo]);
 
@@ -3666,6 +3709,34 @@ app.put('/api/movilidad/reasignar-vehiculo', async (req, res) => {
     }
 
     res.json({ success: true, message: "Vehículo reasignado con éxito" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- 🚗 3.1 HISTORIAL DE ASIGNACIONES DE UN VEHÍCULO ---
+app.get('/api/movilidad/vehiculos/:id/asignaciones', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [rows] = await pool.query(`
+      SELECT 
+        va.id_asignacion,
+        va.id_vehiculo,
+        va.id_trabajador,
+        va.fecha_inicio,
+        va.fecha_fin,
+        va.motivo_cambio,
+        va.estado,
+        u.id_usuario,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))) AS nombre_tecnico,
+        u.cuadrilla
+      FROM vehiculo_asignaciones va
+      LEFT JOIN trabajadores t ON va.id_trabajador = t.id_trabajador
+      LEFT JOIN usuarios u ON t.id_usuario = u.id_usuario
+      WHERE va.id_vehiculo = ?
+      ORDER BY va.id_asignacion DESC
+    `, [id]);
+    res.json(rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -4044,6 +4115,22 @@ app.get('/api/movilidad/combustible', async (req, res) => {
   }
 });
 
+// --- ⛽ 9.1 LISTAR GRIFOS HISTÓRICOS REGISTRADOS ---
+app.get('/api/movilidad/combustible/grifos', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT DISTINCT TRIM(grifo_estacion) AS grifo 
+      FROM vehiculo_combustibles 
+      WHERE grifo_estacion IS NOT NULL AND TRIM(grifo_estacion) != ''
+      ORDER BY grifo_estacion ASC
+    `);
+    const grifos = rows.map(r => r.grifo).filter(Boolean);
+    res.json(grifos);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // --- ⛽ 10. ELIMINAR CARGA DE COMBUSTIBLE ---
 app.delete('/api/movilidad/combustible/:id', async (req, res) => {
   try {
@@ -4055,8 +4142,57 @@ app.delete('/api/movilidad/combustible/:id', async (req, res) => {
   }
 });
 
-// --- 📊 11. DASHBOARD DE KILOMETRAJE Y CRUCE DE RUTAS CON ÓRDENES ---
-// --- 📊 11. DASHBOARD DE KILOMETRAJE Y CRUCE DE RUTAS CON ÓRDENES ---
+// --- ⛽ 10.1 ACTUALIZAR CARGA DE COMBUSTIBLE ---
+app.put('/api/movilidad/combustible/:id', uploadInspeccion, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      id_vehiculo, id_trabajador, fecha_carga, tipo_combustible,
+      monto_total, galones_m3, km_momento_carga, grifo_estacion,
+      numero_comprobante, tipo_comprobante, observaciones
+    } = req.body;
+
+    const foto_comprobante = req.files && req.files['foto_comprobante'] ? req.files['foto_comprobante'][0].filename : null;
+
+    let query = `
+      UPDATE vehiculo_combustibles SET
+        id_vehiculo = COALESCE(?, id_vehiculo),
+        id_trabajador = ?,
+        fecha_carga = COALESCE(?, fecha_carga),
+        tipo_combustible = COALESCE(?, tipo_combustible),
+        monto_total = COALESCE(?, monto_total),
+        galones_m3 = COALESCE(?, galones_m3),
+        km_momento_carga = COALESCE(?, km_momento_carga),
+        grifo_estacion = COALESCE(?, grifo_estacion),
+        numero_comprobante = ?,
+        tipo_comprobante = COALESCE(?, tipo_comprobante),
+        observaciones = ?
+    `;
+    const params = [
+      id_vehiculo, id_trabajador || null, fecha_carga, tipo_combustible,
+      monto_total, galones_m3, km_momento_carga, grifo_estacion,
+      numero_comprobante || null, tipo_comprobante, observaciones || null
+    ];
+
+    if (foto_comprobante) {
+      query += `, foto_comprobante = ?`;
+      params.push(foto_comprobante);
+    }
+
+    query += ` WHERE id_combustible_registro = ?`;
+    params.push(id);
+
+    await pool.query(query, params);
+    res.json({ success: true, message: "Registro de combustible actualizado correctamente" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Cache en memoria para dashboard-km (15 segundos para proteger el hosting Linux ante concurrencia)
+let cacheDashboardKm = { data: null, timestamp: 0, queryKey: '' };
+
+// --- 📊 11. DASHBOARD DE KILOMETRAJE Y CRUCE DE RUTAS CON ÓRDENES (OPTIMIZADO PARA HOSTING) ---
 app.get('/api/movilidad/dashboard-km', async (req, res) => {
   try {
     const { fecha_desde, fecha_hasta } = req.query;
@@ -4066,133 +4202,208 @@ app.get('/api/movilidad/dashboard-km', async (req, res) => {
     const hoyStr = new Date().toISOString().slice(0, 10);
     const ahoraMinutos = new Date().getHours() * 60 + new Date().getMinutes();
 
-    // 1. Inspecciones explícitas enviadas en checklist
-    const [inspecciones] = await pool.query(`
-      SELECT 
-        i.*,
-        v.placa,
-        m.nombre AS marca,
-        mo.nombre AS modelo,
-        u.id_usuario,
-        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))) AS nombre_tecnico,
-        u.cuadrilla
-      FROM vehiculo_inspecciones i
-      JOIN vehiculos v ON i.id_vehiculo = v.id_vehiculo
-      JOIN trabajadores t ON i.id_trabajador = t.id_trabajador
-      JOIN usuarios u ON t.id_usuario = u.id_usuario
-      LEFT JOIN marcas m ON v.id_marca = m.id_marca
-      LEFT JOIN modelos mo ON v.id_modelo = mo.id_modelo
-      WHERE i.fecha BETWEEN ? AND ?
-      ORDER BY i.fecha DESC, i.km_recorridos DESC
-    `, [fDesde, fHasta]);
-
-    // 2. Todos los trabajadores y técnicos con vehículos asignados
-    const [allWorkers] = await pool.query(`
-      SELECT 
-        t.id_trabajador,
-        t.id_vehiculo,
-        u.id_usuario,
-        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))) AS nombre_tecnico,
-        u.cuadrilla,
-        v.placa,
-        m.nombre AS marca,
-        mo.nombre AS modelo
-      FROM trabajadores t
-      JOIN usuarios u ON t.id_usuario = u.id_usuario
-      LEFT JOIN vehiculos v ON t.id_vehiculo = v.id_vehiculo
-      LEFT JOIN marcas m ON v.id_marca = m.id_marca
-      LEFT JOIN modelos mo ON v.id_modelo = mo.id_modelo
-      WHERE t.estado = 'activo'
-    `);
-
-    // 3. Órdenes del rango de fechas para calcular ruta y KM estimados por cuadrilla
-    const [ordenesRango] = await pool.query(`
-      SELECT 
-        DATE(COALESCE(fecha_solicitud, fecha_visita, fecha_creacion)) as fecha_orden,
-        cuadrilla,
-        tecnico_asignado,
-        id_tecnico,
-        georeferencia,
-        direccion
-      FROM ordenes
-      WHERE (DATE(fecha_solicitud) BETWEEN ? AND ?)
-         OR (DATE(fecha_visita) BETWEEN ? AND ?)
-         OR (DATE(fecha_creacion) BETWEEN ? AND ?)
-    `, [fDesde, fHasta, fDesde, fHasta, fDesde, fHasta]);
-
-    // Agrupar órdenes por fecha y cuadrilla/técnico
-    const rutasMap = new Map(); // key: `fecha|cuadrilla_clean`
-    for (const ord of ordenesRango) {
-      const f = ord.fecha_orden ? String(ord.fecha_orden).slice(0, 10) : hoyStr;
-      const ref = (ord.cuadrilla || ord.tecnico_asignado || '').toLowerCase().trim();
-      if (!ref) continue;
-      const key = `${f}|${ref}`;
-      if (!rutasMap.has(key)) rutasMap.set(key, []);
-
-      // Extraer coordenadas
-      const match = (ord.georeferencia || ord.direccion || '').match(/(-?\d{1,2}\.\d{4,8})\s*,\s*(-?\d{1,3}\.\d{4,8})/);
-      if (match) {
-        rutasMap.get(key).push({ lat: Number(match[1]), lng: Number(match[2]) });
-      }
+    // Verificación de Caché en memoria (15 segundos)
+    const currentKey = `${fDesde}|${fHasta}`;
+    if (
+      cacheDashboardKm.data &&
+      cacheDashboardKm.queryKey === currentKey &&
+      Date.now() - cacheDashboardKm.timestamp < 15000
+    ) {
+      return res.json(cacheDashboardKm.data);
     }
 
-    // Mapa de inspecciones existentes para evitar duplicados
-    const keyInspSet = new Set(inspecciones.map(i => `${String(i.fecha).slice(0, 10)}|${i.id_trabajador}`));
+    // ⚡ 1. EJECUTAR SOLO 4 CONSULTAS BATCH EN PARALELO (CERO N+1 QUERIES)
+    const [
+      [inspecciones],
+      [allWorkers],
+      [ordenesRango],
+      [gpsLogs]
+    ] = await Promise.all([
+      // A. Inspecciones explícitas de checklist
+      pool.query(`
+        SELECT 
+          i.*,
+          v.placa,
+          m.nombre AS marca,
+          mo.nombre AS modelo,
+          u.id_usuario,
+          TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))) AS nombre_tecnico,
+          u.cuadrilla
+        FROM vehiculo_inspecciones i
+        JOIN vehiculos v ON i.id_vehiculo = v.id_vehiculo
+        JOIN trabajadores t ON i.id_trabajador = t.id_trabajador
+        JOIN usuarios u ON t.id_usuario = u.id_usuario
+        LEFT JOIN marcas m ON v.id_marca = m.id_marca
+        LEFT JOIN modelos mo ON v.id_modelo = mo.id_modelo
+        WHERE i.fecha BETWEEN ? AND ?
+        ORDER BY i.fecha DESC, i.km_recorridos DESC
+      `, [fDesde, fHasta]),
 
-    // Combinar inspecciones con trabajadores activos que tienen órdenes o vehículos
-    const listaCompleta = [...inspecciones];
+      // B. Trabajadores activos
+      pool.query(`
+        SELECT 
+          t.id_trabajador,
+          t.id_vehiculo,
+          u.id_usuario,
+          TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))) AS nombre_tecnico,
+          u.cuadrilla,
+          v.placa,
+          m.nombre AS marca,
+          mo.nombre AS modelo
+        FROM trabajadores t
+        JOIN usuarios u ON t.id_usuario = u.id_usuario
+        LEFT JOIN vehiculos v ON t.id_vehiculo = v.id_vehiculo
+        LEFT JOIN marcas m ON v.id_marca = m.id_marca
+        LEFT JOIN modelos mo ON v.id_modelo = mo.id_modelo
+        WHERE t.estado = 'activo'
+      `),
 
-    // Días en el rango a evaluar
-    const fechasAevaluar = [fHasta];
-    if (fDesde !== fHasta) fechasAevaluar.push(fDesde);
+      // C. Órdenes finalizadas en el rango (con georreferencia)
+      pool.query(`
+        SELECT 
+          id_orden,
+          numero AS numero_orden,
+          cliente,
+          direccion,
+          georeferencia,
+          estado,
+          DATE(COALESCE(fecha_solicitud, fecha_visita, fecha_creacion)) as fecha_orden,
+          cuadrilla,
+          tecnico_asignado
+        FROM ordenes
+        WHERE ((DATE(fecha_solicitud) BETWEEN ? AND ?)
+           OR (DATE(fecha_visita) BETWEEN ? AND ?)
+           OR (DATE(fecha_creacion) BETWEEN ? AND ?))
+          AND LOWER(TRIM(estado)) = 'finalizada'
+        ORDER BY id_orden ASC
+      `, [fDesde, fHasta, fDesde, fHasta, fDesde, fHasta]),
+
+      // D. ÚNICA consulta BATCH de GPS logs para todo el rango
+      pool.query(`
+        SELECT 
+          id_trabajador,
+          DATE(fecha_hora) as fecha,
+          lat,
+          lng,
+          fecha_hora,
+          tipo_evento
+        FROM tecnico_gps_logs
+        WHERE fecha_hora >= ? AND fecha_hora <= ?
+        ORDER BY fecha_hora ASC
+      `, [fDesde + ' 00:00:00', fHasta + ' 23:59:59'])
+    ]);
+
+    // ⚡ 2. INDEXACIÓN ULTRA-RÁPIDA EN MEMORIA RAM CON MAPS
+    const ordenesPorFecha = new Map();
+    for (const ord of ordenesRango) {
+      const f = ord.fecha_orden ? String(ord.fecha_orden).slice(0, 10) : '';
+      if (!f) continue;
+      if (!ordenesPorFecha.has(f)) ordenesPorFecha.set(f, []);
+      ordenesPorFecha.get(f).push(ord);
+    }
+
+    const gpsLogsMap = new Map();
+    for (const log of gpsLogs) {
+      const f = String(log.fecha).slice(0, 10);
+      const key = `${log.id_trabajador}|${f}`;
+      if (!gpsLogsMap.has(key)) gpsLogsMap.set(key, []);
+      gpsLogsMap.get(key).push(log);
+    }
+
+    // ⚡ 3. CÁLCULO DE RUTA EN MEMORIA (Toma microsegundos)
+    const calcularRutaEnMemoria = (f, wName, wCuad) => {
+      const ordenesDia = ordenesPorFecha.get(f) || [];
+      if (ordenesDia.length === 0) return { puntosRuta: [], kmEstimado: 0 };
+
+      const targetCuad = (wCuad || '').toLowerCase().trim();
+      const targetName = (wName || '').toLowerCase().trim();
+
+      const misOrdenes = ordenesDia.filter(ord => {
+        const c = (ord.cuadrilla || '').toLowerCase();
+        const t = (ord.tecnico_asignado || '').toLowerCase();
+        if (targetCuad && c.includes(targetCuad)) return true;
+        if (targetName && (t.includes(targetName) || c.includes(targetName))) return true;
+        return false;
+      });
+
+      const puntosRuta = [];
+      let kmAcum = 0;
+      for (const ord of misOrdenes) {
+        const match = (ord.georeferencia || ord.direccion || '').match(/(-?\d{1,2}\.\d{4,8})\s*,\s*(-?\d{1,3}\.\d{4,8})/);
+        if (match) {
+          const lat = Number(match[1]);
+          const lng = Number(match[2]);
+          if (puntosRuta.length > 0) {
+            const prev = puntosRuta[puntosRuta.length - 1];
+            const tramo = Math.round(calcularDistanciaHaversine(prev.lat, prev.lng, lat, lng) * 1.35 * 10) / 10;
+            kmAcum += tramo;
+          }
+          puntosRuta.push({ lat, lng });
+        }
+      }
+
+      return {
+        puntosRuta,
+        kmEstimado: Math.round(kmAcum * 10) / 10
+      };
+    };
+
+    // ⚡ 4. UNIFICAR REGISTROS
+    const keyInspSet = new Set();
+    const listaCompleta = [];
+
+    // Enriquecer inspecciones que ya tenían checklist subido
+    for (const insp of inspecciones) {
+      const f = String(insp.fecha).slice(0, 10);
+      const key = `${f}|${insp.id_trabajador}`;
+      keyInspSet.add(key);
+
+      const { puntosRuta, kmEstimado } = calcularRutaEnMemoria(f, insp.nombre_tecnico, insp.cuadrilla);
+      listaCompleta.push({
+        ...insp,
+        km_estimados_ordenes: kmEstimado,
+        puntos_ruta_count: puntosRuta.length,
+      });
+    }
+
+    // Fechas con actividad real para no generar basura de días vacíos
+    const fechasSet = new Set();
+    if (hoyStr >= fDesde && hoyStr <= fHasta) fechasSet.add(hoyStr);
+    for (const f of ordenesPorFecha.keys()) fechasSet.add(f);
+
+    const fechasAevaluar = Array.from(fechasSet).sort().reverse();
 
     for (const f of fechasAevaluar) {
+      const esHoy = (f === hoyStr);
       for (const w of allWorkers) {
         const key = `${f}|${w.id_trabajador}`;
         if (!keyInspSet.has(key)) {
-          // Buscar si tuvo órdenes este día
-          const wCuad = (w.cuadrilla || '').toLowerCase().trim();
-          const wName = (w.nombre_tecnico || '').toLowerCase().trim();
+          const { puntosRuta, kmEstimado } = calcularRutaEnMemoria(f, w.nombre_tecnico, w.cuadrilla);
 
-          let puntosRuta = [];
-          for (const [rKey, pts] of rutasMap.entries()) {
-            if (rKey.startsWith(f)) {
-              if (wCuad && rKey.includes(wCuad)) puntosRuta = pts;
-              else if (wName && rKey.includes(wName)) puntosRuta = pts;
-            }
-          }
+          // Si es hoy: incluir si tiene vehículo o tuvo órdenes
+          // Si es día pasado: SOLO incluir si tuvo órdenes reales (evita generar 1,000 filas vacías en memoria)
+          const debeIncluir = esHoy ? (w.placa || puntosRuta.length > 0) : (puntosRuta.length > 0);
 
-          // Solo mostrar si tiene vehículo asignado o tuvo órdenes asignadas ese día
-          if (w.placa || puntosRuta.length > 0) {
-            let kmEstimado = 0;
-            if (puntosRuta.length > 1) {
-              for (let k = 0; k < puntosRuta.length - 1; k++) {
-                kmEstimado += calcularDistanciaHaversine(puntosRuta[k].lat, puntosRuta[k].lng, puntosRuta[k+1].lat, puntosRuta[k+1].lng);
-              }
-              kmEstimado = Math.round(kmEstimado * 1.35 * 10) / 10;
-            } else if (puntosRuta.length === 1) {
-              kmEstimado = 7.5;
-            }
-
+          if (debeIncluir) {
             listaCompleta.push({
               id_inspeccion: `temp-${w.id_trabajador}-${f}`,
               id_vehiculo: w.id_vehiculo || 0,
               id_trabajador: w.id_trabajador,
               fecha: f,
-              km_inicio: 0,
+              km_inicio: null,
               hora_inicio: null,
               foto_tablero_inicio: null,
               foto_aceite: null,
               foto_agua: null,
               foto_estado_general: null,
-              km_fin: 0,
+              km_fin: null,
               hora_fin: null,
               foto_tablero_fin: null,
               km_recorridos: 0,
               km_estimados_ordenes: kmEstimado,
               diferencia_km: 0,
-              observaciones_tecnico: puntosRuta.length > 0 ? `${puntosRuta.length} órdenes en ruta.` : 'Vehículo asignado en flota.',
-              estado_auditoria: 'Pendiente',
+              observaciones_tecnico: puntosRuta.length > 0 ? `${puntosRuta.length} clientes finalizados en ruta.` : 'Vehículo asignado en flota.',
+              estado_auditoria: puntosRuta.length > 0 ? 'En Ruta' : 'Pendiente',
               observaciones_admin: 'Sin checklist enviado aún',
               placa: w.placa || 'S/P',
               marca: w.marca || '',
@@ -4200,6 +4411,7 @@ app.get('/api/movilidad/dashboard-km', async (req, res) => {
               id_usuario: w.id_usuario,
               nombre_tecnico: w.nombre_tecnico,
               cuadrilla: w.cuadrilla || '',
+              puntos_ruta_count: puntosRuta.length,
             });
             keyInspSet.add(key);
           }
@@ -4207,47 +4419,44 @@ app.get('/api/movilidad/dashboard-km', async (req, res) => {
       }
     }
 
-    // Enriquecer cada fila con los datos de recorrido GPS real y horas dinámicas
-    const inspeccionesEnriquecidas = await Promise.all(
-      listaCompleta.map(async (insp) => {
-        const [gpsLogs] = await pool.query(`
-          SELECT lat, lng, fecha_hora, tipo_evento
-          FROM tecnico_gps_logs
-          WHERE id_trabajador = ? AND DATE(fecha_hora) = ?
-          ORDER BY fecha_hora ASC
-        `, [insp.id_trabajador, String(insp.fecha).slice(0, 10)]);
+    // ⚡ 5. ENRIQUECER CON GPS DIRECTO EN MEMORIA (0 CONSULTAS A MYSQL)
+    const inspeccionesEnriquecidas = listaCompleta.map((insp) => {
+      const f = String(insp.fecha).slice(0, 10);
+      const key = `${insp.id_trabajador}|${f}`;
+      const gpsLogsTecnico = gpsLogsMap.get(key) || [];
 
-        let kmGpsReal = 0;
-        for (let i = 0; i < gpsLogs.length - 1; i++) {
-          const d = calcularDistanciaHaversine(
-            Number(gpsLogs[i].lat),
-            Number(gpsLogs[i].lng),
-            Number(gpsLogs[i + 1].lat),
-            Number(gpsLogs[i + 1].lng)
-          );
-          kmGpsReal += d;
-        }
-        // Factor urbano de rutas
-        kmGpsReal = Math.round(kmGpsReal * 1.35 * 10) / 10;
+      let kmGpsReal = 0;
+      for (let i = 0; i < gpsLogsTecnico.length - 1; i++) {
+        kmGpsReal += calcularDistanciaHaversine(
+          Number(gpsLogsTecnico[i].lat),
+          Number(gpsLogsTecnico[i].lng),
+          Number(gpsLogsTecnico[i + 1].lat),
+          Number(gpsLogsTecnico[i + 1].lng)
+        );
+      }
+      kmGpsReal = Math.round(kmGpsReal * 1.35 * 10) / 10;
 
-        // Horas reales de inicio y cierre dinámicas
-        let horaInicioReal = insp.hora_inicio || (gpsLogs.length > 0 ? gpsLogs[0].fecha_hora?.slice(11, 16) : "-");
-        let horaCierreReal = insp.hora_fin || (gpsLogs.length > 1 ? gpsLogs[gpsLogs.length - 1].fecha_hora?.slice(11, 16) : "-");
+      const horaInicioReal = insp.hora_inicio || (gpsLogsTecnico.length > 0 ? gpsLogsTecnico[0].fecha_hora?.slice(11, 16) : "-");
+      const horaCierreReal = insp.hora_fin || (gpsLogsTecnico.length > 1 ? gpsLogsTecnico[gpsLogsTecnico.length - 1].fecha_hora?.slice(11, 16) : "-");
+      const esHoy = (f === hoyStr);
+      const alertaInicioTardio = esHoy && ahoraMinutos > 450 && (!insp.hora_inicio || !insp.foto_tablero_inicio);
 
-        // Alerta si hoy ya pasaron de las 07:30 AM y no marcaron inicio
-        const esHoy = String(insp.fecha).slice(0, 10) === hoyStr;
-        const alertaInicioTardio = esHoy && ahoraMinutos > 450 && (!insp.hora_inicio || !insp.foto_tablero_inicio);
+      return {
+        ...insp,
+        km_gps_app: kmGpsReal > 0 ? kmGpsReal : 0,
+        puntos_gps_count: gpsLogsTecnico.length,
+        hora_inicio_real: horaInicioReal,
+        hora_cierre_real: horaCierreReal,
+        alerta_inicio_tardio: alertaInicioTardio,
+      };
+    });
 
-        return {
-          ...insp,
-          km_gps_app: kmGpsReal > 0 ? kmGpsReal : Number(insp.km_estimados_ordenes) || 0,
-          puntos_gps_count: gpsLogs.length,
-          hora_inicio_real: horaInicioReal,
-          hora_cierre_real: horaCierreReal,
-          alerta_inicio_tardio: alertaInicioTardio,
-        };
-      })
-    );
+    // Ordenar: fecha descendente, luego mayor km estimado
+    inspeccionesEnriquecidas.sort((a, b) => {
+      const fCmp = String(b.fecha).localeCompare(String(a.fecha));
+      if (fCmp !== 0) return fCmp;
+      return (Number(b.km_estimados_ordenes) || 0) - (Number(a.km_estimados_ordenes) || 0);
+    });
 
     // Resumen de métricas
     const totalKmDeclarados = inspeccionesEnriquecidas.reduce((acc, i) => acc + (Number(i.km_recorridos) || 0), 0);
@@ -4257,11 +4466,9 @@ app.get('/api/movilidad/dashboard-km', async (req, res) => {
     const aprobadas = inspeccionesEnriquecidas.filter(i => i.estado_auditoria === 'Aprobado').length;
     const pendientes = inspeccionesEnriquecidas.filter(i => i.estado_auditoria === 'Pendiente').length;
     const observadas = inspeccionesEnriquecidas.filter(i => i.estado_auditoria === 'Observado').length;
-
-    // Alertas por desvío excesivo (>35 km de diferencia)
     const alertasDesvio = inspeccionesEnriquecidas.filter(i => (Number(i.km_recorridos) - Number(i.km_gps_app || i.km_estimados_ordenes)) > 35 && Number(i.km_recorridos) > 0);
 
-    res.json({
+    const respuestaFinal = {
       inspecciones: inspeccionesEnriquecidas,
       resumen: {
         totalKmDeclarados: Math.round(totalKmDeclarados),
@@ -4275,7 +4482,16 @@ app.get('/api/movilidad/dashboard-km', async (req, res) => {
         alertasDesvioCount: alertasDesvio.length
       },
       alertasDesvio
-    });
+    };
+
+    // Guardar en caché 15 segundos
+    cacheDashboardKm = {
+      data: respuestaFinal,
+      timestamp: Date.now(),
+      queryKey: currentKey
+    };
+
+    res.json(respuestaFinal);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -5319,6 +5535,11 @@ app.post('/api/almacen/compras', async (req, res) => {
         ]);
       }
 
+      // 1.2 Actualizar precio_compra en productos si prec > 0
+      if (prec > 0) {
+        await pool.query("UPDATE productos SET precio_compra = ? WHERE id_producto = ?", [prec, prodId]);
+      }
+
       // 2. Incrementar stock en Almacén Central (id_almacen = 1)
       const [stockExistente] = await pool.query("SELECT id_stock, cantidad FROM stock WHERE id_producto = ? AND id_almacen = 1", [prodId]);
       if (stockExistente.length > 0) {
@@ -5450,6 +5671,70 @@ app.get('/api/almacen/compras', async (req, res) => {
     res.json(resultado);
   } catch (error) {
     console.error("Error al obtener historial de compras:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- 📦 3.1.1 ACTUALIZAR PRECIOS EN UNA COMPRA EXISTENTE ---
+app.put('/api/almacen/compras/:id/precios', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const { id } = req.params;
+    const { items } = req.body; // Array de { id_detalle_compra, id_producto, precio }
+
+    if (!Array.isArray(items) || items.length === 0) {
+      connection.release();
+      return res.status(400).json({ error: "Debe enviar los ítems con sus precios actualizados." });
+    }
+
+    await connection.beginTransaction();
+
+    for (const it of items) {
+      const precioNum = Math.max(0, Number(it.precio || 0));
+      const prodId = Number(it.id_producto);
+
+      if (it.id_detalle_compra) {
+        await connection.query(`
+          UPDATE detalle_compras 
+          SET precio = ?, subtotal = cantidad * ? 
+          WHERE id_detalle_compra = ? AND id_compra = ?
+        `, [precioNum, precioNum, it.id_detalle_compra, id]);
+      } else if (prodId) {
+        await connection.query(`
+          UPDATE detalle_compras 
+          SET precio = ?, subtotal = cantidad * ? 
+          WHERE id_producto = ? AND id_compra = ?
+        `, [precioNum, precioNum, prodId, id]);
+      }
+
+      // Actualizar también en la tabla maestra productos si precio > 0
+      if (prodId && precioNum > 0) {
+        await connection.query(`
+          UPDATE productos 
+          SET precio_compra = ? 
+          WHERE id_producto = ?
+        `, [precioNum, prodId]);
+      }
+    }
+
+    // Recalcular total general de la compra
+    const [totRows] = await connection.query(`
+      SELECT COALESCE(SUM(subtotal), 0) AS nuevo_total 
+      FROM detalle_compras 
+      WHERE id_compra = ?
+    `, [id]);
+    const nuevoTotal = totRows[0]?.nuevo_total || 0;
+
+    await connection.query("UPDATE compras SET total = ? WHERE id_compra = ?", [nuevoTotal, id]);
+
+    await connection.commit();
+    connection.release();
+
+    res.json({ success: true, message: "Precios actualizados exitosamente.", nuevo_total: nuevoTotal });
+  } catch (error) {
+    await connection.rollback();
+    connection.release();
+    console.error("Error al actualizar precios de compra:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -6108,11 +6393,58 @@ app.post('/api/almacen/devolucion-tecnico', async (req, res) => {
         return res.status(400).json({ error: `El técnico solo tiene ${stockActual} unidades en su vehículo. No puede devolver ${cant}.` });
       }
 
-      await pool.query("UPDATE trabajador_productos SET stock = GREATEST(0, stock - ?) WHERE id_trabajador = ? AND id_producto = ?", [cant, id_trabajador, id_producto]);
+      // 1. Obtener datos del producto (categoría y si maneja serie)
+      const [pRow] = await pool.query("SELECT p.id_producto, p.nombre, p.maneja_serie, c.nombre AS categoria FROM productos p LEFT JOIN categorias c ON p.id_categoria = c.id_categoria WHERE p.id_producto = ?", [id_producto]);
+      const prodInfo = pRow[0] || {};
+      const esEquipo = Boolean(prodInfo.maneja_serie) || String(prodInfo.categoria || '').toUpperCase().includes('EQUIP');
+      const es2doUso = esCategoriaSegundoUso(prodInfo.categoria);
 
-      const [pRow] = await pool.query("SELECT c.nombre AS categoria FROM productos p LEFT JOIN categorias c ON p.id_categoria = c.id_categoria WHERE p.id_producto = ?", [id_producto]);
-      const es2doUso = esCategoriaSegundoUso(pRow[0]?.categoria);
+      // 2. Si el producto es equipo o maneja series, procesar las series asociadas
+      if (esEquipo) {
+        let seriesALiberar = [];
+        if (Array.isArray(series_devueltas) && series_devueltas.length > 0) {
+          seriesALiberar = series_devueltas.map(s => String(s.numero_serie || s).trim().toUpperCase());
+        } else {
+          // Tomar automáticamente las cant series asignadas activas de este técnico para este producto
+          const [seriesActivas] = await pool.query(`
+            SELECT ps.numero_serie 
+            FROM trabajador_series ts
+            JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
+            WHERE ts.id_trabajador = ? AND ts.id_producto = ? AND ts.estado = 'Asignada'
+            ORDER BY ts.id_trabajador_serie ASC
+            LIMIT ?
+          `, [id_trabajador, id_producto, cant]);
+          seriesALiberar = seriesActivas.map(s => s.numero_serie);
+        }
 
+        for (const numSerie of seriesALiberar) {
+          const [sRows] = await pool.query(`
+            SELECT ts.id_trabajador_serie, ts.id_producto_serie
+            FROM trabajador_series ts
+            JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
+            WHERE ts.id_trabajador = ? AND ps.numero_serie = ? AND ts.estado = 'Asignada'
+          `, [id_trabajador, numSerie]);
+
+          if (sRows.length > 0) {
+            const s = sRows[0];
+            await pool.query("UPDATE trabajador_series SET estado = 'Devuelta' WHERE id_trabajador_serie = ?", [s.id_trabajador_serie]);
+            await pool.query("UPDATE producto_series SET estado = 'DISPONIBLE', id_almacen = 1 WHERE id_producto_serie = ?", [s.id_producto_serie]);
+          }
+        }
+
+        // Recalcular stock del técnico en base a las series que realmente le quedan asignadas
+        const [cntRows] = await pool.query(`
+          SELECT COUNT(*) as totalAsig 
+          FROM trabajador_series 
+          WHERE id_trabajador = ? AND id_producto = ? AND estado = 'Asignada'
+        `, [id_trabajador, id_producto]);
+        const nuevoStockTecnico = cntRows[0]?.totalAsig || 0;
+        await pool.query("UPDATE trabajador_productos SET stock = ? WHERE id_trabajador = ? AND id_producto = ?", [nuevoStockTecnico, id_trabajador, id_producto]);
+      } else {
+        await pool.query("UPDATE trabajador_productos SET stock = GREATEST(0, stock - ?) WHERE id_trabajador = ? AND id_producto = ?", [cant, id_trabajador, id_producto]);
+      }
+
+      // 3. Devolver stock a Almacén Central (id_almacen = 1)
       if (es2doUso) {
         const [upd] = await pool.query("UPDATE stock SET cantidad_segundo_uso = COALESCE(cantidad_segundo_uso, 0) + ? WHERE id_producto = ? AND (id_almacen = 1 OR id_almacen IS NULL)", [cant, id_producto]);
         if (upd.affectedRows === 0) {
@@ -6130,40 +6462,7 @@ app.post('/api/almacen/devolucion-tecnico', async (req, res) => {
         await pool.query(`
           INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
           VALUES (?, 1, 'ENTRADA', ?, ?, NOW())
-        `, [id_producto, cant, `Devolución de material de ${tecnicoNombre} (${motivo || 'Retorno de material'})`]);
-      }
-    }
-
-    // Series devueltas
-    if (Array.isArray(series_devueltas) && series_devueltas.length > 0) {
-      for (const item of series_devueltas) {
-        const numSerie = String(item.numero_serie || item).trim().toUpperCase();
-        const [sRows] = await pool.query(`
-          SELECT ts.id_trabajador_serie, ts.id_producto_serie, ps.id_producto, c.nombre AS categoria
-          FROM trabajador_series ts
-          JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
-          JOIN productos p ON ps.id_producto = p.id_producto
-          LEFT JOIN categorias c ON p.id_categoria = c.id_categoria
-          WHERE ts.id_trabajador = ? AND ps.numero_serie = ? AND ts.estado = 'Asignada'
-        `, [id_trabajador, numSerie]);
-
-        if (sRows.length > 0) {
-          const s = sRows[0];
-          await pool.query("UPDATE trabajador_series SET estado = 'Devuelta' WHERE id_trabajador_serie = ?", [s.id_trabajador_serie]);
-          await pool.query("UPDATE producto_series SET estado = 'DISPONIBLE', id_almacen = 1 WHERE id_producto_serie = ?", [s.id_producto_serie]);
-          const es2doUso = esCategoriaSegundoUso(s.categoria);
-          if (es2doUso) {
-            const [upd] = await pool.query("UPDATE stock SET cantidad_segundo_uso = COALESCE(cantidad_segundo_uso, 0) + 1 WHERE id_producto = ? AND (id_almacen = 1 OR id_almacen IS NULL)", [s.id_producto]);
-            if (upd.affectedRows === 0) {
-              await pool.query("INSERT INTO stock (id_producto, id_almacen, cantidad, cantidad_segundo_uso) VALUES (?, 1, 0, 1)", [s.id_producto]);
-            }
-          } else {
-            const [upd] = await pool.query("UPDATE stock SET cantidad = COALESCE(cantidad, 0) + 1 WHERE id_producto = ? AND (id_almacen = 1 OR id_almacen IS NULL)", [s.id_producto]);
-            if (upd.affectedRows === 0) {
-              await pool.query("INSERT INTO stock (id_producto, id_almacen, cantidad, cantidad_segundo_uso) VALUES (?, 1, 1, 0)", [s.id_producto]);
-            }
-          }
-        }
+        `, [id_producto, cant, `Devolución de ${esEquipo ? 'equipo' : 'material'} de ${tecnicoNombre} (${motivo || 'Retorno a almacén'})`]);
       }
     }
 

@@ -11,10 +11,16 @@ import {
   Marca,
   Modelo,
   TipoVehiculo,
+  AsignacionVehiculo,
 } from "../types/mobilityTypes";
 
 export const getVehiculos = async (): Promise<Vehiculo[]> => {
   const res = await axios.get(`${API_URL}/api/movilidad/vehiculos`);
+  return res.data;
+};
+
+export const getHistorialAsignaciones = async (idVehiculo: number): Promise<AsignacionVehiculo[]> => {
+  const res = await axios.get(`${API_URL}/api/movilidad/vehiculos/${idVehiculo}/asignaciones`);
   return res.data;
 };
 
@@ -146,6 +152,18 @@ export const getCombustibles = async (params?: {
 
 export const eliminarCombustible = async (id: number) => {
   const res = await axios.delete(`${API_URL}/api/movilidad/combustible/${id}`);
+  return res.data;
+};
+
+export const actualizarCombustible = async (id: number, formData: FormData) => {
+  const res = await axios.put(`${API_URL}/api/movilidad/combustible/${id}`, formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return res.data;
+};
+
+export const getGrifosHistorial = async (): Promise<string[]> => {
+  const res = await axios.get(`${API_URL}/api/movilidad/combustible/grifos`);
   return res.data;
 };
 

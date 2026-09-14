@@ -101,12 +101,13 @@ export const LookerCardsAlertBanner: React.FC = () => {
 
   if (!data) return null;
 
-  const totalSur = data.totalAlertasSur || 0;
+  const totalGeneral = data.totalGeneral || 0;
+  const totalSur = data.totalAlertasSur || (data.alertasSur ? data.alertasSur.length : 0);
   const hayAlertaSur = totalSur > 0;
+  const hayAveriasDetectadas = totalGeneral > 0 || totalSur > 0;
 
-  // 🛡️ REGLA OPERATIVA: Solo trabajamos con ZONA SUR.
-  // Si no hay órdenes en Zona Sur, no se muestra nada.
-  if (!hayAlertaSur || dismissed) {
+  // 🛡️ REGLA OPERATIVA: Mostrar el banner si hay averías detectadas (generales o del sur)
+  if (!hayAveriasDetectadas || dismissed) {
     return null;
   }
 
@@ -122,6 +123,11 @@ export const LookerCardsAlertBanner: React.FC = () => {
   const surMotowin = data.alertasSur?.filter(
     (a) => a.tarjeta === "MOTOWIN ZONAS" || a.tarjeta === "MOTOWIN"
   ).length || 0;
+
+  // Totales generales recibidos por detrás
+  const genAverias = data.cards?.["AVERIAS PREFERENTE"]?.total || 0;
+  const genAltoValor = data.cards?.["AVERIAS ALTO VALOR"]?.total || 0;
+  const genMotowin = data.cards?.["MOTOWIN ZONAS"]?.total || 0;
 
   // Filtrar exclusivamente zonas que pertenezcan al SUR
   const zonasSurMap: Record<string, number> = {};
@@ -140,28 +146,39 @@ export const LookerCardsAlertBanner: React.FC = () => {
   }
 
   return (
-    <div className="shrink-0 border-b bg-gradient-to-r from-red-50 via-amber-50 to-orange-50 border-red-200 shadow-sm transition-all duration-200">
-      {/* 🚀 BARRA PRINCIPAL COMPACTA (EXCLUSIVA ZONA SUR) */}
+    <div className={`shrink-0 border-b transition-all duration-200 shadow-sm ${
+      hayAlertaSur 
+        ? "bg-gradient-to-r from-red-50 via-amber-50 to-orange-50 border-red-200"
+        : "bg-gradient-to-r from-sky-50/90 via-indigo-50/70 to-slate-50 border-sky-200"
+    }`}>
+      {/* 🚀 BARRA PRINCIPAL COMPACTA */}
       <div className="px-3 py-1.5 flex flex-wrap items-center justify-between gap-2">
         
-        {/* LADO IZQUIERDO: Título y Tarjetas de Zona Sur */}
+        {/* LADO IZQUIERDO: Título y Tarjetas */}
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-600 text-white font-extrabold text-xs shadow-sm animate-pulse">
-            <AlertTriangle size={14} className="shrink-0" />
-            <span>🚨 ¡ALERTA ZONA SUR: {totalSur} {totalSur === 1 ? "ORDEN" : "ÓRDENES"}!</span>
-          </div>
+          {hayAlertaSur ? (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-600 text-white font-extrabold text-xs shadow-sm animate-pulse">
+              <AlertTriangle size={14} className="shrink-0" />
+              <span>🚨 ¡ALERTA ZONA SUR: {totalSur} {totalSur === 1 ? "ORDEN" : "ÓRDENES"}!</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#1e4b8a] text-white font-extrabold text-xs shadow-sm">
+              <Flame size={14} className="shrink-0 text-amber-300" />
+              <span>⚡ LOOKER STUDIO: {totalGeneral} AVERÍAS DETECTADAS</span>
+            </div>
+          )}
 
-          {/* 3 MINI TARJETAS EXCLUSIVAS ZONA SUR */}
+          {/* 3 MINI TARJETAS BIEN ORDENADAS: Prioridad Zona Sur */}
           <div className="flex items-center gap-1.5">
             {/* 1. AVERIAS */}
             <div className={`flex items-center gap-1 px-2 py-0.5 rounded-md border ${
               surAverias > 0
                 ? "bg-[#FF8F00]/15 border-[#FF8F00] text-[#b35b00]"
-                : "bg-slate-100 border-slate-300 text-slate-400"
-            }`}>
+                : "bg-white/90 border-slate-300 text-slate-700"
+            }`} title={`Averías Preferente: ${surAverias} en Zona Sur | ${genAverias} Total general`}>
               <span className="font-extrabold text-[10px] uppercase">Averías:</span>
-              <span className={`font-mono font-black text-xs ${surAverias > 0 ? "text-[#d86900]" : "text-slate-500"}`}>
-                {surAverias}
+              <span className={`font-mono font-black text-xs ${surAverias > 0 ? "text-[#d86900]" : "text-slate-900"}`}>
+                {surAverias > 0 ? surAverias : (genAverias > 0 ? `${surAverias} (${genAverias})` : 0)}
               </span>
             </div>
 
@@ -169,11 +186,11 @@ export const LookerCardsAlertBanner: React.FC = () => {
             <div className={`flex items-center gap-1 px-2 py-0.5 rounded-md border ${
               surAltoValor > 0
                 ? "bg-cyan-100 border-cyan-400 text-cyan-800"
-                : "bg-slate-100 border-slate-300 text-slate-400"
-            }`}>
+                : "bg-white/90 border-slate-300 text-slate-700"
+            }`} title={`Averías Alto Valor: ${surAltoValor} en Zona Sur | ${genAltoValor} Total general`}>
               <span className="font-extrabold text-[10px] uppercase">Alto Valor:</span>
-              <span className={`font-mono font-black text-xs ${surAltoValor > 0 ? "text-cyan-900" : "text-slate-500"}`}>
-                {surAltoValor}
+              <span className={`font-mono font-black text-xs ${surAltoValor > 0 ? "text-cyan-900" : "text-slate-900"}`}>
+                {surAltoValor > 0 ? surAltoValor : (genAltoValor > 0 ? `${surAltoValor} (${genAltoValor})` : 0)}
               </span>
             </div>
 
@@ -181,28 +198,36 @@ export const LookerCardsAlertBanner: React.FC = () => {
             <div className={`flex items-center gap-1 px-2 py-0.5 rounded-md border ${
               surMotowin > 0
                 ? "bg-emerald-100 border-emerald-400 text-emerald-800"
-                : "bg-slate-100 border-slate-300 text-slate-400"
-            }`}>
+                : "bg-white/90 border-slate-300 text-slate-700"
+            }`} title={`Motowin: ${surMotowin} en Zona Sur | ${genMotowin} Total general`}>
               <span className="font-extrabold text-[10px] uppercase">Motowin:</span>
-              <span className={`font-mono font-black text-xs ${surMotowin > 0 ? "text-emerald-900" : "text-slate-500"}`}>
-                {surMotowin}
+              <span className={`font-mono font-black text-xs ${surMotowin > 0 ? "text-emerald-900" : "text-slate-900"}`}>
+                {surMotowin > 0 ? surMotowin : (genMotowin > 0 ? `${surMotowin} (${genMotowin})` : 0)}
               </span>
             </div>
           </div>
 
-          {/* 📍 ZONAS SUR DISPONIBLES */}
+          {/* 📍 ZONAS SUR DISPONIBLES O ESTADO DE ZONA SUR */}
           <div className="flex items-center gap-1 flex-wrap">
-            <span className="text-[10px] uppercase font-bold text-red-900 ml-1">Zonas Sur:</span>
-            {Object.entries(zonasSurMap).map(([zNom, cant]) => (
-              <span
-                key={zNom}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border bg-red-100/90 border-red-300 text-red-900 shadow-2xs"
-              >
-                <MapPin size={10} className="text-red-600" />
-                <span>{zNom}:</span>
-                <span className="font-mono font-black">{cant}</span>
+            {Object.keys(zonasSurMap).length > 0 ? (
+              <>
+                <span className="text-[10px] uppercase font-bold text-red-900 ml-1">Zonas Sur:</span>
+                {Object.entries(zonasSurMap).map(([zNom, cant]) => (
+                  <span
+                    key={zNom}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border bg-red-100/90 border-red-300 text-red-900 shadow-2xs"
+                  >
+                    <MapPin size={10} className="text-red-600" />
+                    <span>{zNom}:</span>
+                    <span className="font-mono font-black">{cant}</span>
+                  </span>
+                ))}
+              </>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100/90 text-emerald-900 border border-emerald-300 shadow-2xs">
+                <span>✅ Zona Sur: 0 averías activas (Al día)</span>
               </span>
-            ))}
+            )}
           </div>
         </div>
 
@@ -215,7 +240,7 @@ export const LookerCardsAlertBanner: React.FC = () => {
           <button
             onClick={() => fetchLookerData(true)}
             disabled={loading}
-            className="p-1 text-slate-500 hover:text-slate-800 hover:bg-black/5 rounded transition-colors"
+            className="p-1 text-slate-500 hover:text-slate-800 hover:bg-black/5 rounded transition-colors cursor-pointer"
             title="Refrescar en vivo desde Looker Studio"
           >
             <RefreshCw size={12} className={loading ? "animate-spin text-blue-600" : ""} />
@@ -223,7 +248,7 @@ export const LookerCardsAlertBanner: React.FC = () => {
 
           <button
             onClick={() => setExpanded(!expanded)}
-            className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded border transition-colors ${
+            className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded border transition-colors cursor-pointer ${
               expanded
                 ? "bg-slate-800 text-white border-slate-800"
                 : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
@@ -244,8 +269,8 @@ export const LookerCardsAlertBanner: React.FC = () => {
 
           <button
             onClick={() => setDismissed(true)}
-            className="p-1 text-slate-400 hover:text-slate-700 hover:bg-black/10 rounded transition-colors"
-            title="Cerrar banner (volverá a aparecer si entran nuevas órdenes de Looker Sur)"
+            className="p-1 text-slate-400 hover:text-slate-700 hover:bg-black/10 rounded transition-colors cursor-pointer"
+            title="Cerrar banner (volverá a aparecer si entran nuevas órdenes)"
           >
             <X size={13} />
           </button>
@@ -254,32 +279,34 @@ export const LookerCardsAlertBanner: React.FC = () => {
 
       {/* 🚀 SECCIÓN EXPANDIDA: TABLAS EXCLUSIVAS DE ZONA SUR */}
       {expanded && (
-        <div className="px-3 pb-2.5 pt-1 border-t border-red-200/80 bg-white/95">
+        <div className="px-3 pb-2.5 pt-1 border-t border-slate-200 bg-white/95">
           
           {/* TABLA PRINCIPAL DE ÓRDENES EN ZONA SUR */}
-          <div className="mb-2 p-2 rounded-lg bg-red-50 border border-red-200">
+          <div className="mb-2 p-2 rounded-lg bg-slate-50 border border-slate-200">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[11px] font-black text-red-900 flex items-center gap-1">
-                <Flame size={13} className="text-red-600" />
-                DETALLE DE ÓRDENES EN ZONA SUR ({data.alertasSur.length})
+              <span className="text-[11px] font-black text-slate-900 flex items-center gap-1">
+                <Flame size={13} className={hayAlertaSur ? "text-red-600" : "text-indigo-600"} />
+                DETALLE DE ÓRDENES EN ZONA SUR ({(data.alertasSur || []).length})
               </span>
-              <span className="text-[10px] text-red-700 font-semibold">
-                Prioridad de Despacho Inmediato
+              <span className="text-[10px] text-slate-500 font-semibold">
+                {hayAlertaSur ? "Prioridad de Despacho Inmediato" : `Total general en Lima: ${totalGeneral} órdenes`}
               </span>
             </div>
-            <div className="overflow-x-auto max-h-36 overflow-y-auto custom-scrollbar">
-              <table className="w-full text-[10px] border-collapse">
-                <thead>
-                  <tr className="bg-red-200/70 text-red-950 text-left font-bold uppercase">
-                    <th className="py-1 px-1.5">Tarjeta</th>
-                    <th className="py-1 px-1.5">Zona</th>
-                    <th className="py-1 px-1.5">Distrito</th>
-                    <th className="py-1 px-1.5">Ticket</th>
-                    <th className="py-1 px-1.5">Dirección</th>
-                    <th className="py-1 px-1.5">Franja</th>
-                    <th className="py-1 px-1.5">Motivo</th>
-                  </tr>
-                </thead>
+            
+            {data.alertasSur && data.alertasSur.length > 0 ? (
+              <div className="overflow-x-auto max-h-36 overflow-y-auto custom-scrollbar">
+                <table className="w-full text-[10px] border-collapse">
+                  <thead>
+                    <tr className="bg-red-200/70 text-red-950 text-left font-bold uppercase">
+                      <th className="py-1 px-1.5">Tarjeta</th>
+                      <th className="py-1 px-1.5">Zona</th>
+                      <th className="py-1 px-1.5">Distrito</th>
+                      <th className="py-1 px-1.5">Ticket</th>
+                      <th className="py-1 px-1.5">Dirección</th>
+                      <th className="py-1 px-1.5">Franja</th>
+                      <th className="py-1 px-1.5">Motivo</th>
+                    </tr>
+                  </thead>
                 <tbody>
                   {data.alertasSur.map((al, idx) => (
                     <tr key={idx} className="border-b border-red-100 hover:bg-red-100/50">
@@ -297,7 +324,13 @@ export const LookerCardsAlertBanner: React.FC = () => {
                 </tbody>
               </table>
             </div>
-          </div>
+          ) : (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-900 text-xs flex items-center justify-between">
+              <span>✅ <strong>No hay órdenes de averías pendientes para Zona Sur en este momento.</strong> Las {totalGeneral} averías detectadas en Looker corresponden a otras zonas de Lima.</span>
+              <span className="font-bold text-[11px] text-emerald-800 shrink-0 ml-2">Zona Sur: 0</span>
+            </div>
+          )}
+        </div>
 
           {/* GRID DE LAS 3 TARJETAS (SOLO ZONAS SUR) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
