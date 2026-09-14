@@ -3169,7 +3169,8 @@ app.get('/tecnicos', async (req, res) => {
       FROM usuarios u
       LEFT JOIN roles r ON u.id_rol = r.id_rol
       WHERE (u.estado = 'Activo' OR u.estado = 1 OR u.estado IS NULL)
-        AND (r.nombre LIKE '%Tecnico%' OR r.nombre LIKE '%Técnico%' OR u.opcion_personal LIKE '%Tecnic%' OR u.opcion_personal LIKE '%Técnico%' OR u.area LIKE '%Tecnic%' OR u.area LIKE '%Operacion%' OR r.nombre IS NULL)
+        AND (u.id_rol = 2 OR r.nombre LIKE '%Tecnico%' OR r.nombre LIKE '%Técnico%')
+        AND (u.id_rol NOT IN (1, 3, 4, 5, 6, 7))
       ORDER BY nombre_completo ASC
     `);
 
