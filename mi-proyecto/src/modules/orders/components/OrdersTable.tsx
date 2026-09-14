@@ -772,14 +772,14 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                                 }`}>
                                   T1
                                 </span>
-                                <span className="truncate font-semibold text-slate-900">{t1}</span>
+                                <span className="truncate font-semibold text-slate-900 uppercase">{t1}</span>
                                 {t2 && (
                                   <>
                                     <span className="text-indigo-300 font-bold">/</span>
                                     <span className="text-[8px] font-black uppercase text-slate-700 bg-slate-200 px-1 py-0 rounded font-mono shrink-0">
                                       T2
                                     </span>
-                                    <span className="truncate font-semibold text-slate-900">{t2}</span>
+                                    <span className="truncate font-semibold text-slate-900 uppercase">{t2}</span>
                                   </>
                                 )}
                               </div>

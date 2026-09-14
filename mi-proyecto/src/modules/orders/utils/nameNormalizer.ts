@@ -109,7 +109,7 @@ export const deduplicateTechnicians = (
 
   // 1. Registrar primero los nombres oficiales
   officialNames.forEach((off) => {
-    const clean = off.trim();
+    const clean = off.trim().toUpperCase();
     if (clean && !clusters.some((c) => areSameTechnician(c.canonical, clean))) {
       clusters.push({ canonical: clean, score: 1000 + clean.length });
     }
@@ -117,8 +117,8 @@ export const deduplicateTechnicians = (
 
   // 2. Procesar los nombres crudos de las órdenes
   rawNames.forEach((raw) => {
-    const clean = raw.trim();
-    if (!clean || clean === "-" || clean === "-- Seleccione --" || clean.length < 3) return;
+    const clean = raw.trim().toUpperCase();
+    if (!clean || clean === "-" || clean === "-- SELECCIONE --" || clean.length < 3) return;
 
     // Buscar si encaja en algún cluster existente
     let matchIdx = clusters.findIndex((c) => areSameTechnician(c.canonical, clean));
@@ -140,9 +140,9 @@ export const deduplicateTechnicians = (
     }
   });
 
-  // 3. Retornar lista única ordenada alfabéticamente
+  // 3. Retornar lista única ordenada alfabéticamente en MAYÚSCULAS uniformes
   return clusters
-    .map((c) => c.canonical)
+    .map((c) => c.canonical.toUpperCase().trim())
     .sort((a, b) => a.localeCompare(b, "es"));
 };
 
@@ -155,5 +155,5 @@ export const getCanonicalTechnicianName = (
 ): string => {
   if (!name || !name.trim()) return name;
   const match = canonicalList.find((canon) => areSameTechnician(canon, name));
-  return match || name.trim();
+  return (match || name).toUpperCase().trim();
 };

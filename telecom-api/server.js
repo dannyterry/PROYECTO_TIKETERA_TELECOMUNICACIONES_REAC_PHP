@@ -3162,7 +3162,7 @@ app.get('/tecnicos', async (req, res) => {
       SELECT 
         u.id_usuario AS id_tecnico,
         u.id_usuario,
-        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))) AS nombre_completo,
+        UPPER(TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, '')))) AS nombre_completo,
         COALESCE(u.cuadrilla, '') AS cuadrilla,
         COALESCE(u.telefono, '') AS telefono,
         r.nombre AS nombre_rol
@@ -3178,8 +3178,8 @@ app.get('/tecnicos', async (req, res) => {
       idTecnico: u.id_tecnico,
       id_tecnico: u.id_tecnico,
       id_usuario: u.id_usuario,
-      nombreCompleto: u.nombre_completo.trim() || `Técnico #${u.id_usuario}`,
-      nombre_completo: u.nombre_completo.trim() || `Técnico #${u.id_usuario}`,
+      nombreCompleto: (u.nombre_completo || `Técnico #${u.id_usuario}`).toUpperCase().trim(),
+      nombre_completo: (u.nombre_completo || `Técnico #${u.id_usuario}`).toUpperCase().trim(),
       cuadrilla: u.cuadrilla || '',
       telefono: u.telefono || ''
     }));
