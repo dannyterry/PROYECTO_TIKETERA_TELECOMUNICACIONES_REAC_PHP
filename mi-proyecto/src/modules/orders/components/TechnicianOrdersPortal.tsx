@@ -455,18 +455,18 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          1. HEADER MÓVIL DEL TÉCNICO
+          1. HEADER MÓVIL DEL TÉCNICO (DISEÑO CLARO: BLANCO / CELESTE / PLOMO SUAVE)
       ───────────────────────────────────────────────────────────── */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-3.5 sm:p-4.5 shadow-xl border border-slate-800 space-y-2.5">
+      <div className="bg-white text-slate-800 rounded-3xl p-3.5 sm:p-4.5 shadow-sm border border-slate-200/90 space-y-2.5">
         <div className="flex items-center justify-between gap-2">
-          {/* Lado izquierdo: Avatar + Nombre con min-w-0 para evitar empujar la derecha */}
+          {/* Lado izquierdo: Avatar + Nombre */}
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-indigo-500/30 text-indigo-300 border border-indigo-400/40 flex items-center justify-center font-black shrink-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-sky-50 text-sky-700 border border-sky-200 flex items-center justify-center font-black shrink-0 shadow-2xs">
               <Car size={18} />
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[9px] sm:text-[10px] uppercase font-bold text-indigo-300 tracking-wider block">
+                <span className="text-[9px] sm:text-[10px] uppercase font-bold text-sky-700 tracking-wider block">
                   Portal de Campo • Técnico
                 </span>
                 {esAdminOSimulador && tecnicos.length > 1 && (
@@ -478,35 +478,35 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
                         setTrabajadorActual(sel);
                       }
                     }}
-                    className="bg-indigo-900/60 text-amber-300 text-[10px] font-bold rounded-lg px-1.5 py-0.5 border border-indigo-400/40 cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber-400"
+                    className="bg-amber-50 text-amber-900 text-[10px] font-bold rounded-lg px-2 py-0.5 border border-amber-300 cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber-500 shadow-2xs"
                     title="Cambiar técnico de prueba (Solo Administrador / Modo Prueba)"
                   >
                     {tecnicos.map((t: any) => (
-                      <option key={t.id_usuario} value={t.id_usuario} className="bg-slate-900 text-white">
+                      <option key={t.id_usuario} value={t.id_usuario} className="bg-white text-slate-900 font-medium">
                         🔄 Probar: {t.nombre_completo}
                       </option>
                     ))}
                   </select>
                 )}
               </div>
-              <h1 className="text-xs sm:text-sm font-black text-white truncate">
+              <h1 className="text-xs sm:text-sm font-black text-slate-900 truncate">
                 {trabajadorActual?.nombre_completo || "Técnico de Campo"}
               </h1>
             </div>
           </div>
 
-          {/* Lado derecho: Botón fullscreen + Placa compacta protegida con shrink-0 */}
+          {/* Lado derecho: Botón fullscreen + Placa */}
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
               onClick={toggleFullScreen}
-              className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-indigo-200 border border-white/15 text-xs font-bold flex items-center justify-center cursor-pointer transition-all shrink-0"
+              className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-600 border border-slate-300/80 text-xs font-bold flex items-center justify-center cursor-pointer transition-all shrink-0"
               title={isFullScreen ? "Salir de pantalla completa" : "Pantalla completa (Modo App)"}
             >
               {isFullScreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
             </button>
 
-            <span className="px-2 py-1 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 text-[11px] font-mono font-bold whitespace-nowrap shrink-0">
+            <span className="px-2.5 py-1 rounded-xl bg-sky-50 text-sky-800 border border-sky-200 text-[11px] font-mono font-bold whitespace-nowrap shrink-0 shadow-2xs">
               🚗 {trabajadorActual?.vehiculo_placa || "Sin auto"}
             </span>
           </div>
@@ -514,7 +514,7 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
 
         {(ordenes.length > 0 && ordenes[0]?.cuadrilla) || trabajadorActual?.cuadrilla ? (
           <div className="pt-0.5">
-            <span className="text-[10px] sm:text-[11px] font-bold text-indigo-200 bg-indigo-900/40 px-2.5 py-1 rounded-xl border border-indigo-400/20 inline-block truncate max-w-full">
+            <span className="text-[10px] sm:text-[11px] font-bold text-slate-700 bg-slate-100/90 px-2.5 py-1 rounded-xl border border-slate-200 inline-block truncate max-w-full">
               📍 Cuadrilla: {(() => {
                 if (ordenes.length > 0 && ordenes[0]?.cuadrilla) {
                   const key = extractCuadrillaKey(ordenes[0].cuadrilla);
@@ -539,11 +539,11 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
           </div>
         ) : null}
 
-        {/* Acciones Rápidas del Técnico: 1 columna si solo está checklist, 2 si tiene stock */}
+        {/* Acciones Rápidas del Técnico */}
         <div className={`grid gap-2 pt-0.5 ${permiteVerStock ? "grid-cols-2" : "grid-cols-1"}`}>
           <button
             onClick={abrirChecklist}
-            className="w-full py-2.5 px-3 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white rounded-2xl font-black text-xs shadow-md shadow-amber-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            className="w-full py-2.5 px-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 active:scale-95 text-white rounded-2xl font-black text-xs shadow-md shadow-amber-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
           >
             <FileText size={15} />
             Checklist Diario
@@ -554,11 +554,11 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
               onClick={alternarStock}
               className={`w-full py-2.5 px-3 rounded-2xl font-bold text-xs border transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 ${
                 mostrarStock
-                  ? "bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/30"
-                  : "bg-white/10 hover:bg-white/20 text-white border-white/15"
+                  ? "bg-sky-600 text-white border-sky-600 shadow-md shadow-sky-600/25"
+                  : "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200/90"
               }`}
             >
-              <Package size={15} />
+              <Package size={15} className={mostrarStock ? "text-white" : "text-sky-600"} />
               Mi Stock ({miStock.filter((m) => (m.categoria || "").toUpperCase() === "MATERIALES").length + misSeries.filter((s) => !s.equipo_nombre?.toUpperCase().includes("ACTA") && !s.categoria?.toUpperCase().includes("TALONARIO")).length})
             </button>
           )}

@@ -49,6 +49,7 @@ import {
   Legend,
 } from "recharts";
 import { TechnicianPerformanceTab } from "./components/TechnicianPerformanceTab";
+import { MonthlyEffectivenessSection } from "./components/MonthlyEffectivenessSection";
 interface OnlineUser {
   id_usuario: number;
   documento: string;
@@ -950,6 +951,11 @@ export const ExecutiveDashboardPage: React.FC = () => {
               </ResponsiveContainer>
             </div>
           </div>
+
+          {/* ─────────────────────────────────────────────────────────────
+              5. EFECTIVIDAD MENSUAL: AVERÍAS VS POSTVENTA (TABLAS & TENDENCIA)
+          ───────────────────────────────────────────────────────────── */}
+          <MonthlyEffectivenessSection />
         </div>
       )}
 

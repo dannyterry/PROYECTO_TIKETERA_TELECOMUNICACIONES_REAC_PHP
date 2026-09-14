@@ -268,18 +268,6 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
 
   return (
     <div className="space-y-4 w-full">
-      
-      {/* CABECERA */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white px-5 py-3.5 rounded-2xl border border-slate-200 shadow-sm">
-        <div>
-          <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">Directorio de Personal</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Gestiona, busca y exporta información de Recursos Humanos y SSOMA.</p>
-        </div>
-        <div className="bg-sky-50 border border-sky-200 px-3.5 py-1.5 rounded-xl text-sky-800 text-xs font-bold shadow-xs flex items-center gap-2 self-start sm:self-auto">
-          <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse"></span>
-          <span>{filteredEmpleados.length} Registros</span>
-        </div>
-      </div>
 
       {/* BLOQUE DE FILTROS AVANZADOS (GRID RESPONSIVO) */}
       <div className="flex flex-col gap-3.5 bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
@@ -515,21 +503,28 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
           </div>
         )}
 
-        {/* Fila inferior: Botones de Exportación */}
-        <div className="flex flex-wrap items-center gap-2.5 pt-3 mt-0.5 border-t border-gray-100">
-          <span className="text-xs font-bold text-gray-500 uppercase tracking-wider mr-2">Exportar Data:</span>
-          
-          <Button variant="outline" size="sm" onClick={exportarExcelRRHH} className="bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 shadow-sm font-bold">
-            🟩 Excel (RRHH)
-          </Button>
-          
-          <Button variant="outline" size="sm" onClick={exportarExcelSCTR} className="bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100 shadow-sm font-bold">
-            🟧 Trama SCTR
-          </Button>
-          
-          <Button variant="outline" size="sm" onClick={() => alert("Función PDF en desarrollo...")} className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100 shadow-sm font-bold">
-            🟥 PDF General
-          </Button>
+        {/* Fila inferior: Botones de Exportación + Contador de Registros */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5 pt-3 mt-0.5 border-t border-gray-100">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider mr-1">Exportar Data:</span>
+            
+            <Button variant="outline" size="sm" onClick={exportarExcelRRHH} className="bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 shadow-sm font-bold">
+              🟩 Excel (RRHH)
+            </Button>
+            
+            <Button variant="outline" size="sm" onClick={exportarExcelSCTR} className="bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100 shadow-sm font-bold">
+              🟧 Trama SCTR
+            </Button>
+            
+            <Button variant="outline" size="sm" onClick={() => alert("Función PDF en desarrollo...")} className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100 shadow-sm font-bold">
+              🟥 PDF General
+            </Button>
+          </div>
+
+          <div className="bg-sky-50 border border-sky-200 px-3 py-1 rounded-xl text-sky-800 text-xs font-bold shadow-2xs flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse"></span>
+            <span>{filteredEmpleados.length} Registros</span>
+          </div>
         </div>
       </div>
 

@@ -695,6 +695,7 @@ export const OrdersPage: React.FC = () => {
           }}
           totalCount={baseFilteredOrders.length}
           cuadrillas={cuadrillasDisponibles}
+          tecnicos={tecnicosDisponibles}
           stats={stats}
           alertsCount={alertsData?.resumen.total_alertas || 0}
           onOpenAlerts={() => setIsAlertsModalOpen(true)}

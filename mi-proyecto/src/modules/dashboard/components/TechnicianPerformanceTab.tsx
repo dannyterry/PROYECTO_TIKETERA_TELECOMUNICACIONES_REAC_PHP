@@ -24,7 +24,12 @@ import {
   Activity,
   ShieldCheck,
   PieChart as PieIcon,
+  Maximize2,
+  Minimize2,
+  X,
+  FileSpreadsheet,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import {
   ResponsiveContainer,
   BarChart,
@@ -108,6 +113,7 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
   const [menuTiposAbierto, setMenuTiposAbierto] = useState<boolean>(false);
   const [tipoVisualizacionTipos, setTipoVisualizacionTipos] = useState<"dona" | "barras">("dona");
   const [modoTopGrafico, setModoTopGrafico] = useState<"finalizadas" | "todos">("finalizadas");
+  const [isMatrizModalOpen, setIsMatrizModalOpen] = useState<boolean>(false);
 
   // Paleta de colores para los tipos de trabajo en el gráfico
   const coloresTipos: Record<string, string> = {
@@ -377,6 +383,63 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // Exportar Matriz Técnico x Tipo de Trabajo a Excel (.xlsx) nativo con formato
+  const handleExportMatrizExcel = () => {
+    if (!data || tecnicosFiltrados.length === 0) return;
+
+    // Fila 1: Título agrupado
+    // Fila 2: Cabeceras
+    const headerRow = ["TÉCNICO", ...columnasVisibles, "SUMA TOTAL"];
+    
+    // Filas de datos
+    const dataRows = tecnicosFiltrados.map((t) => {
+      const sumaFila = columnasVisibles.reduce(
+        (acc, col) => acc + (t.tipos_trabajo[col] || 0),
+        0
+      );
+      return [
+        t.tecnico,
+        ...columnasVisibles.map((col) => t.tipos_trabajo[col] || 0),
+        sumaFila,
+      ];
+    });
+
+    // Fila de total inferior
+    const footerRow = [
+      "SUMA TOTAL",
+      ...columnasVisibles.map((col) => totalesMatriz.porColumna[col] || 0),
+      totalesMatriz.granTotal,
+    ];
+
+    // Construir hoja Excel
+    const worksheetData = [
+      [`MATRIZ DE CRUCE: TÉCNICO X TIPO DE TRABAJO (${fechas.desde} al ${fechas.hasta})`],
+      [],
+      headerRow,
+      ...dataRows,
+      footerRow,
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(worksheetData);
+
+    // Ajustar anchos de columna automáticamente
+    const colWidths = [
+      { wch: 32 }, // TECNICO
+      ...columnasVisibles.map((col) => ({ wch: Math.max(col.length + 3, 12) })),
+      { wch: 14 }, // SUMA TOTAL
+    ];
+    ws["!cols"] = colWidths;
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Matriz_Cruce");
+
+    // Descargar archivo
+    XLSX.writeFile(
+      wb,
+      `Matriz_Tecnico_vs_TipoTrabajo_${fechas.desde}_al_${fechas.hasta}.xlsx`
+    );
   };
 
   const kpis = data?.kpis || {
@@ -828,6 +891,27 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
               title={ordenAsc ? "Ascendente" : "Descendente"}
             >
               <ArrowUpDown size={14} />
+            </button>
+
+            {/* Botón Exportar Matriz a Excel (.xlsx) */}
+            <button
+              type="button"
+              onClick={handleExportMatrizExcel}
+              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm shadow-emerald-600/20 cursor-pointer"
+              title="Descargar matriz completa en formato Excel (.xlsx)"
+            >
+              <FileSpreadsheet size={14} />
+              <span className="hidden sm:inline">Excel</span>
+            </button>
+
+            {/* Botón Agrandar / Pantalla Completa Modal */}
+            <button
+              type="button"
+              onClick={() => setIsMatrizModalOpen(true)}
+              className="p-1.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-slate-700 hover:text-indigo-600 transition-colors cursor-pointer shadow-2xs"
+              title="Agrandar y ver matriz en pantalla completa"
+            >
+              <Maximize2 size={15} />
             </button>
           </div>
         </div>
@@ -1488,6 +1572,310 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
           </table>
         </div>
       </div>
+
+      {/* ─────────────────────────────────────────────────────────────
+          MODAL DE PANTALLA COMPLETA: MATRIZ DE CRUCE TÉCNICO X TIPO
+      ───────────────────────────────────────────────────────────── */}
+      {isMatrizModalOpen && (
+        <div className="fixed inset-0 z-[9999] bg-slate-950/70 backdrop-blur-xs flex flex-col p-2 sm:p-4 md:p-6 animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col w-full h-full overflow-hidden">
+            {/* Header del Modal */}
+            <div className="p-4 sm:p-5 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-slate-50/80 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-50 rounded-xl border border-emerald-200">
+                  <TableIcon size={22} className="text-emerald-600" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
+                      Matriz de Cruce: Técnico x Tipo de Trabajo
+                    </h2>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      Solo Finalizadas
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                      {fechas.desde} al {fechas.hasta}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Vista ampliada en pantalla completa. Total de órdenes finalizadas por cada categoría de trabajo para cada técnico.
+                  </p>
+                </div>
+              </div>
+
+              {/* Acciones y Filtros del Modal */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Filtro por Tipo de Trabajo */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setMenuTiposAbierto((prev) => !prev)}
+                    className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer border ${
+                      tiposSeleccionados.length > 0
+                        ? "bg-indigo-600 text-white border-indigo-700 shadow-md shadow-indigo-600/20"
+                        : "bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-2xs"
+                    }`}
+                    title="Filtrar tipos de trabajo visibles en la matriz"
+                  >
+                    <Filter size={13} />
+                    <span>
+                      {tiposSeleccionados.length === 0
+                        ? "Filtrar Tipos"
+                        : `${tiposSeleccionados.length} selec.`}
+                    </span>
+                    <ChevronDown size={13} className={`transition-transform ${menuTiposAbierto ? "rotate-180" : ""}`} />
+                  </button>
+
+                  {/* Popover flotante con Checkboxes */}
+                  {menuTiposAbierto && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setMenuTiposAbierto(false)}
+                      />
+                      <div className="absolute right-0 top-full mt-2 z-50 bg-white border border-slate-200 rounded-2xl shadow-2xl p-3 w-72 space-y-2 animate-fade-in">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                          <span className="text-[11px] font-black text-slate-800 uppercase tracking-tight">
+                            SELECCIONAR TIPOS DE TRABAJO
+                          </span>
+                          <button
+                            type="button"
+                            onClick={seleccionarTodosTipos}
+                            className="text-[10px] font-bold text-indigo-600 hover:underline cursor-pointer"
+                          >
+                            {tiposSeleccionados.length === columnasTipo.length
+                              ? "Desmarcar todo"
+                              : "Marcar todas"}
+                          </button>
+                        </div>
+
+                        <div className="max-h-60 overflow-y-auto space-y-0.5 py-1 custom-scrollbar">
+                          {columnasTipo.map((tipo) => {
+                            const isChecked = tiposSeleccionados.includes(tipo);
+                            const count = data?.totales_columnas_tipo[tipo] || 0;
+
+                            return (
+                              <label
+                                key={tipo}
+                                onClick={() => toggleTipoTrabajo(tipo)}
+                                className="flex items-center justify-between p-2 rounded-xl hover:bg-indigo-50/60 cursor-pointer transition-colors select-none"
+                              >
+                                <div className="flex items-center gap-2">
+                                  {isChecked ? (
+                                    <CheckSquare size={16} className="text-indigo-600 shrink-0" />
+                                  ) : (
+                                    <Square size={16} className="text-slate-300 shrink-0" />
+                                  )}
+                                  <span className={`text-xs font-bold ${isChecked ? "text-indigo-950 font-black" : "text-slate-700"}`}>
+                                    {tipo}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] font-bold text-slate-500 font-mono bg-slate-100 px-1.5 py-0.5 rounded-md">
+                                  {count}
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+
+                        {tiposSeleccionados.length > 0 && (
+                          <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                            <span className="text-[10px] text-slate-500 font-medium">
+                              {tiposSeleccionados.length} de {columnasTipo.length} tipos
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setTiposSeleccionados([])}
+                              className="text-[10px] font-bold text-rose-600 hover:underline cursor-pointer"
+                            >
+                              Mostrar todos
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <span className="text-xs font-bold text-slate-500">Ordenar:</span>
+                <select
+                  value={ordenarPor}
+                  onChange={(e: any) => setOrdenarPor(e.target.value)}
+                  className="bg-white border border-slate-200 text-xs font-bold text-slate-700 px-2.5 py-1.5 rounded-xl shadow-2xs outline-none cursor-pointer"
+                >
+                  <option value="finalizadas">Mayor Finalizadas</option>
+                  <option value="total">Mayor Asignadas</option>
+                  <option value="efectividad">% Efectividad</option>
+                  <option value="nombre">Nombre</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setOrdenAsc(!ordenAsc)}
+                  className="p-1.5 bg-white border border-slate-200 rounded-xl text-slate-600 hover:text-slate-900 transition-colors cursor-pointer shadow-2xs"
+                  title={ordenAsc ? "Ascendente" : "Descendente"}
+                >
+                  <ArrowUpDown size={14} />
+                </button>
+
+                {/* Botón Exportar a Excel */}
+                <button
+                  type="button"
+                  onClick={handleExportMatrizExcel}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm shadow-emerald-600/20 cursor-pointer"
+                  title="Descargar matriz en Excel (.xlsx)"
+                >
+                  <FileSpreadsheet size={15} />
+                  <span>Exportar Excel</span>
+                </button>
+
+                {/* Botón Cerrar Pantalla Completa */}
+                <button
+                  type="button"
+                  onClick={() => setIsMatrizModalOpen(false)}
+                  className="p-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl transition-colors cursor-pointer ml-1"
+                  title="Cerrar vista completa"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Tabla en el Modal: expandida para ocupar el 100% de la altura y ancho disponibles */}
+            <div className="flex-1 overflow-auto p-2 bg-slate-50/40 flex flex-col">
+              <table className="w-full h-full text-left border-separate border-spacing-0 shadow-sm bg-white rounded-lg overflow-hidden border border-slate-300">
+                {/* Encabezado Nivel 1 y 2 - Estilo Excel Pivot */}
+                <thead className="sticky top-0 z-30 shadow-xs">
+                  {/* Nivel 1: TIPO DE TRABAJO agrupado */}
+                  <tr className="bg-[#8ea9db] text-[#1f3864]">
+                    <th
+                      rowSpan={2}
+                      className="bg-[#8ea9db] py-2 px-3 border-b-2 border-r border-slate-300 text-left font-black tracking-wide text-xs w-[160px] min-w-[140px] max-w-[200px] align-middle sticky left-0 z-40"
+                    >
+                      TECNICO
+                    </th>
+                    <th
+                      colSpan={columnasVisibles.length}
+                      className="bg-[#8ea9db] py-1 px-1 border-b border-r border-slate-300 text-center font-black tracking-wider text-xs uppercase italic"
+                    >
+                      TIPO DE TRABAJO
+                    </th>
+                    <th
+                      rowSpan={2}
+                      className="bg-[#8ea9db] py-2 px-1 border-b-2 border-slate-300 text-center font-black tracking-tight text-xs w-[60px] min-w-[50px] leading-tight align-middle"
+                    >
+                      Suma total
+                    </th>
+                  </tr>
+                  {/* Nivel 2: Columnas de cada tipo de trabajo */}
+                  <tr className="bg-[#8ea9db] text-[#1f3864]">
+                    {columnasVisibles.map((col) => (
+                      <th
+                        key={col}
+                        className="bg-[#8ea9db] py-1 px-1 border-b-2 border-r border-slate-300 text-center font-black text-[10px] leading-tight uppercase tracking-tighter whitespace-normal break-words align-middle"
+                        title={`${col} (Total: ${data?.totales_columnas_tipo[col] || 0})`}
+                      >
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+
+                {/* Filas de Técnicos - Repartidas equitativamente en todo el alto */}
+                <tbody className="bg-white">
+                  {tecnicosFiltrados.map((t, idx) => (
+                    <tr
+                      key={t.id_tecnico || idx}
+                      className="hover:bg-blue-50/70 transition-colors group"
+                    >
+                      {/* Técnico Fijo a la Izquierda - Solo nombre, sin cuadrilla */}
+                      <td className="bg-white group-hover:bg-blue-50/90 py-1.5 px-3 border-b border-r border-slate-300 text-slate-800 w-[160px] min-w-[140px] max-w-[200px] sticky left-0 z-20 align-middle">
+                        <div className="font-bold text-xs uppercase truncate" title={t.tecnico}>
+                          {t.tecnico}
+                        </div>
+                      </td>
+
+                      {/* Celdas por Tipo de Trabajo */}
+                      {columnasVisibles.map((col) => {
+                        const cant = t.tipos_trabajo[col] || 0;
+                        return (
+                          <td
+                            key={col}
+                            className="py-1 px-1 text-center border-b border-r border-slate-300 text-xs font-mono leading-tight align-middle"
+                          >
+                            {cant > 0 ? (
+                              <span className="font-bold text-slate-900">
+                                {cant}
+                              </span>
+                            ) : (
+                              ""
+                            )}
+                          </td>
+                        );
+                      })}
+
+                      {/* Suma Total Fila Técnico */}
+                      {(() => {
+                        const sumaFilaVisible = columnasVisibles.reduce(
+                          (acc, col) => acc + (t.tipos_trabajo[col] || 0),
+                          0
+                        );
+                        return (
+                          <td className="py-1 px-1 text-center border-b border-r border-slate-300 bg-slate-50/80 font-mono font-black text-slate-900 text-xs leading-tight w-[60px] min-w-[50px] align-middle">
+                            {sumaFilaVisible > 0 ? sumaFilaVisible : ""}
+                          </td>
+                        );
+                      })()}
+                    </tr>
+                  ))}
+
+                  {tecnicosFiltrados.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={columnasVisibles.length + 2}
+                        className="p-8 text-center text-slate-400 font-semibold border-b border-slate-300"
+                      >
+                        No se encontraron técnicos para este filtro.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+
+                {/* Fila Resumen Inferior */}
+                {tecnicosFiltrados.length > 0 && (
+                  <tfoot className="sticky bottom-0 z-30 shadow-md">
+                    <tr className="bg-[#d9e1f2] text-[#1f3864] font-black">
+                      <td className="bg-[#d9e1f2] py-2 px-3 border-t-2 border-r border-slate-400 font-black text-xs uppercase w-[160px] min-w-[140px] max-w-[200px] sticky left-0 z-40 align-middle">
+                        SUMA TOTAL
+                      </td>
+                      {columnasVisibles.map((col) => (
+                        <td
+                          key={col}
+                          className="py-2 px-1 text-center border-t-2 border-r border-slate-400 font-black text-slate-900 font-mono text-xs bg-[#d9e1f2] align-middle"
+                        >
+                          {totalesMatriz.porColumna[col] || 0}
+                        </td>
+                      ))}
+                      <td className="py-2 px-1 text-center border-t-2 border-r border-slate-400 font-black text-slate-950 font-mono text-xs bg-[#c6d9f1] w-[60px] min-w-[50px] align-middle">
+                        {totalesMatriz.granTotal}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+
+            {/* Footer con resumen rápido de datos */}
+            <div className="p-2.5 px-4 border-t border-slate-200 bg-white flex items-center justify-between text-xs text-slate-500 font-medium shrink-0">
+              <div>
+                Total técnicos: <span className="font-bold text-slate-800">{tecnicosFiltrados.length}</span>
+              </div>
+              <div>
+                Gran Total: <span className="font-bold text-indigo-700 font-mono text-sm">{totalesMatriz.granTotal}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

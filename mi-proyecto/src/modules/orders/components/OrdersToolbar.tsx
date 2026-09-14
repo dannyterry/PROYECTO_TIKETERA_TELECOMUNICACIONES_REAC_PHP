@@ -10,6 +10,7 @@ interface OrdersToolbarProps {
   onSync: () => void;
   totalCount: number;
   cuadrillas?: (string | { key: string; label: string })[];
+  tecnicos?: string[];
   stats?: {
     verdes: number;
     azules: number;
@@ -27,6 +28,7 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
   onSync,
   totalCount,
   cuadrillas = [],
+  tecnicos = [],
   stats = { verdes: 0, azules: 0, amarillos: 0, agendadas: 0, ordenamientos: 0 },
   alertsCount = 0,
   onOpenAlerts,
@@ -255,8 +257,8 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
 
       </div>
 
-      {/* FILA INFERIOR: FILTROS DE FECHA, ESTADO Y BUSCADOR */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-2.5 items-end pt-1">
+      {/* FILA INFERIOR: FILTROS DE FECHA, ESTADO, TÉCNICO, CUADRILLA Y BUSCADOR */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-2.5 items-end pt-1">
         
         {/* 1. Fecha Desde */}
         <div className="w-full">
@@ -317,7 +319,30 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
           </select>
         </div>
 
-        {/* 4. Filtro de Cuadrilla (Diferenciando prefijo + descriptor: K 5 CESPEDES vs K 5 TRASLADO) */}
+        {/* 4. Filtro de Técnico Específico */}
+        <div className="w-full">
+          <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">
+            👷 Técnico
+          </label>
+          <select
+            value={filters.tecnico || "Todos"}
+            onChange={(e) => onFilterChange({ ...filters, tecnico: e.target.value })}
+            className={`w-full h-9 rounded-md border px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer font-bold truncate ${
+              filters.tecnico && filters.tecnico !== "Todos"
+                ? "bg-amber-50 border-amber-400 text-amber-900"
+                : "bg-slate-50 border-slate-300 text-slate-800"
+            }`}
+          >
+            <option value="Todos">👷 Todos los Técnicos ({tecnicos.length})</option>
+            {tecnicos.map((tec) => (
+              <option key={tec} value={tec}>
+                {tec}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* 5. Filtro de Cuadrilla (Diferenciando prefijo + descriptor: K 5 CESPEDES vs K 5 TRASLADO) */}
         <div className="w-full">
           <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">
             👥 Cuadrilla
@@ -325,7 +350,7 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
           <select
             value={filters.cuadrilla || "Todos"}
             onChange={(e) => onFilterChange({ ...filters, cuadrilla: e.target.value })}
-            className={`w-full h-9 rounded-md border px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer font-bold ${
+            className={`w-full h-9 rounded-md border px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer font-bold truncate ${
               filters.cuadrilla && filters.cuadrilla !== "Todos"
                 ? "bg-sky-50 border-sky-400 text-sky-900"
                 : "bg-slate-50 border-slate-300 text-slate-800"
@@ -344,7 +369,7 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
           </select>
         </div>
 
-        {/* 5. Filtro Inconcert */}
+        {/* 6. Filtro Inconcert */}
         <div className="w-full">
           <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">
             Inconcert
@@ -360,13 +385,13 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
           </select>
         </div>
 
-        {/* 6. Buscador General con Botón Buscar y ENTER */}
+        {/* 7. Buscador General con Botón Buscar y ENTER */}
         <div className="w-full sm:col-span-2 lg:col-span-1 xl:col-span-1">
           <div className="flex items-center justify-between mb-1">
             <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">
               Búsqueda Rápida
             </label>
-            {(filters.search || filters.fechaDesde || filters.fechaHasta || filters.status !== "Todos" || (filters.cuadrilla && filters.cuadrilla !== "Todos") || filters.inconcert !== "Todos") && (
+            {(filters.search || filters.fechaDesde || filters.fechaHasta || filters.status !== "Todos" || (filters.tecnico && filters.tecnico !== "Todos") || (filters.cuadrilla && filters.cuadrilla !== "Todos") || filters.inconcert !== "Todos") && (
               <button
                 type="button"
                 onClick={handleClearFilters}
