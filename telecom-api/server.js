@@ -6968,6 +6968,7 @@ app.get('/api/almacen/tecnico-stock/:idTrabajador', async (req, res) => {
         p.nombre,
         p.es_drop,
         p.maneja_serie,
+        p.categoria_liquidar,
         COALESCE(c.nombre, 'MATERIALES') AS categoria,
         tp.stock
       FROM trabajador_productos tp

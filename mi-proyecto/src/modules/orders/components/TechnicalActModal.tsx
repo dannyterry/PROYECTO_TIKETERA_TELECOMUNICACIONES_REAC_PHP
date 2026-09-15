@@ -224,6 +224,40 @@ export const TechnicalActModal: React.FC<Props> = ({
       .filter(Boolean);
   }, [seriesAsignadasTecnico]);
 
+  // 🌟 Filtrar estrictamente solo Materiales e Insumos Consumibles para la liquidación de la orden
+  // (Excluyendo herramientas, uniformes, vehículos y equipos serializados)
+  const soloMaterialesLiquidables = useMemo(() => {
+    return stockTecnicoMateriales.filter((m) => {
+      const cat = String(m.categoria || "").toUpperCase().trim();
+      const catLiq = String(m.categoria_liquidar || "").toUpperCase().trim();
+      const nom = String(m.nombre || "").toUpperCase().trim();
+
+      // Excluir equipos serializados (ONTs, Smart, TV Box, Teléfonos, etc.)
+      if (cat === "EQUIPOS" || catLiq === "EQUIPO" || m.maneja_serie === 1 || m.maneja_serie === true) {
+        // Excepto si es Actas/Guías físicas que son consumibles
+        if (!nom.includes("ACTA") && !nom.includes("GUIA") && !nom.includes("TALONARIO")) {
+          return false;
+        }
+      }
+
+      // Excluir vehículo, herramientas, uniformes, EPP
+      if (
+        cat.includes("VEHIC") ||
+        cat.includes("HERRAMIEN") ||
+        cat.includes("UNIFORM") ||
+        cat.includes("EPP") ||
+        cat.includes("SEGURIDAD VIAL") ||
+        catLiq === "VEHICULO" ||
+        catLiq === "HERRAMIENTA" ||
+        catLiq === "UNIFORME"
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [stockTecnicoMateriales]);
+
   // Sugerencias de autocompletado según lo que el técnico va digitando
   const sugerenciasGuias: string[] = useMemo(() => {
     if (!guiaCorrelativo.trim()) {
@@ -847,7 +881,7 @@ export const TechnicalActModal: React.FC<Props> = ({
                         className="w-full p-2 bg-white border border-indigo-300 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-200 cursor-pointer"
                       >
                         <option value="">-- Elige un material de tu stock --</option>
-                        {stockTecnicoMateriales.map((m) => (
+                        {soloMaterialesLiquidables.map((m) => (
                           <option key={m.id_producto} value={m.id_producto}>
                             {m.nombre} (Stock: {m.stock} {m.es_drop ? "m" : "und"})
                           </option>
