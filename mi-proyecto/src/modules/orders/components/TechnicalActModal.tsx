@@ -107,7 +107,16 @@ export const TechnicalActModal: React.FC<Props> = ({
   // 2. Metraje Drop
   const [dropMetroInicio, setDropMetroInicio] = useState<string>("");
   const [dropMetroFin, setDropMetroFin] = useState<string>("");
-  const totalDropCalculado = Math.max(0, (Number(dropMetroInicio) || 0) - (Number(dropMetroFin) || 0));
+  const totalDropCalculado = useMemo(() => {
+    const ini = Number(dropMetroInicio);
+    const fin = Number(dropMetroFin);
+    const iniVal = !isNaN(ini) && ini > 0 ? ini : 0;
+    const finVal = !isNaN(fin) && fin > 0 ? fin : 0;
+    if (iniVal > 0 && finVal > 0) {
+      return Math.abs(iniVal - finVal);
+    }
+    return iniVal || finVal || 0;
+  }, [dropMetroInicio, dropMetroFin]);
 
   // 3. Stock disponible del técnico
   const [stockTecnicoMateriales, setStockTecnicoMateriales] = useState<any[]>([]);
@@ -346,7 +355,8 @@ export const TechnicalActModal: React.FC<Props> = ({
     if (targetId) {
       getTecnicoStock(targetId)
         .then((res) => {
-          setStockTecnicoMateriales(res.materiales || []);
+          const mats = [...(res.materiales || []), ...(res.cablesDrop || [])];
+          setStockTecnicoMateriales(mats);
           setSeriesAsignadasTecnico(res.seriesAsignadas || []);
         })
         .catch((err) => console.error("Error al cargar stock:", err));
@@ -733,7 +743,7 @@ export const TechnicalActModal: React.FC<Props> = ({
             {/* ─────────────────────────────────────────────────────────────
                 3. CÁLCULO DE CABLE DROP (SI APLICA)
             ───────────────────────────────────────────────────────────── */}
-            {(plantillaActual.requiereDrop || Number(dropMetroInicio) > 0) && (
+            {(plantillaActual.requiereDrop || Number(dropMetroInicio) > 0 || Number(dropMetroFin) > 0 || /fibra|drop|recableado|alta|traslado|instalac/i.test(tipoLiquidacion)) && (
               <div className="p-4 bg-amber-50/50 border border-amber-200 rounded-2xl space-y-3">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <span className="font-black text-xs text-amber-900 flex items-center gap-1.5">

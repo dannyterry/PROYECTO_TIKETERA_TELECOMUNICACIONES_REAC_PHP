@@ -492,7 +492,7 @@ export const InspectionAuditTab: React.FC<Props> = ({
                 <div className="p-3 bg-slate-50/60 border-t border-slate-100 flex items-center justify-between gap-2">
                   <button
                     onClick={() => {
-                      setObservandoId(insp.id_inspeccion);
+                      setObservandoId(Number(insp.id_inspeccion));
                       setTextoObservacion(insp.observaciones_admin || "");
                     }}
                     className="flex-1 py-2 px-3 rounded-xl border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
@@ -502,7 +502,7 @@ export const InspectionAuditTab: React.FC<Props> = ({
                   </button>
 
                   <button
-                    onClick={() => handleAprobarRapido(insp.id_inspeccion)}
+                    onClick={() => handleAprobarRapido(Number(insp.id_inspeccion))}
                     disabled={auditandoLoading || insp.estado_auditoria === "Aprobado"}
                     className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                       insp.estado_auditoria === "Aprobado"

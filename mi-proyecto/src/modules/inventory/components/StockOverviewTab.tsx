@@ -1378,6 +1378,26 @@ export const StockOverviewTab: React.FC<Props> = ({
                               <span>Ingresar</span>
                             </button>
                           )}
+
+                          {/* Botón de Compras SIEMPRE presente para Equipos (cuando ya tienen stock y el botón principal es 'Despachar') */}
+                          {esEquipoProd && Number(totalCentral || 0) > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onNavigateToTab) {
+                                  onNavigateToTab("compras");
+                                } else {
+                                  window.location.hash = "compras";
+                                }
+                              }}
+                              className="p-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-xl font-bold text-[11px] transition-all cursor-pointer shadow-2xs"
+                              title="Ir al módulo de Compras / Facturas para ingresar equipos o escanear series"
+                            >
+                              <ShoppingCart size={13} />
+                            </button>
+                          )}
+
+                          {/* Botón de Ingreso rápido */}
                           {Number(totalCentral || 0) > 0 && !esEquipoProd && (
                             <button
                               type="button"
@@ -1388,6 +1408,8 @@ export const StockOverviewTab: React.FC<Props> = ({
                               <PackagePlus size={13} />
                             </button>
                           )}
+
+                          {/* Botón de Ver Series */}
                           {Boolean(p.maneja_serie) && (
                             <button
                               type="button"

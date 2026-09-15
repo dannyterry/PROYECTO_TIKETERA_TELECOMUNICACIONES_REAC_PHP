@@ -51,8 +51,9 @@ const generarPlantillaOrden = (order: Order): string => {
     `Tramo: ${order.tramo || "-"}`,
     `Cuadrilla: ${order.cuadrilla || "-"}`,
     `Tipo de Liquidación: ${order.tipoLiquidacion || order.motivoLiquidacion || order.motivoFinalizacion || "-"}`,
-    `Tipo de Trabajo: ${order.tipoTrabajo || "-"}`,
-    `Ancho de Banda: ${order.anchoBanda || "-"}`
+    `Tipo de Trabajo: ${order.tipoTrabajoAsignado || order.tipoTrabajo || "-"}`,
+    `Ancho de Banda: ${order.anchoBanda || "-"}`,
+    `Observación de Llamada: ${order.observacionLlamada || "-"}`
   ].join("\n");
 };
 
@@ -259,16 +260,12 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
                 Observación de Llamada
               </th>
-              {/* 5. DNI */}
+                    {/* 5. DNI */}
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
                 DNI
               </th>
-              {/* 6. ACTA */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
-                Acta
-              </th>
               {/* 8. NÚMERO DE TICKET */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950 min-w-[140px] max-w-[170px]">
                 Número de Ticket
               </th>
               {/* 9. CLIENTE (Se pega a la fecha a left-[85px] solo al hacer scroll) */}
@@ -298,6 +295,10 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
               {/* 16 */}
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
                 Técnico
+              </th>
+              {/* ACTA (Antes de Tareas) */}
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
+                Acta
               </th>
               {/* TAREAS (Al costado derecho de Técnico) */}
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-1.5 text-center border-b-2 border-slate-950">
@@ -330,6 +331,10 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
               {/* 23 */}
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
                 Cuadrilla
+              </th>
+              {/* 24. TIPO DE TRABAJO ASIGNADO */}
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
+                Tipo de Trabajo Asignado
               </th>
               {/* 25 */}
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
@@ -440,61 +445,20 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                       {order.dni || "-"}
                     </td>
 
-                    {/* 7. Acta (Muestra N° de Acta o Botón para abrir / auditar Acta WIN) */}
-                    <td className="py-1 px-1.5 text-center border-b border-slate-950" onClick={(e) => e.stopPropagation()}>
-                      {(() => {
-                        const s = (order.status || "").toUpperCase();
-                        const isFinalizada =
-                          s.includes("FINALIZ") ||
-                          s.includes("LIQUID") ||
-                          s.includes("TERMIN") ||
-                          s.includes("CERRAD") ||
-                          s.includes("FENIX");
-
-                        if (order.acta) {
-                          return (
-                            <button
-                              type="button"
-                              onClick={() => onOpenLiquidar && onOpenLiquidar(order)}
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-white/90 hover:bg-amber-50 text-amber-950 border border-amber-300 transition-all cursor-pointer shadow-2xs whitespace-nowrap"
-                              title={`Acta N° ${order.acta}. Clic para ver / auditar acta.`}
-                            >
-                              <FileText size={10} className="text-amber-700" />
-                              <span>{order.acta}</span>
-                            </button>
-                          );
-                        }
-
-                        if (onOpenLiquidar && isFinalizada) {
-                          return (
-                            <button
-                              type="button"
-                              onClick={() => onOpenLiquidar(order)}
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 transition-all cursor-pointer shadow-2xs whitespace-nowrap"
-                              title="Llenar Acta de Servicio Técnico WIN y Liquidar Materiales"
-                            >
-                              <FileText size={10} className="text-amber-700" />
-                              <span>Acta WIN</span>
-                            </button>
-                          );
-                        }
-
-                        return <span className="font-mono text-slate-400 font-bold text-[11px]">-</span>;
-                      })()}
-                    </td>
-
                     {/* 9. Número de Ticket con botón de copiar */}
-                    <td className="py-1 px-2 font-mono font-bold border-b border-slate-950">
-                      <div className="flex items-center gap-1">
-                        <span className="text-slate-900 font-bold">{order.ticket}</span>
+                    <td className="py-1 px-2 font-mono font-bold border-b border-slate-950 min-w-[140px] max-w-[170px]" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-between gap-1 w-full overflow-hidden">
+                        <span className="text-slate-900 font-bold truncate flex-1 min-w-0" title={order.ticket || "-"}>
+                          {order.ticket || "-"}
+                        </span>
                         <button
                           type="button"
-                          onClick={(e) => copyToClipboard(`ticket-${order.id}`, order.ticket, e)}
-                          className={`p-0.5 rounded transition-all cursor-pointer ${copiedKey === `ticket-${order.id}`
+                          onClick={(e) => copyToClipboard(`ticket-${order.id}`, order.ticket || "", e)}
+                          className={`p-0.5 rounded transition-all shrink-0 cursor-pointer ${copiedKey === `ticket-${order.id}`
                             ? "bg-slate-900 text-emerald-400 shadow-sm scale-105"
                             : "hover:bg-black/10 text-slate-600"
                             }`}
-                          title="Copiar Ticket"
+                          title={`Copiar Ticket:\n${order.ticket || "-"}`}
                         >
                           {copiedKey === `ticket-${order.id}` ? (
                             <Check size={11} className="text-emerald-400 stroke-[3]" />
@@ -761,7 +725,50 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                       })()}
                     </td>
 
-                    {/* TAREAS (Al costado a la derecha de Técnico) */}
+                    {/* 6. Acta (Muestra N° de Acta o Botón para abrir / auditar Acta WIN - Antes de Tareas) */}
+                    <td className="py-1 px-1.5 text-center border-b border-slate-950" onClick={(e) => e.stopPropagation()}>
+                      {(() => {
+                        const s = (order.status || "").toUpperCase();
+                        const isFinalizada =
+                          s.includes("FINALIZ") ||
+                          s.includes("LIQUID") ||
+                          s.includes("TERMIN") ||
+                          s.includes("CERRAD") ||
+                          s.includes("FENIX");
+
+                        if (order.acta) {
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => onOpenLiquidar && onOpenLiquidar(order)}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-white/90 hover:bg-amber-50 text-amber-950 border border-amber-300 transition-all cursor-pointer shadow-2xs whitespace-nowrap"
+                              title={`Acta N° ${order.acta}. Clic para ver / auditar acta.`}
+                            >
+                              <FileText size={10} className="text-amber-700" />
+                              <span>{order.acta}</span>
+                            </button>
+                          );
+                        }
+
+                        if (onOpenLiquidar && isFinalizada) {
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => onOpenLiquidar(order)}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 transition-all cursor-pointer shadow-2xs whitespace-nowrap"
+                              title="Llenar Acta de Servicio Técnico WIN y Liquidar Materiales"
+                            >
+                              <FileText size={10} className="text-amber-700" />
+                              <span>Acta WIN</span>
+                            </button>
+                          );
+                        }
+
+                        return <span className="font-mono text-slate-400 font-bold text-[11px]">-</span>;
+                      })()}
+                    </td>
+
+                    {/* TAREAS (Al costado a la derecha de Acta / Técnico) */}
                     <td className="py-1 px-1.5 text-center border-b border-slate-950" onClick={(e) => e.stopPropagation()}>
                       {(() => {
                         const rawStatus = (order.status || "").toLowerCase();
@@ -950,6 +957,18 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                           </button>
                         )}
                       </div>
+                    </td>
+
+                    {/* 24. Tipo de Trabajo Asignado (Antes de Tipo de Liquidación) */}
+                    <td
+                      className="py-1 px-2 font-bold text-slate-900 text-[10px] max-w-[220px] truncate border-b border-slate-950 uppercase tracking-tight"
+                      title={order.tipoTrabajoAsignado || "-"}
+                    >
+                      {order.tipoTrabajoAsignado ? (
+                        <span>{order.tipoTrabajoAsignado}</span>
+                      ) : (
+                        <span className="text-slate-400 font-mono font-normal">-</span>
+                      )}
                     </td>
 
                     {/* 25. Tipo de Liquidación (Traído de Detalle de Orden: Finalización / Cancelación / Regestión / Anulación) */}

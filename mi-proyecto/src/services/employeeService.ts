@@ -36,7 +36,7 @@ export const getEmpleados = async (): Promise<Employee[]> => {
       segundoApellido: emp.segundo_apellido || "",
       correo: emp.email || "", 
       usuario: emp.usuario || "",
-      password: (emp.password !== undefined && emp.password !== null && String(emp.password).trim() !== "") ? String(emp.password) : (emp.documento || ""),
+      password: emp.password || emp.password_plano || emp.documento || "",
       telefono: emp.telefono || "",
       fechaNacimiento: formatFecha(emp.fecha_nacimiento),
       sexo: emp.sexo || "",
@@ -318,6 +318,19 @@ export const cancelarDescanso = async (id: number) => {
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || "Error al cancelar descanso");
+  }
+  return res.json();
+};
+
+export const resetPasswordEmpleado = async (id: number, password?: string) => {
+  const res = await fetch(`${API_URL}/api/empleados/${id}/reset-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Error al restablecer contraseña");
   }
   return res.json();
 };

@@ -12,6 +12,10 @@ import {
   RefreshCw,
   ShieldAlert,
   Users,
+  Scale,
+  Database,
+  Award,
+  ArrowRight,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -53,6 +57,11 @@ interface CuadrillaStat {
   cantidad: number;
 }
 
+interface ModoDataset {
+  totalesAnio: TotalesAnio;
+  meses: MesStat[];
+}
+
 interface ApiResponse {
   success: boolean;
   anio: number;
@@ -60,12 +69,20 @@ interface ApiResponse {
   cuadrillas?: CuadrillaStat[];
   totalesAnio: TotalesAnio;
   meses: MesStat[];
+  modos?: {
+    oficial: ModoDataset;
+    db_producto: ModoDataset;
+    db_hibrido: ModoDataset;
+  };
 }
+
+export type ModoCalculo = "oficial" | "db_producto" | "comparativo";
 
 export const MonthlyEffectivenessSection: React.FC = () => {
   const [anioSeleccionado, setAnioSeleccionado] = useState<number>(new Date().getFullYear());
   const [aniosDisponibles, setAniosDisponibles] = useState<number[]>([new Date().getFullYear()]);
   const [modoMetrica, setModoMetrica] = useState<"efectividad" | "cumplimiento" | "ambas">("efectividad");
+  const [modoCalculo, setModoCalculo] = useState<ModoCalculo>("oficial");
   const [loading, setLoading] = useState<boolean>(true);
   const [data, setData] = useState<ApiResponse | null>(null);
 
@@ -92,8 +109,26 @@ export const MonthlyEffectivenessSection: React.FC = () => {
     cargarDatos(anioSeleccionado);
   }, [anioSeleccionado, cargarDatos]);
 
+  // Obtener datasets activos según modo
+  const datasetOficial: ModoDataset = data?.modos?.oficial || {
+    totalesAnio: data?.totalesAnio || {
+      averias: { asignadas: 0, finalizadas: 0, efectividad: 0, cumplidas: 0, cumplimiento: 0 },
+      postventa: { asignadas: 0, finalizadas: 0, efectividad: 0, cumplidas: 0, cumplimiento: 0 },
+    },
+    meses: data?.meses || [],
+  };
+
+  const datasetDbProducto: ModoDataset = data?.modos?.db_producto || datasetOficial;
+
+  const datasetActivo: ModoDataset =
+    modoCalculo === "db_producto" ? datasetDbProducto : datasetOficial;
+
+  const isEfectividad = modoMetrica === "efectividad";
+  const isCumplimiento = modoMetrica === "cumplimiento";
+  const isComparativo = modoCalculo === "comparativo";
+
   // Preparar datos para el gráfico combinado
-  const chartData = (data?.meses || []).map((m) => ({
+  const chartData = (datasetActivo.meses || []).map((m) => ({
     mes: m.mesNombre.substring(0, 3),
     nombreCompleto: m.mesNombre,
     "% Ef. Averías": m.averias.efectividad,
@@ -120,67 +155,61 @@ export const MonthlyEffectivenessSection: React.FC = () => {
       "% Cumpl. Postventa",
     ];
 
-    const consolidatedRows = data.meses.map((m) => [
-      m.mesNombre,
-      m.averias.asignadas,
-      m.averias.finalizadas,
-      `${m.averias.efectividad}%`,
-      m.averias.cumplidas,
-      `${m.averias.cumplimiento}%`,
-      m.postventa.asignadas,
-      m.postventa.finalizadas,
-      `${m.postventa.efectividad}%`,
-      m.postventa.cumplidas,
-      `${m.postventa.cumplimiento}%`,
-    ]);
-
-    const consolidatedTotal = [
-      `TOTAL ${data.anio}`,
-      data.totalesAnio.averias.asignadas,
-      data.totalesAnio.averias.finalizadas,
-      `${data.totalesAnio.averias.efectividad}%`,
-      data.totalesAnio.averias.cumplidas,
-      `${data.totalesAnio.averias.cumplimiento}%`,
-      data.totalesAnio.postventa.asignadas,
-      data.totalesAnio.postventa.finalizadas,
-      `${data.totalesAnio.postventa.efectividad}%`,
-      data.totalesAnio.postventa.cumplidas,
-      `${data.totalesAnio.postventa.cumplimiento}%`,
-    ];
-
-    const ws = XLSX.utils.aoa_to_sheet([
-      [`REPORTE DE EFECTIVIDAD Y CUMPLIMIENTO: AVERÍAS VS POSTVENTA (${data.anio})`],
-      [],
-      consolidatedHeaders,
-      ...consolidatedRows,
-      consolidatedTotal,
-    ]);
-
-    ws["!cols"] = [
-      { wch: 14 },
-      { wch: 14 },
-      { wch: 14 },
-      { wch: 14 },
-      { wch: 16 },
-      { wch: 16 },
-      { wch: 16 },
-      { wch: 16 },
-      { wch: 16 },
-      { wch: 18 },
-      { wch: 18 },
+    const generateRows = (ds: ModoDataset) => [
+      ...ds.meses.map((m) => [
+        m.mesNombre,
+        m.averias.asignadas,
+        m.averias.finalizadas,
+        `${m.averias.efectividad}%`,
+        m.averias.cumplidas,
+        `${m.averias.cumplimiento}%`,
+        m.postventa.asignadas,
+        m.postventa.finalizadas,
+        `${m.postventa.efectividad}%`,
+        m.postventa.cumplidas,
+        `${m.postventa.cumplimiento}%`,
+      ]),
+      [
+        `TOTAL ${data.anio}`,
+        ds.totalesAnio.averias.asignadas,
+        ds.totalesAnio.averias.finalizadas,
+        `${ds.totalesAnio.averias.efectividad}%`,
+        ds.totalesAnio.averias.cumplidas,
+        `${ds.totalesAnio.averias.cumplimiento}%`,
+        ds.totalesAnio.postventa.asignadas,
+        ds.totalesAnio.postventa.finalizadas,
+        `${ds.totalesAnio.postventa.efectividad}%`,
+        ds.totalesAnio.postventa.cumplidas,
+        `${ds.totalesAnio.postventa.cumplimiento}%`,
+      ],
     ];
 
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, `Rendimiento_${data.anio}`);
-    XLSX.writeFile(wb, `Efectividad_y_Cumplimiento_${data.anio}.xlsx`);
-  };
 
-  const isEfectividad = modoMetrica === "efectividad";
-  const isCumplimiento = modoMetrica === "cumplimiento";
+    // Hoja 1: Oficial WIN
+    const wsOficial = XLSX.utils.aoa_to_sheet([
+      [`REPORTE DE EFECTIVIDAD Y CUMPLIMIENTO: OFICIAL WIN / HÍBRIDO (${data.anio})`],
+      [],
+      consolidatedHeaders,
+      ...generateRows(datasetOficial),
+    ]);
+    XLSX.utils.book_append_sheet(wb, wsOficial, `Oficial_WIN_${data.anio}`);
+
+    // Hoja 2: BD Producto Fénix
+    const wsProducto = XLSX.utils.aoa_to_sheet([
+      [`REPORTE DE EFECTIVIDAD Y CUMPLIMIENTO: AGRUPADO POR COLUMNA PRODUCTO (${data.anio})`],
+      [],
+      consolidatedHeaders,
+      ...generateRows(datasetDbProducto),
+    ]);
+    XLSX.utils.book_append_sheet(wb, wsProducto, `BD_Producto_${data.anio}`);
+
+    XLSX.writeFile(wb, `Efectividad_Averias_vs_Postventa_${data.anio}.xlsx`);
+  };
 
   return (
     <div className="bg-white rounded-3xl border border-slate-200/80 p-5 shadow-xs space-y-6">
-      {/* ── HEADER CON SELECTORES (AÑO Y MÉTRICA: EFECTIVIDAD / CUMPLIMIENTO) ── */}
+      {/* ── HEADER CON SELECTORES (AÑO, METODOLOGÍA Y MÉTRICA) ── */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-100 shadow-2xs">
@@ -194,6 +223,24 @@ export const MonthlyEffectivenessSection: React.FC = () => {
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-200">
                 Año {anioSeleccionado}
               </span>
+              {modoCalculo === "oficial" && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200">
+                  <Award size={11} className="text-amber-600" />
+                  Oficial WIN (Híbrido)
+                </span>
+              )}
+              {modoCalculo === "db_producto" && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-900 border border-emerald-200">
+                  <Database size={11} className="text-emerald-600" />
+                  BD Real (Columna Producto)
+                </span>
+              )}
+              {modoCalculo === "comparativo" && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-900 border border-indigo-200">
+                  <Scale size={11} className="text-indigo-600" />
+                  Modo Comparativa Side-by-Side
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
               {isCumplimiento
@@ -204,6 +251,49 @@ export const MonthlyEffectivenessSection: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Selector de Metodología de Cálculo: Oficial WIN vs BD Producto vs Comparativa */}
+          <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1 border border-slate-200 text-xs font-bold">
+            <button
+              type="button"
+              onClick={() => setModoCalculo("oficial")}
+              className={`px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                modoCalculo === "oficial"
+                  ? "bg-white text-amber-950 shadow-xs font-black"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+              title="Cierres auditados oficiales de actas WIN con cálculo híbrido inteligente"
+            >
+              <Award size={13} className={modoCalculo === "oficial" ? "text-amber-600" : "text-slate-400"} />
+              <span>Oficial WIN</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setModoCalculo("db_producto")}
+              className={`px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                modoCalculo === "db_producto"
+                  ? "bg-white text-emerald-950 shadow-xs font-black"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+              title="Cálculo 100% dinámico agrupando estrictamente por la columna producto de la base de datos"
+            >
+              <Database size={13} className={modoCalculo === "db_producto" ? "text-emerald-600" : "text-slate-400"} />
+              <span>BD Producto</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setModoCalculo("comparativo")}
+              className={`px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                modoCalculo === "comparativo"
+                  ? "bg-indigo-600 text-white shadow-xs font-black"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+              title="Comparar ambas metodologías lado a lado para auditar diferencias"
+            >
+              <Scale size={13} className={modoCalculo === "comparativo" ? "text-white" : "text-slate-400"} />
+              <span>⚖️ Comparar</span>
+            </button>
+          </div>
+
           {/* Selector de Métrica: Efectividad vs Cumplimiento */}
           <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1 border border-slate-200 text-xs font-bold">
             <button
@@ -270,7 +360,7 @@ export const MonthlyEffectivenessSection: React.FC = () => {
         </div>
       </div>
 
-      {/* ── CUADRO DE CUADRILLAS POR GESTIÓN (IDÉNTICO A WIN) ── */}
+      {/* ── CUADRO DE CUADRILLAS POR GESTIÓN ── */}
       <div className="flex flex-wrap items-center gap-4 bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200/80">
         <div className="inline-block rounded-xl overflow-hidden border border-rose-300 shadow-2xs bg-white">
           <table className="text-xs border-collapse">
@@ -305,210 +395,459 @@ export const MonthlyEffectivenessSection: React.FC = () => {
         </div>
       </div>
 
-      {/* ── SECCIÓN DE LAS 2 TABLAS ADAPTABLES (EFECTIVIDAD O CUMPLIMIENTO) ── */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* ══ TABLA 1: AVERIAS (EFECTIVIDAD / CUMPLIMIENTO) ══ */}
-        <div className="bg-white rounded-2xl border border-sky-200 shadow-2xs overflow-hidden flex flex-col justify-between">
-          <div className="p-3.5 bg-sky-50/70 border-b border-sky-100 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 bg-sky-100 text-sky-800 rounded-lg">
-                <Wrench size={16} />
+      {/* ── SECCIÓN 1: VISTA NORMAL (OFICIAL O BD PRODUCTO) ── */}
+      {!isComparativo ? (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {/* ══ TABLA 1: AVERIAS ══ */}
+          <div className="bg-white rounded-2xl border border-sky-200 shadow-2xs overflow-hidden flex flex-col justify-between">
+            <div className="p-3.5 bg-sky-50/70 border-b border-sky-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-sky-100 text-sky-800 rounded-lg">
+                  <Wrench size={16} />
+                </div>
+                <div>
+                  <h3 className="text-xs sm:text-sm font-black text-sky-950 uppercase tracking-wide">
+                    {isCumplimiento ? "CUMPLIMIENTO AVERIAS" : "EFECTIVIDAD AVERIAS"}
+                  </h3>
+                  <span className="text-[10px] font-bold text-sky-700">
+                    {modoCalculo === "oficial" ? "Fuente: Oficial WIN / Híbrido" : "Fuente: BD ordenes.producto"}
+                  </span>
+                </div>
               </div>
-              <h3 className="text-xs sm:text-sm font-black text-sky-950 uppercase tracking-wide">
-                {isCumplimiento ? "CUMPLIMIENTO AVERIAS" : "EFECTIVIDAD AVERIAS"}
-              </h3>
+              <span className="text-xs font-bold text-sky-800 font-mono">
+                Año {data?.anio || anioSeleccionado}
+              </span>
             </div>
-            <span className="text-xs font-bold text-sky-800 font-mono">
-              Año {data?.anio || anioSeleccionado}
-            </span>
-          </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-separate border-spacing-0">
-              <thead>
-                <tr className="bg-sky-100/70 text-sky-950 text-[11px] font-black uppercase">
-                  <th className="py-2 px-3 border-b border-sky-200">
-                    <span className="flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-xs border border-sky-800 bg-white"></span>
-                      {data?.anio || anioSeleccionado}
-                    </span>
-                  </th>
-                  <th className="py-2 px-3 text-center border-b border-sky-200">Asignadas</th>
-                  <th className="py-2 px-3 text-center border-b border-sky-200">
-                    {isCumplimiento ? "Cumplidas" : "Finalizadas"}
-                  </th>
-                  <th className="py-2 px-3 text-right border-b border-sky-200 min-w-[110px]">
-                    {isCumplimiento ? "% Cumplimiento" : "% Efectividad"}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {(data?.meses || []).map((m) => {
-                  const tieneDatos = m.averias.asignadas > 0;
-                  const valorNumerico = isCumplimiento ? m.averias.cumplidas : m.averias.finalizadas;
-                  const porcentaje = isCumplimiento ? m.averias.cumplimiento : m.averias.efectividad;
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-separate border-spacing-0">
+                <thead>
+                  <tr className="bg-sky-100/70 text-sky-950 text-[11px] font-black uppercase">
+                    <th className="py-2 px-3 border-b border-sky-200">
+                      <span className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-xs border border-sky-800 bg-white"></span>
+                        {data?.anio || anioSeleccionado}
+                      </span>
+                    </th>
+                    <th className="py-2 px-3 text-center border-b border-sky-200">Asignadas</th>
+                    <th className="py-2 px-3 text-center border-b border-sky-200">
+                      {isCumplimiento ? "Cumplidas" : "Finalizadas"}
+                    </th>
+                    <th className="py-2 px-3 text-right border-b border-sky-200 min-w-[110px]">
+                      {isCumplimiento ? "% Cumplimiento" : "% Efectividad"}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(datasetActivo.meses || []).map((m) => {
+                    const tieneDatos = m.averias.asignadas > 0;
+                    const valorNumerico = isCumplimiento ? m.averias.cumplidas : m.averias.finalizadas;
+                    const porcentaje = isCumplimiento ? m.averias.cumplimiento : m.averias.efectividad;
 
-                  return (
-                    <tr
-                      key={m.mesNumero}
-                      className={`hover:bg-sky-50/40 transition-colors ${
-                        !tieneDatos ? "opacity-50" : ""
-                      }`}
-                    >
-                      <td className="py-2 px-3.5 border-b border-slate-100 font-bold text-slate-800 text-[11.5px]">
-                        {m.mesNombre}
-                      </td>
-                      <td className="py-2 px-3 text-center border-b border-slate-100 font-mono font-medium text-slate-700">
-                        {tieneDatos ? m.averias.asignadas : "-"}
-                      </td>
-                      <td className="py-2 px-3 text-center border-b border-slate-100 font-mono font-bold text-sky-900">
-                        {tieneDatos ? valorNumerico : "-"}
-                      </td>
-                      <td className="py-2 px-3 text-right border-b border-slate-100">
-                        {tieneDatos ? (
-                          <div className="flex items-center justify-end gap-2">
-                            <span className="px-2 py-0.5 rounded text-[11px] font-black font-mono shadow-2xs bg-sky-100/90 text-sky-900 border border-sky-200">
-                              {porcentaje}%
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-slate-300 font-mono">-</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              {data && (
+                    return (
+                      <tr
+                        key={m.mesNumero}
+                        className={`hover:bg-sky-50/40 transition-colors ${
+                          !tieneDatos ? "opacity-50" : ""
+                        }`}
+                      >
+                        <td className="py-2 px-3.5 border-b border-slate-100 font-bold text-slate-800 text-[11.5px]">
+                          {m.mesNombre}
+                        </td>
+                        <td className="py-2 px-3 text-center border-b border-slate-100 font-mono font-medium text-slate-700">
+                          {tieneDatos ? m.averias.asignadas : "-"}
+                        </td>
+                        <td className="py-2 px-3 text-center border-b border-slate-100 font-mono font-bold text-sky-900">
+                          {tieneDatos ? valorNumerico : "-"}
+                        </td>
+                        <td className="py-2 px-3 text-right border-b border-slate-100">
+                          {tieneDatos ? (
+                            <div className="flex items-center justify-end gap-2">
+                              <span className="px-2 py-0.5 rounded text-[11px] font-black font-mono shadow-2xs bg-sky-100/90 text-sky-900 border border-sky-200">
+                                {porcentaje}%
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-300 font-mono">-</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
                 <tfoot>
                   <tr className="bg-sky-100/90 text-sky-950 font-black text-xs border-t-2 border-sky-300">
                     <td className="py-2.5 px-3 uppercase tracking-wider">
-                      TOTAL AÑO {data.anio}
+                      TOTAL AÑO {data?.anio || anioSeleccionado}
                     </td>
                     <td className="py-2.5 px-3 text-center font-mono text-sm">
-                      {data.totalesAnio.averias.asignadas}
+                      {datasetActivo.totalesAnio.averias.asignadas}
                     </td>
                     <td className="py-2.5 px-3 text-center font-mono text-sm text-sky-900">
                       {isCumplimiento
-                        ? data.totalesAnio.averias.cumplidas
-                        : data.totalesAnio.averias.finalizadas}
+                        ? datasetActivo.totalesAnio.averias.cumplidas
+                        : datasetActivo.totalesAnio.averias.finalizadas}
                     </td>
                     <td className="py-2.5 px-3 text-right">
                       <span className="px-2.5 py-1 rounded-md text-xs font-black font-mono shadow-xs bg-sky-600 text-white">
                         {isCumplimiento
-                          ? data.totalesAnio.averias.cumplimiento
-                          : data.totalesAnio.averias.efectividad}%
+                          ? datasetActivo.totalesAnio.averias.cumplimiento
+                          : datasetActivo.totalesAnio.averias.efectividad}%
                       </span>
                     </td>
                   </tr>
                 </tfoot>
-              )}
-            </table>
-          </div>
-        </div>
-
-        {/* ══ TABLA 2: POSTVENTA (EFECTIVIDAD / CUMPLIMIENTO) ══ */}
-        <div className="bg-white rounded-2xl border border-indigo-200 shadow-2xs overflow-hidden flex flex-col justify-between">
-          <div className="p-3.5 bg-indigo-50/70 border-b border-indigo-100 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 bg-indigo-100 text-indigo-800 rounded-lg">
-                <ShoppingBag size={16} />
-              </div>
-              <h3 className="text-xs sm:text-sm font-black text-indigo-950 uppercase tracking-wide">
-                {isCumplimiento ? "CUMPLIMIENTO POSTVENTA" : "EFECTIVIDAD POSTVENTA"}
-              </h3>
+              </table>
             </div>
-            <span className="text-xs font-bold text-indigo-800 font-mono">
-              Año {data?.anio || anioSeleccionado}
-            </span>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-separate border-spacing-0">
-              <thead>
-                <tr className="bg-indigo-100/70 text-indigo-950 text-[11px] font-black uppercase">
-                  <th className="py-2 px-3 border-b border-indigo-200">
-                    <span className="flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-xs border border-indigo-800 bg-white"></span>
-                      {data?.anio || anioSeleccionado}
-                    </span>
-                  </th>
-                  <th className="py-2 px-3 text-center border-b border-indigo-200">Asignadas</th>
-                  <th className="py-2 px-3 text-center border-b border-indigo-200">
-                    {isCumplimiento ? "Cumplidas" : "Finalizadas"}
-                  </th>
-                  <th className="py-2 px-3 text-right border-b border-indigo-200 min-w-[110px]">
-                    {isCumplimiento ? "% Cumplimiento" : "% Efectividad"}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {(data?.meses || []).map((m) => {
-                  const tieneDatos = m.postventa.asignadas > 0;
-                  const valorNumerico = isCumplimiento ? m.postventa.cumplidas : m.postventa.finalizadas;
-                  const porcentaje = isCumplimiento ? m.postventa.cumplimiento : m.postventa.efectividad;
+          {/* ══ TABLA 2: POSTVENTA ══ */}
+          <div className="bg-white rounded-2xl border border-indigo-200 shadow-2xs overflow-hidden flex flex-col justify-between">
+            <div className="p-3.5 bg-indigo-50/70 border-b border-indigo-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-indigo-100 text-indigo-800 rounded-lg">
+                  <ShoppingBag size={16} />
+                </div>
+                <div>
+                  <h3 className="text-xs sm:text-sm font-black text-indigo-950 uppercase tracking-wide">
+                    {isCumplimiento ? "CUMPLIMIENTO POSTVENTA" : "EFECTIVIDAD POSTVENTA"}
+                  </h3>
+                  <span className="text-[10px] font-bold text-indigo-700">
+                    {modoCalculo === "oficial" ? "Fuente: Oficial WIN / Híbrido" : "Fuente: BD ordenes.producto"}
+                  </span>
+                </div>
+              </div>
+              <span className="text-xs font-bold text-indigo-800 font-mono">
+                Año {data?.anio || anioSeleccionado}
+              </span>
+            </div>
 
-                  return (
-                    <tr
-                      key={m.mesNumero}
-                      className={`hover:bg-indigo-50/40 transition-colors ${
-                        !tieneDatos ? "opacity-50" : ""
-                      }`}
-                    >
-                      <td className="py-2 px-3.5 border-b border-slate-100 font-bold text-slate-800 text-[11.5px]">
-                        {m.mesNombre}
-                      </td>
-                      <td className="py-2 px-3 text-center border-b border-slate-100 font-mono font-medium text-slate-700">
-                        {tieneDatos ? m.postventa.asignadas : "-"}
-                      </td>
-                      <td className="py-2 px-3 text-center border-b border-slate-100 font-mono font-bold text-indigo-900">
-                        {tieneDatos ? valorNumerico : "-"}
-                      </td>
-                      <td className="py-2 px-3 text-right border-b border-slate-100">
-                        {tieneDatos ? (
-                          <div className="flex items-center justify-end gap-2">
-                            <span className="px-2 py-0.5 rounded text-[11px] font-black font-mono shadow-2xs bg-indigo-100/90 text-indigo-900 border border-indigo-200">
-                              {porcentaje}%
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-slate-300 font-mono">-</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              {data && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-separate border-spacing-0">
+                <thead>
+                  <tr className="bg-indigo-100/70 text-indigo-950 text-[11px] font-black uppercase">
+                    <th className="py-2 px-3 border-b border-indigo-200">
+                      <span className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-xs border border-indigo-800 bg-white"></span>
+                        {data?.anio || anioSeleccionado}
+                      </span>
+                    </th>
+                    <th className="py-2 px-3 text-center border-b border-indigo-200">Asignadas</th>
+                    <th className="py-2 px-3 text-center border-b border-indigo-200">
+                      {isCumplimiento ? "Cumplidas" : "Finalizadas"}
+                    </th>
+                    <th className="py-2 px-3 text-right border-b border-indigo-200 min-w-[110px]">
+                      {isCumplimiento ? "% Cumplimiento" : "% Efectividad"}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(datasetActivo.meses || []).map((m) => {
+                    const tieneDatos = m.postventa.asignadas > 0;
+                    const valorNumerico = isCumplimiento ? m.postventa.cumplidas : m.postventa.finalizadas;
+                    const porcentaje = isCumplimiento ? m.postventa.cumplimiento : m.postventa.efectividad;
+
+                    return (
+                      <tr
+                        key={m.mesNumero}
+                        className={`hover:bg-indigo-50/40 transition-colors ${
+                          !tieneDatos ? "opacity-50" : ""
+                        }`}
+                      >
+                        <td className="py-2 px-3.5 border-b border-slate-100 font-bold text-slate-800 text-[11.5px]">
+                          {m.mesNombre}
+                        </td>
+                        <td className="py-2 px-3 text-center border-b border-slate-100 font-mono font-medium text-slate-700">
+                          {tieneDatos ? m.postventa.asignadas : "-"}
+                        </td>
+                        <td className="py-2 px-3 text-center border-b border-slate-100 font-mono font-bold text-indigo-900">
+                          {tieneDatos ? valorNumerico : "-"}
+                        </td>
+                        <td className="py-2 px-3 text-right border-b border-slate-100">
+                          {tieneDatos ? (
+                            <div className="flex items-center justify-end gap-2">
+                              <span className="px-2 py-0.5 rounded text-[11px] font-black font-mono shadow-2xs bg-indigo-100/90 text-indigo-900 border border-indigo-200">
+                                {porcentaje}%
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-300 font-mono">-</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
                 <tfoot>
                   <tr className="bg-indigo-100/90 text-indigo-950 font-black text-xs border-t-2 border-indigo-300">
                     <td className="py-2.5 px-3 uppercase tracking-wider">
-                      TOTAL AÑO {data.anio}
+                      TOTAL AÑO {data?.anio || anioSeleccionado}
                     </td>
                     <td className="py-2.5 px-3 text-center font-mono text-sm">
-                      {data.totalesAnio.postventa.asignadas}
+                      {datasetActivo.totalesAnio.postventa.asignadas}
                     </td>
                     <td className="py-2.5 px-3 text-center font-mono text-sm text-indigo-900">
                       {isCumplimiento
-                        ? data.totalesAnio.postventa.cumplidas
-                        : data.totalesAnio.postventa.finalizadas}
+                        ? datasetActivo.totalesAnio.postventa.cumplidas
+                        : datasetActivo.totalesAnio.postventa.finalizadas}
                     </td>
                     <td className="py-2.5 px-3 text-right">
                       <span className="px-2.5 py-1 rounded-md text-xs font-black font-mono shadow-xs bg-indigo-600 text-white">
                         {isCumplimiento
-                          ? data.totalesAnio.postventa.cumplimiento
-                          : data.totalesAnio.postventa.efectividad}%
+                          ? datasetActivo.totalesAnio.postventa.cumplimiento
+                          : datasetActivo.totalesAnio.postventa.efectividad}%
                       </span>
                     </td>
                   </tr>
                 </tfoot>
-              )}
-            </table>
+              </table>
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        /* ── SECCIÓN 2: VISTA COMPARATIVA LADO A LADO (OFICIAL WIN VS BD PRODUCTO) ── */
+        <div className="space-y-6">
+          <div className="bg-indigo-50/60 border border-indigo-200 p-4 rounded-2xl flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-2.5">
+              <Scale className="w-5 h-5 text-indigo-700 shrink-0" />
+              <div>
+                <h4 className="text-xs sm:text-sm font-black text-indigo-950">
+                  Auditoría Comparativa: Oficial WIN vs Base de Datos Cruda (ordenes.producto)
+                </h4>
+                <p className="text-[11.5px] text-indigo-800">
+                  Compara los valores del acta oficial con el conteo directo por la columna producto de Fénix. La etiqueta <span className="font-bold text-emerald-700 font-mono">Diff</span> indica la variación neta.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 text-xs font-bold">
+              <span className="flex items-center gap-1 text-amber-900 bg-amber-100/80 px-2 py-0.5 rounded-md">
+                <Award size={12} className="text-amber-700" /> Oficial WIN
+              </span>
+              <span className="flex items-center gap-1 text-emerald-900 bg-emerald-100/80 px-2 py-0.5 rounded-md">
+                <Database size={12} className="text-emerald-700" /> BD Producto
+              </span>
+            </div>
+          </div>
 
-      {/* ── GRÁFICO COMBINADO: TENDENCIA MENSUAL (%) SEGÚN LA MÉTRICA ── */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            {/* ══ COMPARATIVA AVERIAS ══ */}
+            <div className="bg-white rounded-2xl border border-sky-200 shadow-2xs overflow-hidden">
+              <div className="p-3 bg-sky-50 border-b border-sky-100 flex items-center justify-between">
+                <h3 className="text-xs sm:text-sm font-black text-sky-950 uppercase flex items-center gap-2">
+                  <Wrench size={15} /> Comparativa Averías ({isCumplimiento ? "Cumplimiento" : "Efectividad"})
+                </h3>
+                <span className="text-xs font-bold text-sky-800 font-mono">Año {data?.anio || anioSeleccionado}</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left border-separate border-spacing-0">
+                  <thead>
+                    <tr className="bg-sky-100/80 text-sky-950 text-[10.5px] font-black uppercase">
+                      <th className="py-2 px-2.5 border-b border-sky-200">Mes</th>
+                      <th className="py-2 px-2 text-center border-b border-sky-200 bg-amber-50/50">Ofic. Asig</th>
+                      <th className="py-2 px-2 text-center border-b border-sky-200 bg-emerald-50/50">BD Asig</th>
+                      <th className="py-2 px-2 text-center border-b border-sky-200 bg-amber-50/50">Ofic. Fin</th>
+                      <th className="py-2 px-2 text-center border-b border-sky-200 bg-emerald-50/50">BD Fin</th>
+                      <th className="py-2 px-2 text-right border-b border-sky-200">Ofic. %</th>
+                      <th className="py-2 px-2 text-right border-b border-sky-200">BD %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {datasetOficial.meses.map((mOfic, idx) => {
+                      const mProd = datasetDbProducto.meses[idx] || mOfic;
+                      const oficAsig = mOfic.averias.asignadas;
+                      const prodAsig = mProd.averias.asignadas;
+                      const oficFin = isCumplimiento ? mOfic.averias.cumplidas : mOfic.averias.finalizadas;
+                      const prodFin = isCumplimiento ? mProd.averias.cumplidas : mProd.averias.finalizadas;
+                      const oficPct = isCumplimiento ? mOfic.averias.cumplimiento : mOfic.averias.efectividad;
+                      const prodPct = isCumplimiento ? mProd.averias.cumplimiento : mProd.averias.efectividad;
+
+                      const diffPct = parseFloat((prodPct - oficPct).toFixed(2));
+
+                      return (
+                        <tr key={mOfic.mesNumero} className="hover:bg-sky-50/30 transition-colors">
+                          <td className="py-1.5 px-2.5 border-b border-slate-100 font-bold text-slate-800 text-[11px]">
+                            {mOfic.mesNombre}
+                          </td>
+                          <td className="py-1.5 px-2 text-center border-b border-slate-100 font-mono font-bold text-amber-950 bg-amber-50/30">
+                            {oficAsig > 0 ? oficAsig : "-"}
+                          </td>
+                          <td className="py-1.5 px-2 text-center border-b border-slate-100 font-mono font-bold text-emerald-950 bg-emerald-50/30">
+                            {prodAsig > 0 ? prodAsig : "-"}
+                          </td>
+                          <td className="py-1.5 px-2 text-center border-b border-slate-100 font-mono font-bold text-amber-950 bg-amber-50/30">
+                            {oficFin > 0 ? oficFin : "-"}
+                          </td>
+                          <td className="py-1.5 px-2 text-center border-b border-slate-100 font-mono font-bold text-emerald-950 bg-emerald-50/30">
+                            {prodFin > 0 ? prodFin : "-"}
+                          </td>
+                          <td className="py-1.5 px-2 text-right border-b border-slate-100 font-mono font-bold text-amber-950">
+                            {oficAsig > 0 ? `${oficPct}%` : "-"}
+                          </td>
+                          <td className="py-1.5 px-2 text-right border-b border-slate-100">
+                            {prodAsig > 0 ? (
+                              <span className={`inline-block px-1.5 py-0.2 rounded font-mono font-bold text-[10.5px] ${
+                                diffPct === 0
+                                  ? "bg-slate-100 text-slate-800"
+                                  : diffPct > 0
+                                    ? "bg-emerald-100 text-emerald-900 border border-emerald-300"
+                                    : "bg-rose-100 text-rose-900 border border-rose-300"
+                              }`}>
+                                {prodPct}% {diffPct !== 0 && `(${diffPct > 0 ? `+${diffPct}` : diffPct}%)`}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 font-mono">-</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-sky-100/90 text-sky-950 font-black text-xs border-t-2 border-sky-300">
+                      <td className="py-2 px-2.5 uppercase">TOTAL</td>
+                      <td className="py-2 px-2 text-center font-mono bg-amber-100/50">
+                        {datasetOficial.totalesAnio.averias.asignadas}
+                      </td>
+                      <td className="py-2 px-2 text-center font-mono bg-emerald-100/50">
+                        {datasetDbProducto.totalesAnio.averias.asignadas}
+                      </td>
+                      <td className="py-2 px-2 text-center font-mono bg-amber-100/50">
+                        {isCumplimiento
+                          ? datasetOficial.totalesAnio.averias.cumplidas
+                          : datasetOficial.totalesAnio.averias.finalizadas}
+                      </td>
+                      <td className="py-2 px-2 text-center font-mono bg-emerald-100/50">
+                        {isCumplimiento
+                          ? datasetDbProducto.totalesAnio.averias.cumplidas
+                          : datasetDbProducto.totalesAnio.averias.finalizadas}
+                      </td>
+                      <td className="py-2 px-2 text-right font-mono">
+                        {isCumplimiento
+                          ? datasetOficial.totalesAnio.averias.cumplimiento
+                          : datasetOficial.totalesAnio.averias.efectividad}%
+                      </td>
+                      <td className="py-2 px-2 text-right font-mono text-emerald-950">
+                        {isCumplimiento
+                          ? datasetDbProducto.totalesAnio.averias.cumplimiento
+                          : datasetDbProducto.totalesAnio.averias.efectividad}%
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            {/* ══ COMPARATIVA POSTVENTA ══ */}
+            <div className="bg-white rounded-2xl border border-indigo-200 shadow-2xs overflow-hidden">
+              <div className="p-3 bg-indigo-50 border-b border-indigo-100 flex items-center justify-between">
+                <h3 className="text-xs sm:text-sm font-black text-indigo-950 uppercase flex items-center gap-2">
+                  <ShoppingBag size={15} /> Comparativa Postventa ({isCumplimiento ? "Cumplimiento" : "Efectividad"})
+                </h3>
+                <span className="text-xs font-bold text-indigo-800 font-mono">Año {data?.anio || anioSeleccionado}</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left border-separate border-spacing-0">
+                  <thead>
+                    <tr className="bg-indigo-100/80 text-indigo-950 text-[10.5px] font-black uppercase">
+                      <th className="py-2 px-2.5 border-b border-indigo-200">Mes</th>
+                      <th className="py-2 px-2 text-center border-b border-indigo-200 bg-amber-50/50">Ofic. Asig</th>
+                      <th className="py-2 px-2 text-center border-b border-indigo-200 bg-emerald-50/50">BD Asig</th>
+                      <th className="py-2 px-2 text-center border-b border-indigo-200 bg-amber-50/50">Ofic. Fin</th>
+                      <th className="py-2 px-2 text-center border-b border-indigo-200 bg-emerald-50/50">BD Fin</th>
+                      <th className="py-2 px-2 text-right border-b border-indigo-200">Ofic. %</th>
+                      <th className="py-2 px-2 text-right border-b border-indigo-200">BD %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {datasetOficial.meses.map((mOfic, idx) => {
+                      const mProd = datasetDbProducto.meses[idx] || mOfic;
+                      const oficAsig = mOfic.postventa.asignadas;
+                      const prodAsig = mProd.postventa.asignadas;
+                      const oficFin = isCumplimiento ? mOfic.postventa.cumplidas : mOfic.postventa.finalizadas;
+                      const prodFin = isCumplimiento ? mProd.postventa.cumplidas : mProd.postventa.finalizadas;
+                      const oficPct = isCumplimiento ? mOfic.postventa.cumplimiento : mOfic.postventa.efectividad;
+                      const prodPct = isCumplimiento ? mProd.postventa.cumplimiento : mProd.postventa.efectividad;
+
+                      const diffPct = parseFloat((prodPct - oficPct).toFixed(2));
+
+                      return (
+                        <tr key={mOfic.mesNumero} className="hover:bg-indigo-50/30 transition-colors">
+                          <td className="py-1.5 px-2.5 border-b border-slate-100 font-bold text-slate-800 text-[11px]">
+                            {mOfic.mesNombre}
+                          </td>
+                          <td className="py-1.5 px-2 text-center border-b border-slate-100 font-mono font-bold text-amber-950 bg-amber-50/30">
+                            {oficAsig > 0 ? oficAsig : "-"}
+                          </td>
+                          <td className="py-1.5 px-2 text-center border-b border-slate-100 font-mono font-bold text-emerald-950 bg-emerald-50/30">
+                            {prodAsig > 0 ? prodAsig : "-"}
+                          </td>
+                          <td className="py-1.5 px-2 text-center border-b border-slate-100 font-mono font-bold text-amber-950 bg-amber-50/30">
+                            {oficFin > 0 ? oficFin : "-"}
+                          </td>
+                          <td className="py-1.5 px-2 text-center border-b border-slate-100 font-mono font-bold text-emerald-950 bg-emerald-50/30">
+                            {prodFin > 0 ? prodFin : "-"}
+                          </td>
+                          <td className="py-1.5 px-2 text-right border-b border-slate-100 font-mono font-bold text-amber-950">
+                            {oficAsig > 0 ? `${oficPct}%` : "-"}
+                          </td>
+                          <td className="py-1.5 px-2 text-right border-b border-slate-100">
+                            {prodAsig > 0 ? (
+                              <span className={`inline-block px-1.5 py-0.2 rounded font-mono font-bold text-[10.5px] ${
+                                diffPct === 0
+                                  ? "bg-slate-100 text-slate-800"
+                                  : diffPct > 0
+                                    ? "bg-emerald-100 text-emerald-900 border border-emerald-300"
+                                    : "bg-rose-100 text-rose-900 border border-rose-300"
+                              }`}>
+                                {prodPct}% {diffPct !== 0 && `(${diffPct > 0 ? `+${diffPct}` : diffPct}%)`}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 font-mono">-</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-indigo-100/90 text-indigo-950 font-black text-xs border-t-2 border-indigo-300">
+                      <td className="py-2 px-2.5 uppercase">TOTAL</td>
+                      <td className="py-2 px-2 text-center font-mono bg-amber-100/50">
+                        {datasetOficial.totalesAnio.postventa.asignadas}
+                      </td>
+                      <td className="py-2 px-2 text-center font-mono bg-emerald-100/50">
+                        {datasetDbProducto.totalesAnio.postventa.asignadas}
+                      </td>
+                      <td className="py-2 px-2 text-center font-mono bg-amber-100/50">
+                        {isCumplimiento
+                          ? datasetOficial.totalesAnio.postventa.cumplidas
+                          : datasetOficial.totalesAnio.postventa.finalizadas}
+                      </td>
+                      <td className="py-2 px-2 text-center font-mono bg-emerald-100/50">
+                        {isCumplimiento
+                          ? datasetDbProducto.totalesAnio.postventa.cumplidas
+                          : datasetDbProducto.totalesAnio.postventa.finalizadas}
+                      </td>
+                      <td className="py-2 px-2 text-right font-mono">
+                        {isCumplimiento
+                          ? datasetOficial.totalesAnio.postventa.cumplimiento
+                          : datasetOficial.totalesAnio.postventa.efectividad}%
+                      </td>
+                      <td className="py-2 px-2 text-right font-mono text-emerald-950">
+                        {isCumplimiento
+                          ? datasetDbProducto.totalesAnio.postventa.cumplimiento
+                          : datasetDbProducto.totalesAnio.postventa.efectividad}%
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── GRÁFICO COMBINADO: TENDENCIA MENSUAL (%) ── */}
       <div className="bg-slate-50/70 rounded-2xl border border-slate-200/80 p-4 sm:p-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-200/60">
           <div>

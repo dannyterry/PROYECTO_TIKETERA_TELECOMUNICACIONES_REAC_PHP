@@ -40,6 +40,9 @@ export const QuickStockEntryModal: React.FC<Props> = ({
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [prefijoActa, setPrefijoActa] = useState("001-");
+  const [inicioActa, setInicioActa] = useState("04001");
+
   // Inicializar formulario al abrir con el producto
   useEffect(() => {
     if (isOpen && producto) {
@@ -49,6 +52,8 @@ export const QuickStockEntryModal: React.FC<Props> = ({
       setNumeroNia(`NIA-${year}-${correlativo}`);
 
       setCantidad(50);
+      setPrefijoActa("001-");
+      setInicioActa("04001");
       setPrecioUnitario(
         producto.precio_compra !== undefined && producto.precio_compra !== null
           ? String(producto.precio_compra)
@@ -63,9 +68,14 @@ export const QuickStockEntryModal: React.FC<Props> = ({
 
   if (!isOpen || !producto) return null;
 
-  const esEquipo = Boolean(producto.maneja_serie) ||
-    String(producto.categoria || "").toUpperCase().includes("EQUIP") ||
-    String(producto.categoria_liquidar || "").toUpperCase() === "EQUIPO";
+  const catUpper = String(producto.categoria || "").toUpperCase();
+  const nomUpper = String(producto.nombre || "").toUpperCase();
+  const esActa = catUpper.includes("TALONARIO") || catUpper.includes("ACTA") || catUpper.includes("GUIA") || nomUpper.includes("ACTA") || nomUpper.includes("GUIA");
+  const esEquipo = !esActa && (
+    Boolean(producto.maneja_serie) ||
+    catUpper.includes("EQUIP") ||
+    String(producto.categoria_liquidar || "").toUpperCase() === "EQUIPO"
+  );
 
   const handlePrecioChange = (val: string) => {
     // Permitir vacío o números con hasta un punto decimal (ej: 2.5, 0.80)
@@ -100,6 +110,20 @@ export const QuickStockEntryModal: React.FC<Props> = ({
       const numCompFinal = numeroNia.trim() || `NIA-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
       const numPrecio = precioUnitario.trim() === "" ? 0 : Number(precioUnitario) || 0;
 
+      // Generar series correlativas automáticas si es Acta / Guía / Talonario
+      let seriesGeneradas: any[] = [];
+      if (esActa) {
+        const pref = prefijoActa.trim() || "001-";
+        const iniRaw = inicioActa.trim() || "04001";
+        const parseInicio = parseInt(iniRaw.replace(/\D/g, ""), 10) || 1;
+        const padLen = Math.max(5, iniRaw.replace(/\D/g, "").length || 5);
+        const parseFin = parseInicio + Math.max(1, Number(cantidad)) - 1;
+
+        for (let i = parseInicio; i <= parseFin; i++) {
+          seriesGeneradas.push({ numero_serie: `${pref}${String(i).padStart(padLen, "0")}` });
+        }
+      }
+
       const payload: CompraPayload = {
         id_proveedor: null,
         razon_social_proveedor: "INGRESO INTERNO / NOTA DE INGRESO (NIA)",
@@ -111,7 +135,7 @@ export const QuickStockEntryModal: React.FC<Props> = ({
             id_producto: producto.id_producto,
             cantidad: Number(cantidad),
             precio: numPrecio,
-            series: [],
+            series: seriesGeneradas,
             stand: stand.trim() || undefined,
             fila: fila.trim() ? Number(fila) : undefined,
           },
@@ -286,6 +310,72 @@ export const QuickStockEntryModal: React.FC<Props> = ({
                   </button>
                 </div>
               </div>
+
+              {/* Rango Correlativo para Actas / Guías */}
+              {esActa && (
+                <div className="sm:col-span-2 p-3.5 bg-amber-50/80 border border-amber-300 rounded-2xl space-y-2.5 shadow-2xs">
+                  <div className="flex items-center justify-between border-b border-amber-200/80 pb-2">
+                    <span className="font-black text-amber-950 text-xs flex items-center gap-1.5">
+                      <FileText size={15} className="text-amber-700" />
+                      Generador de Rango de Talonarios (Correlativos)
+                    </span>
+                    <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-300">
+                      ⚡ Automático
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
+                    <div className="sm:col-span-4">
+                      <label className="block text-[10px] font-bold text-amber-900 uppercase tracking-wider mb-1">
+                        Prefijo / Serie
+                      </label>
+                      <input
+                        type="text"
+                        value={prefijoActa}
+                        onChange={(e) => setPrefijoActa(e.target.value)}
+                        placeholder="001-"
+                        className="w-full px-3 py-2 bg-white border border-amber-300 rounded-xl text-xs font-mono font-bold text-amber-950 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-4">
+                      <label className="block text-[10px] font-bold text-amber-900 uppercase tracking-wider mb-1">
+                        N° Inicio (5 Dígitos)
+                      </label>
+                      <input
+                        type="text"
+                        value={inicioActa}
+                        onChange={(e) => setInicioActa(e.target.value.replace(/\D/g, ""))}
+                        placeholder="04001"
+                        className="w-full px-3 py-2 bg-white border border-amber-300 rounded-xl text-xs font-mono font-bold text-amber-950 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-4">
+                      <label className="block text-[10px] font-bold text-amber-900 uppercase tracking-wider mb-1">
+                        Rango que se generará
+                      </label>
+                      {(() => {
+                        const pref = prefijoActa.trim() || "001-";
+                        const iniRaw = inicioActa.trim() || "04001";
+                        const parseInicio = parseInt(iniRaw.replace(/\D/g, ""), 10) || 1;
+                        const padLen = Math.max(5, iniRaw.replace(/\D/g, "").length || 5);
+                        const parseFin = parseInicio + Math.max(1, Number(cantidad)) - 1;
+                        const numInicioFmt = String(parseInicio).padStart(padLen, "0");
+                        const numFinFmt = String(parseFin).padStart(padLen, "0");
+
+                        return (
+                          <div className="px-3 py-2 bg-white border border-amber-300 rounded-xl text-[11px] font-mono font-bold text-amber-900 flex items-center justify-between shadow-2xs">
+                            <span>{pref}{numInicioFmt}</span>
+                            <span className="text-amber-500 font-normal">→</span>
+                            <span>{pref}{numFinFmt}</span>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Precio de Compra Unitario */}
               <div className="space-y-1">

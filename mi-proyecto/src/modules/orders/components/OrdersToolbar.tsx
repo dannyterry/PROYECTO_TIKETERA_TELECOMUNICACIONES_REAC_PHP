@@ -146,7 +146,15 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
 
           {/* Badges de estados con conteos */}
           <div className="flex flex-wrap items-center gap-1.5 ml-0 lg:ml-2">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs">
+            <span 
+              onClick={() => onFilterChange({ ...filters, status: "Todos" })}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${
+                !filters.status || filters.status === "Todos"
+                  ? "bg-slate-800 text-white border-slate-900 ring-2 ring-slate-400 shadow-xs" 
+                  : "bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200 shadow-2xs"
+              }`}
+              title="Mostrar todas las órdenes regulares"
+            >
               <span>Total:</span>
               <span className="font-mono">{totalCount}</span>
             </span>

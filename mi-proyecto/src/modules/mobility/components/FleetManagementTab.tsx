@@ -442,15 +442,15 @@ export const FleetManagementTab: React.FC<Props> = ({
 
             <form onSubmit={handleGuardarReasignacion} className="space-y-4 text-xs font-semibold text-slate-700">
               
-              {/* Seleccionar Técnico */}
+              {/* Seleccionar Conductor */}
               <div>
-                <label className="block mb-1.5 text-slate-700 font-bold">Técnico Conductor (Rol Técnico) *</label>
+                <label className="block mb-1.5 text-slate-700 font-bold">Conductor Asignado (Técnico o Supervisor) *</label>
                 <select
                   value={nuevoTrabajadorId}
                   onChange={(e) => setNuevoTrabajadorId(e.target.value)}
                   className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-cyan-500 focus:outline-none cursor-pointer font-bold text-slate-800"
                 >
-                  <option value="">-- Dejar como Disponible (Sin técnico) --</option>
+                  <option value="">-- Dejar como Disponible (Sin asignar) --</option>
                   {tecnicos.map((t) => (
                     <option key={t.id_trabajador} value={t.id_trabajador}>
                       👤 {t.nombre_completo} {t.cuadrilla ? `[${t.cuadrilla}]` : ""} {t.vehiculo_placa ? `(🚗 Actual: ${t.vehiculo_placa})` : "(🟢 Sin vehículo actual)"}
@@ -458,7 +458,7 @@ export const FleetManagementTab: React.FC<Props> = ({
                   ))}
                 </select>
                 <span className="text-[10px] text-slate-400 mt-1 block font-medium">
-                  🔒 Solo se listan técnicos de campo activos (Administración y personal de oficina no conducen flota).
+                  🔒 Se listan técnicos y supervisores activos habilitados para asignación de flota.
                 </span>
               </div>
 

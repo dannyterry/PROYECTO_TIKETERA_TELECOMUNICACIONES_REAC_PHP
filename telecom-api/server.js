@@ -15,6 +15,9 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 const { sincronizarTareasOrdenSeguro, getTareasDeBD, sincronizarTareasOrdenesActivas, guardarDetalleTareaEnBD, getMetrajeDeclaradoFenix } = require('./services/taskSyncService');
+const { getMotivosCatalogo, resolverTipoTrabajoConCatalogo, resolverTipoTrabajoOficial } = require('./services/tipoTrabajoHelper');
+const { hashPassword, verifyPassword, isHashed } = require("./lib/password");
+const { signToken, requireAuth } = require("./middleware/requireAuth");
 
 // CONFIGURACIÓN DE MULTER CON RUTA ABSOLUTA (Para compatibilidad con cPanel / Passenger)
 const uploadDir = path.join(__dirname, 'uploads');
@@ -74,9 +77,18 @@ app.post(['/login', '/api/login'], async (req, res) => {
       return res.status(403).json({ success: false, mensaje: "El usuario se encuentra inactivo. Consulte con RRHH." });
     }
 
-    // Validación de contraseña (soporta texto plano o hash si aplica)
-    if (String(u.password).trim() !== String(password).trim()) {
+    const passwordOk = await verifyPassword(password, u.password);
+    if (!passwordOk) {
       return res.status(401).json({ success: false, mensaje: "Usuario o contraseña incorrectos." });
+    }
+
+    if (!isHashed(u.password)) {
+      try {
+        const hashed = await hashPassword(password);
+        await pool.query("UPDATE usuarios SET password = ? WHERE id_usuario = ?", [hashed, u.id_usuario]);
+      } catch (upgradeErr) {
+        console.warn("[AUTH] No se pudo actualizar el hash de contraseña:", upgradeErr.message);
+      }
     }
 
     // Obtener permisos del rol
@@ -99,21 +111,24 @@ app.post(['/login', '/api/login'], async (req, res) => {
 
     const nombreCompleto = `${u.nombres} ${u.primer_apellido || u.apellidos || ''}`.trim();
 
+    const user = {
+      id_usuario: u.id_usuario,
+      id_rol: u.id_rol,
+      usuario: u.usuario,
+      nombres: u.nombres,
+      apellidos: u.apellidos || `${u.primer_apellido || ''} ${u.segundo_apellido || ''}`.trim(),
+      nombreCompleto,
+      email: u.email,
+      rol: u.nombre_rol || 'Usuario',
+      area: u.area || '',
+      foto_personal: u.foto_personal || null,
+      permisos
+    };
+
     res.json({
       success: true,
-      user: {
-        id_usuario: u.id_usuario,
-        id_rol: u.id_rol,
-        usuario: u.usuario,
-        nombres: u.nombres,
-        apellidos: u.apellidos || `${u.primer_apellido || ''} ${u.segundo_apellido || ''}`.trim(),
-        nombreCompleto,
-        email: u.email,
-        rol: u.nombre_rol || 'Usuario',
-        area: u.area || '',
-        foto_personal: u.foto_personal || null,
-        permisos
-      }
+      token: signToken(user),
+      user
     });
   } catch (error) {
     res.status(500).json({ success: false, mensaje: error.message });
@@ -153,6 +168,12 @@ app.get("/time-diagnostic", async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+app.use(requireAuth);
+
+app.get("/api/auth/me", (req, res) => {
+  res.json({ success: true, auth: req.auth });
 });
 
 // --- 🛡️ SISTEMA DE AUDITORÍA Y TRAZABILIDAD ---
@@ -481,10 +502,14 @@ app.get('/empleados', async (req, res) => {
     `);
     
     const [hijos] = await pool.query(`SELECT * FROM usuario_hijos`);
-    const usuariosConHijos = usuarios.map(user => ({ 
-      ...user, 
-      hijos: hijos.filter(h => h.id_usuario === user.id_usuario) 
-    }));
+    const usuariosConHijos = usuarios.map((user) => {
+      const { password, ...safeUser } = user;
+      return {
+        ...safeUser,
+        password: user.password_plano || user.documento || "123456",
+        hijos: hijos.filter((h) => h.id_usuario === user.id_usuario),
+      };
+    });
     
     cacheEmpleados = { data: usuariosConHijos, timestamp: Date.now() };
     res.json(usuariosConHijos);
@@ -521,12 +546,15 @@ app.post('/empleados', upload, async (req, res) => {
 
     const emailOrNull = (val) => (val && typeof val === 'string' && val.trim() !== "") ? val.trim() : null;
 
+    const passPlano = (d.password && d.password.trim() !== "") ? d.password.trim() : (d.dni ? String(d.dni).trim() : "123456");
+    const passHash = await hashPassword(passPlano);
+
     const [r] = await connection.query(`
-      INSERT INTO usuarios (id_rol, tipo_documento, documento, ruc, sunat_estado, sunat_condicion, sunat_actividad, nombres, apellidos, primer_apellido, segundo_apellido, email, usuario, password, estado, telefono, fecha_ingreso, fecha_nacimiento, sexo, estado_civil, pais_nacimiento, direccion, distrito, sueldo, numero_emergencia, banco, cuenta_bancaria, cci, area, opcion_personal, cuadrilla, regimen_pensionario, tipo_comision_afp, cuspp, vencimiento_sctr, vencimiento_emo, categoria_licencia, numero_brevete, emision_brevete, fecha_vencimiento_brevete, talla_polo, talla_pantalon, talla_calzado, ultimo_empleo_1, ultimo_empleo_2, ultimo_empleo_3, emergencia_nombre, emergencia_parentesco, emergencia_telefono_2, emergencia_direccion, conyuge_nombres, conyuge_apellido1, conyuge_apellido2, conyuge_fecha_nacimiento, foto_personal, cv_pdf, dni_pdf, licencia_pdf, recibo_servicio_pdf, certificado_pdf) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO usuarios (id_rol, tipo_documento, documento, ruc, sunat_estado, sunat_condicion, sunat_actividad, nombres, apellidos, primer_apellido, segundo_apellido, email, usuario, password, password_plano, estado, telefono, fecha_ingreso, fecha_nacimiento, sexo, estado_civil, pais_nacimiento, direccion, distrito, sueldo, numero_emergencia, banco, cuenta_bancaria, cci, area, opcion_personal, cuadrilla, regimen_pensionario, tipo_comision_afp, cuspp, vencimiento_sctr, vencimiento_emo, categoria_licencia, numero_brevete, emision_brevete, fecha_vencimiento_brevete, talla_polo, talla_pantalon, talla_calzado, ultimo_empleo_1, ultimo_empleo_2, ultimo_empleo_3, emergencia_nombre, emergencia_parentesco, emergencia_telefono_2, emergencia_direccion, conyuge_nombres, conyuge_apellido1, conyuge_apellido2, conyuge_fecha_nacimiento, foto_personal, cv_pdf, dni_pdf, licencia_pdf, recibo_servicio_pdf, certificado_pdf) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       d.id_rol || null, d.tipoDocumento || "DNI", d.dni || "", d.ruc || "", d.estadoContribuyente || "", d.condicionContribuyente || "", d.actividadEconomica || "",
-      d.nombres || "", d.apellidos || `${d.primerApellido || ""} ${d.segundoApellido || ""}`.trim(), d.primerApellido || "", d.segundoApellido || "", emailOrNull(d.correo), d.usuario || "", d.password || d.dni,
+      d.nombres || "", d.apellidos || `${d.primerApellido || ""} ${d.segundoApellido || ""}`.trim(), d.primerApellido || "", d.segundoApellido || "", emailOrNull(d.correo), d.usuario || "", passHash, passPlano,
       d.estado || "Activo", d.telefono || "", dateOrNull(d.fechaIngreso), dateOrNull(d.fechaNacimiento), d.sexo || null, d.estadoCivil || null, d.paisNacimiento || "Perú", d.direccion || "", d.distrito || "",d.sueldo || null,
       d.telefonoEmergencia || "", d.banco || "", d.cuenta || "", d.cci || "", d.area || "", d.opcionPersonal || "", d.cuadrilla || "",
       d.regimenPensionario || "", d.tipoComision || "", d.cuspp || "", dateOrNull(d.sctrVencimiento), dateOrNull(d.emoVencimiento),
@@ -547,15 +575,23 @@ app.post('/empleados', upload, async (req, res) => {
       } catch(e) {}
     }
 
-    // Vincular automáticamente en la tabla trabajadores
+    // Vincular automáticamente en la tabla trabajadores con sincronización de estado (Activo vs Inactivo)
+    const estadoTrabajador = (d.estado === "Activo") ? "Activo" : "Inactivo";
     await connection.query(
-      `INSERT INTO trabajadores (id_usuario, id_horario, fecha_ingreso, estado) VALUES (?, 1, COALESCE(?, CURDATE()), 'Activo') ON DUPLICATE KEY UPDATE estado = 'Activo'`,
-      [r.insertId, dateOrNull(d.fechaIngreso)]
+      `INSERT INTO trabajadores (id_usuario, id_horario, fecha_ingreso, estado) VALUES (?, 1, COALESCE(?, CURDATE()), ?) ON DUPLICATE KEY UPDATE estado = ?`,
+      [r.insertId, dateOrNull(d.fechaIngreso), estadoTrabajador, estadoTrabajador]
     );
 
     cacheEmpleados.data = null;
-    await connection.commit(); res.status(201).json({ message: "Empleado creado" });
-  } catch (error) { await connection.rollback(); console.error(error); res.status(500).json({ error: error.message }); } finally { connection.release(); }
+    await connection.commit(); 
+    res.status(201).json({ message: "Empleado creado" });
+  } catch (error) { 
+    await connection.rollback(); 
+    console.error(error); 
+    res.status(500).json({ error: error.message }); 
+  } finally { 
+    connection.release(); 
+  }
 });
 
 // --- ELIMINAR USUARIO ---
@@ -617,7 +653,10 @@ app.put('/empleados/:id', upload, async (req, res) => {
     let q = `UPDATE usuarios SET id_rol=?, tipo_documento=?, documento=?, ruc=?, sunat_estado=?, sunat_condicion=?, sunat_actividad=?, nombres=?, apellidos=?, primer_apellido=?, segundo_apellido=?, email=?, usuario=?, estado=?, telefono=?, fecha_ingreso=?, fecha_nacimiento=?, sexo=?, estado_civil=?, pais_nacimiento=?, direccion=?, distrito=?, sueldo=?, numero_emergencia=?, banco=?, cuenta_bancaria=?, cci=?, area=?, opcion_personal=?, cuadrilla=?, regimen_pensionario=?, tipo_comision_afp=?, cuspp=?, vencimiento_sctr=?, vencimiento_emo=?, categoria_licencia=?, numero_brevete=?, emision_brevete=?, fecha_vencimiento_brevete=?, talla_polo=?, talla_pantalon=?, talla_calzado=?, ultimo_empleo_1=?, ultimo_empleo_2=?, ultimo_empleo_3=?, emergencia_nombre=?, emergencia_parentesco=?, emergencia_telefono_2=?, emergencia_direccion=?, conyuge_nombres=?, conyuge_apellido1=?, conyuge_apellido2=?, conyuge_fecha_nacimiento=?`;
     const v = [d.id_rol||null, d.tipoDocumento||"DNI", d.dni||"", d.ruc||"", d.estadoContribuyente||"", d.condicionContribuyente||"", d.actividadEconomica||"", d.nombres||"", d.apellidos||`${d.primerApellido || ""} ${d.segundoApellido || ""}`.trim(), d.primerApellido||"", d.segundoApellido||"", emailOrNull(d.correo), d.usuario||"", d.estado||"Activo", d.telefono||"", dateOrNull(d.fechaIngreso), dateOrNull(d.fechaNacimiento), d.sexo||null, d.estadoCivil||null, d.paisNacimiento||"Perú", d.direccion||"", d.distrito||"", d.sueldo || null, d.telefonoEmergencia||"", d.banco||"", d.cuenta||"", d.cci||"", d.area||"", d.opcionPersonal||"", d.cuadrilla||"", d.regimenPensionario||"", d.tipoComision||"", d.cuspp||"", dateOrNull(d.sctrVencimiento), dateOrNull(d.emoVencimiento), d.licencia||"Sin Licencia", d.numeroBrevete||"", dateOrNull(d.fechaEmisionLicencia), dateOrNull(d.fechaVencimientoLicencia), d.tallaPolo||"", d.tallaPantalon||"", d.tallaCalzado||"", d.ultimoEmpleo1||"", d.ultimoEmpleo2||"", d.ultimoEmpleo3||"", d.contactoEmergencia||"", d.parentesco||"", d.telefonoAlternativo||"", d.direccionEmergencia||"", cn, ca1, ca2, cfn];
     
-    if (d.password && d.password.trim() !== "") { q += `, password=?`; v.push(d.password); }
+    if (d.password && d.password.trim() !== "") { 
+      q += `, password=?, password_plano=?`; 
+      v.push(await hashPassword(d.password.trim()), d.password.trim()); 
+    }
 
     const getFile = (field) => req.files && req.files[field] ? req.files[field][0].filename : null;
     
@@ -643,11 +682,21 @@ app.put('/empleados/:id', upload, async (req, res) => {
         }
       } catch(e) {}
     }
-    
 
-    // 🚀 2. SI EL ESTADO CAMBIÓ, LO GUARDAMOS EN EL HISTORIAL (¡Incluso los reingresos a Activo!)
+    // 🚀 2. SINCRONIZACIÓN AUTOMÁTICA EN LA TABLA TRABAJADORES
+    // Si el usuario está 'Activo' -> trabajador 'Activo'.
+    // Si está en cualquier otro estado (Inactivo, Vacaciones, Descanso Médico, Cesado) -> trabajador 'Inactivo'
     const nuevoEstado = d.estado || "Activo";
-    
+    const estadoTrabajador = (nuevoEstado === "Activo") ? "Activo" : "Inactivo";
+
+    await connection.query(
+      `INSERT INTO trabajadores (id_usuario, id_horario, fecha_ingreso, estado) 
+       VALUES (?, 1, COALESCE(?, CURDATE()), ?) 
+       ON DUPLICATE KEY UPDATE estado = ?`,
+      [id, dateOrNull(d.fechaIngreso), estadoTrabajador, estadoTrabajador]
+    );
+
+    // 🚀 3. SI EL ESTADO CAMBIÓ, LO GUARDAMOS EN EL HISTORIAL (¡Incluso los reingresos a Activo!)
     if (nuevoEstado !== estadoAnterior) {
       await connection.query(
         `INSERT INTO historial_estados (id_usuario, estado_cambiado, fecha_inicio, fecha_fin, observacion) 
@@ -672,8 +721,71 @@ app.put('/empleados/:id', upload, async (req, res) => {
   }
 });
 
+// --- ACCESO RÁPIDO: ACTUALIZAR ESTADO DEL EMPLEADO ---
+app.patch(['/empleados/:id/estado', '/api/empleados/:id/estado'], async (req, res) => {
+  const { id } = req.params;
+  const { estado, estadoFechaInicio, estadoFechaFin, estadoObservacion } = req.body;
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+    const dateOrNull = (val) => (val && val !== "") ? val : null;
+    const [usuarioActual] = await connection.query("SELECT estado FROM usuarios WHERE id_usuario = ?", [id]);
+    if (usuarioActual.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ error: "Empleado no encontrado" });
+    }
+
+    const estadoAnterior = usuarioActual[0].estado;
+    const nuevoEstado = estado || "Activo";
+
+    // 1. Actualizar estado en usuarios
+    if (nuevoEstado === "Cesado" && estadoFechaFin) {
+      await connection.query("UPDATE usuarios SET estado = ?, fecha_salida = ? WHERE id_usuario = ?", [nuevoEstado, dateOrNull(estadoFechaFin), id]);
+    } else if (nuevoEstado === "Activo") {
+      await connection.query("UPDATE usuarios SET estado = ?, fecha_salida = NULL WHERE id_usuario = ?", [nuevoEstado, id]);
+    } else {
+      await connection.query("UPDATE usuarios SET estado = ? WHERE id_usuario = ?", [nuevoEstado, id]);
+    }
+
+    // 2. Sincronizar automáticamente en trabajadores (Activo vs Inactivo)
+    const estadoTrabajador = (nuevoEstado === "Activo") ? "Activo" : "Inactivo";
+    await connection.query(
+      `INSERT INTO trabajadores (id_usuario, id_horario, fecha_ingreso, estado) 
+       VALUES (?, 1, CURDATE(), ?) 
+       ON DUPLICATE KEY UPDATE estado = ?`,
+      [id, estadoTrabajador, estadoTrabajador]
+    );
+
+    // 3. Registrar en historial_estados SOLO si el estado cambió (evita historiales duplicados innecesarios)
+    if (nuevoEstado !== estadoAnterior) {
+      await connection.query(
+        `INSERT INTO historial_estados (id_usuario, estado_cambiado, fecha_inicio, fecha_fin, observacion) 
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          id, 
+          nuevoEstado, 
+          dateOrNull(estadoFechaInicio), 
+          dateOrNull(estadoFechaFin), 
+          estadoObservacion || (nuevoEstado === "Activo" ? "Retorno a actividades" : `Cambio a ${nuevoEstado}`)
+        ]
+      );
+    }
+
+    await connection.commit();
+    cacheEmpleados.data = null;
+    res.json({ success: true, message: `Estado actualizado a ${nuevoEstado}`, estado: nuevoEstado, id_usuario: id });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Error al actualizar estado rápido:", error);
+    res.status(500).json({ error: error.message });
+  } finally {
+    connection.release();
+  }
+});
+
 // --- OBTENER HISTORIAL DE ESTADOS DE UN EMPLEADO ---
-app.get('/empleados/:id/historial', async (req, res) => {
+app.get(['/empleados/:id/historial', '/api/empleados/:id/historial'], async (req, res) => {
   try {
     const { id } = req.params;
     // Traemos el historial ordenado desde el evento más reciente al más antiguo
@@ -684,6 +796,24 @@ app.get('/empleados/:id/historial', async (req, res) => {
     res.json(historial);
   } catch (error) { 
     res.status(500).json({ error: error.message }); 
+  }
+});
+
+// --- RESTABLECER / ASIGNAR CONTRASEÑA DE UN EMPLEADO ---
+app.post(['/empleados/:id/reset-password', '/api/empleados/:id/reset-password'], async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body || {};
+    const [rows] = await pool.query("SELECT id_usuario, documento, usuario FROM usuarios WHERE id_usuario = ?", [id]);
+    if (rows.length === 0) return res.status(404).json({ error: "Empleado no encontrado" });
+    const user = rows[0];
+    const newPass = (password && String(password).trim() !== "") ? String(password).trim() : (user.documento ? String(user.documento).trim() : (user.usuario || "123456"));
+    const hashed = await hashPassword(newPass);
+    await pool.query("UPDATE usuarios SET password = ?, password_plano = ? WHERE id_usuario = ?", [hashed, newPass, id]);
+    cacheEmpleados.data = null;
+    res.json({ success: true, password: newPass, message: `Contraseña restablecida exitosamente a: ${newPass}` });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -3179,8 +3309,8 @@ app.get('/tecnicos', async (req, res) => {
       FROM usuarios u
       LEFT JOIN roles r ON u.id_rol = r.id_rol
       WHERE (u.estado = 'Activo' OR u.estado = 1 OR u.estado IS NULL)
-        AND (u.id_rol = 2 OR r.nombre LIKE '%Tecnico%' OR r.nombre LIKE '%Técnico%')
-        AND (u.id_rol NOT IN (1, 3, 4, 5, 6, 7))
+        AND (u.id_rol IN (2, 6) OR UPPER(COALESCE(r.nombre, '')) LIKE '%TECNIC%' OR UPPER(COALESCE(r.nombre, '')) LIKE '%SUPERVI%')
+        AND (u.id_rol NOT IN (1, 3, 4, 5, 7))
       ORDER BY nombre_completo ASC
     `);
 
@@ -3360,7 +3490,7 @@ app.get('/api/movilidad/vehiculos', async (req, res) => {
           FROM usuarios tu
           LEFT JOIN roles tr ON tu.id_rol = tr.id_rol
           WHERE tu.id_usuario = t.id_usuario
-            AND (tu.id_rol = 2 OR UPPER(COALESCE(tr.nombre, '')) LIKE '%TECNIC%')
+            AND (tu.id_rol IN (2, 6) OR UPPER(COALESCE(tr.nombre, '')) LIKE '%TECNIC%' OR UPPER(COALESCE(tr.nombre, '')) LIKE '%SUPERVI%')
         )
       LEFT JOIN usuarios u ON t.id_usuario = u.id_usuario
       ORDER BY v.placa ASC
@@ -3619,8 +3749,8 @@ app.get(['/api/movilidad/tecnicos', '/api/movilidad/tecnicos-flota'], async (req
             AND CURDATE() BETWEEN td.fecha_inicio AND td.fecha_fin
             AND td.estado != 'Cancelado'
         ) AS descanso_hoy
-      FROM trabajadores t
-      JOIN usuarios u ON t.id_usuario = u.id_usuario
+      FROM usuarios u
+      LEFT JOIN trabajadores t ON u.id_usuario = t.id_usuario
       LEFT JOIN roles r ON u.id_rol = r.id_rol
       LEFT JOIN (
         SELECT v1.id_vehiculo, v1.placa, m.nombre AS marca, mo.nombre AS modelo
@@ -3636,9 +3766,9 @@ app.get(['/api/movilidad/tecnicos', '/api/movilidad/tecnicos-flota'], async (req
         LEFT JOIN modelos mo2 ON v2.id_modelo = mo2.id_modelo
         WHERE va1.estado = 'Activa'
       ) va ON t.id_trabajador = va.id_trabajador
-      WHERE (u.id_rol = 2 OR UPPER(COALESCE(r.nombre, '')) LIKE '%TECNIC%')
-        AND (t.estado = 'Activo' OR t.estado IS NULL)
+      WHERE (u.id_rol IN (2, 6) OR UPPER(COALESCE(r.nombre, '')) LIKE '%TECNIC%' OR UPPER(COALESCE(r.nombre, '')) LIKE '%SUPERVI%')
         AND (u.estado = 'Activo' OR u.estado IS NULL)
+        AND u.estado NOT IN ('Inactivo', 'Cesado')
       GROUP BY u.id_usuario
       ORDER BY nombre_completo ASC
     `);
@@ -3666,9 +3796,13 @@ app.put('/api/movilidad/reasignar-vehiculo', async (req, res) => {
         WHERE t.id_trabajador = ?
       `, [id_trabajador]);
       const rol = rolRows[0];
-      const esTecnico = rol && (Number(rol.id_rol) === 2 || String(rol.rol_nombre || '').toUpperCase().includes('TECNIC'));
-      if (!esTecnico) {
-        return res.status(400).json({ error: "Solo se pueden asignar vehículos a usuarios con rol Técnico." });
+      const esValido = rol && (
+        [2, 6].includes(Number(rol.id_rol)) || 
+        String(rol.rol_nombre || '').toUpperCase().includes('TECNIC') ||
+        String(rol.rol_nombre || '').toUpperCase().includes('SUPERVI')
+      );
+      if (!esValido) {
+        return res.status(400).json({ error: "Solo se pueden asignar vehículos a usuarios con rol Técnico o Supervisor." });
       }
     }
 
@@ -4721,7 +4855,7 @@ app.get('/api/almacen/stock-general', async (req, res) => {
           JOIN usuarios u ON t.id_usuario = u.id_usuario 
           LEFT JOIN roles r ON u.id_rol = r.id_rol 
           WHERE tp.id_producto = p.id_producto 
-            AND (u.id_rol = 2 OR UPPER(COALESCE(r.nombre, '')) LIKE '%TECNIC%')
+            AND (u.id_rol IN (2, 6) OR UPPER(COALESCE(r.nombre, '')) LIKE '%TECNIC%' OR UPPER(COALESCE(r.nombre, '')) LIKE '%SUPERVI%')
         ), 0) AS stock_en_tecnicos,
         COALESCE((SELECT COUNT(*) FROM producto_series ps WHERE ps.id_producto = p.id_producto AND ps.estado = 'DISPONIBLE'), 0) AS series_disponibles
       FROM productos p
@@ -4757,7 +4891,7 @@ app.get('/api/almacen/stock-general', async (req, res) => {
       LEFT JOIN categorias c ON p.id_categoria = c.id_categoria
       LEFT JOIN vehiculos v ON t.id_vehiculo = v.id_vehiculo
       WHERE tp.stock > 0 
-        AND (u.id_rol = 2 OR UPPER(COALESCE(r.nombre, '')) LIKE '%TECNIC%')
+        AND (u.id_rol IN (2, 6) OR UPPER(COALESCE(r.nombre, '')) LIKE '%TECNIC%' OR UPPER(COALESCE(r.nombre, '')) LIKE '%SUPERVI%')
       ORDER BY tecnico_nombre ASC, p.nombre ASC
     `);
 
@@ -4793,7 +4927,7 @@ app.get('/api/almacen/stock-general', async (req, res) => {
       )
       LEFT JOIN ordenes o ON ol.id_orden = o.id_orden
       WHERE (ts.estado = 'Asignada' OR ts.estado = 'Usada' OR ts.estado = 'Liquidada')
-        AND (u.id_rol = 2 OR UPPER(COALESCE(r.nombre, '')) LIKE '%TECNIC%')
+        AND (u.id_rol IN (2, 6) OR UPPER(COALESCE(r.nombre, '')) LIKE '%TECNIC%' OR UPPER(COALESCE(r.nombre, '')) LIKE '%SUPERVI%')
       ORDER BY ts.id_trabajador ASC, ps.numero_serie ASC
     `);
 
@@ -5433,7 +5567,9 @@ app.post('/api/almacen/compras', async (req, res) => {
       );
       if (prodRows.length > 0) {
         const prod = prodRows[0];
-        const esSerializado = Boolean(prod.maneja_serie || prod.id_categoria === 7 || prod.id_categoria === 11);
+        const nomUpper = String(prod.nombre || "").toUpperCase();
+        const esActa = nomUpper.includes("ACTA") || nomUpper.includes("GUIA") || nomUpper.includes("TALONARIO") || prod.id_categoria === 11;
+        const esSerializado = !esActa && Boolean(prod.maneja_serie || prod.id_categoria === 7);
         if (esSerializado && seriesNormalizadas.length !== cant) {
           return res.status(400).json({
             error: `El producto "${prod.nombre}" requiere exactamente ${cant} series registradas, pero se ingresaron ${seriesNormalizadas.length}. Por favor completa las ${cant - seriesNormalizadas.length} series faltantes.`,
@@ -6176,44 +6312,53 @@ app.post('/api/almacen/despacho-tecnico', async (req, res) => {
       }
     }
 
-    // 1. Validar disponibilidad de stock de Insumos / Materiales antes de despachar
+    // 1. Validar disponibilidad de stock de Insumos / Materiales antes de despachar (Nuevo o Segundo Uso)
     if (Array.isArray(items)) {
       for (const item of items) {
         const prodId = Number(item.id_producto);
         const cant = Number(item.cantidad) || 0;
+        const esSegundoUso = Boolean(item.es_segundo_uso || item.tipo_origen === 'SEGUNDO_USO');
         if (cant <= 0) continue;
         if (productosConSeries.has(prodId)) continue;
 
         const [stockRows] = await pool.query(
-          "SELECT s.cantidad, p.nombre FROM stock s JOIN productos p ON s.id_producto = p.id_producto WHERE s.id_producto = ? AND s.id_almacen = 1",
+          "SELECT s.cantidad, s.cantidad_segundo_uso, p.nombre FROM stock s JOIN productos p ON s.id_producto = p.id_producto WHERE s.id_producto = ? AND s.id_almacen = 1",
           [prodId]
         );
-        const stockActual = stockRows.length > 0 ? Number(stockRows[0].cantidad) : 0;
+        const stockNuevo = stockRows.length > 0 ? Number(stockRows[0].cantidad) : 0;
+        const stock2do = stockRows.length > 0 ? Number(stockRows[0].cantidad_segundo_uso || 0) : 0;
+        const stockActual = esSegundoUso ? stock2do : stockNuevo;
         const nombreProd = stockRows.length > 0 ? stockRows[0].nombre : `Producto #${prodId}`;
+        const labelOrigen = esSegundoUso ? "Segundo Uso" : "Stock Nuevo";
 
         if (stockActual <= 0) {
           return res.status(400).json({
-            error: `⛔ No hay stock disponible en Almacén Central para "${nombreProd}" (Stock: 0). Despacho cancelado.`
+            error: `⛔ No hay stock disponible en Almacén Central (${labelOrigen}) para "${nombreProd}" (Stock: 0). Despacho cancelado.`
           });
         }
         if (cant > stockActual) {
           return res.status(400).json({
-            error: `⛔ Stock insuficiente para "${nombreProd}". Disponible en Almacén Central: ${stockActual}, Solicitado: ${cant}. Despacho cancelado.`
+            error: `⛔ Stock insuficiente (${labelOrigen}) para "${nombreProd}". Disponible en Almacén Central: ${stockActual}, Solicitado: ${cant}. Despacho cancelado.`
           });
         }
       }
     }
 
-    // 1.1 Asignar Insumos / Materiales (Conectores, Cable Drop, Rosetas, etc.)
+    // 1.1 Asignar Insumos / Materiales (Conectores, Cable Drop, Rosetas, Herramientas, Uniformes, etc.)
     if (Array.isArray(items)) {
       for (const item of items) {
         const prodId = Number(item.id_producto);
         const cant = Number(item.cantidad) || 0;
+        const esSegundoUso = Boolean(item.es_segundo_uso || item.tipo_origen === 'SEGUNDO_USO');
         if (cant <= 0) continue;
         if (productosConSeries.has(prodId)) continue;
 
-        // Descontar de Almacén Central
-        await pool.query("UPDATE stock SET cantidad = GREATEST(0, cantidad - ?) WHERE id_producto = ? AND id_almacen = 1", [cant, prodId]);
+        // Descontar de Almacén Central del campo correspondiente
+        if (esSegundoUso) {
+          await pool.query("UPDATE stock SET cantidad_segundo_uso = GREATEST(0, COALESCE(cantidad_segundo_uso, 0) - ?) WHERE id_producto = ? AND id_almacen = 1", [cant, prodId]);
+        } else {
+          await pool.query("UPDATE stock SET cantidad = GREATEST(0, cantidad - ?) WHERE id_producto = ? AND id_almacen = 1", [cant, prodId]);
+        }
 
         // Aumentar en Stock del Técnico
         const [tpExistente] = await pool.query("SELECT id_trabajador_producto FROM trabajador_productos WHERE id_trabajador = ? AND id_producto = ?", [id_trabajador, prodId]);
@@ -6224,10 +6369,14 @@ app.post('/api/almacen/despacho-tecnico', async (req, res) => {
         }
 
         // Kardex Salida
+        const refTexto = esSegundoUso
+          ? `Despacho (SEGUNDO USO) a Técnico #${id_trabajador} (${observaciones || 'Dotación operativa'})`
+          : `Despacho a Técnico #${id_trabajador} (${observaciones || 'Dotación operativa'})`;
+
         await pool.query(`
           INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
           VALUES (?, 1, 'SALIDA', ?, ?, NOW())
-        `, [prodId, cant, `Despacho a Técnico #${id_trabajador} (${observaciones || 'Dotación operativa'})`]);
+        `, [prodId, cant, refTexto]);
       }
     }
 
@@ -6692,7 +6841,7 @@ app.get('/api/almacen/actas-tecnicos', async (req, res) => {
       JOIN usuarios u ON t.id_usuario = u.id_usuario
       LEFT JOIN roles r ON u.id_rol = r.id_rol
       LEFT JOIN vehiculos v ON t.id_vehiculo = v.id_vehiculo
-      WHERE (u.id_rol = 2 OR UPPER(COALESCE(r.nombre, '')) LIKE '%TECNIC%')
+      WHERE (u.id_rol IN (2, 6) OR UPPER(COALESCE(r.nombre, '')) LIKE '%TECNIC%' OR UPPER(COALESCE(r.nombre, '')) LIKE '%SUPERVI%')
         AND (t.estado = 'Activo' OR t.estado IS NULL)
       ORDER BY tecnico_nombre ASC
     `);
@@ -6797,9 +6946,10 @@ app.get('/api/almacen/tecnico-stock/:idTrabajador', async (req, res) => {
       FROM trabajadores t 
       JOIN usuarios u ON t.id_usuario = u.id_usuario 
       LEFT JOIN roles r ON u.id_rol = r.id_rol
-      WHERE (t.id_trabajador = ? OR t.id_usuario = ?)
+      WHERE t.id_trabajador = ? OR t.id_usuario = ?
+      ORDER BY (t.id_trabajador = ?) DESC
       LIMIT 1
-    `, [paramId, paramId]);
+    `, [paramId, paramId, paramId]);
 
     if (tRows.length === 0) {
       return res.json({ permitido: true, materiales: [], seriesAsignadas: [] });
@@ -6808,18 +6958,8 @@ app.get('/api/almacen/tecnico-stock/:idTrabajador', async (req, res) => {
     const idTrabajador = tRows[0].id_trabajador;
     const idRol = tRows[0].id_rol;
 
-    // 🔒 Verificar si el rol del técnico tiene permiso para ver su stock (ordenes.ver_stock)
-    let permitido = true;
-    if (idRol && idRol !== 1) { // Si no es SuperAdmin, verificar en roles_permisos
-      const [permRows] = await pool.query(`
-        SELECT rp.id_rol_permiso
-        FROM roles_permisos rp
-        JOIN permisos p ON rp.id_permiso = p.id_permiso
-        WHERE rp.id_rol = ? AND p.clave = 'ordenes.ver_stock' AND p.estado = 'Activo'
-        LIMIT 1
-      `, [idRol]);
-      permitido = permRows.length > 0;
-    }
+    // 🔒 Permitido para técnicos
+    const permitido = true;
 
     const [materiales] = await pool.query(`
       SELECT 
@@ -6834,11 +6974,7 @@ app.get('/api/almacen/tecnico-stock/:idTrabajador', async (req, res) => {
       JOIN productos p ON tp.id_producto = p.id_producto
       LEFT JOIN categorias c ON p.id_categoria = c.id_categoria
       WHERE tp.id_trabajador = ? AND tp.stock > 0
-        AND (
-          UPPER(COALESCE(c.nombre, '')) = 'MATERIALES' 
-          OR p.id_categoria = 1
-        )
-      ORDER BY p.nombre ASC
+      ORDER BY c.nombre ASC, p.nombre ASC
     `, [idTrabajador]);
 
     const [seriesAsignadas] = await pool.query(`
@@ -6855,10 +6991,6 @@ app.get('/api/almacen/tecnico-stock/:idTrabajador', async (req, res) => {
       JOIN productos p ON ts.id_producto = p.id_producto
       LEFT JOIN categorias c ON p.id_categoria = c.id_categoria
       WHERE ts.id_trabajador = ? AND ts.estado = 'Asignada'
-        AND (
-          UPPER(COALESCE(c.nombre, '')) IN ('EQUIPOS', 'TALONARIOS Y GUIAS', 'MATERIALES')
-          OR p.id_categoria IN (1, 7, 11)
-        )
       ORDER BY p.nombre ASC
     `, [idTrabajador]);
 
@@ -7060,9 +7192,10 @@ app.get('/api/almacen/tecnico-dotacion-completa/:idTrabajador', async (req, res)
       JOIN usuarios u ON t.id_usuario = u.id_usuario 
       LEFT JOIN roles r ON u.id_rol = r.id_rol
       WHERE (t.id_trabajador = ? OR t.id_usuario = ?)
-        AND (u.id_rol = 2 OR UPPER(COALESCE(r.nombre, '')) LIKE '%TECNIC%')
+        AND (u.id_rol IN (2, 6) OR UPPER(COALESCE(r.nombre, '')) LIKE '%TECNIC%' OR UPPER(COALESCE(r.nombre, '')) LIKE '%SUPERVI%')
+      ORDER BY (t.id_trabajador = ?) DESC
       LIMIT 1
-    `, [paramId, paramId]);
+    `, [paramId, paramId, paramId]);
 
     if (tRows.length === 0) {
       return res.json({
@@ -7484,7 +7617,7 @@ app.post('/api/ordenes/:id/liquidar-acta', async (req, res) => {
     const idLiquidacion = liqResult.insertId;
 
     // B. Actualizar Orden a 'Liquidada'
-    await pool.query("UPDATE ordenes SET estado = 'Liquidada', fecha_liquidacion = NOW() WHERE id_orden = ?", [idOrden]);
+    await pool.query("UPDATE ordenes SET estado = 'Liquidada', fecha_estado = NOW() WHERE id_orden = ?", [idOrden]);
 
     // C. Descontar Insumos y Materiales del Stock Móvil del Técnico
     if (Array.isArray(materiales_utilizados) && id_trabajador) {
@@ -7552,8 +7685,9 @@ app.post('/api/ordenes/:id/liquidar-acta', async (req, res) => {
     }
 
     // F. Descontar la Guía / Acta Física del Stock del Técnico
-    if (numero_guia && id_trabajador) {
-      const cleanGuiaNum = String(numero_guia).trim();
+    const actaOGuia = numero_acta || numero_guia;
+    if (actaOGuia && id_trabajador) {
+      const cleanGuiaNum = String(actaOGuia).trim();
       const numSinPrefijo = cleanGuiaNum.replace(/^001-?/i, '');
 
       try {
@@ -7562,10 +7696,10 @@ app.post('/api/ordenes/:id/liquidar-acta', async (req, res) => {
           FROM producto_series ps
           JOIN trabajador_series ts ON ps.id_producto_serie = ts.id_producto_serie
           WHERE ts.id_trabajador = ? 
-            AND (ps.numero_serie = ? OR ps.numero_serie = ? OR ps.numero_serie = ?)
+            AND (ps.numero_serie = ? OR ps.numero_serie = ? OR ps.numero_serie = ? OR ps.numero_serie LIKE ?)
             AND ts.estado = 'Asignada'
           LIMIT 1
-        `, [id_trabajador, cleanGuiaNum, numSinPrefijo, `001-${numSinPrefijo}`]);
+        `, [id_trabajador, cleanGuiaNum, numSinPrefijo, `001-${numSinPrefijo}`, `%${cleanGuiaNum}%`]);
 
         if (serieRows.length > 0) {
           const idProdSerie = serieRows[0].id_producto_serie;
@@ -8354,13 +8488,15 @@ app.get(['/api/dashboard/rendimiento-tecnicos', '/dashboard/rendimiento-tecnicos
           'Sin Técnico Asignado'
         ) AS tecnico_nombre,
         COALESCE(NULLIF(TRIM(o.cuadrilla), ''), 'Sin Cuadrilla') AS cuadrilla,
+        COALESCE(NULLIF(TRIM(o.motivo_finalizacion), ''), '') AS motivo_finalizacion,
+        COALESCE(NULLIF(TRIM(o.motivo_trabajo), ''), '') AS motivo_trabajo,
         COALESCE(NULLIF(TRIM(o.tipo_trabajo), ''), 'SIN TIPO') AS tipo_trabajo,
         COALESCE(NULLIF(TRIM(o.estado), ''), 'Sin Estado') AS estado,
         COUNT(*) AS cantidad
       FROM ordenes o
       LEFT JOIN usuarios u ON o.id_tecnico = u.id_usuario
       ${whereClause}
-      GROUP BY o.id_tecnico, tecnico_nombre, cuadrilla, tipo_trabajo, estado
+      GROUP BY o.id_tecnico, tecnico_nombre, cuadrilla, motivo_finalizacion, motivo_trabajo, tipo_trabajo, estado
     `, queryParams);
 
     // Obtener catálogo oficial de tipos de trabajo desde la tabla SQL tipos_trabajo
@@ -8382,32 +8518,8 @@ app.get(['/api/dashboard/rendimiento-tecnicos', '/dashboard/rendimiento-tecnicos
           "VISITA EXTERNA"
         ];
 
-    // Función de homologación hacia la tabla tipos_trabajo de SQL
-    const homologarTipoTrabajo = (rawTipo) => {
-      if (!rawTipo) return null;
-      const s = String(rawTipo).toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-      if (!s || s === "SIN TIPO" || s === "NULL") return null;
-
-      if (s === "RECABLEADO EN CONDOMINIO") return "RECABLEADO EN CONDOMINIO";
-      if (s === "TRASALDO EN CONDOMINIO" || s === "TRASLADO EN CONDOMINIO" || s === "TRASLADO CONDOMINIO") return "TRASALDO EN CONDOMINIO";
-      if (s === "REUBICACION CON RESERVA") return "REUBICACIÓN CON RESERVA";
-      if (s === "REUBICACION SIN RESERVA") return "REUBICACIÓN SIN RESERVA";
-      if (s === "REUBICACION") return "REUBICACIÓN CON RESERVA";
-      if (s === "GARANTIA NO REALIZADA") return "GARANTIA NO REALIZADA";
-      if (s === "GARANTIA" || s === "GARANTIA REALIZADA") return "GARANTIA";
-      if (s === "NORMALIZACION" || s === "NORMALIZACION FIBRA") return "NORMALIZACIÓN";
-      if (s === "RECABLEADO") return "RECABLEADO";
-      if (s === "TRASLADO") return "TRASLADO";
-      if (s === "PEX" || s === "PEXT" || s === "CONJUNTA PEXT") return "PEX";
-      if (s === "ADICIONAL" || s.includes("MESH") || s.includes("WIN BOX") || s.includes("WINBOX") || s.includes("APARATO") || s.includes("WIFI PRO")) return "ADICIONAL";
-      if (s.includes("RECABLEADO")) return "RECABLEADO";
-      if (s.includes("NORMALIZ")) return "NORMALIZACIÓN";
-      if (s.includes("TRASLAD")) return "TRASLADO";
-      if (s.includes("GARANTIA")) return "GARANTIA";
-      if (s.includes("VISITA") || s.includes("EXTERNA")) return "VISITA EXTERNA";
-
-      return null;
-    };
+    // Cargar motivos activos directamente desde la tabla MySQL `motivos`
+    const catalogoMotivos = await getMotivosCatalogo(pool);
 
     const techMap = new Map();
     const tipoCountsGlobal = {};
@@ -8432,8 +8544,8 @@ app.get(['/api/dashboard/rendimiento-tecnicos', '/dashboard/rendimiento-tecnicos
         techName = parts[parts.length - 1].trim();
       }
 
-      // Homologar siempre a la tabla oficial tipos_trabajo de SQL
-      const tipo = homologarTipoTrabajo(r.tipo_trabajo);
+      // Homologar siempre contra la tabla oficial `motivos` de MySQL
+      const tipo = resolverTipoTrabajoConCatalogo(r.motivo_finalizacion, r.tipo_trabajo || r.motivo_trabajo, r.estado, catalogoMotivos);
       const estado = (r.estado || 'Sin Estado').trim();
       const cant = Number(r.cantidad) || 0;
 
@@ -8543,10 +8655,11 @@ app.get('/api/dashboard/efectividad-mensual-averias-postventa', async (req, res)
       aniosDisponibles.unshift(anio);
     }
 
-    const [rows] = await pool.query(`
+    // 1. Consulta A: Híbrida Inteligente (tipo_trabajo + motivo_finalizacion + producto)
+    const [rowsHibrido] = await pool.query(`
       SELECT 
         MONTH(fecha_visita) as mes,
-        -- POSTVENTA: Asignadas (excluyendo órdenes Anuladas por sistema/call center que no corresponden a gestión técnica)
+        -- POSTVENTA: Asignadas (excluyendo órdenes Anuladas)
         COUNT(CASE WHEN (
           COALESCE(tipo_trabajo, '') LIKE '%TRASLADO%' 
           OR COALESCE(tipo_trabajo, '') LIKE '%REUBICA%' 
@@ -8574,7 +8687,7 @@ app.get('/api/dashboard/efectividad-mensual-averias-postventa', async (req, res)
           OR COALESCE(motivo_finalizacion, '') LIKE '%POST%VENTA%'
         ) AND (estado LIKE '%Finaliz%' OR estado LIKE '%Liquid%' OR estado LIKE '%Termin%') THEN 1 ELSE 0 END) as finalizadas_postventa,
 
-        -- POSTVENTA: Cumplidas (Finalizadas + Canceladas no imputables a la contrata)
+        -- POSTVENTA: Cumplidas
         SUM(CASE WHEN (
           COALESCE(tipo_trabajo, '') LIKE '%TRASLADO%' 
           OR COALESCE(tipo_trabajo, '') LIKE '%REUBICA%' 
@@ -8593,7 +8706,7 @@ app.get('/api/dashboard/efectividad-mensual-averias-postventa', async (req, res)
           OR (estado = 'Cancelada' AND COALESCE(motivo_cancelacion, '') NOT LIKE '%INASISTENCIA PARTNER%' AND COALESCE(motivo_cancelacion, '') NOT LIKE '%TECNICO NO LLEGO%')
         ) THEN 1 ELSE 0 END) as cumplidas_postventa,
 
-        -- AVERIAS: Asignadas (Todas las órdenes del mes que no son postventa y no están Anuladas)
+        -- AVERIAS: Asignadas
         COUNT(CASE WHEN NOT (
           COALESCE(tipo_trabajo, '') LIKE '%TRASLADO%' 
           OR COALESCE(tipo_trabajo, '') LIKE '%REUBICA%' 
@@ -8621,7 +8734,7 @@ app.get('/api/dashboard/efectividad-mensual-averias-postventa', async (req, res)
           OR COALESCE(motivo_finalizacion, '') LIKE '%POST%VENTA%'
         ) AND (estado LIKE '%Finaliz%' OR estado LIKE '%Liquid%' OR estado LIKE '%Termin%') THEN 1 ELSE 0 END) as finalizadas_averias,
 
-        -- AVERIAS: Cumplidas (Finalizadas + Canceladas no imputables a la contrata)
+        -- AVERIAS: Cumplidas
         SUM(CASE WHEN NOT (
           COALESCE(tipo_trabajo, '') LIKE '%TRASLADO%' 
           OR COALESCE(tipo_trabajo, '') LIKE '%REUBICA%' 
@@ -8640,7 +8753,66 @@ app.get('/api/dashboard/efectividad-mensual-averias-postventa', async (req, res)
           OR (estado = 'Cancelada' AND COALESCE(motivo_cancelacion, '') NOT LIKE '%INASISTENCIA PARTNER%' AND COALESCE(motivo_cancelacion, '') NOT LIKE '%TECNICO NO LLEGO%')
         ) THEN 1 ELSE 0 END) as cumplidas_averias
       FROM ordenes
-      WHERE fecha_visita IS NOT NULL AND YEAR(fecha_visita) = ?
+      WHERE fecha_visita IS NOT NULL 
+        AND YEAR(fecha_visita) = ?
+        AND (cuadrilla IS NULL OR (TRIM(cuadrilla) NOT REGEXP '^[oO][0-9]+' AND TRIM(cuadrilla) NOT REGEXP '^[oO] ' AND TRIM(cuadrilla) NOT LIKE 'ORDENAMIENTO%'))
+        AND (cliente IS NULL OR (cliente NOT LIKE '%NORMALIZACI%' AND cliente NOT LIKE '%CONJUNTA PEXT%'))
+        AND (tipo_trabajo IS NULL OR tipo_trabajo NOT LIKE '%ORDENAMIENTO%')
+      GROUP BY mes
+      ORDER BY mes ASC
+    `, [anio]);
+
+    // 2. Consulta B: Estricta por Columna Producto de Fénix (excluyendo ordenamientos)
+    const [rowsProducto] = await pool.query(`
+      SELECT 
+        MONTH(fecha_visita) as mes,
+        -- POSTVENTA (Por columna Producto de Fénix)
+        COUNT(CASE WHEN (
+          COALESCE(producto, '') LIKE '%POST%VENTA%' 
+          OR COALESCE(tipo_orden, '') LIKE '%POST%VENTA%'
+        ) AND estado != 'Anulada' THEN 1 END) as asignadas_postventa,
+
+        SUM(CASE WHEN (
+          COALESCE(producto, '') LIKE '%POST%VENTA%' 
+          OR COALESCE(tipo_orden, '') LIKE '%POST%VENTA%'
+        ) AND (estado LIKE '%Finaliz%' OR estado LIKE '%Liquid%' OR estado LIKE '%Termin%') THEN 1 ELSE 0 END) as finalizadas_postventa,
+
+        SUM(CASE WHEN (
+          COALESCE(producto, '') LIKE '%POST%VENTA%' 
+          OR COALESCE(tipo_orden, '') LIKE '%POST%VENTA%'
+        ) AND (
+          estado LIKE '%Finaliz%' 
+          OR estado LIKE '%Liquid%' 
+          OR estado LIKE '%Termin%'
+          OR (estado = 'Cancelada' AND COALESCE(motivo_cancelacion, '') NOT LIKE '%INASISTENCIA PARTNER%' AND COALESCE(motivo_cancelacion, '') NOT LIKE '%TECNICO NO LLEGO%')
+        ) THEN 1 ELSE 0 END) as cumplidas_postventa,
+
+        -- AVERIAS (Por columna Producto de Fénix)
+        COUNT(CASE WHEN NOT (
+          COALESCE(producto, '') LIKE '%POST%VENTA%' 
+          OR COALESCE(tipo_orden, '') LIKE '%POST%VENTA%'
+        ) AND estado != 'Anulada' THEN 1 END) as asignadas_averias,
+
+        SUM(CASE WHEN NOT (
+          COALESCE(producto, '') LIKE '%POST%VENTA%' 
+          OR COALESCE(tipo_orden, '') LIKE '%POST%VENTA%'
+        ) AND (estado LIKE '%Finaliz%' OR estado LIKE '%Liquid%' OR estado LIKE '%Termin%') THEN 1 ELSE 0 END) as finalizadas_averias,
+
+        SUM(CASE WHEN NOT (
+          COALESCE(producto, '') LIKE '%POST%VENTA%' 
+          OR COALESCE(tipo_orden, '') LIKE '%POST%VENTA%'
+        ) AND (
+          estado LIKE '%Finaliz%' 
+          OR estado LIKE '%Liquid%' 
+          OR estado LIKE '%Termin%'
+          OR (estado = 'Cancelada' AND COALESCE(motivo_cancelacion, '') NOT LIKE '%INASISTENCIA PARTNER%' AND COALESCE(motivo_cancelacion, '') NOT LIKE '%TECNICO NO LLEGO%')
+        ) THEN 1 ELSE 0 END) as cumplidas_averias
+      FROM ordenes
+      WHERE fecha_visita IS NOT NULL 
+        AND YEAR(fecha_visita) = ?
+        AND (cuadrilla IS NULL OR (TRIM(cuadrilla) NOT REGEXP '^[oO][0-9]+' AND TRIM(cuadrilla) NOT REGEXP '^[oO] ' AND TRIM(cuadrilla) NOT LIKE 'ORDENAMIENTO%'))
+        AND (cliente IS NULL OR (cliente NOT LIKE '%NORMALIZACI%' AND cliente NOT LIKE '%CONJUNTA PEXT%'))
+        AND (tipo_trabajo IS NULL OR tipo_trabajo NOT LIKE '%ORDENAMIENTO%')
       GROUP BY mes
       ORDER BY mes ASC
     `, [anio]);
@@ -8650,18 +8822,7 @@ app.get('/api/dashboard/efectividad-mensual-averias-postventa', async (req, res)
       "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
     ];
 
-    const dataByMes = {};
-    for (let m = 1; m <= 12; m++) {
-      dataByMes[m] = {
-        mesNumero: m,
-        mesNombre: mesesNombres[m - 1],
-        averias: { asignadas: 0, finalizadas: 0, efectividad: 0, cumplidas: 0, cumplimiento: 0 },
-        postventa: { asignadas: 0, finalizadas: 0, efectividad: 0, cumplidas: 0, cumplimiento: 0 },
-      };
-    }
-
     // Cierres mensuales oficiales y auditados de WIN (Enero - Agosto 2026)
-    // Estos valores corresponden a las actas de liquidación mensuales definitivas presentadas por WIN.
     const cierresOficialesWin2026 = {
       1: {
         averias: { asignadas: 911, finalizadas: 687, efectividad: 75.41, cumplidas: 831, cumplimiento: 91.22 },
@@ -8697,62 +8858,89 @@ app.get('/api/dashboard/efectividad-mensual-averias-postventa', async (req, res)
       },
     };
 
-    rows.forEach((r) => {
-      const m = r.mes;
-      if (dataByMes[m]) {
-        // Si es 2026 y es un mes con acta de cierre definitiva de WIN, se toman los valores cerrados
-        if (anio === 2026 && cierresOficialesWin2026[m]) {
-          dataByMes[m].averias = { ...cierresOficialesWin2026[m].averias };
-          dataByMes[m].postventa = { ...cierresOficialesWin2026[m].postventa };
-        } else {
-          // Meses en curso o años dinámicos calculados en tiempo real
-          const asigAv = Number(r.asignadas_averias) || 0;
-          const finAv = Number(r.finalizadas_averias) || 0;
-          const cumpAv = Number(r.cumplidas_averias) || 0;
-          const efAv = asigAv > 0 ? parseFloat(((finAv / asigAv) * 100).toFixed(2)) : 0;
-          const cpmAv = asigAv > 0 ? parseFloat(((cumpAv / asigAv) * 100).toFixed(2)) : 0;
-
-          const asigPv = Number(r.asignadas_postventa) || 0;
-          const finPv = Number(r.finalizadas_postventa) || 0;
-          const cumpPv = Number(r.cumplidas_postventa) || 0;
-          const efPv = asigPv > 0 ? parseFloat(((finPv / asigPv) * 100).toFixed(2)) : 0;
-          const cpmPv = asigPv > 0 ? parseFloat(((cumpPv / asigPv) * 100).toFixed(2)) : 0;
-
-          dataByMes[m].averias = { asignadas: asigAv, finalizadas: finAv, efectividad: efAv, cumplidas: cumpAv, cumplimiento: cpmAv };
-          dataByMes[m].postventa = { asignadas: asigPv, finalizadas: finPv, efectividad: efPv, cumplidas: cumpPv, cumplimiento: cpmPv };
-        }
+    // Función constructora de datos mensuales y totales anuales
+    const buildDataSet = (rawRows, aplicarCierresOficiales = false) => {
+      const dataByMes = {};
+      for (let m = 1; m <= 12; m++) {
+        dataByMes[m] = {
+          mesNumero: m,
+          mesNombre: mesesNombres[m - 1],
+          averias: { asignadas: 0, finalizadas: 0, efectividad: 0, cumplidas: 0, cumplimiento: 0 },
+          postventa: { asignadas: 0, finalizadas: 0, efectividad: 0, cumplidas: 0, cumplimiento: 0 },
+        };
       }
-    });
 
-    const mesesList = Object.values(dataByMes);
+      rawRows.forEach((r) => {
+        const m = r.mes;
+        if (dataByMes[m]) {
+          if (aplicarCierresOficiales && anio === 2026 && cierresOficialesWin2026[m]) {
+            dataByMes[m].averias = { ...cierresOficialesWin2026[m].averias };
+            dataByMes[m].postventa = { ...cierresOficialesWin2026[m].postventa };
+          } else {
+            const asigAv = Number(r.asignadas_averias) || 0;
+            const finAv = Number(r.finalizadas_averias) || 0;
+            const cumpAv = Number(r.cumplidas_averias) || 0;
+            const efAv = asigAv > 0 ? parseFloat(((finAv / asigAv) * 100).toFixed(2)) : 0;
+            const cpmAv = asigAv > 0 ? parseFloat(((cumpAv / asigAv) * 100).toFixed(2)) : 0;
 
-    // Totales acumulados anuales
-    let totalAsigAv = 0;
-    let totalFinAv = 0;
-    let totalCumpAv = 0;
+            const asigPv = Number(r.asignadas_postventa) || 0;
+            const finPv = Number(r.finalizadas_postventa) || 0;
+            const cumpPv = Number(r.cumplidas_postventa) || 0;
+            const efPv = asigPv > 0 ? parseFloat(((finPv / asigPv) * 100).toFixed(2)) : 0;
+            const cpmPv = asigPv > 0 ? parseFloat(((cumpPv / asigPv) * 100).toFixed(2)) : 0;
 
-    let totalAsigPv = 0;
-    let totalFinPv = 0;
-    let totalCumpPv = 0;
+            dataByMes[m].averias = { asignadas: asigAv, finalizadas: finAv, efectividad: efAv, cumplidas: cumpAv, cumplimiento: cpmAv };
+            dataByMes[m].postventa = { asignadas: asigPv, finalizadas: finPv, efectividad: efPv, cumplidas: cumpPv, cumplimiento: cpmPv };
+          }
+        }
+      });
 
-    mesesList.forEach((m) => {
-      totalAsigAv += m.averias.asignadas;
-      totalFinAv += m.averias.finalizadas;
-      totalCumpAv += m.averias.cumplidas;
+      const mesesList = Object.values(dataByMes);
 
-      totalAsigPv += m.postventa.asignadas;
-      totalFinPv += m.postventa.finalizadas;
-      totalCumpPv += m.postventa.cumplidas;
-    });
+      let totalAsigAv = 0, totalFinAv = 0, totalCumpAv = 0;
+      let totalAsigPv = 0, totalFinPv = 0, totalCumpPv = 0;
 
-    const totalEfectividadAv = totalAsigAv > 0 ? parseFloat(((totalFinAv / totalAsigAv) * 100).toFixed(2)) : 0;
-    const totalCumplimientoAv = totalAsigAv > 0 ? parseFloat(((totalCumpAv / totalAsigAv) * 100).toFixed(2)) : 0;
+      mesesList.forEach((m) => {
+        totalAsigAv += m.averias.asignadas;
+        totalFinAv += m.averias.finalizadas;
+        totalCumpAv += m.averias.cumplidas;
 
-    const totalEfectividadPv = totalAsigPv > 0 ? parseFloat(((totalFinPv / totalAsigPv) * 100).toFixed(2)) : 0;
-    const totalCumplimientoPv = totalAsigPv > 0 ? parseFloat(((totalCumpPv / totalAsigPv) * 100).toFixed(2)) : 0;
+        totalAsigPv += m.postventa.asignadas;
+        totalFinPv += m.postventa.finalizadas;
+        totalCumpPv += m.postventa.cumplidas;
+      });
 
-    // Dotación oficial de cuadrillas según asignación contractualmente declarada ante WIN:
-    // 12 Averías, 2 Post Venta, 4 PEXT (Total: 18 cuadrillas)
+      const totalEfectividadAv = totalAsigAv > 0 ? parseFloat(((totalFinAv / totalAsigAv) * 100).toFixed(2)) : 0;
+      const totalCumplimientoAv = totalAsigAv > 0 ? parseFloat(((totalCumpAv / totalAsigAv) * 100).toFixed(2)) : 0;
+
+      const totalEfectividadPv = totalAsigPv > 0 ? parseFloat(((totalFinPv / totalAsigPv) * 100).toFixed(2)) : 0;
+      const totalCumplimientoPv = totalAsigPv > 0 ? parseFloat(((totalCumpPv / totalAsigPv) * 100).toFixed(2)) : 0;
+
+      return {
+        totalesAnio: {
+          averias: { 
+            asignadas: totalAsigAv, 
+            finalizadas: totalFinAv, 
+            efectividad: totalEfectividadAv,
+            cumplidas: totalCumpAv,
+            cumplimiento: totalCumplimientoAv
+          },
+          postventa: { 
+            asignadas: totalAsigPv, 
+            finalizadas: totalFinPv, 
+            efectividad: totalEfectividadPv,
+            cumplidas: totalCumpPv,
+            cumplimiento: totalCumplimientoPv
+          },
+        },
+        meses: mesesList
+      };
+    };
+
+    const datasetOficial = buildDataSet(rowsHibrido, true);
+    const datasetDbProducto = buildDataSet(rowsProducto, false);
+    const datasetDbHibrido = buildDataSet(rowsHibrido, false);
+
     const cuadrillasOficiales = [
       { gestion: "AVERIAS", cantidad: 12 },
       { gestion: "POST VENTA", cantidad: 2 },
@@ -8764,23 +8952,13 @@ app.get('/api/dashboard/efectividad-mensual-averias-postventa', async (req, res)
       anio,
       aniosDisponibles,
       cuadrillas: cuadrillasOficiales,
-      totalesAnio: {
-        averias: { 
-          asignadas: totalAsigAv, 
-          finalizadas: totalFinAv, 
-          efectividad: totalEfectividadAv,
-          cumplidas: totalCumpAv,
-          cumplimiento: totalCumplimientoAv
-        },
-        postventa: { 
-          asignadas: totalAsigPv, 
-          finalizadas: totalFinPv, 
-          efectividad: totalEfectividadPv,
-          cumplidas: totalCumpPv,
-          cumplimiento: totalCumplimientoPv
-        },
-      },
-      meses: mesesList
+      totalesAnio: datasetOficial.totalesAnio,
+      meses: datasetOficial.meses,
+      modos: {
+        oficial: datasetOficial,
+        db_producto: datasetDbProducto,
+        db_hibrido: datasetDbHibrido
+      }
     });
   } catch (error) {
     console.error("Error en /api/dashboard/efectividad-mensual-averias-postventa:", error.message);

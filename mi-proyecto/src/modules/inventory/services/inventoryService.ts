@@ -1,6 +1,7 @@
 import axios from "axios";
 import { API_URL } from "../../../config/api";
 import { authService } from "../../../services/authService";
+import { getAuthToken } from "../../../lib/authHttp";
 import {
   ProductoStock,
   StockTecnicoDetalle,
@@ -18,6 +19,15 @@ import {
 
 const api = axios.create({
   baseURL: `${API_URL}/api`,
+});
+
+api.interceptors.request.use((config) => {
+  const token = getAuthToken();
+  if (token) {
+    config.headers = config.headers || {};
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
 });
 
 export const getStockGeneral = async (): Promise<{

@@ -42,27 +42,6 @@ import { API_URL } from "./config/api";
 export default function App() {
   // ── ESTADO DE AUTENTICACIÓN CENTRALIZADO ──
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
-    // Si viene por sesión previa o parámetros de URL
-    const searchParams = new URLSearchParams(window.location.search);
-    const uId = searchParams.get("userId");
-    const uName = searchParams.get("userName");
-    const uRol = searchParams.get("userRol") || searchParams.get("idRol");
-    const rNom = searchParams.get("rolNombre");
-
-    if (uId && uName) {
-      return {
-        id_usuario: Number(uId),
-        id_rol: Number(uRol) || 1,
-        usuario: uName.toLowerCase().replace(/\s+/g, ""),
-        nombres: uName.split(" ")[0] || uName,
-        apellidos: uName.split(" ").slice(1).join(" ") || "",
-        nombreCompleto: uName,
-        email: "",
-        rol: rNom || "ADMINISTRACION",
-        permisos: [],
-      };
-    }
-
     return authService.getCurrentUser();
   });
 
@@ -698,6 +677,7 @@ export default function App() {
                       <EmployeeList
                         empleados={empleados}
                         onSelectEmployee={handleSeleccionarEmpleado}
+                        onEmployeeUpdated={cargarEmpleados}
                       />
                     )}
                     {rhTab === "ficha" && canFicha && (

@@ -75,6 +75,8 @@ interface ItemRow {
   stand?: string;
   fila?: number;
   busquedaProducto?: string;
+  prefijoActas?: string;
+  inicioActas?: string;
 }
 
 export const formatFechaVisual = (fechaStr: string | Date | null | undefined): string => {
@@ -111,7 +113,6 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
     "UNIFORMES",
     "VEHICULO",
     "EPPS",
-    "TALONARIOS Y GUIAS",
     "OFICINA",
     "REPUESTOS",
   ]);
@@ -1169,13 +1170,37 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
       return;
     }
 
-    // 🔒 REGLA DE NEGOCIO ESTRICTA: Validar que todos los productos serializados tengan exactamente la misma cantidad de series
-    for (const it of items) {
+    // 1. Procesar y auto-generar rangos de Talonarios / Actas
+    const itemsProcesados: ItemRow[] = items.map((it) => {
+      const catUpper = (it.categoria || "").toUpperCase();
+      const nomUpper = (it.nombre || "").toUpperCase();
+      const esActa = catUpper.includes("TALONARIO") || catUpper.includes("ACTA") || catUpper.includes("GUIA") || nomUpper.includes("ACTA") || nomUpper.includes("GUIA");
+
+      if (esActa && (!it.series || it.series.length !== it.cantidad)) {
+        const pref = it.prefijoActas ?? "001-";
+        const iniRaw = it.inicioActas ?? "04001";
+        const parseInicio = parseInt(iniRaw.replace(/\D/g, ""), 10) || 1;
+        const padLen = Math.max(5, iniRaw.replace(/\D/g, "").length || 5);
+        const parseFin = parseInicio + Math.max(1, it.cantidad) - 1;
+
+        const generated: SerieIngreso[] = [];
+        for (let i = parseInicio; i <= parseFin; i++) {
+          generated.push({ numero_serie: `${pref}${String(i).padStart(padLen, "0")}` });
+        }
+        return { ...it, series: generated };
+      }
+      return it;
+    });
+
+    // 🔒 REGLA DE NEGOCIO ESTRICTA: Validar que todos los EQUIPOS serializados tengan exactamente la misma cantidad de series
+    for (const it of itemsProcesados) {
       const prod = localProductos.find((p) => p.id_producto === it.id_producto);
-      const esSerializado = Boolean(
+      const catUpper = (it.categoria || "").toUpperCase();
+      const nomUpper = (it.nombre || "").toUpperCase();
+      const esActa = catUpper.includes("TALONARIO") || catUpper.includes("ACTA") || catUpper.includes("GUIA") || nomUpper.includes("ACTA") || nomUpper.includes("GUIA");
+      const esSerializado = !esActa && Boolean(
         it.maneja_serie ||
-        it.categoria?.toUpperCase() === "EQUIPOS" ||
-        it.categoria?.toUpperCase() === "TALONARIOS Y GUIAS" ||
+        catUpper === "EQUIPOS" ||
         prod?.maneja_serie
       );
 
@@ -1185,7 +1210,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
           const itemIdx = items.indexOf(it);
           setItemIndexParaSeries(itemIdx);
           alert(
-            `⚠️ REGLA DE NEGOCIO: VALIDACIÓN DE SERIES INCOMPLETAS\n\nEl producto "${it.nombre}" tiene una cantidad registrada de ${it.cantidad} unidades, pero solo se han pistoleado o ingresado ${cantSeries} series.\n\n❌ No se puede guardar la compra en Almacén hasta completar las ${it.cantidad - cantSeries} series restantes para garantizar que el stock físico coincida al 100% con los seriales registrados.`
+            `⚠️ REGLA DE NEGOCIO: VALIDACIÓN DE SERIES INCOMPLETAS\n\nEl equipo "${it.nombre}" tiene una cantidad registrada de ${it.cantidad} unidades, pero solo se han pistoleado o ingresado ${cantSeries} series.\n\n❌ No se puede guardar la compra en Almacén hasta completar las ${it.cantidad - cantSeries} series restantes para garantizar que el stock físico coincida al 100% con los seriales registrados.`
           );
           return;
         }
@@ -1203,7 +1228,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
         tipo_comprobante: tipoComprobante,
         numero_comprobante: numCompFinal,
         fecha,
-        items: items.map((it) => ({
+        items: itemsProcesados.map((it) => ({
           id_producto: it.id_producto,
           cantidad: it.cantidad,
           precio: Number(it.precio) || 0,
@@ -1593,7 +1618,11 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
           {/* Tabla de Ítems en Cascada */}
           <div className="space-y-3">
             {items.map((it, idx) => {
-              const esEquipo = it.maneja_serie || it.categoria === "EQUIPOS";
+              const catUpper = (it.categoria || "").toUpperCase();
+              const nomUpper = (it.nombre || "").toUpperCase();
+              const esActa = catUpper.includes("TALONARIO") || catUpper.includes("ACTA") || catUpper.includes("GUIA") || nomUpper.includes("ACTA") || nomUpper.includes("GUIA");
+              const esEquipo = !esActa && (it.maneja_serie || catUpper === "EQUIPOS");
+
               // Si el usuario escribió en el buscador de la fila, mostrar resultados rankeados globalmente
               let prodsDeCat: ProductoStock[] = [];
               if (it.busquedaProducto && it.busquedaProducto.trim().length >= 1) {
@@ -1611,23 +1640,26 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
               return (
                 <div
                   key={idx}
-                  className={`p-4 rounded-2xl border transition-all space-y-3 ${itemIndexParaSeries === idx && esEquipo
+                  className={`p-4 rounded-2xl border transition-all space-y-3 ${
+                    itemIndexParaSeries === idx && esEquipo
                       ? "bg-emerald-50/40 border-emerald-300 ring-2 ring-emerald-100"
+                      : esActa
+                      ? "bg-amber-50/30 border-amber-200/90"
                       : "bg-slate-50/60 border-slate-200/90"
-                    }`}
+                  }`}
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
 
                     {/* 1. Selector de Categoría (Paso 1) */}
-                    <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-black text-indigo-700 uppercase tracking-wider mb-1 flex items-center gap-1">
-                        <Layers size={13} className="text-indigo-600" />
+                    <div className="sm:col-span-2 min-w-0">
+                      <label className="block text-[11px] font-black text-indigo-700 uppercase tracking-wider mb-1 flex items-center gap-1 truncate">
+                        <Layers size={13} className="text-indigo-600 shrink-0" />
                         <span>1. Categoría</span>
                       </label>
                       <select
                         value={it.categoria}
                         onChange={(e) => handleCategoryChange(idx, e.target.value)}
-                        className="w-full p-2.5 bg-white border border-indigo-200 rounded-xl font-bold text-xs text-indigo-950 shadow-2xs focus:ring-2 focus:ring-indigo-400 cursor-pointer"
+                        className="w-full min-w-0 p-2.5 bg-white border border-indigo-200 rounded-xl font-bold text-xs text-indigo-950 shadow-2xs focus:ring-2 focus:ring-indigo-400 cursor-pointer truncate"
                       >
                         {categorias.map((cat) => (
                           <option key={cat} value={cat}>
@@ -1638,9 +1670,9 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                     </div>
 
                     {/* 🔍 Buscador Rápido de Producto / Auto-detección entre Categoría y Producto */}
-                    <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1">
-                        <Search size={13} className="text-slate-500" />
+                    <div className="sm:col-span-2 min-w-0">
+                      <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1 truncate">
+                        <Search size={13} className="text-slate-500 shrink-0" />
                         <span>Buscar</span>
                       </label>
                       <div className="relative">
@@ -1664,8 +1696,8 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                       </div>
                     </div>
 
-                    {/* 2. Selector de Producto de esa Categoría (Paso 2) + Botón "+ Nuevo" */}
-                    <div className="sm:col-span-3">
+                    {/* 2. Selector de Producto de esa Categoría (Paso 2) + Botón "+ Crear" */}
+                    <div className="sm:col-span-3 min-w-0">
                       <div className="flex items-center justify-between mb-1">
                         <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1 truncate">
                           <Package size={13} className="text-slate-600 shrink-0" />
@@ -1674,7 +1706,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                         <button
                           type="button"
                           onClick={() => abrirModalNuevoProducto(it.categoria, idx)}
-                          className="text-[10px] font-black text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5 cursor-pointer shrink-0"
+                          className="text-[10px] font-black text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2 py-0.5 rounded-lg flex items-center gap-0.5 cursor-pointer shrink-0 transition-colors shadow-2xs"
                           title="Crear un nuevo producto en esta categoría"
                         >
                           <Plus size={11} />
@@ -1682,7 +1714,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                         </button>
                       </div>
 
-                      <div className="flex gap-1.5">
+                      <div className="w-full min-w-0">
                         <select
                           value={it.id_producto}
                           onChange={(e) => {
@@ -1692,7 +1724,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                               handleProductChange(idx, Number(e.target.value));
                             }
                           }}
-                          className="flex-1 p-2.5 bg-white border border-slate-200 rounded-xl font-bold text-xs text-slate-900 shadow-2xs focus:ring-2 focus:ring-emerald-400 cursor-pointer truncate"
+                          className="w-full min-w-0 p-2.5 bg-white border border-slate-200 rounded-xl font-bold text-xs text-slate-900 shadow-2xs focus:ring-2 focus:ring-emerald-400 cursor-pointer truncate"
                         >
                           {prodsDeCat.length === 0 && (
                             <option value={0} disabled>
@@ -1708,32 +1740,23 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                             ➕ + Registrar Nuevo Producto en {it.categoria}...
                           </option>
                         </select>
-
-                        <button
-                          type="button"
-                          onClick={() => abrirModalNuevoProducto(it.categoria, idx)}
-                          className="p-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl transition-all cursor-pointer flex items-center justify-center shrink-0 shadow-2xs"
-                          title="Crear nuevo producto en esta categoría"
-                        >
-                          <Plus size={15} />
-                        </button>
                       </div>
                     </div>
 
                     {/* 4. Ubicación Almacén (Stand A-H & Fila 1-10) */}
-                    <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-black text-sky-800 uppercase tracking-wider mb-1 flex items-center gap-1">
-                        <Building2 size={12} className="text-sky-600" />
+                    <div className="sm:col-span-2 min-w-0">
+                      <label className="block text-[11px] font-black text-sky-800 uppercase tracking-wider mb-1 flex items-center gap-1 truncate">
+                        <Building2 size={12} className="text-sky-600 shrink-0" />
                         <span>Ubicación</span>
                       </label>
-                      <div className="grid grid-cols-2 gap-1">
+                      <div className="grid grid-cols-2 gap-1 min-w-0">
                         <select
                           value={it.stand || "A"}
                           onChange={(e) => {
                             const val = e.target.value;
                             setItems((prev) => prev.map((item, i) => (i === idx ? { ...item, stand: val } : item)));
                           }}
-                          className="w-full p-2 bg-sky-50/70 border border-sky-200 rounded-xl font-black text-xs text-sky-950 shadow-2xs focus:ring-2 focus:ring-sky-400"
+                          className="w-full min-w-0 p-2 bg-sky-50/70 border border-sky-200 rounded-xl font-black text-xs text-sky-950 shadow-2xs focus:ring-2 focus:ring-sky-400 cursor-pointer truncate"
                           title="Stand (A a H)"
                         >
                           {STAND_OPTIONS.map((st) => (
@@ -1746,7 +1769,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                             const val = Number(e.target.value);
                             setItems((prev) => prev.map((item, i) => (i === idx ? { ...item, fila: val } : item)));
                           }}
-                          className="w-full p-2 bg-sky-50/70 border border-sky-200 rounded-xl font-black text-xs text-sky-950 shadow-2xs focus:ring-2 focus:ring-sky-400"
+                          className="w-full min-w-0 p-2 bg-sky-50/70 border border-sky-200 rounded-xl font-black text-xs text-sky-950 shadow-2xs focus:ring-2 focus:ring-sky-400 cursor-pointer truncate"
                           title="Fila (1 a 10)"
                         >
                           {FILA_OPTIONS.map((fl) => (
@@ -1757,8 +1780,8 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                     </div>
 
                     {/* 5. Cantidad */}
-                    <div className="sm:col-span-1">
-                      <label className="block text-[11px] font-bold text-slate-500 mb-1 text-center">
+                    <div className="sm:col-span-1 min-w-0">
+                      <label className="block text-[11px] font-bold text-slate-500 mb-1 text-center truncate">
                         Cant.
                       </label>
                       <input
@@ -1776,7 +1799,7 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                     </div>
 
                     {/* 6. Precio Unitario */}
-                    <div className="sm:col-span-1">
+                    <div className="sm:col-span-1 min-w-0">
                       <label className="block text-[10px] font-bold text-slate-500 mb-1 truncate text-right" title="Precio Unitario (S/)">
                         Precio
                       </label>
@@ -1804,12 +1827,12 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                     </div>
 
                     {/* 7. Subtotal & Eliminar */}
-                    <div className="sm:col-span-1 flex flex-col justify-between items-end h-[58px]">
+                    <div className="sm:col-span-1 min-w-0 flex flex-col justify-between items-end h-[58px]">
                       <button
                         type="button"
                         onClick={() => handleRemoveItem(idx)}
                         disabled={items.length === 1}
-                        className="p-1 text-slate-400 hover:text-rose-600 disabled:opacity-20 transition-colors cursor-pointer"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 disabled:opacity-20 transition-all cursor-pointer shadow-2xs"
                         title="Eliminar ítem"
                       >
                         <Trash2 size={15} />
@@ -1822,6 +1845,90 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                       </div>
                     </div>
                   </div>
+
+                  {/* 3.1 PANEL EXCLUSIVO PARA ACTAS / GUÍAS / TALONARIOS POR RANGO CORRELATIVO */}
+                  {esActa && (
+                    <div className="bg-white p-4 rounded-2xl border border-amber-300 space-y-3 shadow-2xs">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 pb-2">
+                        <div className="flex items-center gap-2">
+                          <FileText size={16} className="text-amber-700" />
+                          <span className="text-xs font-black text-amber-950 uppercase tracking-wide">
+                            Ingreso de Talonario por Rango Correlativo (Sin Escáner)
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200">
+                          📄 {it.cantidad} {it.cantidad === 1 ? "Acta" : "Actas"} en este Lote
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                        {/* Prefijo (ej: 001-) */}
+                        <div className="sm:col-span-3">
+                          <label className="block text-[10px] font-bold text-amber-900 uppercase tracking-wider mb-1">
+                            Prefijo / Serie
+                          </label>
+                          <input
+                            type="text"
+                            value={it.prefijoActas ?? "001-"}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setItems((prev) =>
+                                prev.map((item, i) => (i === idx ? { ...item, prefijoActas: val } : item))
+                              );
+                            }}
+                            placeholder="001-"
+                            className="w-full p-2.5 bg-amber-50/40 border border-amber-200 rounded-xl font-bold font-mono text-xs text-amber-950 shadow-2xs focus:ring-2 focus:ring-amber-400"
+                          />
+                        </div>
+
+                        {/* Correlativo Inicial (ej: 04001) */}
+                        <div className="sm:col-span-3">
+                          <label className="block text-[10px] font-bold text-amber-900 uppercase tracking-wider mb-1">
+                            N° Inicio (5 Dígitos)
+                          </label>
+                          <input
+                            type="text"
+                            value={it.inicioActas ?? "04001"}
+                            onChange={(e) => {
+                              const val = e.target.value.replace(/\D/g, "");
+                              setItems((prev) =>
+                                prev.map((item, i) => (i === idx ? { ...item, inicioActas: val } : item))
+                              );
+                            }}
+                            placeholder="04001"
+                            className="w-full p-2.5 bg-amber-50/40 border border-amber-200 rounded-xl font-bold font-mono text-xs text-amber-950 shadow-2xs focus:ring-2 focus:ring-amber-400"
+                          />
+                        </div>
+
+                        {/* Rango Calculado en Tiempo Real */}
+                        <div className="sm:col-span-6">
+                          <label className="block text-[10px] font-bold text-amber-900 uppercase tracking-wider mb-1">
+                            Rango que se registrará en Almacén
+                          </label>
+                          {(() => {
+                            const pref = it.prefijoActas ?? "001-";
+                            const iniRaw = it.inicioActas ?? "04001";
+                            const parseInicio = parseInt(iniRaw.replace(/\D/g, ""), 10) || 1;
+                            const padLen = Math.max(5, iniRaw.replace(/\D/g, "").length || 5);
+                            const parseFin = parseInicio + Math.max(1, it.cantidad) - 1;
+                            const numInicioFmt = String(parseInicio).padStart(padLen, "0");
+                            const numFinFmt = String(parseFin).padStart(padLen, "0");
+
+                            return (
+                              <div className="p-2.5 bg-amber-50/60 border border-amber-300 rounded-xl font-mono text-xs font-black text-amber-950 flex items-center justify-between shadow-2xs">
+                                <span className="text-amber-900">{pref}{numInicioFmt}</span>
+                                <span className="text-amber-500 font-normal">al</span>
+                                <span className="text-amber-900">{pref}{numFinFmt}</span>
+                                <span className="text-[10px] font-sans font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md">
+                                  ✓ {it.cantidad} {it.cantidad === 1 ? "acta" : "actas"} listas
+                                </span>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Zona de Pistoleo / Importación Masiva si es EQUIPO / Maneja Serie */}
                   {esEquipo && (
@@ -1853,27 +1960,6 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                         </div>
 
                         <div className="flex items-center gap-2">
-
-                          {/* Botón Lote de Talonarios / Actas por Rango */}
-                          {(it.categoria.includes("TALONARIO") || it.categoria.includes("ACTA") || it.categoria.includes("GUIA") || it.nombre.toUpperCase().includes("ACTA") || it.nombre.toUpperCase().includes("GUIA")) && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setModalRangoActas({
-                                  isOpen: true,
-                                  itemIndex: idx,
-                                  prefijo: "001-",
-                                  inicio: "04001",
-                                  cantidad: it.cantidad || 500,
-                                })
-                              }
-                              className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-[11px] font-black flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
-                              title="Generar correlativos automáticos para talonarios de actas o guías"
-                            >
-                              <FileText size={13} className="text-amber-700" />
-                              <span>⚡ Generar Rango Talonario</span>
-                            </button>
-                          )}
 
                           {/* Botón Pegar Series desde Excel */}
                           <button
@@ -2065,10 +2151,12 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
           {/* Mensaje de Advertencia si faltan series por pistolear */}
           {items.some((it) => {
             const prod = localProductos.find((p) => p.id_producto === it.id_producto);
-            const esSerializado = Boolean(
+            const catUpper = (it.categoria || "").toUpperCase();
+            const nomUpper = (it.nombre || "").toUpperCase();
+            const esActa = catUpper.includes("TALONARIO") || catUpper.includes("ACTA") || catUpper.includes("GUIA") || nomUpper.includes("ACTA") || nomUpper.includes("GUIA");
+            const esSerializado = !esActa && Boolean(
               it.maneja_serie ||
-              it.categoria?.toUpperCase() === "EQUIPOS" ||
-              it.categoria?.toUpperCase() === "TALONARIOS Y GUIAS" ||
+              catUpper === "EQUIPOS" ||
               prod?.maneja_serie
             );
             return esSerializado && (it.series?.length || 0) !== it.cantidad;

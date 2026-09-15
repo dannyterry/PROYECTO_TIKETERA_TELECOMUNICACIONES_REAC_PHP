@@ -73,6 +73,7 @@ export const EmpleadosPage: React.FC<EmpleadosPageProps> = ({ empleados }) => {
             <EmployeeList 
               empleados={listaViva} 
               onSelectEmployee={handleSeleccionarEmpleado} 
+              onEmployeeUpdated={recargarDatosFrescos}
             />
           ) : (
             <div className="space-y-6">

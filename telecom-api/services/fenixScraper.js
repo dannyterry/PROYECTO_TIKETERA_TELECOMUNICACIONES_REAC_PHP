@@ -1,7 +1,7 @@
 const https = require('https');
 const fs = require('fs');
 const pool = require('../db');
-const { resolverTipoTrabajoOficial } = require('./tipoTrabajoHelper');
+const { getMotivosCatalogo, resolverTipoTrabajoConCatalogo, resolverTipoTrabajoOficial } = require('./tipoTrabajoHelper');
 
 // URLs del servicio WIN / Fénix
 const TR_URL_LOGIN = 'https://winbo-phx.azurewebsites.net/login.aspx/IniciarSesion';
@@ -630,6 +630,14 @@ async function guardarOrdenesEnBD(ordenes) {
 
   let guardadas = 0;
 
+  // Cargar motivos oficiales activos desde la tabla MySQL `motivos`
+  let catalogoMotivos = [];
+  try {
+    catalogoMotivos = await getMotivosCatalogo(pool);
+  } catch (errMot) {
+    console.error("⚠️ [Fénix Scraper] Error al cargar motivos desde BD:", errMot.message);
+  }
+
   // Cargar lista de técnicos activos desde la BD para auto-vincular id_tecnico
   let techUsers = [];
   try {
@@ -686,7 +694,7 @@ async function guardarOrdenesEnBD(ordenes) {
       const techInfo = findTechMatch(o.cuadrilla);
       const autoIdTecnico = techInfo?.id || null;
       const autoNombreTecnico = techInfo?.nombre || null;
-      const autoTipoTrabajo = resolverTipoTrabajoOficial(o.motivo_finalizacion, o.tipo_trabajo || o.motivo_trabajo, o.estado);
+      const autoTipoTrabajo = resolverTipoTrabajoConCatalogo(o.motivo_finalizacion, o.tipo_trabajo || o.motivo_trabajo, o.estado, catalogoMotivos);
 
       // 1. Intentar UPDATE blindado (si gestión ya asignó manualmente con asignacion_manual = 1, PRESERVAR id_tecnico, tecnico_asignado y cuadrilla)
       const [updateRes] = await pool.query(

@@ -56,6 +56,7 @@ export const QuickDispatchModal: React.FC<Props> = ({
   // Asignación de Actas / Guías por Rango Correlativo (Sin escáner)
   const [prefijoActa, setPrefijoActa] = useState("001-");
   const [correlativoInicio, setCorrelativoInicio] = useState("04201");
+  const [esSegundoUso, setEsSegundoUso] = useState<boolean>(false);
 
   // Cargar técnicos
   useEffect(() => {
@@ -90,6 +91,11 @@ export const QuickDispatchModal: React.FC<Props> = ({
       const nom = (producto.nombre || "").toUpperCase();
       const esActaProd = cat.includes("TALONARIO") || cat.includes("ACTA") || cat.includes("GUIA") || nom.includes("ACTA") || nom.includes("GUIA");
 
+      const stockNuevo = Number(producto.stock_central) || 0;
+      const stock2do = Number(producto.stock_segundo_uso) || 0;
+      const auto2do = stockNuevo <= 0 && stock2do > 0;
+      setEsSegundoUso(auto2do);
+
       if (esActaProd) {
         setCantidad(50);
         setPrefijoActa("001-");
@@ -99,7 +105,8 @@ export const QuickDispatchModal: React.FC<Props> = ({
         setCantidad(1);
         setSeriesPistoleadas([]);
       } else {
-        setCantidad(Math.min(10, Math.max(1, producto.stock_central || 1)));
+        const stockDisp = auto2do ? stock2do : stockNuevo;
+        setCantidad(Math.min(10, Math.max(1, stockDisp || 1)));
         setSeriesPistoleadas([]);
       }
       setSerieInput("");
@@ -202,15 +209,20 @@ export const QuickDispatchModal: React.FC<Props> = ({
       return;
     }
 
-    if (producto && cantidad > (producto.stock_central || 0)) {
-      alert(`⚠️ Stock Insuficiente:\nSolo tienes ${producto.stock_central || 0} unidades disponibles en Almacén Central de "${producto.nombre}".\nNo puedes despachar ${cantidad}.`);
+    const stockDisp = esSegundoUso
+      ? (Number(producto.stock_segundo_uso) || 0)
+      : (Number(producto.stock_central) || 0);
+    const labelOrigen = esSegundoUso ? "Segundo Uso" : "Almacén Central (Nuevo)";
+
+    if (!esEquipo && !esActa && producto && cantidad > stockDisp) {
+      alert(`⚠️ Stock Insuficiente:\nSolo tienes ${stockDisp} unidades disponibles en ${labelOrigen} de "${producto.nombre}".\nNo puedes despachar ${cantidad}.`);
       return;
     }
 
     try {
       setGuardando(true);
 
-      let seriesFinalesPayload: { numero_serie: string; id_producto?: number }[] = [];
+      let seriesFinalesPayload: { numero_serie: string; id_producto?: number; es_talonario?: boolean }[] = [];
       let cantidadFinal = cantidad;
 
       if (esActa) {
@@ -225,10 +237,16 @@ export const QuickDispatchModal: React.FC<Props> = ({
 
       const payload: DespachoPayload = {
         id_trabajador: Number(idTrabajador),
-        items: [{ id_producto: producto.id_producto, cantidad: cantidadFinal }],
+        items: [{
+          id_producto: producto.id_producto,
+          cantidad: cantidadFinal,
+          es_segundo_uso: !esActa && !esEquipo ? esSegundoUso : false
+        }],
         series_pistoleadas: seriesFinalesPayload,
         observaciones: esActa
           ? `Talonario de ${cantidadFinal} actas (${prefijoActa}${correlativoInicioFormateado} al ${prefijoActa}${correlativoFinCalculado}) - ${observaciones}`
+          : esSegundoUso
+          ? `${observaciones} (2do Uso - ${producto.nombre})`
           : `${observaciones} (${producto.nombre})`,
       };
 
@@ -236,7 +254,7 @@ export const QuickDispatchModal: React.FC<Props> = ({
       
       const msgExito = esActa
         ? `✅ ¡Talonario asignado con éxito! Se entregaron ${cantidadFinal} actas correlativas (${prefijoActa}${correlativoInicioFormateado} al ${prefijoActa}${correlativoFinCalculado}) a ${tecnicoActual?.nombre_completo || "Técnico"}.`
-        : `✅ ¡Despacho exitoso! Se asignaron ${cantidadFinal} unidad(es) de ${producto.nombre} a ${tecnicoActual?.nombre_completo || "Técnico"}.`;
+        : `✅ ¡Despacho exitoso (${labelOrigen})! Se asignaron ${cantidadFinal} unidad(es) de ${producto.nombre} a ${tecnicoActual?.nombre_completo || "Técnico"}.`;
 
       alert(msgExito);
       onDespachoRealizado();
@@ -247,6 +265,12 @@ export const QuickDispatchModal: React.FC<Props> = ({
       setGuardando(false);
     }
   };
+
+  const stockNuevo = Number(producto.stock_central) || 0;
+  const stock2do = Number(producto.stock_segundo_uso) || 0;
+  const stockDisp = esSegundoUso ? stock2do : stockNuevo;
+  const sinStockOrigen = !esActa && !esEquipo && stockDisp <= 0;
+  const excedeStockOrigen = !esActa && !esEquipo && !sinStockOrigen && cantidad > stockDisp;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-3 md:p-4 animate-fade-in">
@@ -543,37 +567,159 @@ export const QuickDispatchModal: React.FC<Props> = ({
               )}
             </div>
           ) : (
-            /* INSUMOS Y MATERIALES CONVENCIONALES */
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                Cantidad a Entregar (Disponible en Almacén: {producto.stock_central}):
-              </label>
-              <input
-                type="number"
-                min="1"
-                max={producto.stock_central || 1000}
-                value={cantidad}
-                onChange={(e) => setCantidad(Math.max(1, Number(e.target.value)))}
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold font-mono text-sm text-slate-900"
-              />
+            /* INSUMOS, HERRAMIENTAS, UNIFORMES Y MATERIALES */
+            <div className={`space-y-3 p-4 rounded-2xl border transition-all ${
+              sinStockOrigen ? "bg-rose-50/50 border-rose-300" : "bg-slate-50/80 border-slate-200"
+            }`}>
+              {/* Selector de Origen: Nuevo vs 2do Uso */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                  <span>Origen del Material a Despachar:</span>
+                  <span className="text-[10px] text-slate-500 font-bold">
+                    Elige de qué stock se descontará
+                  </span>
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEsSegundoUso(false);
+                      const sNuevo = Number(producto.stock_central) || 0;
+                      setCantidad(Math.min(cantidad, Math.max(1, sNuevo || 1)));
+                    }}
+                    className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
+                      !esSegundoUso
+                        ? "bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20 font-black"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                    }`}
+                  >
+                    <span>📦 Stock Nuevo</span>
+                    <span
+                      className={`text-[11px] px-2 py-0.5 rounded-lg font-black ${
+                        !esSegundoUso
+                          ? "bg-indigo-700 text-white"
+                          : stockNuevo > 0
+                          ? "bg-slate-100 text-slate-800"
+                          : "bg-rose-100 text-rose-700"
+                      }`}
+                    >
+                      {stockNuevo} {producto.unidad || "und"} {stockNuevo <= 0 ? "(Agotado)" : ""}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEsSegundoUso(true);
+                      const s2do = Number(producto.stock_segundo_uso) || 0;
+                      setCantidad(Math.min(cantidad, Math.max(1, s2do || 1)));
+                    }}
+                    className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
+                      esSegundoUso
+                        ? stock2do <= 0
+                          ? "bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-600/20 font-black"
+                          : "bg-amber-500 text-white border-amber-500 shadow-md shadow-amber-500/20 font-black"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                    }`}
+                  >
+                    <span>🔄 Segundo Uso</span>
+                    <span
+                      className={`text-[11px] px-2 py-0.5 rounded-lg font-black ${
+                        esSegundoUso
+                          ? "bg-black/20 text-white"
+                          : stock2do > 0
+                          ? "bg-amber-50 text-amber-900 border border-amber-200"
+                          : "bg-slate-100 text-slate-400"
+                      }`}
+                    >
+                      {stock2do} {producto.unidad || "und"} {stock2do <= 0 ? "(Agotado)" : ""}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Alerta si el origen seleccionado no tiene stock */}
+              {sinStockOrigen && (
+                <div className="p-3 bg-rose-100/80 border border-rose-300 rounded-xl text-xs font-bold text-rose-900 flex items-center gap-2 animate-fade-in">
+                  <AlertTriangle size={16} className="text-rose-600 shrink-0" />
+                  <span>
+                    ⛔ No hay stock disponible en <strong>{esSegundoUso ? "Segundo Uso" : "Stock Nuevo"}</strong> (0 {producto.unidad || "und"}). Por favor cambia el origen a <strong>{esSegundoUso ? "Stock Nuevo" : "Segundo Uso"}</strong> para poder despachar.
+                  </span>
+                </div>
+              )}
+
+              {/* Input de Cantidad con límite dinámico según origen */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Cantidad a Entregar (Disponible en {esSegundoUso ? "2do Uso" : "Stock Nuevo"}:{" "}
+                  {stockDisp} {producto.unidad || "und"}):
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="1"
+                    disabled={sinStockOrigen}
+                    max={stockDisp || 1}
+                    value={sinStockOrigen ? 0 : cantidad}
+                    onChange={(e) => setCantidad(Math.max(1, Number(e.target.value)))}
+                    className={`w-full p-2.5 rounded-xl font-bold font-mono text-sm border transition-all ${
+                      sinStockOrigen
+                        ? "bg-rose-50 border-rose-300 text-rose-700 cursor-not-allowed opacity-80"
+                        : esSegundoUso
+                        ? "bg-amber-50/40 border-amber-300 text-amber-950 focus:border-amber-500"
+                        : "bg-white border-slate-200 text-slate-900 focus:border-indigo-500"
+                    }`}
+                  />
+                  <span className="absolute right-3 top-2.5 text-xs font-bold text-slate-400 uppercase">
+                    {producto.unidad || (producto.es_drop ? "m" : "und")}
+                  </span>
+                </div>
+              </div>
             </div>
           )}
 
           {/* 4. Impacto en Vivo */}
-          <div className="p-3 bg-indigo-50/50 rounded-2xl border border-indigo-100 flex items-center justify-between text-xs font-mono">
+          <div className={`p-3 rounded-2xl border flex items-center justify-between text-xs font-mono ${
+            sinStockOrigen ? "bg-rose-50/60 border-rose-200" : "bg-indigo-50/50 border-indigo-100"
+          }`}>
             <div>
-              <span className="text-[10px] text-indigo-600 uppercase font-bold block">Almacén Central</span>
+              <span className="text-[10px] text-indigo-600 uppercase font-bold block">
+                {esEquipo
+                  ? "Almacén Central (Nuevo)"
+                  : esSegundoUso
+                  ? "Almacén (2do Uso)"
+                  : "Almacén Central (Nuevo)"}
+              </span>
               <span className="font-bold text-slate-800">
-                {producto.stock_central || 0} → <strong className="text-rose-600">{Math.max(0, (producto.stock_central || 0) - (esEquipo ? seriesPistoleadas.length : cantidad))}</strong>
+                {esEquipo
+                  ? producto.stock_central || 0
+                  : esSegundoUso
+                  ? Number(producto.stock_segundo_uso) || 0
+                  : Number(producto.stock_central) || 0}{" "}
+                →{" "}
+                <strong className={sinStockOrigen ? "text-rose-700 font-black" : "text-rose-600"}>
+                  {Math.max(
+                    0,
+                    (esEquipo
+                      ? Number(producto.stock_central) || 0
+                      : esSegundoUso
+                      ? Number(producto.stock_segundo_uso) || 0
+                      : Number(producto.stock_central) || 0) -
+                      (esEquipo ? seriesPistoleadas.length : (sinStockOrigen ? 0 : cantidad))
+                  )}
+                </strong>
               </span>
             </div>
 
-            <ArrowRight size={16} className="text-indigo-400" />
+            <ArrowRight size={16} className={sinStockOrigen ? "text-rose-400" : "text-indigo-400"} />
 
             <div className="text-right">
               <span className="text-[10px] text-indigo-600 uppercase font-bold block">Camioneta Técnico</span>
               <span className="font-bold text-slate-800">
-                {stockActualTecnico} → <strong className="text-emerald-700">{stockActualTecnico + (esEquipo ? seriesPistoleadas.length : cantidad)}</strong>
+                {stockActualTecnico} →{" "}
+                <strong className={sinStockOrigen ? "text-slate-500" : "text-emerald-700"}>
+                  {stockActualTecnico + (esEquipo ? seriesPistoleadas.length : (sinStockOrigen ? 0 : cantidad))}
+                </strong>
               </span>
             </div>
           </div>
@@ -589,15 +735,35 @@ export const QuickDispatchModal: React.FC<Props> = ({
             </button>
             <button
               type="submit"
-              disabled={guardando || (esEquipo && seriesPistoleadas.length === 0)}
-              className="flex-1 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 disabled:bg-slate-300 text-white rounded-xl font-black text-xs flex items-center justify-center gap-2 shadow-md shadow-indigo-600/25 transition-all cursor-pointer"
+              disabled={
+                guardando ||
+                (esEquipo && seriesPistoleadas.length === 0) ||
+                sinStockOrigen ||
+                excedeStockOrigen ||
+                (!esEquipo && cantidad <= 0)
+              }
+              className={`flex-1 py-2.5 rounded-xl font-black text-xs flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer ${
+                sinStockOrigen || excedeStockOrigen
+                  ? "bg-rose-500 text-white opacity-80 cursor-not-allowed shadow-none"
+                  : "bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white shadow-indigo-600/25"
+              }`}
             >
               {guardando ? (
                 <RefreshCw size={14} className="animate-spin" />
+              ) : sinStockOrigen ? (
+                <AlertTriangle size={14} />
               ) : (
                 <CheckCircle2 size={14} />
               )}
-              <span>Confirmar Asignación</span>
+              <span>
+                {guardando
+                  ? "Asignando..."
+                  : sinStockOrigen
+                  ? `⛔ Sin Stock (${esSegundoUso ? "2do Uso" : "Nuevo"})`
+                  : excedeStockOrigen
+                  ? `⚠️ Cantidad Excede Stock (Máx: ${stockDisp})`
+                  : "Confirmar Asignación"}
+              </span>
             </button>
           </div>
 

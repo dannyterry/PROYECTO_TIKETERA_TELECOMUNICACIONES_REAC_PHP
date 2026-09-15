@@ -1,4 +1,5 @@
 import { API_URL } from "../config/api";
+import { AUTH_TOKEN_KEY, AUTH_USER_KEY, setAuthToken } from "../lib/authHttp";
 
 export interface AuthUser {
   id_usuario: number;
@@ -20,7 +21,7 @@ export interface LoginResponse {
   mensaje?: string;
 }
 
-const STORAGE_KEY = "telecom_auth_user";
+const STORAGE_KEY = AUTH_USER_KEY;
 
 export const authService = {
   async login(usuario: string, password: string): Promise<LoginResponse> {
@@ -32,6 +33,7 @@ export const authService = {
     const data = await res.json();
     if (res.ok && data.success && data.user) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data.user));
+      setAuthToken(data.token || null);
     }
     return data;
   },
@@ -46,6 +48,8 @@ export const authService = {
       }).catch(() => {});
     }
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    setAuthToken(null);
     window.location.hash = "login";
   },
 

@@ -264,8 +264,8 @@ export const OrdersPage: React.FC = () => {
     return getUniqueCuadrillasWithOptions(orders);
   }, [orders]);
 
-  // 1. Filtrado base (Fechas + Búsqueda de Texto + Técnico + Cuadrilla + Inconcert)
-  const baseFilteredOrders = useMemo(() => {
+  // 1. Filtrado base por Scope (Fechas + Búsqueda de Texto + Técnico + Cuadrilla + Inconcert)
+  const scopeOrders = useMemo(() => {
     const hasSearch = Boolean(filters.search && filters.search.trim().length > 0);
 
     return orders.filter((order) => {
@@ -319,16 +319,11 @@ export const OrdersPage: React.FC = () => {
         if (filters.inconcert === "No" && order.inconcert) return false;
       }
 
-      // Los ordenamientos permanecen ocultos salvo que se active su filtro específico.
-      if (esOrdenamiento(order.cuadrilla)) {
-        return filters.status === "Ordenamientos";
-      }
-
       return true;
     });
-  }, [orders, filters.fechaDesde, filters.fechaHasta, filters.search, filters.tecnico, filters.cuadrilla, filters.inconcert, filters.status, todayStr]);
+  }, [orders, filters.fechaDesde, filters.fechaHasta, filters.search, filters.tecnico, filters.cuadrilla, filters.inconcert, todayStr]);
 
-  // 2. Estadísticas reactivas calculadas dinámicamente sobre los resultados filtrados
+  // 2. Estadísticas reactivas calculadas dinámicamente sobre los resultados del scope
   const stats = useMemo(() => {
     let verdes = 0;
     let amarillos = 0;
@@ -336,7 +331,7 @@ export const OrdersPage: React.FC = () => {
     let agendadas = 0;
     let ordenamientos = 0;
 
-    baseFilteredOrders.forEach((o) => {
+    scopeOrders.forEach((o) => {
       if (esOrdenamiento(o.cuadrilla)) {
         ordenamientos++;
         return;
@@ -366,21 +361,25 @@ export const OrdersPage: React.FC = () => {
       }
     });
 
-    const ordenamientosTotal = orders.filter((o) => esOrdenamiento(o.cuadrilla)).length;
-    return { verdes, azules, amarillos, agendadas, ordenamientos: ordenamientosTotal || ordenamientos };
-  }, [baseFilteredOrders, orders]);
+    return { verdes, azules, amarillos, agendadas, ordenamientos };
+  }, [scopeOrders]);
 
-  // 3. Filtrado final por Estado / Color (cuando se hace clic en una píldora de color)
+  // 3. Filtrado final para la tabla:
+  // - Si status === "Ordenamientos" -> Muestra ÚNICAMENTE las órdenes de ordenamiento
+  // - Si status !== "Ordenamientos" -> Los ordenamientos permanecen ocultos y se listan las órdenes regulares
   const filteredOrders = useMemo(() => {
-    if (!filters.status || filters.status === "Todos") {
-      return baseFilteredOrders;
-    }
-
     if (filters.status === "Ordenamientos") {
-      return baseFilteredOrders;
+      return scopeOrders.filter((order) => esOrdenamiento(order.cuadrilla));
     }
 
-    return baseFilteredOrders.filter((order) => {
+    // Órdenes regulares (sin ordenamientos)
+    const regularOrders = scopeOrders.filter((order) => !esOrdenamiento(order.cuadrilla));
+
+    if (!filters.status || filters.status === "Todos") {
+      return regularOrders;
+    }
+
+    return regularOrders.filter((order) => {
       const s = normStatus(order.status);
       if (filters.status === "Verdes") {
         return s.includes("INICIAD") || s.includes("PROCESO");
@@ -421,7 +420,7 @@ export const OrdersPage: React.FC = () => {
       }
       return normStatus(order.status) === normStatus(filters.status);
     });
-  }, [baseFilteredOrders, filters.status]);
+  }, [scopeOrders, filters.status]);
 
   // Alternar Inconcert con persistencia en Base de Datos (Optimizado 0ms)
   const handleToggleInconcert = async (orderId: number) => {
@@ -732,7 +731,7 @@ export const OrdersPage: React.FC = () => {
             handleSync();
             loadAlerts();
           }}
-          totalCount={baseFilteredOrders.length}
+          totalCount={filters.status === "Ordenamientos" ? stats.ordenamientos : (stats.verdes + stats.azules + stats.amarillos + stats.agendadas)}
           cuadrillas={cuadrillasDisponibles}
           tecnicos={tecnicosDisponibles}
           stats={stats}

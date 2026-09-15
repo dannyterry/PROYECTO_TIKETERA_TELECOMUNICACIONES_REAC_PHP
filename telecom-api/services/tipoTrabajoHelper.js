@@ -1,195 +1,16 @@
 /**
- * Mapeo oficial entre Motivo de Liquidación / Finalización / Avería de Fénix
- * y el Tipo de Trabajo Oficial según la tabla MySQL `tipos_trabajo` y la tabla `motivos`.
+ * Mapeo oficial dinámico entre Motivos de Liquidación de Fénix
+ * y la tabla MySQL `motivos` / `tipos_trabajo` gestionada en el Sistema.
  */
 
-const TIPOS_TRABAJO_OFICIALES = [
-  "NORMALIZACIÓN",
-  "RECABLEADO",
-  "GARANTIA",
-  "REUBICACIÓN CON RESERVA",
-  "TRASLADO",
-  "VISITA EXTERNA",
-  "REUBICACIÓN SIN RESERVA",
-  "GARANTIA NO REALIZADA",
-  "RECABLEADO EN CONDOMINIO",
-  "TRASALDO EN CONDOMINIO",
-  "PEX",
-  "ADICIONAL"
-];
+let poolInstance = null;
+let motivosCache = null;
+let lastCacheTime = 0;
+const CACHE_TTL_MS = 60 * 1000; // 1 minuto de caché para reflejar cambios de configuración rápidamente
 
-// Matriz de homologación de motivos de liquidación a Tipos de Trabajo
-const MOTIVO_TO_TIPO_TRABAJO = {
-  // 1. NORMALIZACIÓN
-  "NORMALIZACION": "NORMALIZACIÓN",
-  "NORMALIZACION FINALIZADA": "NORMALIZACIÓN",
-  "NORMALIZACION FINALIZADA BRAZO EXTENSOR": "NORMALIZACIÓN",
-  "NORMALIZACION CANCELADA": "NORMALIZACIÓN",
-  "REMATRICULACION ONT": "NORMALIZACIÓN",
-  "MIGRA GAMER REALIZADO - POSTVENTA": "NORMALIZACIÓN",
-  "MIGRA GAMER REALIZADO POSTVENTA": "NORMALIZACIÓN",
-  "MIGRA GAMER SOLO ENTREGA": "NORMALIZACIÓN",
-  "MIGRA GAMER": "NORMALIZACIÓN",
-  "MIGRA XGSPON": "NORMALIZACIÓN",
-  "CAMBIO DE ONT - MEJORA TECNOLOGICA": "NORMALIZACIÓN",
-  "CAMBIO DE ONT MEJORA TECNOLOGICA": "NORMALIZACIÓN",
-  "CAMBIO DE ONT - MEJORA TECNOLOGICA - POSTVENTA": "NORMALIZACIÓN",
-  "CAMBIO DE ONT MEJORA TECNOLOGICA POSTVENTA": "NORMALIZACIÓN",
-  "MEJORA TECNOLOGICA MESH": "NORMALIZACIÓN",
-  "MEJORA TECNOLOGICA ONT": "NORMALIZACIÓN",
-
-  // 2. GARANTIA Y GARANTIA NO REALIZADA
-  "GARANTIA": "GARANTIA",
-  "GARANTIA REALIZADA": "GARANTIA",
-  "POST VENTA GARANTIA": "GARANTIA",
-  "GARANTIA NO REALIZADA": "GARANTIA NO REALIZADA",
-  "GARANTIA CANCELADA": "GARANTIA NO REALIZADA",
-  "GARANTIA REPROGRAMADA": "GARANTIA NO REALIZADA",
-  "GARANTIA OBSERVADA": "GARANTIA NO REALIZADA",
-
-  // 3. RECABLEADO EN CONDOMINIO
-  "SERVICIO COMPLETO DE RECABLEADO EN ABONADO CONDOMINIO - VISITA TECNICA": "RECABLEADO EN CONDOMINIO",
-  "SERVICIO COMPLETO DE RECABLEADO EN ABONADO CONDOMINIO VISITA TECNICA": "RECABLEADO EN CONDOMINIO",
-  "RECABLEADO EN CONDOMINIO": "RECABLEADO EN CONDOMINIO",
-  "RECABLEADO CONDOMINIO": "RECABLEADO EN CONDOMINIO",
-
-  // 4. RECABLEADO
-  "SERVICIO COMPLETO DE RECABLEADO EN ABONADO RESIDENCIAL - VISITA TECNICA": "RECABLEADO",
-  "SERVICIO COMPLETO DE RECABLEADO EN ABONADO RESIDENCIAL VISITA TECNICA": "RECABLEADO",
-  "SERVICIO COMPLETO DE RECABLEADO EN ABONADO RESIDENCIAL - POST VENTA": "RECABLEADO",
-  "SERVICIO COMPLETO DE RECABLEADO EN ABONADO RESIDENCIAL POST VENTA": "RECABLEADO",
-  "SERVICIO COMPLETO DE RECABLEADO EN ABONADO CONDOMINIO - POST VENTA": "RECABLEADO",
-  "SERVICIO COMPLETO DE RECABLEADO EN ABONADO CONDOMINIO POST VENTA": "RECABLEADO",
-  "RECABLEADO - AVERIADO POR TERCEROS": "RECABLEADO",
-  "RECABLEADO AVERIADO POR TERCEROS": "RECABLEADO",
-  "RECABLEADO - CLIENTE MIGRA A OTRA CTO": "RECABLEADO",
-  "RECABLEADO CLIENTE MIGRA A OTRA CTO": "RECABLEADO",
-  "RECABLEADO - POST VENTA": "RECABLEADO",
-  "RECABLEADO POST VENTA": "RECABLEADO",
-  "RECABLEADO - AVERIADO POR CLIENTE": "RECABLEADO",
-  "RECABLEADO AVERIADO POR CLIENTE": "RECABLEADO",
-  "RECABLEADO - CAMBIO DE POSTE": "RECABLEADO",
-  "RECABLEADO CAMBIO DE POSTE": "RECABLEADO",
-  "RECABLEADO - NO CUMPLE POLITICAS DE INSTALACION": "RECABLEADO",
-  "RECABLEADO NO CUMPLE POLITICAS DE INSTALACION": "RECABLEADO",
-  "RECABLEADO + CAMBIO DE ONT POST VENTA": "RECABLEADO",
-  "RECABLEADO CAMBIO DE ONT POST VENTA": "RECABLEADO",
-  "RECABLEADO CORTE MUNICIPAL": "RECABLEADO",
-  "RECABLEADO - DESCONEXION DEL CLIENTE": "RECABLEADO",
-  "RECABLEADO DESCONEXION DEL CLIENTE": "RECABLEADO",
-  "RECABLEADO + WIN BOX": "RECABLEADO",
-  "RECABLEADO + CABLEADO MESH + 1 MESH": "RECABLEADO",
-  "RECABLEADO + 1 MESH": "RECABLEADO",
-  "RECABLEADO + CAMBIO DE ONT + CABLEADO MESH + 1 MESH": "RECABLEADO",
-  "RECABLEADO + CABLEADO MESH - POSTVENTA": "RECABLEADO",
-  "RECABLEADO POR CORTE CONCESIONARIA": "RECABLEADO",
-  "RECABLEADO POR MANTENIMIENTO": "RECABLEADO",
-  "RECABLEADO + 2 WIN BOX": "RECABLEADO",
-  "RECABLEADO + 2 MESH": "RECABLEADO",
-
-  // 5. REUBICACIÓN CON RESERVA
-  "REUBICACION DE ROUTER CON RESERVA - POST VENTA": "REUBICACIÓN CON RESERVA",
-  "REUBICACION DE ROUTER CON RESERVA POST VENTA": "REUBICACIÓN CON RESERVA",
-  "REUBICACION CON RESERVA": "REUBICACIÓN CON RESERVA",
-
-  // 6. REUBICACIÓN SIN RESERVA
-  "REUBICACION DE ROUTER SIN RESERVA - POST VENTA": "REUBICACIÓN SIN RESERVA",
-  "REUBICACION DE ROUTER SIN RESERVA POST VENTA": "REUBICACIÓN SIN RESERVA",
-  "REUBICACION SIN RESERVA": "REUBICACIÓN SIN RESERVA",
-  "REUBICACION SIN RESERVA / CON RESERVA + CABLEADO MESH - POSTVENTA": "REUBICACIÓN SIN RESERVA",
-
-  // 7. TRASALDO EN CONDOMINIO
-  "TRASLADO DE SERVICIOS POR MUDANZA EN CONDOMINIO - POST VENTA": "TRASALDO EN CONDOMINIO",
-  "TRASLADO DE SERVICIOS POR MUDANZA EN CONDOMINIO POST VENTA": "TRASALDO EN CONDOMINIO",
-  "TRASALDO EN CONDOMINIO": "TRASALDO EN CONDOMINIO",
-  "TRASLADO EN CONDOMINIO": "TRASALDO EN CONDOMINIO",
-
-  // 8. TRASLADO
-  "TRASLADO DE SERVICIOS POR MUDANZA EN RESIDENCIALES - POST VENTA": "TRASLADO",
-  "TRASLADO DE SERVICIOS POR MUDANZA EN RESIDENCIALES POST VENTA": "TRASLADO",
-  "TRASLADO": "TRASLADO",
-  "TRASLADO + CAMBIO ONT": "TRASLADO",
-  "TRASLADO + 1 MESH": "TRASLADO",
-  "TRASLADO + CABLEADO MESH - POSTVENTA": "TRASLADO",
-  "TRASLADO + 1 WIN BOX": "TRASLADO",
-  "TRASLADO + CAMBIO DE ONT + 1 MESH": "TRASLADO",
-  "TRASLADO + CABLEADO MESH + 01 MESH + 1 APARATO TELEFONICO": "TRASLADO",
-  "TRASLADO + CABLEADO MESH + 1 MESH": "TRASLADO",
-  "TRASLADO + 1 APARATO TELEFONICO": "TRASLADO",
-
-  // 9. PEX
-  "PRUEBA DE SERVICIO - CTO CON POTENCIA DEGRADADA": "PEX",
-  "PRUEBA DE SERVICIO - CTO CON PUERTOS DEGRADADOS": "PEX",
-  "PRUEBA DE SERVICIO": "PEX",
-  "PRUEBAS DE SERVICIO": "PEX",
-  "PRUEBA DE SERVICIO - CTO O NAP CON PROBLEMAS DE POTENCIA EN PUERTOS": "PEX",
-  "PRUEBA DE SERVICIO - CTO SIN POTENCIA": "PEX",
-  "CONJUNTA FINALIZADA": "PEX",
-  "CONJUNTA PEXT AVERIA": "PEX",
-  "CONJUNTA PEXT": "PEX",
-  "PRUEBA DE SERVICIO - CTO CON INTERMITENCIA": "PEX",
-  "PRUEBA DE SERVICIO - NAP SIN POTENCIA": "PEX",
-  "PRUEBA DE SERVICIO - NAP CON PUERTOS DEGRADADOS": "PEX",
-  "PRUEBA DE SERVICIO - NAP CON POTENCIA DEGRADADA": "PEX",
-  "TRABAJOS PLANTA EXTERNA": "PEX",
-
-  // 10. ADICIONAL
-  "INSTALACION DE SPLITERS 1X2": "ADICIONAL",
-  "INSTALACION DE SPLITTERS 1X2": "ADICIONAL",
-  "SPLITTER": "ADICIONAL",
-  "SPLITER": "ADICIONAL",
-  "CAMBIO DE MESH ADICIONAL": "ADICIONAL",
-  "CAMBIO DE TV BOX ADICIONAL": "ADICIONAL",
-  "CAMBIO DE ONT POR REPOSICION ADICIONAL": "ADICIONAL",
-  "CABLEADO UTP CAT 6 ADICIONAL - POST VENTA": "ADICIONAL",
-  "CABLEADO UTP CAT 6 ADICIONAL POST VENTA": "ADICIONAL",
-  "SERVICIO DE ENTREGA Y CONFIGURACION DE FONO WIN - ADICIONAL": "ADICIONAL",
-  "SERVICIO DE ENTREGA Y CONFIGURACION DE FONO WIN ADICIONAL": "ADICIONAL",
-  "SERVICIO DE ENTREGA Y CONFIGURACION DE TV BOX - ADICIONAL": "ADICIONAL",
-  "SERVICIO DE ENTREGA Y CONFIGURACION DE TV BOX ADICIONAL": "ADICIONAL",
-  "SERVICIOS DE ENTREGA Y CONFIGURACION MESH - ADICIONAL": "ADICIONAL",
-  "SERVICIOS DE ENTREGA Y CONFIGURACION MESH ADICIONAL": "ADICIONAL",
-  "KIT WIFI PRO (AL CONTADO)": "ADICIONAL",
-  "KIT WIFI PRO AL CONTADO": "ADICIONAL",
-  "CABLEADO UTP AL CONTADO": "ADICIONAL",
-  "CABLEADO 02 MESH + ENTREGA Y CONFIG 1 MESH - POSTVENTA": "ADICIONAL",
-  "CABLEADO 02 MESH + ENTREGA Y CONFIG 2 MESH - POSTVENTA": "ADICIONAL",
-  "CABLEADO MESH + ENTREGA Y CONFIG 1 MESH-POSTVENTA": "ADICIONAL",
-  "CABLEADO MESH + ENTREGA Y CONFIG 2 MESH - POSTVENTA": "ADICIONAL",
-  "1 APARATO TELEFONICO": "ADICIONAL",
-  "1 MESH": "ADICIONAL",
-  "1 TV BOX": "ADICIONAL",
-  "INSTALACION 01 MESH": "ADICIONAL",
-  "INSTALACION 02 MESH": "ADICIONAL",
-  "INSTALACION 03 MESH": "ADICIONAL",
-  "INSTALACION 04 MESH": "ADICIONAL",
-
-  // 11. VISITA EXTERNA (MOTIVOS COMUNES Y DETALLADOS)
-  "CAMBIO DE CONECTOR EN CTO/NAP": "VISITA EXTERNA",
-  "CAMBIO DE CONECTOR CTO/NAP": "VISITA EXTERNA",
-  "CAMBIO DE CONECTOR EN ROSETA": "VISITA EXTERNA",
-  "CAMBIO DE CONECTOR ROSETA": "VISITA EXTERNA",
-  "CAMBIO DE CABLE PATCH CORD": "VISITA EXTERNA",
-  "CAMBIO DE ACOPLADOR": "VISITA EXTERNA",
-  "ADAPTADOR ROSETA": "VISITA EXTERNA",
-  "ACOMODO DE FIBRA": "VISITA EXTERNA",
-  "CAMBIO DE EQUIPO MESH": "VISITA EXTERNA",
-  "CAMBIO DE TV BOX": "VISITA EXTERNA",
-  "CAMBIO DE EQUIPO ONT": "VISITA EXTERNA",
-  "CAMBIO DE ONT ADICIONAL": "VISITA EXTERNA",
-  "CAMBIO FONOWIN": "VISITA EXTERNA",
-  "CONFIGURACION ONT": "VISITA EXTERNA",
-  "CONFIGURACIÓN ONT": "VISITA EXTERNA",
-  "CAMBIO DE WINBOX": "VISITA EXTERNA",
-  "CAMBIO DE WIN BOX": "VISITA EXTERNA",
-  "DESCARTE DE ONT": "VISITA EXTERNA",
-  "DESCARTE DE FIBRA": "VISITA EXTERNA",
-  "DESCARTE DE CABLEADO": "VISITA EXTERNA",
-  "REPOSICION DE EQUIPO": "VISITA EXTERNA",
-  "VISITA EXTERNA": "VISITA EXTERNA",
-  "ATENCION DE AVERIA ULTIMA MILLA": "VISITA EXTERNA",
-  "ATENCION DE AVERIAS ULTIMA MILLA": "VISITA EXTERNA"
-};
+function setPool(pool) {
+  poolInstance = pool;
+}
 
 function normalizeText(text) {
   if (!text) return "";
@@ -203,13 +24,50 @@ function normalizeText(text) {
 }
 
 /**
- * Determina el Tipo de Trabajo Oficial según el Motivo de Liquidación y contexto
+ * Carga los motivos activos desde la tabla MySQL `motivos`
  */
-function resolverTipoTrabajoOficial(motivoLiquidacion, motivoAveria = "", estado = "") {
+async function getMotivosCatalogo(pool = poolInstance) {
+  const now = Date.now();
+  if (motivosCache && (now - lastCacheTime < CACHE_TTL_MS)) {
+    return motivosCache;
+  }
+
+  if (!pool) {
+    try {
+      pool = require('../db');
+    } catch (e) {}
+  }
+
+  if (pool) {
+    try {
+      const [rows] = await pool.query(
+        "SELECT id_motivo, nombre, tipo_trabajo FROM motivos WHERE estado = 'Activo'"
+      );
+      if (rows && rows.length > 0) {
+        motivosCache = rows.map(m => ({
+          id_motivo: m.id_motivo,
+          nombre: m.nombre,
+          nombreNorm: normalizeText(m.nombre),
+          tipo_trabajo: String(m.tipo_trabajo || '').trim()
+        }));
+        lastCacheTime = now;
+        return motivosCache;
+      }
+    } catch (err) {
+      console.error("[tipoTrabajoHelper] Error cargando motivos desde BD:", err.message);
+    }
+  }
+
+  return motivosCache || [];
+}
+
+/**
+ * Determina el Tipo de Trabajo Oficial consultando la tabla `motivos`
+ */
+function resolverTipoTrabajoConCatalogo(motivoLiquidacion, motivoAveria = "", estado = "", catalogoMotivos = []) {
   const normEstado = String(estado || "").toLowerCase().trim();
   const isFinalizada = normEstado.includes("finaliz") || normEstado.includes("liquid") || normEstado.includes("termin") || normEstado.includes("cerrad") || normEstado.includes("fenix");
 
-  // Si la orden no está finalizada, no tiene tipo de trabajo de liquidación
   if (!isFinalizada) {
     return null;
   }
@@ -217,52 +75,90 @@ function resolverTipoTrabajoOficial(motivoLiquidacion, motivoAveria = "", estado
   const normLiq = normalizeText(motivoLiquidacion);
   const normAveria = normalizeText(motivoAveria);
 
-  // 1. Coincidencia directa en matriz
-  if (normLiq && MOTIVO_TO_TIPO_TRABAJO[normLiq]) {
-    return MOTIVO_TO_TIPO_TRABAJO[normLiq];
-  }
-
-  // 2. Coincidencia parcial inteligente por palabras clave
-  if (normLiq.includes("RECABLEADO") || normLiq.includes("RE CABLEADO")) {
-    if (normLiq.includes("CONDOMINIO")) return "RECABLEADO EN CONDOMINIO";
-    return "RECABLEADO";
-  }
-  if (normLiq.includes("TRASLADO") || normLiq.includes("MUDANZA")) {
-    if (normLiq.includes("CONDOMINIO")) return "TRASALDO EN CONDOMINIO";
-    return "TRASLADO";
-  }
-  if (normLiq.includes("REUBICACION")) {
-    if (normLiq.includes("CON RESERVA")) return "REUBICACIÓN CON RESERVA";
-    if (normLiq.includes("SIN RESERVA")) return "REUBICACIÓN SIN RESERVA";
-    return "REUBICACIÓN CON RESERVA";
-  }
-  if (normLiq.includes("NORMALIZACION") || normLiq.includes("MIGRA") || normLiq.includes("MEJORA TECNOLOGICA")) {
-    return "NORMALIZACIÓN";
-  }
-  if (normLiq.includes("GARANTIA")) {
-    if (normLiq.includes("NO REALIZADA") || normLiq.includes("CANCELADA") || normLiq.includes("OBSERVADA")) {
-      return "GARANTIA NO REALIZADA";
-    }
-    return "GARANTIA";
-  }
-  if (normLiq.includes("PRUEBA DE SERVICIO") || normLiq.includes("PEX") || normLiq.includes("PLANTA EXTERNA") || normAveria.includes("PLANTA EXTERNA")) {
-    return "PEX";
-  }
-  if (normLiq.includes("ADICIONAL") || normLiq.includes("SPLITTER") || normLiq.includes("SPLITER") || normLiq.includes("AL CONTADO")) {
-    return "ADICIONAL";
-  }
-  if (normLiq.includes("CAMBIO DE") || normLiq.includes("CONFIGURACION") || normLiq.includes("CONECTOR") || normLiq.includes("ROSETA") || normLiq.includes("PATCH") || normLiq.includes("ACOPLADOR") || normLiq.includes("WINBOX") || normLiq.includes("MESH") || normLiq.includes("ONT")) {
+  if (!normLiq) {
+    if (normAveria.includes("PLANTA EXTERNA")) return "PEX";
+    if (normAveria.includes("TRASLADO")) return "TRASLADO";
     return "VISITA EXTERNA";
   }
 
-  // 3. Si no hay motivo de liquidación pero la avería es Planta Externa
-  if (normAveria.includes("PLANTA EXTERNA")) return "PEX";
-  if (normAveria.includes("TRASLADO")) return "TRASLADO";
+  // 1. Match exacto contra la tabla `motivos`
+  if (catalogoMotivos && catalogoMotivos.length > 0) {
+    const matchExacto = catalogoMotivos.find(m => m.nombreNorm === normLiq);
+    if (matchExacto && matchExacto.tipo_trabajo) {
+      return matchExacto.tipo_trabajo;
+    }
 
-  return "VISITA EXTERNA"; // Categoría estándar de atención de averías finalizadas
+    // 2. Match parcial / inteligente contra los motivos configurados en BD
+    const matchParcial = catalogoMotivos.find(m => {
+      if (m.nombreNorm === normLiq) return true;
+
+      // Conectores
+      if (normLiq.includes("CONECTOR") && m.nombreNorm.includes("CONECTOR")) {
+        if (normLiq.includes("ROSETA") && m.nombreNorm.includes("ROSETA")) return true;
+        if ((normLiq.includes("CTO") || normLiq.includes("NAP")) && (m.nombreNorm.includes("CTO") || m.nombreNorm.includes("NAP"))) return true;
+      }
+      // Recableados
+      if (normLiq.includes("RECABLEADO") && m.nombreNorm === "RECABLEADO") {
+        if (normLiq.includes("CONDOMINIO")) return m.nombreNorm.includes("CONDOMINIO");
+        return true;
+      }
+      // Reubicaciones
+      if (normLiq.includes("REUBICACION") && m.nombreNorm.includes("REUBICACION")) {
+        if (normLiq.includes("SIN RESERVA") && m.nombreNorm.includes("SIN RESERVA")) return true;
+        if (normLiq.includes("CON RESERVA") && m.nombreNorm.includes("CON RESERVA")) return true;
+      }
+      // Normalización
+      if (normLiq.includes("NORMALIZACION") && m.nombreNorm === "NORMALIZACIÓN") return true;
+      // Traslado
+      if (normLiq.includes("TRASLADO") && m.nombreNorm === "TRASLADO") return true;
+      // Pruebas de servicio / PEX
+      if ((normLiq.includes("PRUEBA DE SERVICIO") || normLiq.includes("PRUEBAS DE SERVICIO")) && m.nombreNorm.includes("PRUEBA")) {
+        return true;
+      }
+      return false;
+    });
+
+    if (matchParcial && matchParcial.tipo_trabajo) {
+      return matchParcial.tipo_trabajo;
+    }
+  }
+
+  // 3. Reglas de contingencia basadas en las categorías maestras oficiales
+  if (normLiq.includes("RECABLEADO")) {
+    return normLiq.includes("CONDOMINIO") ? "RECABLEADO EN CONDOMINIO" : "RECABLEADO";
+  }
+  if (normLiq.includes("REUBICACION")) {
+    return normLiq.includes("SIN RESERVA") ? "REUBICACIÓN SIN RESERVA" : "REUBICACIÓN CON RESERVA";
+  }
+  if (normLiq.includes("TRASLADO") || normLiq.includes("MUDANZA")) {
+    return normLiq.includes("CONDOMINIO") ? "TRASALDO EN CONDOMINIO" : "TRASLADO";
+  }
+  if (normLiq.includes("NORMALIZACION")) return "NORMALIZACIÓN";
+  if (normLiq.includes("GARANTIA")) {
+    return (normLiq.includes("NO REALIZADA") || normLiq.includes("CANCELADA") || normLiq.includes("OBSERVADA")) ? "GARANTIA NO REALIZADA" : "GARANTIA";
+  }
+  if (normLiq.includes("SPLITTER") || normLiq.includes("SPLITER") || normLiq.includes("WIFI PRO")) {
+    return "ADICIONAL";
+  }
+  if (normLiq.includes("PRUEBA DE SERVICIO") || normLiq.includes("CONJUNTA")) {
+    return "PEX";
+  }
+
+  // Por defecto para cualquier atención técnica domiciliaria (cambio de ont, mesh, patch cord, conector, etc.)
+  return "VISITA EXTERNA";
+}
+
+/**
+ * Función síncrona/asíncrona compatible con llamadas directas
+ */
+function resolverTipoTrabajoOficial(motivoLiquidacion, motivoAveria = "", estado = "") {
+  return resolverTipoTrabajoConCatalogo(motivoLiquidacion, motivoAveria, estado, motivosCache || []);
 }
 
 module.exports = {
-  TIPOS_TRABAJO_OFICIALES,
+  setPool,
+  normalizeText,
+  getMotivosCatalogo,
+  resolverTipoTrabajoConCatalogo,
   resolverTipoTrabajoOficial
 };

@@ -137,18 +137,20 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
   // 📌 Última categoría usada para que al agregar otro insumo se quede en la misma categoría
   const [ultimaCategoria, setUltimaCategoria] = useState<string>("TODAS");
 
-  // Insumos a entregar (con categoría y filtro por fila)
+  // Insumos a entregar (con categoría, filtro por fila y origen Nuevo / 2do Uso)
   const [items, setItems] = useState<{
     id_producto: number;
     cantidad: number;
     categoriaFila?: string;
     busquedaMaterial?: string;
+    es_segundo_uso?: boolean;
   }[]>([
     {
       id_producto: 0,
       cantidad: 10,
       categoriaFila: "TODAS",
       busquedaMaterial: "",
+      es_segundo_uso: false,
     },
   ]);
 
@@ -160,20 +162,25 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
         const currentId = prev[0].id_producto;
         const currentProd = materialesDisponibles.find((p) => p.id_producto === currentId);
 
+        const stockTot = (Number(currentProd?.stock_central) || 0) + (Number(currentProd?.stock_segundo_uso) || 0);
+
         // Si el producto actual no tiene stock (> 0) o no existe, reemplazarlo por uno con stock real
-        if (!currentProd || (currentProd.stock_central || 0) <= 0) {
+        if (!currentProd || stockTot <= 0) {
           const prodConStock =
-            materialesDisponibles.find((p) => (p.stock_central || 0) > 0) ||
+            materialesDisponibles.find((p) => ((Number(p.stock_central) || 0) + (Number(p.stock_segundo_uso) || 0)) > 0) ||
             materialesDisponibles[0];
           if (prodConStock && prodConStock.id_producto !== currentId) {
             const cat = prodConStock.categoria ? prodConStock.categoria.toUpperCase() : "TODAS";
             setUltimaCategoria(cat);
+            const es2do = (Number(prodConStock.stock_central) || 0) <= 0 && (Number(prodConStock.stock_segundo_uso) || 0) > 0;
+            const stockDisp = es2do ? (Number(prodConStock.stock_segundo_uso) || 0) : (Number(prodConStock.stock_central) || 0);
             return [
               {
                 id_producto: prodConStock.id_producto,
-                cantidad: Math.min(10, Math.max(1, prodConStock.stock_central || 10)),
+                cantidad: Math.min(10, Math.max(1, stockDisp || 10)),
                 categoriaFila: cat,
                 busquedaMaterial: "",
+                es_segundo_uso: es2do,
               },
               ...prev.slice(1),
             ];
@@ -290,26 +297,32 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
         : materialesDisponibles.filter((p) => (p.categoria || "").trim().toUpperCase() === cat);
 
     if (soloConStock) {
-      const conStock = prods.filter((p) => (p.stock_central || 0) > 0);
+      const conStock = prods.filter((p) => ((Number(p.stock_central) || 0) + (Number(p.stock_segundo_uso) || 0)) > 0);
       if (conStock.length > 0) prods = conStock;
     }
 
     const primerProd =
-      prods.find((p) => (p.stock_central || 0) > 0) ||
+      prods.find((p) => (Number(p.stock_central) || 0) > 0 || (Number(p.stock_segundo_uso) || 0) > 0) ||
       prods[0] ||
-      materialesDisponibles.find((p) => (p.stock_central || 0) > 0) ||
+      materialesDisponibles.find((p) => (Number(p.stock_central) || 0) > 0 || (Number(p.stock_segundo_uso) || 0) > 0) ||
       materialesDisponibles[0];
 
     const catDef = primerProd?.categoria ? primerProd.categoria.trim().toUpperCase() : cat;
     setUltimaCategoria(catDef);
 
+    const stockNuevo = Number(primerProd?.stock_central) || 0;
+    const stock2do = Number(primerProd?.stock_segundo_uso) || 0;
+    const es2do = stockNuevo <= 0 && stock2do > 0;
+    const stockMax = es2do ? stock2do : stockNuevo;
+
     setItems((prev) => [
       ...prev,
       {
         id_producto: primerProd?.id_producto || 1,
-        cantidad: Math.min(10, Math.max(1, primerProd?.stock_central || 10)),
+        cantidad: Math.min(10, Math.max(1, stockMax || 10)),
         categoriaFila: catDef,
         busquedaMaterial: "",
+        es_segundo_uso: es2do,
       },
     ]);
   };
@@ -326,7 +339,7 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
     if (q.length >= 1) {
       let matches = rankProductos(materialesDisponibles, q, items[idx]?.categoriaFila);
       if (soloConStock) {
-        const conStock = matches.filter((p) => (Number(p.stock_central) || 0) > 0);
+        const conStock = matches.filter((p) => ((Number(p.stock_central) || 0) + (Number(p.stock_segundo_uso) || 0)) > 0);
         if (conStock.length > 0) matches = conStock;
       }
 
@@ -337,6 +350,12 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
         // 1. Persistir la categoría para siguientes insumos
         setUltimaCategoria(catEncontrada);
 
+        const currentEs2do = items[idx]?.es_segundo_uso;
+        const stockNuevo = Number(mejorMatch.stock_central) || 0;
+        const stock2do = Number(mejorMatch.stock_segundo_uso) || 0;
+        const autoEs2do = currentEs2do ? (stock2do > 0 ? true : false) : (stockNuevo > 0 ? false : stock2do > 0);
+        const stockDisp = autoEs2do ? stock2do : stockNuevo;
+
         // 2. Actualizar la fila: cambiar categoría a la del producto y seleccionarlo
         setItems((prev) =>
           prev.map((item, i) =>
@@ -346,7 +365,8 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
                   busquedaMaterial: txt,
                   categoriaFila: catEncontrada,
                   id_producto: mejorMatch.id_producto,
-                  cantidad: Math.min(item.cantidad || 10, Math.max(1, Number(mejorMatch.stock_central) || 10)),
+                  es_segundo_uso: autoEs2do,
+                  cantidad: Math.min(item.cantidad || 10, Math.max(1, stockDisp || 10)),
                 }
               : item
           )
@@ -373,12 +393,17 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
           );
 
     if (soloConStock) {
-      const conStock = prodsDeCat.filter((p) => (p.stock_central || 0) > 0);
+      const conStock = prodsDeCat.filter((p) => ((Number(p.stock_central) || 0) + (Number(p.stock_segundo_uso) || 0)) > 0);
       if (conStock.length > 0) prodsDeCat = conStock;
     }
 
     const primerProd = prodsDeCat[0] || materialesDisponibles[0];
     const nuevoId = primerProd ? primerProd.id_producto : 1;
+
+    const stockNuevo = Number(primerProd?.stock_central) || 0;
+    const stock2do = Number(primerProd?.stock_segundo_uso) || 0;
+    const autoEs2do = stockNuevo <= 0 && stock2do > 0;
+    const stockDisp = autoEs2do ? stock2do : stockNuevo;
 
     setItems((prev) =>
       prev.map((item, i) =>
@@ -388,7 +413,8 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
               categoriaFila: nuevaCat,
               id_producto: nuevoId,
               busquedaMaterial: "",
-              cantidad: Math.min(item.cantidad || 10, Math.max(1, primerProd?.stock_central || 10)),
+              es_segundo_uso: autoEs2do,
+              cantidad: Math.min(item.cantidad || 10, Math.max(1, stockDisp || 10)),
             }
           : item
       )
@@ -410,23 +436,27 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
     }
 
     // ─────────────────────────────────────────────────────────────
-    // VALIDACIÓN ESTRICTA DE STOCK ANTES DE DESPACHAR
+    // VALIDACIÓN ESTRICTA DE STOCK ANTES DE DESPACHAR (NUEVO O 2DO USO)
     // ─────────────────────────────────────────────────────────────
     for (const it of items) {
       const prod = productos.find((p) => p.id_producto === it.id_producto);
       if (!prod) continue;
-      const stockDisp = Number(prod.stock_central) || 0;
+      const es2do = Boolean(it.es_segundo_uso);
+      const stockDisp = es2do
+        ? (Number(prod.stock_segundo_uso) || 0)
+        : (Number(prod.stock_central) || 0);
+      const labelOrigen = es2do ? "2do Uso" : "Almacén Central (Nuevo)";
 
       if (stockDisp <= 0) {
         alert(
-          `⛔ NO HAY STOCK DISPONIBLE:\n\nEl producto "${prod.nombre}" no tiene stock en Almacén Central (Stock: 0 ${prod.unidad || "und"}).\n\nNo es posible realizar el despacho. Por favor seleccione un material disponible con stock o elimine la fila antes de continuar.`
+          `⛔ NO HAY STOCK DISPONIBLE:\n\nEl producto "${prod.nombre}" no tiene stock disponible en ${labelOrigen} (Stock: 0 ${prod.unidad || "und"}).\n\nPor favor seleccione un material con stock disponible o cambie el origen (Nuevo / 2do Uso) antes de continuar.`
         );
         return;
       }
 
       if (it.cantidad > stockDisp) {
         alert(
-          `⛔ STOCK INSUFICIENTE:\n\nPara el producto "${prod.nombre}":\n• Stock disponible en Almacén Central: ${stockDisp} ${prod.unidad || "und"}\n• Cantidad solicitada: ${it.cantidad} ${prod.unidad || "und"}\n\nPor favor reduzca la cantidad a máximo ${stockDisp} antes de continuar.`
+          `⛔ STOCK INSUFICIENTE:\n\nPara el producto "${prod.nombre}":\n• Stock disponible en ${labelOrigen}: ${stockDisp} ${prod.unidad || "und"}\n• Cantidad solicitada: ${it.cantidad} ${prod.unidad || "und"}\n\nPor favor reduzca la cantidad a máximo ${stockDisp} antes de continuar.`
         );
         return;
       }
@@ -444,6 +474,7 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
       const itemsFinales = items.map((it) => ({
         id_producto: it.id_producto,
         cantidad: it.cantidad,
+        es_segundo_uso: Boolean(it.es_segundo_uso),
       }));
 
       // Si incluye talonario de actas, generar las series correlativas
@@ -459,6 +490,7 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
         itemsFinales.push({
           id_producto: prodActas.id_producto,
           cantidad: cantidadActas,
+          es_segundo_uso: false,
         });
       }
 
@@ -479,14 +511,18 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
       setSeriesPistoleadas([]);
       setIncluirActas(false);
       const primerConStock =
-        materialesDisponibles.find((p) => (p.stock_central || 0) > 0) ||
+        materialesDisponibles.find((p) => (Number(p.stock_central) || 0) > 0 || (Number(p.stock_segundo_uso) || 0) > 0) ||
         materialesDisponibles[0];
+      const es2doDef = (Number(primerConStock?.stock_central) || 0) <= 0 && (Number(primerConStock?.stock_segundo_uso) || 0) > 0;
+      const stockDispDef = es2doDef ? (Number(primerConStock?.stock_segundo_uso) || 0) : (Number(primerConStock?.stock_central) || 0);
+
       setItems([
         {
           id_producto: primerConStock?.id_producto || 1,
-          cantidad: Math.min(10, Math.max(1, primerConStock?.stock_central || 10)),
+          cantidad: Math.min(10, Math.max(1, stockDispDef || 10)),
           categoriaFila: primerConStock?.categoria ? primerConStock.categoria.toUpperCase() : "TODAS",
           busquedaMaterial: "",
+          es_segundo_uso: es2doDef,
         },
       ]);
     } catch (err: any) {
@@ -532,7 +568,7 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
           <div className="sm:col-span-2 space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="block text-xs font-bold text-slate-700">
-                Técnico Conductor / Cuadrilla *
+                Técnico o Supervisor Destino / Cuadrilla *
               </label>
               <span className="text-[10px] text-slate-400 font-bold">
                 {tecnicosFiltrados.length} disponibles
@@ -558,7 +594,7 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
                       if (match) setIdTrabajador(String(match.id_trabajador));
                     }
                   }}
-                  placeholder="🔍 Escribe para buscar técnico (nombre, cuadrilla, placa)..."
+                  placeholder="🔍 Buscar técnico o supervisor (nombre, cuadrilla, placa)..."
                   className="w-full pl-9 pr-8 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:bg-white focus:border-indigo-500 outline-none transition-all placeholder-slate-400"
                 />
                 {busquedaTecnico && (
@@ -664,7 +700,7 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
             if (qFila && qFila.length >= 1) {
               prodsDeFila = rankProductos(materialesDisponibles, qFila, catFila);
               if (soloConStock) {
-                prodsDeFila = prodsDeFila.filter((p) => (Number(p.stock_central) || 0) > 0);
+                prodsDeFila = prodsDeFila.filter((p) => ((Number(p.stock_central) || 0) + (Number(p.stock_segundo_uso) || 0)) > 0);
               }
             } else {
               prodsDeFila =
@@ -674,7 +710,7 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
                       (p) => (p.categoria || "").trim().toUpperCase() === catFila
                     );
               if (soloConStock) {
-                prodsDeFila = prodsDeFila.filter((p) => (Number(p.stock_central) || 0) > 0);
+                prodsDeFila = prodsDeFila.filter((p) => ((Number(p.stock_central) || 0) + (Number(p.stock_segundo_uso) || 0)) > 0);
               }
             }
             // Asegurar que el producto seleccionado actualmente aparezca en la lista
@@ -682,22 +718,28 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
               prodsDeFila = [prodActual, ...prodsDeFila];
             }
 
-            const sinStock = (Number(prodActual?.stock_central) || 0) <= 0;
-            const excedeStock = !sinStock && it.cantidad > (Number(prodActual?.stock_central) || 0);
+            const stockNuevo = Number(prodActual?.stock_central) || 0;
+            const stock2do = Number(prodActual?.stock_segundo_uso) || 0;
+            const es2do = Boolean(it.es_segundo_uso);
+            const stockDisp = es2do ? stock2do : stockNuevo;
+            const sinStock = stockDisp <= 0;
+            const excedeStock = !sinStock && it.cantidad > stockDisp;
 
             return (
               <div
                 key={idx}
-                className={`flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 p-3 rounded-2xl border transition-colors shadow-2xs ${
+                className={`flex flex-col xl:flex-row items-stretch xl:items-center gap-2.5 p-3 rounded-2xl border transition-colors shadow-2xs ${
                   sinStock
                     ? "bg-rose-50/60 border-rose-200 hover:border-rose-300"
                     : excedeStock
                     ? "bg-amber-50/60 border-amber-200 hover:border-amber-300"
+                    : es2do
+                    ? "bg-amber-50/30 border-amber-200/70 hover:border-amber-300"
                     : "bg-slate-50 border-slate-200 hover:border-indigo-200"
                 }`}
               >
                 {/* 1. Categoría de la Fila */}
-                <div className="w-full sm:w-44 shrink-0">
+                <div className="w-full xl:w-44 shrink-0">
                   <select
                     value={it.categoriaFila || "TODAS"}
                     onChange={(e) => handleCambiarCategoriaFila(idx, e.target.value)}
@@ -713,14 +755,14 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
                   </select>
                 </div>
 
-                {/* 2. Buscador Inteligente de Material en la Fila (busca en todas menos EQUIPOS y autodetecta la categoría) */}
-                <div className="w-full sm:w-48 shrink-0 relative">
+                {/* 2. Buscador Inteligente de Material en la Fila */}
+                <div className="w-full xl:w-44 shrink-0 relative">
                   <Search size={14} className="absolute left-2.5 top-3 text-slate-400 pointer-events-none" />
                   <input
                     type="text"
                     value={it.busquedaMaterial || ""}
                     onChange={(e) => handleBusquedaMaterialChange(idx, e.target.value)}
-                    placeholder="🔍 Buscar material..."
+                    placeholder="🔍 Buscar..."
                     className="w-full pl-8 pr-7 py-2.5 bg-white border border-slate-200 focus:border-indigo-500 rounded-xl text-xs font-bold text-slate-800 outline-none transition-all placeholder-slate-400"
                   />
                   {it.busquedaMaterial && (
@@ -745,6 +787,11 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
                       if (catProd && catProd !== "EQUIPOS") {
                         setUltimaCategoria(catProd);
                       }
+                      const sNuevo = Number(prodSel?.stock_central) || 0;
+                      const s2do = Number(prodSel?.stock_segundo_uso) || 0;
+                      const autoEs2do = it.es_segundo_uso ? (s2do > 0 ? true : false) : (sNuevo > 0 ? false : s2do > 0);
+                      const sDisp = autoEs2do ? s2do : sNuevo;
+
                       setItems((prev) =>
                         prev.map((item, i) =>
                           i === idx
@@ -752,7 +799,8 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
                                 ...item,
                                 id_producto: prodId,
                                 categoriaFila: catProd || item.categoriaFila,
-                                cantidad: Math.min(item.cantidad, Math.max(1, prodSel?.stock_central || 1)),
+                                es_segundo_uso: autoEs2do,
+                                cantidad: Math.min(item.cantidad, Math.max(1, sDisp || 1)),
                               }
                             : item
                         )
@@ -768,14 +816,16 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
                       <option value="">No hay materiales disponibles con "{it.busquedaMaterial}"</option>
                     ) : (
                       prodsDeFila.map((p) => {
-                        const noStock = (p.stock_central || 0) <= 0;
+                        const sN = Number(p.stock_central) || 0;
+                        const s2 = Number(p.stock_segundo_uso) || 0;
+                        const noStock = sN <= 0 && s2 <= 0;
                         return (
                           <option
                             key={p.id_producto}
                             value={p.id_producto}
                             className={noStock ? "text-rose-600 font-bold" : ""}
                           >
-                            {p.nombre} ({p.categoria || "MATERIAL"}) — {noStock ? "⚠️ SIN STOCK (0 disp.)" : `Stock: ${p.stock_central} ${p.unidad || (p.es_drop ? "m" : "und")}`}
+                            {p.nombre} ({p.categoria || "MATERIAL"}) — [📦 Nuevo: {sN} | 🔄 2do: {s2}]
                           </option>
                         );
                       })
@@ -783,12 +833,79 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
                   </select>
                 </div>
 
-                {/* 4. Cantidad con tope de stock */}
+                {/* 4. Selector de Origen de Stock: Nuevo vs 2do Uso */}
+                <div className="flex items-center gap-1 bg-white p-1 rounded-xl shrink-0 border border-slate-200 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setItems((prev) =>
+                        prev.map((item, i) =>
+                          i === idx
+                            ? {
+                                ...item,
+                                es_segundo_uso: false,
+                                cantidad: Math.min(item.cantidad, Math.max(1, stockNuevo || 1)),
+                              }
+                            : item
+                        )
+                      );
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                      !es2do
+                        ? "bg-indigo-600 text-white shadow-2xs font-black"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                    }`}
+                    title={`Stock Nuevo disponible en Almacén Central: ${stockNuevo}`}
+                  >
+                    <span>📦 Nuevo</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                        !es2do ? "bg-indigo-700 text-white" : stockNuevo > 0 ? "bg-indigo-50 text-indigo-700" : "bg-slate-100 text-slate-400"
+                      }`}
+                    >
+                      {stockNuevo}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setItems((prev) =>
+                        prev.map((item, i) =>
+                          i === idx
+                            ? {
+                                ...item,
+                                es_segundo_uso: true,
+                                cantidad: Math.min(item.cantidad, Math.max(1, stock2do || 1)),
+                              }
+                            : item
+                        )
+                      );
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                      es2do
+                        ? "bg-amber-500 text-white shadow-2xs font-black"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                    }`}
+                    title={`Stock de 2do Uso disponible en Almacén Central: ${stock2do}`}
+                  >
+                    <span>🔄 2do Uso</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                        es2do ? "bg-amber-600 text-white" : stock2do > 0 ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-400"
+                      }`}
+                    >
+                      {stock2do}
+                    </span>
+                  </button>
+                </div>
+
+                {/* 5. Cantidad con tope de stock según origen */}
                 <div className="w-24 sm:w-28 flex items-center gap-1 shrink-0">
                   <input
                     type="number"
                     min="1"
-                    max={prodActual?.stock_central || 9999}
+                    max={stockDisp || 9999}
                     value={it.cantidad}
                     onChange={(e) => {
                       const cant = Number(e.target.value) || 1;
@@ -799,6 +916,8 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
                     className={`w-full p-2.5 rounded-xl font-mono font-bold text-xs text-center border ${
                       sinStock || excedeStock
                         ? "bg-rose-50 border-rose-300 text-rose-900"
+                        : es2do
+                        ? "bg-amber-50/50 border-amber-300 text-amber-950 focus:border-amber-500"
                         : "bg-white border-slate-200 focus:border-indigo-500"
                     }`}
                   />
@@ -807,25 +926,31 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
                   </span>
                 </div>
 
-                {/* 5. Badge indicador de disponibilidad */}
+                {/* 6. Badge indicador de disponibilidad */}
                 {sinStock ? (
                   <div className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-100 text-rose-800 rounded-xl text-[10px] font-black shrink-0 animate-pulse">
                     <AlertTriangle size={12} className="text-rose-600" />
-                    <span>Sin stock</span>
+                    <span>Sin stock ({es2do ? "2do Uso" : "Nuevo"})</span>
                   </div>
                 ) : excedeStock ? (
-                  <div className="flex items-center gap-1 px-2 py-1.5 bg-amber-100 text-amber-900 rounded-xl text-[10px] font-bold shrink-0" title={`Disponible: ${prodActual?.stock_central}`}>
+                  <div className="flex items-center gap-1 px-2 py-1.5 bg-amber-100 text-amber-900 rounded-xl text-[10px] font-bold shrink-0" title={`Disponible: ${stockDisp}`}>
                     <AlertTriangle size={12} className="text-amber-600" />
-                    <span>Máx: {prodActual?.stock_central}</span>
+                    <span>Máx: {stockDisp}</span>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-1 px-2 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-xl text-[10px] font-bold shrink-0">
-                    <ShieldCheck size={12} className="text-emerald-600" />
-                    <span>Disp: {prodActual?.stock_central}</span>
+                  <div
+                    className={`flex items-center gap-1 px-2 py-1.5 rounded-xl text-[10px] font-bold shrink-0 border ${
+                      es2do
+                        ? "bg-amber-50 text-amber-800 border-amber-200"
+                        : "bg-emerald-50 text-emerald-700 border-emerald-200/80"
+                    }`}
+                  >
+                    <ShieldCheck size={12} className={es2do ? "text-amber-600" : "text-emerald-600"} />
+                    <span>Disp: {stockDisp}</span>
                   </div>
                 )}
 
-                {/* 6. Botón Eliminar */}
+                {/* 7. Botón Eliminar */}
                 <button
                   type="button"
                   onClick={() => handleRemoveItem(idx)}

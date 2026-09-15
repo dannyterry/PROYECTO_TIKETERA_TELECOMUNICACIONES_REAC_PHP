@@ -11,16 +11,32 @@ import {
 } from "../ui/table";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
+import { QuickStatusModal } from "./QuickStatusModal";
+import { Edit3, Sparkles, Eye, EyeOff, KeyRound, Check, Copy, Dices, Lock, RefreshCw, X, ShieldCheck } from "lucide-react";
+import { resetPasswordEmpleado } from "../../services/employeeService";
 
 interface EmployeeListProps {
   empleados?: Employee[];
   onSelectEmployee: (emp: Employee) => void;
+  onEmployeeUpdated?: () => void;
 }
 
 export const EmployeeList: React.FC<EmployeeListProps> = ({
   empleados = [],
   onSelectEmployee,
+  onEmployeeUpdated,
 }) => {
+  // Lista local para respuesta inmediata ante cambios
+  const [listaLocal, setListaLocal] = useState<Employee[]>(empleados);
+
+  useEffect(() => {
+    setListaLocal(empleados);
+  }, [empleados]);
+
+  // Modal de cambio rápido de estado
+  const [empleadoParaEstado, setEmpleadoParaEstado] = useState<Employee | null>(null);
+  const [isModalEstadoOpen, setIsModalEstadoOpen] = useState(false);
+
   // Estados para nuestros filtros
   const [searchTerm, setSearchTerm] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("Activo"); // Por defecto, es mejor ver a los activos
@@ -47,19 +63,19 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
             nombresApi = data.map((r: any) => r.nombre).filter(Boolean);
           }
         }
-        const nombresEmp: string[] = empleados.map((e) => e.rolNombre).filter(Boolean) as string[];
+        const nombresEmp: string[] = listaLocal.map((e) => e.rolNombre).filter(Boolean) as string[];
         const conjunto = Array.from(new Set([...nombresApi, ...nombresEmp])).sort();
         
         // Si hay empleados sin rol, agregamos la opción "Sin rol"
-        const haySinRol = empleados.some(e => !e.rolNombre || e.rolNombre.trim() === "");
+        const haySinRol = listaLocal.some(e => !e.rolNombre || e.rolNombre.trim() === "");
         if (haySinRol && !conjunto.includes("Sin rol")) {
           conjunto.push("Sin rol");
         }
         
         setRolesDisponibles(conjunto);
       } catch (e) {
-        const nombresEmp = Array.from(new Set(empleados.map((e) => e.rolNombre).filter(Boolean) as string[])).sort();
-        const haySinRol = empleados.some(e => !e.rolNombre || e.rolNombre.trim() === "");
+        const nombresEmp = Array.from(new Set(listaLocal.map((e) => e.rolNombre).filter(Boolean) as string[])).sort();
+        const haySinRol = listaLocal.some(e => !e.rolNombre || e.rolNombre.trim() === "");
         if (haySinRol && !nombresEmp.includes("Sin rol")) {
           nombresEmp.push("Sin rol");
         }
@@ -67,7 +83,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
       }
     };
     cargarRoles();
-  }, [empleados]);
+  }, [listaLocal]);
 
   // Listener para cerrar el menú desplegable de roles al hacer clic fuera
   useEffect(() => {
@@ -94,9 +110,106 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
   // Conteo de empleados por rol
   const getCountPorRol = (rol: string) => {
     if (rol === "Sin rol") {
-      return empleados.filter(e => !e.rolNombre || e.rolNombre.trim() === "").length;
+      return listaLocal.filter(e => !e.rolNombre || e.rolNombre.trim() === "").length;
     }
-    return empleados.filter(e => e.rolNombre === rol).length;
+    return listaLocal.filter(e => e.rolNombre === rol).length;
+  };
+
+  // Abrir modal de cambio rápido de estado
+  const handleAbrirModalEstado = (e: React.MouseEvent, emp: Employee) => {
+    e.stopPropagation();
+    setEmpleadoParaEstado(emp);
+    setIsModalEstadoOpen(true);
+  };
+
+  // Callback al guardar nuevo estado
+  const handleStatusUpdated = (updated: {
+    id: number;
+    estado: string;
+    estadoFechaInicio?: string;
+    estadoFechaFin?: string;
+    estadoObservacion?: string;
+  }) => {
+    setListaLocal((prev) =>
+      prev.map((emp) =>
+        emp.id === updated.id
+          ? {
+              ...emp,
+              estado: updated.estado,
+              estadoFechaInicio: updated.estadoFechaInicio,
+              estadoFechaFin: updated.estadoFechaFin,
+              estadoObservacion: updated.estadoObservacion,
+            }
+          : emp
+      )
+    );
+    if (onEmployeeUpdated) {
+      onEmployeeUpdated();
+    }
+  };
+
+  // Estado para visibilidad y gestión de contraseñas
+  const [revelarPass, setRevelarPass] = useState<{ [id: number]: boolean }>({});
+  const [empleadoParaPass, setEmpleadoParaPass] = useState<Employee | null>(null);
+  const [nuevaPass, setNuevaPass] = useState<string>("");
+  const [guardandoPass, setGuardandoPass] = useState<boolean>(false);
+
+  const toggleRevelarPass = (e: React.MouseEvent, id: number) => {
+    e.stopPropagation();
+    setRevelarPass(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const abrirModalPass = (e: React.MouseEvent, emp: Employee) => {
+    e.stopPropagation();
+    setEmpleadoParaPass(emp);
+    setNuevaPass(emp.password || "");
+  };
+
+  const generarPassAleatoria = () => {
+    const chars = "abcdefghjkmnpqrstuvwxyz23456789";
+    let res = "";
+    for (let i = 0; i < 8; i++) {
+      res += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setNuevaPass(res);
+  };
+
+  const usarDniComoPass = () => {
+    if (empleadoParaPass) {
+      setNuevaPass(empleadoParaPass.dni || empleadoParaPass.usuario || "123456");
+    }
+  };
+
+  const handleGuardarPass = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!empleadoParaPass || !nuevaPass.trim()) {
+      alert("Por favor ingresa o genera una contraseña.");
+      return;
+    }
+
+    try {
+      setGuardandoPass(true);
+      const res = await resetPasswordEmpleado(empleadoParaPass.id, nuevaPass.trim());
+      
+      // Actualizar en la lista local
+      setListaLocal(prev => prev.map(item => item.id === empleadoParaPass.id ? { ...item, password: res.password } : item));
+      if (onEmployeeUpdated) onEmployeeUpdated();
+
+      // Copiar al portapapeles
+      const texto = `Hola ${empleadoParaPass.nombres}, tus credenciales de acceso al sistema son:\nUsuario: ${empleadoParaPass.usuario || ""}\nContraseña: ${res.password}`;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(texto).catch(() => {});
+      }
+
+      setCopiadoId(empleadoParaPass.id);
+      setTimeout(() => setCopiadoId(null), 3000);
+      setEmpleadoParaPass(null);
+      alert(`✅ ¡Contraseña actualizada con éxito!\n\nUsuario: ${empleadoParaPass.usuario}\nContraseña: ${res.password}\n\n(Credenciales copiadas al portapapeles)`);
+    } catch (err: any) {
+      alert(`❌ Error al actualizar contraseña: ${err.message}`);
+    } finally {
+      setGuardandoPass(false);
+    }
   };
 
   // Función para copiar credenciales al portapapeles
@@ -129,7 +242,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
   };
 
   // 1. LÓGICA DE FILTRADO AVANZADO MULTIPLE
-  const filteredEmpleados = empleados.filter((emp) => {
+  const filteredEmpleados = listaLocal.filter((emp) => {
     // A) Búsqueda por texto (Multicriterio: nombre completo, apellidos + nombres, palabras sueltas, DNI, etc.)
     const query = searchTerm.toLowerCase().trim();
     let matchSearch = true;
@@ -547,7 +660,12 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                   Venc. SCTR
                 </th>
                 <th className="sticky top-0 z-30 bg-slate-100 font-bold text-gray-700 uppercase text-[11px] tracking-wider py-3.5 px-6 text-center border-b border-gray-200">
-                  Estado
+                  <div className="flex items-center justify-center gap-1.5">
+                    <span>Estado</span>
+                    <span className="text-[9px] text-sky-700 font-semibold normal-case bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded-md hidden sm:inline-block">
+                      ⚡ Clic para cambiar
+                    </span>
+                  </div>
                 </th>
               </tr>
             </thead>
@@ -593,35 +711,59 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                     </td>
 
                     <td className="py-4 px-6 border-b border-gray-100" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center justify-between gap-3 bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-2 min-w-[210px] max-w-[260px] shadow-2xs">
-                        <div className="flex flex-col text-xs font-mono">
+                      <div className="flex items-center justify-between gap-2.5 bg-slate-50 border border-slate-200/90 rounded-xl px-3 py-2 min-w-[220px] max-w-[270px] shadow-2xs hover:border-slate-300 transition-all">
+                        <div className="flex flex-col text-xs font-mono min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 text-gray-700">
-                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider font-sans">User:</span>
-                            <span className="font-semibold text-gray-900 truncate">{emp.usuario || "N/A"}</span>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-sans shrink-0">User:</span>
+                            <span className="font-semibold text-slate-900 truncate" title={emp.usuario || "N/A"}>{emp.usuario || "N/A"}</span>
                           </div>
                           <div className="flex items-center gap-1.5 text-gray-700 mt-1">
-                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider font-sans">Pass:</span>
-                            <span className="font-semibold text-sky-700 truncate">{emp.password || "N/A"}</span>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-sans shrink-0">Pass:</span>
+                            <span className="font-bold text-indigo-700 truncate tracking-wide" title={revelarPass[emp.id] ? (emp.password || "N/A") : "••••••••"}>
+                              {revelarPass[emp.id] ? (emp.password || "N/A") : "••••••••"}
+                            </span>
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={(e) => copiarCredenciales(e, emp.usuario, emp.password, emp.id)}
-                          title="Copiar usuario y contraseña"
-                          className={`p-2 rounded-lg border transition-all flex items-center justify-center shrink-0 cursor-pointer ${
-                            copiadoId === emp.id
-                              ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
-                              : "bg-white text-gray-500 border-gray-200 hover:bg-gray-100 hover:text-gray-900 shadow-2xs"
-                          }`}
-                        >
-                          {copiadoId === emp.id ? (
-                            <span className="text-[10px] font-sans font-bold px-1 text-white">✓ Copiado</span>
-                          ) : (
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                            </svg>
-                          )}
-                        </button>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          {/* Botón Ver/Ocultar Contraseña */}
+                          <button
+                            type="button"
+                            onClick={(e) => toggleRevelarPass(e, emp.id)}
+                            title={revelarPass[emp.id] ? "Ocultar contraseña" : "Ver contraseña"}
+                            className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-all cursor-pointer shadow-2xs"
+                          >
+                            {revelarPass[emp.id] ? <EyeOff size={13} /> : <Eye size={13} />}
+                          </button>
+
+                          {/* Botón Copiar Credenciales */}
+                          <button
+                            type="button"
+                            onClick={(e) => copiarCredenciales(e, emp.usuario, emp.password, emp.id)}
+                            title="Copiar usuario y contraseña para enviar al técnico"
+                            className={`p-1.5 rounded-lg border transition-all flex items-center justify-center cursor-pointer ${
+                              copiadoId === emp.id
+                                ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
+                                : "bg-white text-slate-600 border-slate-200 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 shadow-2xs"
+                            }`}
+                          >
+                            {copiadoId === emp.id ? (
+                              <span className="text-[10px] font-sans font-bold px-0.5 text-white">✓</span>
+                            ) : (
+                              <Copy size={13} />
+                            )}
+                          </button>
+
+                          {/* Botón Cambiar / Restablecer Contraseña */}
+                          <button
+                            type="button"
+                            onClick={(e) => abrirModalPass(e, emp)}
+                            title="Cambiar o autogenerar nueva contraseña"
+                            className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200 transition-all cursor-pointer shadow-2xs"
+                          >
+                            <KeyRound size={13} />
+                          </button>
+                        </div>
                       </div>
                     </td>
                     
@@ -637,17 +779,30 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                       )}
                     </td>
                     
-                    <td className="py-4 px-6 text-center border-b border-gray-100">
-                      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold tracking-wide border ${
-                        emp.estado === "Activo" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : 
-                        emp.estado === "Inactivo" ? "bg-red-50 text-red-700 border-red-200" : 
-                        emp.estado === "Vacaciones" ? "bg-blue-50 text-blue-700 border-blue-200" : 
-                        emp.estado === "Descanso Médico" ? "bg-yellow-50 text-yellow-700 border-yellow-200" : 
-                        emp.estado === "Cesado" ? "bg-gray-100 text-gray-700 border-gray-300" : 
-                        "bg-gray-50 text-gray-700 border-gray-200"
-                      }`}>
-                        {emp.estado || "Activo"}
-                      </span>
+                    <td className="py-4 px-6 text-center border-b border-gray-100" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={(e) => handleAbrirModalEstado(e, emp)}
+                        title="Clic para cambiar estado rápidamente con todos sus detalles"
+                        className={`group inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold tracking-wide border shadow-2xs transition-all hover:scale-105 hover:shadow-md cursor-pointer ${
+                          emp.estado === "Activo" ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 ring-emerald-400/20 hover:ring-2" : 
+                          emp.estado === "Inactivo" ? "bg-red-50 text-red-700 border-red-200 hover:bg-red-100 hover:border-red-300 ring-red-400/20 hover:ring-2" : 
+                          emp.estado === "Vacaciones" ? "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 hover:border-blue-300 ring-blue-400/20 hover:ring-2" : 
+                          emp.estado === "Descanso Médico" ? "bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100 hover:border-yellow-300 ring-yellow-400/20 hover:ring-2" : 
+                          emp.estado === "Cesado" ? "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200 hover:border-gray-400 ring-gray-400/20 hover:ring-2" : 
+                          "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
+                        }`}
+                      >
+                        <span className={`w-2 h-2 rounded-full ${
+                          emp.estado === "Activo" ? "bg-emerald-500 animate-pulse" : 
+                          emp.estado === "Inactivo" ? "bg-red-500" : 
+                          emp.estado === "Vacaciones" ? "bg-blue-500" : 
+                          emp.estado === "Descanso Médico" ? "bg-yellow-500" : 
+                          "bg-gray-400"
+                        }`} />
+                        <span>{emp.estado || "Activo"}</span>
+                        <Edit3 size={11} className="opacity-40 group-hover:opacity-100 transition-opacity ml-0.5 text-current" />
+                      </button>
                     </td>
 
                   </tr>
@@ -666,6 +821,131 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
           </table>
         </div>
       </div>
+
+      {/* MODAL RÁPIDO DE CAMBIO DE ESTADO CON DETALLE COMPLETO */}
+      <QuickStatusModal
+        isOpen={isModalEstadoOpen}
+        empleado={empleadoParaEstado}
+        onClose={() => {
+          setIsModalEstadoOpen(false);
+          setEmpleadoParaEstado(null);
+        }}
+        onStatusUpdated={handleStatusUpdated}
+      />
+
+      {/* 🔐 MODAL DE GESTIÓN Y AUTOGENERACIÓN DE CONTRASEÑA */}
+      {empleadoParaPass && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-fade-in" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-100 space-y-5 animate-scale-up" onClick={(e) => e.stopPropagation()}>
+            
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black">
+                  <KeyRound size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900">Gestión de Contraseña</h3>
+                  <p className="text-[11px] font-bold text-slate-400">{empleadoParaPass.nombres} {empleadoParaPass.primerApellido}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEmpleadoParaPass(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition-all cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Info Usuario */}
+            <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 flex items-center justify-between text-xs">
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 block uppercase">Usuario de Acceso</span>
+                <span className="font-mono font-black text-slate-800">{empleadoParaPass.usuario || "N/A"}</span>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] font-bold text-slate-400 block uppercase">DNI</span>
+                <span className="font-mono font-bold text-slate-600">{empleadoParaPass.dni || "N/A"}</span>
+              </div>
+            </div>
+
+            {/* Formulario */}
+            <form onSubmit={handleGuardarPass} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Nueva Contraseña *
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={nuevaPass}
+                    onChange={(e) => setNuevaPass(e.target.value)}
+                    required
+                    placeholder="Escribe o autogenera una clave..."
+                    className="w-full pl-3 pr-24 py-2.5 bg-indigo-50/50 border border-indigo-200 rounded-xl font-mono font-black text-sm text-indigo-950 focus:bg-white focus:border-indigo-500 outline-none transition-all"
+                  />
+                  <div className="absolute right-1.5 top-1.5 flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={generarPassAleatoria}
+                      className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                      title="Generar contraseña aleatoria"
+                    >
+                      <Dices size={12} />
+                      <span>Aleatoria</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Botones de acción rápida */}
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={generarPassAleatoria}
+                  className="flex-1 py-2 px-2.5 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 text-slate-700 border border-slate-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Sparkles size={13} className="text-indigo-600" />
+                  <span>🎲 Autogenerar</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={usarDniComoPass}
+                  className="flex-1 py-2 px-2.5 bg-slate-100 hover:bg-amber-50 hover:text-amber-800 hover:border-amber-200 text-slate-700 border border-slate-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <span>🪪 Usar DNI</span>
+                </button>
+              </div>
+
+              {/* Info de copia */}
+              <div className="bg-emerald-50/70 p-2.5 rounded-xl border border-emerald-200 text-[11px] text-emerald-800 flex items-center gap-2">
+                <ShieldCheck size={16} className="shrink-0 text-emerald-600" />
+                <span>Al guardar se actualizará en el sistema y se copiará automáticamente al portapapeles.</span>
+              </div>
+
+              {/* Botones de pie */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEmpleadoParaPass(null)}
+                  className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={guardandoPass || !nuevaPass.trim()}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl shadow-md shadow-indigo-600/20 flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {guardandoPass ? <RefreshCw size={14} className="animate-spin" /> : <Check size={14} />}
+                  <span>Guardar y Copiar</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
