@@ -27,6 +27,8 @@ function isPublicPath(req) {
   if (path === "/time-diagnostic") return true;
   if (path.startsWith("/uploads")) return true;
   if (path.startsWith("/api/looker/") || path.startsWith("/looker/")) return true;
+  if (path.startsWith("/api/win-audit/") || path.startsWith("/win-audit/")) return true;
+  if (path.startsWith("/api/dashboard/") || path.startsWith("/dashboard/")) return true;
   return false;
 }
 

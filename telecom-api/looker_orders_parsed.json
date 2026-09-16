@@ -1,12 +1,1 @@
-[
-  {
-    "ticket": "PREF-NORTE3",
-    "distrito": "Zona Sur",
-    "direccion": "Zona Sur (NORTE 3)",
-    "zona_nodo": "NORTE 3",
-    "franja_horaria": "12:00-15:59",
-    "motivo": "AVERIAS CRM",
-    "vehiculo_tipo": "AVERIAS",
-    "tarjeta": "AVERIAS PREFERENTE"
-  }
-]
+[]

@@ -1,53 +1,13 @@
 {
-  "timestamp": "2026-09-16T15:45:53.209Z",
-  "totalGeneral": 1,
+  "timestamp": "2026-09-16T21:25:32.195Z",
+  "totalGeneral": 0,
   "totalAlertasSur": 0,
-  "resumenZonas": {
-    "NORTE 3": 1
-  },
+  "resumenZonas": {},
   "cards": {
     "AVERIAS PREFERENTE": {
-      "total": 1,
-      "zonas": {
-        "NORTE 3": {
-          "zona": "NORTE 3",
-          "total": 1,
-          "esSur": false,
-          "franjas": {
-            "08:00-11:59": 0,
-            "12:00-15:59": 1,
-            "16:00-20:00": 0,
-            "otros": 0
-          },
-          "distritos": {
-            "Zona Sur": 1
-          },
-          "ordenes": [
-            {
-              "ticket": "PREF-NORTE3",
-              "distrito": "Zona Sur",
-              "direccion": "Zona Sur (NORTE 3)",
-              "zona_nodo": "NORTE 3",
-              "franja_horaria": "12:00-15:59",
-              "motivo": "AVERIAS CRM",
-              "vehiculo_tipo": "AVERIAS",
-              "tarjeta": "AVERIAS PREFERENTE"
-            }
-          ]
-        }
-      },
-      "ordenes": [
-        {
-          "ticket": "PREF-NORTE3",
-          "distrito": "Zona Sur",
-          "direccion": "Zona Sur (NORTE 3)",
-          "zona_nodo": "NORTE 3",
-          "franja_horaria": "12:00-15:59",
-          "motivo": "AVERIAS CRM",
-          "vehiculo_tipo": "AVERIAS",
-          "tarjeta": "AVERIAS PREFERENTE"
-        }
-      ]
+      "total": 0,
+      "zonas": {},
+      "ordenes": []
     },
     "AVERIAS ALTO VALOR": {
       "total": 0,

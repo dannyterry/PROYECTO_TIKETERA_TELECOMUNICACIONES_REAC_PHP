@@ -29,6 +29,7 @@ import {
   Tooltip as RechartsTooltip,
   Legend,
   ComposedChart,
+  ReferenceLine,
 } from "recharts";
 import * as XLSX from "xlsx";
 
@@ -118,7 +119,7 @@ export const MonthlyEffectivenessSection: React.FC = () => {
     meses: data?.meses || [],
   };
 
-  const datasetDbProducto: ModoDataset = data?.modos?.db_producto || datasetOficial;
+  const datasetDbProducto: ModoDataset = data?.modos?.db_hibrido || data?.modos?.db_producto || datasetOficial;
 
   const datasetActivo: ModoDataset =
     modoCalculo === "db_producto" ? datasetDbProducto : datasetOficial;
@@ -127,15 +128,25 @@ export const MonthlyEffectivenessSection: React.FC = () => {
   const isCumplimiento = modoMetrica === "cumplimiento";
   const isComparativo = modoCalculo === "comparativo";
 
-  // Preparar datos para el gráfico combinado
-  const chartData = (datasetActivo.meses || []).map((m) => ({
-    mes: m.mesNombre.substring(0, 3),
-    nombreCompleto: m.mesNombre,
-    "% Ef. Averías": m.averias.efectividad,
-    "% Ef. Postventa": m.postventa.efectividad,
-    "% Cumpl. Averías": m.averias.cumplimiento,
-    "% Cumpl. Postventa": m.postventa.cumplimiento,
-  }));
+  // Preparar datos para el gráfico combinado (filtrando meses futuros sin actividad para evitar caída a 0%)
+  const chartData = (datasetActivo.meses || [])
+    .filter((m) => m.averias.asignadas > 0 || m.postventa.asignadas > 0)
+    .map((m) => {
+      const isCurrentMonth = m.mesNumero === (new Date().getMonth() + 1) && (data?.anio || anioSeleccionado) === new Date().getFullYear();
+      return {
+        mes: m.mesNombre.substring(0, 3),
+        nombreCompleto: m.mesNombre,
+        isCurrentMonth,
+        asigAv: m.averias.asignadas,
+        finAv: isCumplimiento ? m.averias.cumplidas : m.averias.finalizadas,
+        asigPv: m.postventa.asignadas,
+        finPv: isCumplimiento ? m.postventa.cumplidas : m.postventa.finalizadas,
+        "% Ef. Averías": m.averias.efectividad,
+        "% Ef. Postventa": m.postventa.efectividad,
+        "% Cumpl. Averías": m.averias.cumplimiento,
+        "% Cumpl. Postventa": m.postventa.cumplimiento,
+      };
+    });
 
   // Exportar reporte consolidado a Excel
   const handleExportExcel = () => {
@@ -856,46 +867,103 @@ export const MonthlyEffectivenessSection: React.FC = () => {
               Tendencia Mensual: % de {isCumplimiento ? "Cumplimiento" : "Efectividad"}
             </h3>
             <p className="text-[11px] text-slate-500">
-              Evolución comparativa por mes entre Averías y Postventa ({isCumplimiento ? "Cumplimiento Operativo" : "Efectividad de Liquidación"}).
+              Evolución mensual entre Averías y Postventa ({isCumplimiento ? "Cumplimiento Operativo" : "Efectividad de Liquidación"}).
             </p>
           </div>
-          <div className="flex items-center gap-4 text-xs font-bold">
+          <div className="flex flex-wrap items-center gap-3.5 text-xs font-bold">
             <span className="flex items-center gap-1.5 text-sky-700">
-              <span className="w-3 h-3 rounded-full bg-sky-500 inline-block"></span>
+              <span className="w-3 h-3 rounded-full bg-sky-500 inline-block shadow-2xs"></span>
               {isCumplimiento ? "% Cump. Averías" : "% Ef. Averías"}
             </span>
             <span className="flex items-center gap-1.5 text-indigo-700">
-              <span className="w-3 h-3 rounded-full bg-indigo-600 inline-block"></span>
+              <span className="w-3 h-3 rounded-full bg-indigo-600 inline-block shadow-2xs"></span>
               {isCumplimiento ? "% Cump. Postventa" : "% Ef. Postventa"}
+            </span>
+            <span className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 text-[10.5px]">
+              <span className="w-3 h-0.5 border-t-2 border-dashed border-emerald-600 inline-block"></span>
+              Meta WIN (80%)
             </span>
           </div>
         </div>
 
         <div className="h-64 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={chartData} margin={{ top: 10, right: 15, left: -15, bottom: 0 }}>
+            <ComposedChart data={chartData} margin={{ top: 15, right: 25, left: -15, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.8} />
               <XAxis dataKey="mes" stroke="#64748b" fontSize={11} tickLine={false} />
-              <YAxis domain={[0, 100]} stroke="#64748b" fontSize={11} tickLine={false} unit="%" />
-              <RechartsTooltip
-                formatter={(value: any, name: any) => [`${value}%`, name]}
-                contentStyle={{
-                  backgroundColor: "rgba(255, 255, 255, 0.95)",
-                  borderRadius: "12px",
-                  border: "1px solid #e2e8f0",
-                  boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)",
-                  fontSize: "12px",
-                  fontWeight: "bold",
+              <YAxis domain={[0, 100]} stroke="#64748b" fontSize={11} tickLine={false} unit="%" ticks={[0, 25, 50, 75, 80, 100]} />
+              
+              {/* Línea de Meta 80% */}
+              <ReferenceLine
+                y={80}
+                stroke="#10b981"
+                strokeDasharray="4 4"
+                strokeWidth={1.5}
+                label={{
+                  value: "Meta 80%",
+                  fill: "#059669",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  position: "insideTopRight",
                 }}
               />
+
+              <RechartsTooltip
+                content={({ active, payload }) => {
+                  if (active && payload && payload.length) {
+                    const d = payload[0]?.payload;
+                    if (!d) return null;
+                    return (
+                      <div className="bg-white/95 backdrop-blur-md p-3 rounded-xl border border-slate-200 shadow-xl text-xs space-y-2 min-w-[190px]">
+                        <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-1.5">
+                          <span className="font-black text-slate-900">{d.nombreCompleto} {data?.anio || anioSeleccionado}</span>
+                          {d.isCurrentMonth && (
+                            <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 text-[9.5px] font-black rounded-full border border-emerald-300 animate-pulse">
+                              EN VIVO
+                            </span>
+                          )}
+                        </div>
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="flex items-center gap-1.5 font-bold text-sky-700">
+                              <span className="w-2 h-2 rounded-full bg-sky-500"></span>
+                              Averías:
+                            </span>
+                            <div className="text-right font-mono">
+                              <span className="font-black text-sky-950">{isCumplimiento ? d["% Cumpl. Averías"] : d["% Ef. Averías"]}%</span>
+                              <span className="text-[10px] text-slate-500 ml-1">({d.finAv}/{d.asigAv})</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="flex items-center gap-1.5 font-bold text-indigo-700">
+                              <span className="w-2 h-2 rounded-full bg-indigo-600"></span>
+                              Postventa:
+                            </span>
+                            <div className="text-right font-mono">
+                              <span className="font-black text-indigo-950">{isCumplimiento ? d["% Cumpl. Postventa"] : d["% Ef. Postventa"]}%</span>
+                              <span className="text-[10px] text-slate-500 ml-1">({d.finPv}/{d.asigPv})</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between gap-3 pt-1 border-t border-slate-100 text-[10.5px] text-emerald-700 font-bold">
+                            <span>🎯 Meta WIN:</span>
+                            <span className="font-mono">80.00%</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                }}
+              />
+
               <Line
                 type="monotone"
                 dataKey={isCumplimiento ? "% Cumpl. Averías" : "% Ef. Averías"}
                 name={isCumplimiento ? "% Cumplimiento Averías" : "% Efectividad Averías"}
                 stroke="#0284c7"
                 strokeWidth={3}
-                dot={{ r: 4, fill: "#0284c7" }}
-                activeDot={{ r: 6 }}
+                dot={{ r: 4, fill: "#0284c7", strokeWidth: 2, stroke: "#fff" }}
+                activeDot={{ r: 6, stroke: "#0284c7", strokeWidth: 2 }}
               />
               <Line
                 type="monotone"
@@ -903,8 +971,8 @@ export const MonthlyEffectivenessSection: React.FC = () => {
                 name={isCumplimiento ? "% Cumplimiento Postventa" : "% Efectividad Postventa"}
                 stroke="#6366f1"
                 strokeWidth={3}
-                dot={{ r: 4, fill: "#6366f1" }}
-                activeDot={{ r: 6 }}
+                dot={{ r: 4, fill: "#6366f1", strokeWidth: 2, stroke: "#fff" }}
+                activeDot={{ r: 6, stroke: "#6366f1", strokeWidth: 2 }}
               />
             </ComposedChart>
           </ResponsiveContainer>

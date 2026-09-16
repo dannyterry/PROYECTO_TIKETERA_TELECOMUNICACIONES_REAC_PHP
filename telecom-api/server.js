@@ -18,6 +18,7 @@ const { sincronizarTareasOrdenSeguro, getTareasDeBD, sincronizarTareasOrdenesAct
 const { getMotivosCatalogo, resolverTipoTrabajoConCatalogo, resolverTipoTrabajoOficial } = require('./services/tipoTrabajoHelper');
 const { hashPassword, verifyPassword, isHashed } = require("./lib/password");
 const { signToken, requireAuth } = require("./middleware/requireAuth");
+// [WIN-AUDIT] Layer enabled v1.1
 
 // CONFIGURACIÓN DE MULTER CON RUTA ABSOLUTA (Para compatibilidad con cPanel / Passenger)
 const uploadDir = path.join(__dirname, 'uploads');
@@ -8686,109 +8687,18 @@ app.get('/api/dashboard/efectividad-mensual-averias-postventa', async (req, res)
       aniosDisponibles.unshift(anio);
     }
 
-    // 1. Consulta A: Híbrida Inteligente (tipo_trabajo + motivo_finalizacion + producto)
+    // 1. Consulta A: Híbrida Inteligente (Desde Capa de Auditoría Cocinada ordenes_auditadas_win)
     const [rowsHibrido] = await pool.query(`
       SELECT 
-        MONTH(fecha_visita) as mes,
-        -- POSTVENTA: Asignadas (excluyendo órdenes Anuladas)
-        COUNT(CASE WHEN (
-          COALESCE(tipo_trabajo, '') LIKE '%TRASLADO%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%REUBICA%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%MESH%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%WIN BOX%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%WINBOX%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%WIFI%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%TELEFON%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%MUDANZA%' 
-          OR COALESCE(producto, '') LIKE '%POST%VENTA%' 
-          OR COALESCE(motivo_finalizacion, '') LIKE '%POST%VENTA%'
-        ) AND estado != 'Anulada' THEN 1 END) as asignadas_postventa,
-
-        -- POSTVENTA: Finalizadas
-        SUM(CASE WHEN (
-          COALESCE(tipo_trabajo, '') LIKE '%TRASLADO%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%REUBICA%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%MESH%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%WIN BOX%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%WINBOX%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%WIFI%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%TELEFON%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%MUDANZA%' 
-          OR COALESCE(producto, '') LIKE '%POST%VENTA%' 
-          OR COALESCE(motivo_finalizacion, '') LIKE '%POST%VENTA%'
-        ) AND (estado LIKE '%Finaliz%' OR estado LIKE '%Liquid%' OR estado LIKE '%Termin%') THEN 1 ELSE 0 END) as finalizadas_postventa,
-
-        -- POSTVENTA: Cumplidas
-        SUM(CASE WHEN (
-          COALESCE(tipo_trabajo, '') LIKE '%TRASLADO%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%REUBICA%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%MESH%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%WIN BOX%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%WINBOX%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%WIFI%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%TELEFON%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%MUDANZA%' 
-          OR COALESCE(producto, '') LIKE '%POST%VENTA%' 
-          OR COALESCE(motivo_finalizacion, '') LIKE '%POST%VENTA%'
-        ) AND (
-          estado LIKE '%Finaliz%' 
-          OR estado LIKE '%Liquid%' 
-          OR estado LIKE '%Termin%'
-          OR (estado = 'Cancelada' AND COALESCE(motivo_cancelacion, '') NOT LIKE '%INASISTENCIA PARTNER%' AND COALESCE(motivo_cancelacion, '') NOT LIKE '%TECNICO NO LLEGO%')
-        ) THEN 1 ELSE 0 END) as cumplidas_postventa,
-
-        -- AVERIAS: Asignadas
-        COUNT(CASE WHEN NOT (
-          COALESCE(tipo_trabajo, '') LIKE '%TRASLADO%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%REUBICA%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%MESH%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%WIN BOX%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%WINBOX%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%WIFI%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%TELEFON%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%MUDANZA%' 
-          OR COALESCE(producto, '') LIKE '%POST%VENTA%' 
-          OR COALESCE(motivo_finalizacion, '') LIKE '%POST%VENTA%'
-        ) AND estado != 'Anulada' THEN 1 END) as asignadas_averias,
-
-        -- AVERIAS: Finalizadas
-        SUM(CASE WHEN NOT (
-          COALESCE(tipo_trabajo, '') LIKE '%TRASLADO%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%REUBICA%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%MESH%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%WIN BOX%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%WINBOX%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%WIFI%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%TELEFON%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%MUDANZA%' 
-          OR COALESCE(producto, '') LIKE '%POST%VENTA%' 
-          OR COALESCE(motivo_finalizacion, '') LIKE '%POST%VENTA%'
-        ) AND (estado LIKE '%Finaliz%' OR estado LIKE '%Liquid%' OR estado LIKE '%Termin%') THEN 1 ELSE 0 END) as finalizadas_averias,
-
-        -- AVERIAS: Cumplidas
-        SUM(CASE WHEN NOT (
-          COALESCE(tipo_trabajo, '') LIKE '%TRASLADO%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%REUBICA%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%MESH%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%WIN BOX%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%WINBOX%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%WIFI%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%TELEFON%' 
-          OR COALESCE(tipo_trabajo, '') LIKE '%MUDANZA%' 
-          OR COALESCE(producto, '') LIKE '%POST%VENTA%' 
-          OR COALESCE(motivo_finalizacion, '') LIKE '%POST%VENTA%'
-        ) AND (
-          estado LIKE '%Finaliz%' 
-          OR estado LIKE '%Liquid%' 
-          OR estado LIKE '%Termin%'
-          OR (estado = 'Cancelada' AND COALESCE(motivo_cancelacion, '') NOT LIKE '%INASISTENCIA PARTNER%' AND COALESCE(motivo_cancelacion, '') NOT LIKE '%TECNICO NO LLEGO%')
-        ) THEN 1 ELSE 0 END) as cumplidas_averias
-      FROM ordenes
-      WHERE fecha_visita IS NOT NULL 
-        AND YEAR(fecha_visita) = ?
-        AND (cuadrilla IS NULL OR (TRIM(cuadrilla) NOT REGEXP '^[oO][0-9]+' AND TRIM(cuadrilla) NOT REGEXP '^[oO] ' AND TRIM(cuadrilla) NOT LIKE 'ORDENAMIENTO%'))
-        AND (cliente IS NULL OR (cliente NOT LIKE '%NORMALIZACI%' AND cliente NOT LIKE '%CONJUNTA PEXT%'))
-        AND (tipo_trabajo IS NULL OR tipo_trabajo NOT LIKE '%ORDENAMIENTO%')
+        mes,
+        SUM(CASE WHEN categoria_win = 'POSTVENTA' THEN es_asignada_win ELSE 0 END) as asignadas_postventa,
+        SUM(CASE WHEN categoria_win = 'POSTVENTA' THEN es_finalizada_win ELSE 0 END) as finalizadas_postventa,
+        SUM(CASE WHEN categoria_win = 'POSTVENTA' THEN es_finalizada_win ELSE 0 END) as cumplidas_postventa,
+        SUM(CASE WHEN categoria_win = 'AVERIAS' THEN es_asignada_win ELSE 0 END) as asignadas_averias,
+        SUM(CASE WHEN categoria_win = 'AVERIAS' THEN es_finalizada_win ELSE 0 END) as finalizadas_averias,
+        SUM(CASE WHEN categoria_win = 'AVERIAS' THEN es_finalizada_win ELSE 0 END) as cumplidas_averias
+      FROM ordenes_auditadas_win
+      WHERE anio = ?
       GROUP BY mes
       ORDER BY mes ASC
     `, [anio]);
@@ -8801,7 +8711,7 @@ app.get('/api/dashboard/efectividad-mensual-averias-postventa', async (req, res)
         COUNT(CASE WHEN (
           COALESCE(producto, '') LIKE '%POST%VENTA%' 
           OR COALESCE(tipo_orden, '') LIKE '%POST%VENTA%'
-        ) AND estado != 'Anulada' THEN 1 END) as asignadas_postventa,
+        ) AND estado != 'Anulada' AND estado NOT LIKE '%Regesti%' THEN 1 END) as asignadas_postventa,
 
         SUM(CASE WHEN (
           COALESCE(producto, '') LIKE '%POST%VENTA%' 
@@ -8822,7 +8732,7 @@ app.get('/api/dashboard/efectividad-mensual-averias-postventa', async (req, res)
         COUNT(CASE WHEN NOT (
           COALESCE(producto, '') LIKE '%POST%VENTA%' 
           OR COALESCE(tipo_orden, '') LIKE '%POST%VENTA%'
-        ) AND estado != 'Anulada' THEN 1 END) as asignadas_averias,
+        ) AND estado != 'Anulada' AND estado NOT LIKE '%Regesti%' THEN 1 END) as asignadas_averias,
 
         SUM(CASE WHEN NOT (
           COALESCE(producto, '') LIKE '%POST%VENTA%' 
@@ -8844,6 +8754,7 @@ app.get('/api/dashboard/efectividad-mensual-averias-postventa', async (req, res)
         AND (cuadrilla IS NULL OR (TRIM(cuadrilla) NOT REGEXP '^[oO][0-9]+' AND TRIM(cuadrilla) NOT REGEXP '^[oO] ' AND TRIM(cuadrilla) NOT LIKE 'ORDENAMIENTO%'))
         AND (cliente IS NULL OR (cliente NOT LIKE '%NORMALIZACI%' AND cliente NOT LIKE '%CONJUNTA PEXT%'))
         AND (tipo_trabajo IS NULL OR tipo_trabajo NOT LIKE '%ORDENAMIENTO%')
+        AND (motivo_finalizacion IS NULL OR motivo_finalizacion NOT LIKE '%CONJUNTA PEXT%')
       GROUP BY mes
       ORDER BY mes ASC
     `, [anio]);
@@ -8969,8 +8880,8 @@ app.get('/api/dashboard/efectividad-mensual-averias-postventa', async (req, res)
     };
 
     const datasetOficial = buildDataSet(rowsHibrido, true);
-    const datasetDbProducto = buildDataSet(rowsProducto, false);
-    const datasetDbHibrido = buildDataSet(rowsHibrido, false);
+    const datasetDbProducto = buildDataSet(rowsHibrido, true);
+    const datasetDbHibrido = buildDataSet(rowsHibrido, true);
 
     const cuadrillasOficiales = [
       { gestion: "AVERIAS", cantidad: 12 },
@@ -8993,6 +8904,288 @@ app.get('/api/dashboard/efectividad-mensual-averias-postventa', async (req, res)
     });
   } catch (error) {
     console.error("Error en /api/dashboard/efectividad-mensual-averias-postventa:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ============================================================
+// 🎯 CAPA DE AUDITORÍA WIN EN TIEMPO REAL (ordenes_auditadas_win)
+// ============================================================
+let winAuditEngine = null;
+try {
+  winAuditEngine = require('./services/winAuditEngine');
+} catch (e) {
+  console.warn("⚠️ [WinAuditEngine] Error al cargar:", e.message);
+}
+
+// 1. Resumen Mensual Auditado (Ultra rápido desde tabla cocinada)
+app.get('/api/win-audit/resumen', async (req, res) => {
+  try {
+    const anio = parseInt(req.query.anio, 10) || 2026;
+
+    const [rows] = await pool.query(`
+      SELECT 
+        mes,
+        SUM(CASE WHEN categoria_win = 'AVERIAS' THEN es_asignada_win ELSE 0 END) as av_asig,
+        SUM(CASE WHEN categoria_win = 'AVERIAS' THEN es_finalizada_win ELSE 0 END) as av_fin,
+        ROUND(SUM(CASE WHEN categoria_win = 'AVERIAS' THEN es_finalizada_win ELSE 0 END) / NULLIF(SUM(CASE WHEN categoria_win = 'AVERIAS' THEN es_asignada_win ELSE 0 END), 0) * 100, 2) as av_ef,
+        SUM(CASE WHEN categoria_win = 'POSTVENTA' THEN es_asignada_win ELSE 0 END) as pv_asig,
+        SUM(CASE WHEN categoria_win = 'POSTVENTA' THEN es_finalizada_win ELSE 0 END) as pv_fin,
+        ROUND(SUM(CASE WHEN categoria_win = 'POSTVENTA' THEN es_finalizada_win ELSE 0 END) / NULLIF(SUM(CASE WHEN categoria_win = 'POSTVENTA' THEN es_asignada_win ELSE 0 END), 0) * 100, 2) as pv_ef,
+        SUM(CASE WHEN categoria_win = 'PEXT_EXCLUIDO' THEN 1 ELSE 0 END) as pext_excluidas,
+        SUM(CASE WHEN categoria_win = 'ORDENAMIENTO_EXCLUIDO' THEN 1 ELSE 0 END) as ordenamiento_excluidas,
+        SUM(CASE WHEN categoria_win = 'ANULADA_EXCLUIDA' THEN 1 ELSE 0 END) as anuladas_excluidas,
+        SUM(CASE WHEN categoria_win = 'REGESTION_EXCLUIDA' THEN 1 ELSE 0 END) as regestiones_excluidas
+      FROM ordenes_auditadas_win
+      WHERE anio = ?
+      GROUP BY mes
+      ORDER BY mes ASC
+    `, [anio]);
+
+    const mesesNombres = [
+      "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+    ];
+
+    const meses = rows.map(r => ({
+      mesNumero: r.mes,
+      mesNombre: mesesNombres[r.mes - 1] || `Mes ${r.mes}`,
+      averias: {
+        asignadas: Number(r.av_asig) || 0,
+        finalizadas: Number(r.av_fin) || 0,
+        efectividad: Number(r.av_ef) || 0
+      },
+      postventa: {
+        asignadas: Number(r.pv_asig) || 0,
+        finalizadas: Number(r.pv_fin) || 0,
+        efectividad: Number(r.pv_ef) || 0
+      },
+      excluidas: {
+        pext: Number(r.pext_excluidas) || 0,
+        ordenamiento: Number(r.ordenamiento_excluidas) || 0,
+        anuladas: Number(r.anuladas_excluidas) || 0,
+        regestiones: Number(r.regestiones_excluidas) || 0
+      }
+    }));
+
+    // Totales Anuales
+    let totalAvAsig = 0, totalAvFin = 0, totalPvAsig = 0, totalPvFin = 0;
+    meses.forEach(m => {
+      totalAvAsig += m.averias.asignadas;
+      totalAvFin += m.averias.finalizadas;
+      totalPvAsig += m.postventa.asignadas;
+      totalPvFin += m.postventa.finalizadas;
+    });
+
+    const totalesAnio = {
+      averias: {
+        asignadas: totalAvAsig,
+        finalizadas: totalAvFin,
+        efectividad: totalAvAsig > 0 ? parseFloat(((totalAvFin / totalAvAsig) * 100).toFixed(2)) : 0
+      },
+      postventa: {
+        asignadas: totalPvAsig,
+        finalizadas: totalPvFin,
+        efectividad: totalPvAsig > 0 ? parseFloat(((totalPvFin / totalPvAsig) * 100).toFixed(2)) : 0
+      }
+    };
+
+    res.json({
+      success: true,
+      anio,
+      totalesAnio,
+      meses
+    });
+  } catch (error) {
+    console.error("Error en /api/win-audit/resumen:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 2. Consulta Detallada de Órdenes Auditadas (con filtros y paginación)
+app.get('/api/win-audit/ordenes', async (req, res) => {
+  try {
+    const anio = parseInt(req.query.anio, 10) || 2026;
+    const mes = req.query.mes ? parseInt(req.query.mes, 10) : null;
+    const categoria = req.query.categoria || '';
+    const busqueda = (req.query.busqueda || '').trim();
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(10, parseInt(req.query.limit, 10) || 25));
+    const offset = (page - 1) * limit;
+
+    let whereSql = "WHERE anio = ?";
+    const params = [anio];
+
+    if (mes) {
+      whereSql += " AND mes = ?";
+      params.push(mes);
+    }
+    if (categoria) {
+      whereSql += " AND categoria_win = ?";
+      params.push(categoria);
+    }
+    if (busqueda) {
+      whereSql += " AND (numero LIKE ? OR codigo_seguimiento LIKE ? OR cliente LIKE ? OR cuadrilla LIKE ?)";
+      const term = `%${busqueda}%`;
+      params.push(term, term, term, term);
+    }
+
+    const [countRows] = await pool.query(`SELECT COUNT(*) as total FROM ordenes_auditadas_win ${whereSql}`, params);
+    const total = countRows[0].total;
+
+    const [rows] = await pool.query(`
+      SELECT 
+        id_auditoria,
+        id_orden,
+        numero,
+        codigo_seguimiento,
+        cliente,
+        fecha_visita,
+        anio,
+        mes,
+        cuadrilla,
+        tipo_trabajo_original,
+        tipo_trabajo_asignado,
+        motivo_finalizacion,
+        producto,
+        estado_original,
+        categoria_win,
+        es_asignada_win,
+        es_finalizada_win,
+        regla_aplicada,
+        updated_at
+      FROM ordenes_auditadas_win
+      ${whereSql}
+      ORDER BY fecha_visita DESC, id_orden DESC
+      LIMIT ? OFFSET ?
+    `, [...params, limit, offset]);
+
+    res.json({
+      success: true,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+      data: rows
+    });
+  } catch (error) {
+    console.error("Error en /api/win-audit/ordenes:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 3. Recalcular y Actualizar Capa de Auditoría WIN
+app.post('/api/win-audit/recalcular', async (req, res) => {
+  try {
+    if (!winAuditEngine) {
+      return res.status(500).json({ success: false, error: "Motor de auditoría no disponible" });
+    }
+
+    const anio = parseInt(req.body.anio, 10) || null;
+    let query = `
+      SELECT 
+        id_orden,
+        numero,
+        codigo_seguimiento,
+        cliente,
+        fecha_visita,
+        YEAR(fecha_visita) as anio,
+        MONTH(fecha_visita) as mes,
+        cuadrilla,
+        tipo_trabajo,
+        tipo_trabajo_asignado,
+        motivo_finalizacion,
+        producto,
+        estado
+      FROM ordenes
+      WHERE fecha_visita IS NOT NULL
+    `;
+    const params = [];
+    if (anio) {
+      query += " AND YEAR(fecha_visita) = ?";
+      params.push(anio);
+    }
+
+    const [ordenes] = await pool.query(query, params);
+    let procesadas = 0;
+    const batchSize = 500;
+
+    for (let i = 0; i < ordenes.length; i += batchSize) {
+      const batch = ordenes.slice(i, i + batchSize);
+      const values = [];
+
+      for (const ord of batch) {
+        const audit = winAuditEngine.clasificarOrdenWin(ord);
+        values.push([
+          ord.id_orden,
+          ord.numero,
+          ord.codigo_seguimiento,
+          ord.cliente,
+          ord.fecha_visita,
+          ord.anio,
+          ord.mes,
+          ord.cuadrilla,
+          ord.tipo_trabajo,
+          ord.tipo_trabajo_asignado,
+          ord.motivo_finalizacion,
+          ord.producto,
+          ord.estado,
+          audit.categoria,
+          audit.esAsignada,
+          audit.esFinalizada,
+          audit.regla,
+        ]);
+      }
+
+      await pool.query(`
+        INSERT INTO ordenes_auditadas_win (
+          id_orden,
+          numero,
+          codigo_seguimiento,
+          cliente,
+          fecha_visita,
+          anio,
+          mes,
+          cuadrilla,
+          tipo_trabajo_original,
+          tipo_trabajo_asignado,
+          motivo_finalizacion,
+          producto,
+          estado_original,
+          categoria_win,
+          es_asignada_win,
+          es_finalizada_win,
+          regla_aplicada
+        ) VALUES ?
+        ON DUPLICATE KEY UPDATE
+          numero = VALUES(numero),
+          codigo_seguimiento = VALUES(codigo_seguimiento),
+          cliente = VALUES(cliente),
+          fecha_visita = VALUES(fecha_visita),
+          anio = VALUES(anio),
+          mes = VALUES(mes),
+          cuadrilla = VALUES(cuadrilla),
+          tipo_trabajo_original = VALUES(tipo_trabajo_original),
+          tipo_trabajo_asignado = VALUES(tipo_trabajo_asignado),
+          motivo_finalizacion = VALUES(motivo_finalizacion),
+          producto = VALUES(producto),
+          estado_original = VALUES(estado_original),
+          categoria_win = VALUES(categoria_win),
+          es_asignada_win = VALUES(es_asignada_win),
+          es_finalizada_win = VALUES(es_finalizada_win),
+          regla_aplicada = VALUES(regla_aplicada),
+          updated_at = NOW()
+      `, [values]);
+
+      procesadas += batch.length;
+    }
+
+    res.json({
+      success: true,
+      message: `Auditoría recalculada exitosamente para ${procesadas} órdenes.`,
+      totalProcesadas: procesadas
+    });
+  } catch (error) {
+    console.error("Error en /api/win-audit/recalcular:", error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });

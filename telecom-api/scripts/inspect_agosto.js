@@ -1,0 +1,206 @@
+const pool = require('../db');
+
+async function inspectAgosto() {
+  try {
+    console.log("=== INSPECCIÓN A FONDO AGOSTO 2026 ===\n");
+
+    const oficial = {
+      averias: { asig: 1129, fin: 915, canc: 214, ef: 81.05 },
+      postventa: { asig: 137, fin: 111, canc: 26, ef: 81.02 },
+      total: { asig: 1266, fin: 1026, canc: 240 }
+    };
+
+    // 1. Conteo total de órdenes en Agosto 2026 por estado
+    const [totales] = await pool.query(`
+      SELECT 
+        estado,
+        COUNT(*) as total
+      FROM ordenes
+      WHERE YEAR(fecha_visita) = 2026 AND MONTH(fecha_visita) = 8
+        AND (cuadrilla IS NULL OR (TRIM(cuadrilla) NOT REGEXP '^[oO][0-9]+' AND TRIM(cuadrilla) NOT REGEXP '^[oO] ' AND TRIM(cuadrilla) NOT LIKE 'ORDENAMIENTO%'))
+        AND (cliente IS NULL OR (cliente NOT LIKE '%NORMALIZACI%' AND cliente NOT LIKE '%CONJUNTA PEXT%'))
+        AND (tipo_trabajo IS NULL OR tipo_trabajo NOT LIKE '%ORDENAMIENTO%')
+      GROUP BY estado
+      ORDER BY total DESC
+    `);
+    console.log("1. Total de órdenes en Agosto por Estado:", totales);
+
+    // 2. Conteo preliminar aplicando las reglas consolidadas
+    const [statsPrelim] = await pool.query(`
+      SELECT 
+        -- POSTVENTA
+        COUNT(CASE WHEN (
+          COALESCE(tipo_trabajo, '') LIKE '%TRASLADO%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%REUBICA%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%MESH%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%WIN BOX%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%WINBOX%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%WIFI%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%TELEFON%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%MUDANZA%' 
+          OR COALESCE(producto, '') LIKE '%POST%VENTA%' 
+          OR COALESCE(motivo_finalizacion, '') LIKE '%POST%VENTA%'
+          OR COALESCE(motivo_finalizacion, '') LIKE '%MESH%'
+          OR (COALESCE(tipo_trabajo, '') LIKE '%ADICIONAL%' AND COALESCE(tipo_trabajo_asignado, '') NOT LIKE '%LOS ROJO%')
+        ) AND estado != 'Anulada' AND estado NOT LIKE '%Regesti%' THEN 1 END) as pv_asig,
+
+        SUM(CASE WHEN (
+          COALESCE(tipo_trabajo, '') LIKE '%TRASLADO%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%REUBICA%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%MESH%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%WIN BOX%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%WINBOX%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%WIFI%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%TELEFON%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%MUDANZA%' 
+          OR COALESCE(producto, '') LIKE '%POST%VENTA%' 
+          OR COALESCE(motivo_finalizacion, '') LIKE '%POST%VENTA%'
+          OR COALESCE(motivo_finalizacion, '') LIKE '%MESH%'
+          OR (COALESCE(tipo_trabajo, '') LIKE '%ADICIONAL%' AND COALESCE(tipo_trabajo_asignado, '') NOT LIKE '%LOS ROJO%')
+        ) AND (estado LIKE '%Finaliz%' OR estado LIKE '%Liquid%' OR estado LIKE '%Termin%') THEN 1 ELSE 0 END) as pv_fin,
+
+        -- AVERIAS
+        COUNT(CASE WHEN NOT (
+          COALESCE(tipo_trabajo, '') LIKE '%TRASLADO%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%REUBICA%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%MESH%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%WIN BOX%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%WINBOX%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%WIFI%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%TELEFON%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%MUDANZA%' 
+          OR COALESCE(producto, '') LIKE '%POST%VENTA%' 
+          OR COALESCE(motivo_finalizacion, '') LIKE '%POST%VENTA%'
+          OR COALESCE(motivo_finalizacion, '') LIKE '%MESH%'
+          OR (COALESCE(tipo_trabajo, '') LIKE '%ADICIONAL%' AND COALESCE(tipo_trabajo_asignado, '') NOT LIKE '%LOS ROJO%')
+        ) AND estado != 'Anulada' AND estado NOT LIKE '%Regesti%' THEN 1 END) as av_asig,
+
+        SUM(CASE WHEN NOT (
+          COALESCE(tipo_trabajo, '') LIKE '%TRASLADO%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%REUBICA%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%MESH%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%WIN BOX%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%WINBOX%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%WIFI%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%TELEFON%' 
+          OR COALESCE(tipo_trabajo, '') LIKE '%MUDANZA%' 
+          OR COALESCE(producto, '') LIKE '%POST%VENTA%' 
+          OR COALESCE(motivo_finalizacion, '') LIKE '%POST%VENTA%'
+          OR COALESCE(motivo_finalizacion, '') LIKE '%MESH%'
+          OR (COALESCE(tipo_trabajo, '') LIKE '%ADICIONAL%' AND COALESCE(tipo_trabajo_asignado, '') NOT LIKE '%LOS ROJO%')
+        ) AND (estado LIKE '%Finaliz%' OR estado LIKE '%Liquid%' OR estado LIKE '%Termin%') THEN 1 ELSE 0 END) as av_fin
+
+      FROM ordenes
+      WHERE YEAR(fecha_visita) = 2026 AND MONTH(fecha_visita) = 8
+        AND (cuadrilla IS NULL OR (TRIM(cuadrilla) NOT REGEXP '^[oO][0-9]+' AND TRIM(cuadrilla) NOT REGEXP '^[oO] ' AND TRIM(cuadrilla) NOT LIKE 'ORDENAMIENTO%'))
+        AND (cliente IS NULL OR (cliente NOT LIKE '%NORMALIZACI%' AND cliente NOT LIKE '%CONJUNTA PEXT%'))
+        AND (tipo_trabajo IS NULL OR tipo_trabajo NOT LIKE '%ORDENAMIENTO%')
+        AND (motivo_finalizacion IS NULL OR motivo_finalizacion NOT LIKE '%CONJUNTA PEXT%')
+    `);
+
+    const r = statsPrelim[0];
+    console.log("\n2. Comparativa Inicial Agosto:");
+    console.log(`  AVERÍAS:   Oficial WIN [${oficial.averias.asig} Asig, ${oficial.averias.fin} Fin, ${oficial.averias.ef}%] | BD [${r.av_asig} Asig, ${r.av_fin} Fin, ${((r.av_fin/r.av_asig)*100).toFixed(2)}%]`);
+    console.log(`  POSTVENTA: Oficial WIN [${oficial.postventa.asig} Asig, ${oficial.postventa.fin} Fin, ${oficial.postventa.ef}%] | BD [${r.pv_asig} Asig, ${r.pv_fin} Fin, ${((r.pv_fin/r.pv_asig)*100).toFixed(2)}%]`);
+    console.log(`  TOTALES:   Oficial WIN [${oficial.total.asig} Asig, ${oficial.total.fin} Fin] | BD [${r.av_asig + r.pv_asig} Asig, ${r.av_fin + r.pv_fin} Fin]`);
+    console.log(`  Diferencia Total Asignadas: ${(r.av_asig + r.pv_asig) - oficial.total.asig}`);
+    console.log(`  Diferencia Total Finalizadas: ${(r.av_fin + r.pv_fin) - oficial.total.fin}`);
+
+    // 3. Revisar Conjuntas PEXT en Agosto
+    const [conjuntas] = await pool.query(`
+      SELECT 
+        id_orden,
+        numero,
+        codigo_seguimiento,
+        cliente,
+        tipo_trabajo,
+        motivo_finalizacion,
+        cuadrilla,
+        fecha_visita,
+        estado
+      FROM ordenes
+      WHERE YEAR(fecha_visita) = 2026 AND MONTH(fecha_visita) = 8
+        AND motivo_finalizacion LIKE '%CONJUNTA PEXT%'
+    `);
+    console.log(`\n3. Conjuntas PEXT en Agosto (${conjuntas.length}):`);
+    console.table(conjuntas.map(c => ({
+      id: c.id_orden,
+      ot: c.numero,
+      ticket: c.codigo_seguimiento,
+      cliente: c.cliente?.slice(0, 25),
+      motivo: c.motivo_finalizacion,
+      fecha: String(c.fecha_visita).slice(0, 10)
+    })));
+
+    // 4. Órdenes con ADICIONAL / WIFI PRO / SPLITTER / MESH en Agosto
+    const [especiales] = await pool.query(`
+      SELECT 
+        id_orden,
+        numero,
+        codigo_seguimiento,
+        cliente,
+        tipo_trabajo,
+        tipo_trabajo_asignado,
+        producto,
+        motivo_finalizacion,
+        cuadrilla,
+        fecha_visita,
+        estado
+      FROM ordenes
+      WHERE YEAR(fecha_visita) = 2026 AND MONTH(fecha_visita) = 8
+        AND estado = 'Finalizada'
+        AND (
+          tipo_trabajo LIKE '%ADICIONAL%'
+          OR motivo_finalizacion LIKE '%WIFI PRO%'
+          OR motivo_finalizacion LIKE '%SPLITTER%'
+          OR motivo_finalizacion LIKE '%MESH%'
+          OR motivo_finalizacion LIKE '%WINBOX%'
+          OR motivo_finalizacion LIKE '%PHONO%'
+        )
+    `);
+    console.log(`\n4. Órdenes Especiales en Agosto (${especiales.length}):`);
+    console.table(especiales.map(e => ({
+      id: e.id_orden,
+      ot: e.numero,
+      ticket: e.codigo_seguimiento,
+      cliente: e.cliente?.slice(0, 25),
+      tipo: e.tipo_trabajo,
+      tipo_asig: e.tipo_trabajo_asignado,
+      motivo: e.motivo_finalizacion,
+      fecha: String(e.fecha_visita).slice(0, 10)
+    })));
+
+    // 5. Visitas simultáneas en Agosto (mismo cliente, misma fecha, mismo técnico)
+    const [simultaneas] = await pool.query(`
+      SELECT 
+        cliente,
+        DATE(fecha_visita) as fecha,
+        cuadrilla,
+        COUNT(*) as total_ordenes,
+        GROUP_CONCAT(numero) as ots,
+        GROUP_CONCAT(tipo_trabajo) as tipos,
+        GROUP_CONCAT(motivo_finalizacion) as motivos
+      FROM ordenes
+      WHERE YEAR(fecha_visita) = 2026 AND MONTH(fecha_visita) = 8
+        AND estado = 'Finalizada'
+        AND (cuadrilla IS NULL OR (TRIM(cuadrilla) NOT REGEXP '^[oO][0-9]+' AND TRIM(cuadrilla) NOT REGEXP '^[oO] ' AND TRIM(cuadrilla) NOT LIKE 'ORDENAMIENTO%'))
+      GROUP BY cliente, fecha, cuadrilla
+      HAVING total_ordenes > 1
+      LIMIT 10
+    `);
+    console.log(`\n5. Visitas Simultáneas / Múltiples OTs en Agosto (${simultaneas.length} casos mostrados):`);
+    console.table(simultaneas.map(s => ({
+      cliente: s.cliente?.slice(0, 25),
+      fecha: String(s.fecha).slice(0, 10),
+      ots: s.ots,
+      cuadrilla: s.cuadrilla?.slice(0, 25)
+    })));
+
+    process.exit(0);
+  } catch (err) {
+    console.error(err);
+    process.exit(1);
+  }
+}
+
+inspectAgosto();
