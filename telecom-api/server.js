@@ -2565,8 +2565,8 @@ app.get(['/api/ordenes/alertas-gestion', '/ordenes/alertas-gestion'], async (req
           whatsapp_msg: `🚨 *AVISO DE GESTIÓN*: El técnico *${t.nombre_completo}* (DNI: ${t.documento || "S/D"}, Cuadrilla: ${t.cuadrilla || "S/C"}) ${asistio ? `marcó asistencia a las ${t.hora_entrada?.slice(0, 5) || "07:30"}` : "tiene turno activo hoy"} pero *NO TIENE ÓRDENES ASIGNADAS* en el sistema. Favor de verificar y asignarle trabajo.`
         });
       }
-      // 🟢 CASO B: El técnico completó todas sus órdenes asignadas y está libre / desocupado
-      else if (ordenesActivas.length === 0 && ordenesCompletadas.length > 0) {
+      // 🟢 CASO B: El técnico completó todas sus órdenes o se le cancelaron/regestionaron y está libre / desocupado
+      else if (ordenesActivas.length === 0) {
         let horaFin = '';
         for (const o of ordenesCompletadas) {
           const f = o.fin_visita || o.fecha_sincronizacion;
@@ -2579,9 +2579,35 @@ app.get(['/api/ordenes/alertas-gestion', '/ordenes/alertas-gestion'], async (req
           }
         }
 
-        const ordenesTexto = ordenesCompletadas.length === 1 ? 'su orden' : `sus ${ordenesCompletadas.length} órdenes`;
-        const ordenesTextoWA = ordenesCompletadas.length === 1 ? 'su orden asignada' : `sus ${ordenesCompletadas.length} órdenes asignadas`;
-        const horaFinTexto = horaFin ? ` a las ${horaFin}` : '';
+        const ordenesCanceladas = misOrdenes.filter(o => {
+          const s = normalizeStr(o.estado || '');
+          return s.includes('cancel') || s.includes('anul') || s.includes('regest');
+        });
+
+        let mensajeTexto = '';
+        let mensajeWA = '';
+        let motivoLibre = 'completado';
+
+        if (ordenesCompletadas.length > 0) {
+          const ordenesTexto = ordenesCompletadas.length === 1 ? 'su orden' : `sus ${ordenesCompletadas.length} órdenes`;
+          const ordenesTextoWA = ordenesCompletadas.length === 1 ? 'su orden asignada' : `sus ${ordenesCompletadas.length} órdenes asignadas`;
+          const horaFinTexto = horaFin ? ` a las ${horaFin}` : '';
+          mensajeTexto = `Completó ${ordenesTexto} del día${horaFinTexto}. Actualmente se encuentra libre sin órdenes pendientes para el tramo ${proximoTramoTexto}.`;
+          mensajeWA = `🚨 *AVISO DE GESTIÓN*: El técnico *${t.nombre_completo}* (Cuadrilla: ${t.cuadrilla || "S/C"}) ya culminó ${ordenesTextoWA}${horaFinTexto} y se encuentra *DISPONIBLE* para asignación en el tramo de la tarde (${proximoTramoTexto}).`;
+          motivoLibre = 'completado';
+        } else if (ordenesCanceladas.length > 0) {
+          const cCount = ordenesCanceladas.length;
+          const ordenesTexto = cCount === 1 ? 'su orden del día fue cancelada/regestionada' : `sus ${cCount} órdenes del día fueron canceladas/regestionadas`;
+          mensajeTexto = `Registra que ${ordenesTexto}. Actualmente se encuentra desocupado sin órdenes activas para el tramo ${proximoTramoTexto}.`;
+          mensajeWA = `🚨 *AVISO DE GESTIÓN*: El técnico *${t.nombre_completo}* (Cuadrilla: ${t.cuadrilla || "S/C"}) registra que ${ordenesTexto} y se encuentra *DISPONIBLE* para reasignación en el tramo (${proximoTramoTexto}).`;
+          motivoLibre = 'cancelada';
+        }
+
+        const ultimaOrden = ordenesCompletadas.length > 0 
+          ? ordenesCompletadas[ordenesCompletadas.length - 1] 
+          : (ordenesCanceladas.length > 0 ? ordenesCanceladas[ordenesCanceladas.length - 1] : null);
+        const ultimaOrdenNumero = ultimaOrden ? (ultimaOrden.numero || ultimaOrden.numero_orden || '') : '';
+        const ultimaOrdenId = ultimaOrden ? ultimaOrden.id_orden : null;
 
         tecnicos_sin_orden.push({
           id_usuario: t.id_usuario,
@@ -2592,12 +2618,16 @@ app.get(['/api/ordenes/alertas-gestion', '/ordenes/alertas-gestion'], async (req
           hora_entrada: t.hora_entrada || null,
           asistio_hoy: asistio,
           tipo_alerta: 'desocupado',
+          motivo_libre: motivoLibre,
           total_ordenes: totalOrdenes,
           ordenes_finalizadas: ordenesCompletadas.length,
+          ordenes_canceladas: ordenesCanceladas.length,
+          ultima_orden_numero: ultimaOrdenNumero,
+          ultima_orden_id: ultimaOrdenId,
           hora_fin: horaFin || null,
           proximo_tramo: proximoTramoTexto,
-          mensaje: `Completó ${ordenesTexto} del día${horaFinTexto}. Actualmente se encuentra libre sin órdenes pendientes para el tramo ${proximoTramoTexto}.`,
-          whatsapp_msg: `🚨 *AVISO DE GESTIÓN*: El técnico *${t.nombre_completo}* (Cuadrilla: ${t.cuadrilla || "S/C"}) ya culminó ${ordenesTextoWA}${horaFinTexto} y se encuentra *DISPONIBLE* para asignación en el tramo de la tarde (${proximoTramoTexto}).`
+          mensaje: mensajeTexto,
+          whatsapp_msg: mensajeWA
         });
       }
     }
@@ -4472,7 +4502,7 @@ app.get('/api/movilidad/dashboard-km', async (req, res) => {
             const tramo = Math.round(calcularDistanciaHaversine(prev.lat, prev.lng, lat, lng) * 1.35 * 10) / 10;
             kmAcum += tramo;
           }
-          puntosRuta.push({ lat, lng });
+          puntosRuta.push({ lat, lng, orden_id: ord.id_orden, cliente: ord.cliente });
         }
       }
 
@@ -9090,6 +9120,27 @@ app.get(['/api/looker/estado-sesion', '/looker/estado-sesion'], async (req, res)
     });
   } catch (err) {
     res.json({ success: true, activo: false, totalGeneral: 0, totalAlertasSur: 0, error: err.message });
+  }
+});
+app.all(['/api/looker/clear', '/looker/clear'], async (req, res) => {
+  try {
+    const cachePath = path.join(__dirname, 'cards_and_alerts.json');
+    const emptyState = {
+      timestamp: new Date().toISOString(),
+      totalGeneral: 0,
+      totalAlertasSur: 0,
+      resumenZonas: {},
+      cards: {
+        "AVERIAS PREFERENTE": { total: 0, zonas: {}, ordenes: [] },
+        "AVERIAS ALTO VALOR": { total: 0, zonas: {}, ordenes: [] },
+        "MOTOWIN ZONAS": { total: 0, zonas: {}, ordenes: [] }
+      },
+      alertasSur: []
+    };
+    fs.writeFileSync(cachePath, JSON.stringify(emptyState, null, 2));
+    return res.json({ success: true, message: 'Alertas de Looker limpiadas exitosamente' });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error.message });
   }
 });
 

@@ -1,0 +1,223 @@
+// Bookmarklet optimizado y robusto para Google Looker Studio
+(function(){
+  if (!location.hostname.includes("datastudio.google.com") && !location.hostname.includes("lookerstudio.google.com")) {
+    alert("⚠️ Abre primero Google Looker Studio en la pestaña activa y haz clic aquí.");
+    return;
+  }
+
+  function cleanDist(d) {
+    var s = (d || "").replace(/\.{2,}/g, "").trim();
+    var up = s.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (up.includes("VILLA MARIA") || up.includes("VMT")) return "Villa María del Triunfo";
+    if (up.includes("CHORRILLOS")) return "Chorrillos";
+    if (up.includes("SURCO") || up.includes("SANTIAGO")) return "Santiago de Surco";
+    if (up.includes("SAN JUAN DE MIRA") || up.includes("SJM")) return "San Juan de Miraflores";
+    if (up.includes("VILLA EL SAL") || up.includes("VES")) return "Villa El Salvador";
+    if (up.includes("LURIN")) return "Lurín";
+    if (up.includes("PACHACAMAC")) return "Pachacámac";
+    if (up.includes("CERCADO") || up.includes("LIMA")) return "Cercado de Lima";
+    if (up.includes("SAN MARTIN")) return "San Martín de Porres";
+    if (up.includes("SAN MIGUEL")) return "San Miguel";
+    if (up.includes("LA MOLINA")) return "La Molina";
+    if (up.includes("LINCE")) return "Lince";
+    if (up.includes("LURIGANCHO") || up.includes("SJL")) return "San Juan de Lurigancho";
+    if (up.includes("PUEBLO LIBRE")) return "Pueblo Libre";
+    if (up.includes("BRENA") || up.includes("BREÑA") || up.includes("BRES")) return "Breña";
+    if (up.includes("PUNTA NEGRA")) return "Punta Negra";
+    if (up.includes("SURQUILLO")) return "Surquillo";
+    return s || "Zona Sur";
+  }
+
+  function sync() {
+    try {
+      var c = document.cookie || "";
+      var xm = c.match(/RAP_XSRF_TOKEN=([^;]+)/);
+      var x = xm ? xm[1] : "";
+      var o = [];
+
+      // 1. Extraer todas las filas de tablas y contenedores de datos en Looker Studio
+      var rows = Array.from(document.querySelectorAll('tr, [role="row"], div.table-row, div.grid-row, div[data-row-index]'));
+      var currentCard = "AVERIAS PREFERENTE";
+      var prefix = "PREF-";
+      var tipo = "AVERIAS";
+
+      // Si no hay filas de tabla clásicas, buscar en todos los divs con texto estructurado
+      if (rows.length === 0) {
+        rows = Array.from(document.querySelectorAll('div, p, span')).filter(function(el) {
+          return el.children.length === 0 && /\b(SUR\s*\d+|NORTE\s*\d+|ESTE\s*\d+|CENTRO\s*\d+|OESTE\s*\d+)\b/i.test(el.innerText || '');
+        });
+      }
+
+      rows.forEach(function(row) {
+        var text = (row.innerText || "").trim();
+        var textUp = text.toUpperCase();
+
+        if (textUp.includes("AVERIAS PREFERENTE")) { currentCard = "AVERIAS PREFERENTE"; prefix = "PREF-"; tipo = "AVERIAS"; return; }
+        if (textUp.includes("AVERIAS ALTO VALOR") || textUp.includes("ALTO VALOR")) { currentCard = "AVERIAS ALTO VALOR"; prefix = "ALTO-"; tipo = "AVERIAS ALTO VALOR"; return; }
+        if (textUp.includes("MOTOWIN ZONAS") || textUp.includes("MOTOWIN")) { currentCard = "MOTOWIN ZONAS"; prefix = "MOTO-"; tipo = "MOTOWIN"; return; }
+
+        if (textUp.includes("SUBTOTAL") || textUp.includes("DISTRITO") || textUp.includes("TRAMO HORARIO") || textUp.includes("TOTAL GENERAL")) return;
+
+        var zMatch = text.match(/\b(SUR\s*\d+|NORTE\s*\d+|ESTE\s*\d+|CENTRO\s*\d+|OESTE\s*\d+)\b/i);
+        if (!zMatch) return;
+        var z = zMatch[1].toUpperCase().replace(/\s+/g, " ");
+
+        var cells = Array.from(row.querySelectorAll('td, [role="gridcell"], div.cell, div.grid-cell'));
+        var rawDist = "";
+        var numbers = [];
+
+        if (cells.length >= 2) {
+          rawDist = cells[1] ? cells[1].innerText : "";
+          for (var k = 2; k < cells.length; k++) {
+            var val = parseInt((cells[k].innerText || "").trim(), 10);
+            if (!isNaN(val) && val > 0) numbers.push(val);
+          }
+        }
+
+        if (!rawDist || rawDist.toUpperCase().includes(z)) {
+          var parts = text.split(zMatch[0]);
+          rawDist = parts[0] ? parts[0].trim() : (parts[1] ? parts[1].trim() : "");
+        }
+
+        var dist = cleanDist(rawDist);
+        var cnt = numbers.length > 0 ? numbers[numbers.length - 1] : 1;
+        if (cnt <= 0 || isNaN(cnt)) cnt = 1;
+
+        var fj = "12:00-15:59";
+        if (textUp.includes("16:00")) fj = "16:00-20:00";
+        else if (textUp.includes("08:00")) fj = "08:00-11:59";
+
+        for (var k = 0; k < cnt; k++) {
+          o.push({
+            ticket: prefix + z.replace(/\s+/g, "") + (cnt > 1 ? ("-" + (k + 1)) : ""),
+            distrito: dist,
+            direccion: dist + " (" + z + ")",
+            zona_nodo: z,
+            franja_horaria: fj,
+            motivo: tipo + " CRM",
+            vehiculo_tipo: tipo,
+            tarjeta: currentCard
+          });
+        }
+      });
+
+      var prefCount = o.filter(function(ord) { return ord.vehiculo_tipo === "AVERIAS" && !ord.tarjeta.includes("ALTO"); }).length;
+      var altoCount = o.filter(function(ord) { return ord.tarjeta.includes("ALTO"); }).length;
+      var motoCount = o.filter(function(ord) { return ord.vehiculo_tipo === "MOTOWIN"; }).length;
+      var totCount = o.length;
+
+      var surOrders = o.filter(function(ord) {
+        var zU = (ord.zona_nodo || "").toUpperCase();
+        var dU = (ord.distrito || "").toUpperCase();
+        return zU.includes("SUR") || dU.includes("CHORRILLOS") || dU.includes("VILLA MARIA") || dU.includes("SURCO") || dU.includes("MIRAFLORES") || dU.includes("SALVADOR") || dU.includes("LURIN") || dU.includes("PACHACAMAC") || dU.includes("SURQUILLO");
+      });
+      var sur = surOrders.length;
+
+      var payloadObj = {
+        url: location.href,
+        cookie: c,
+        x_rap_xsrf_token: x,
+        domOrders: o,
+        cardsSummary: { preferente: prefCount, altoValor: altoCount, motowin: motoCount, total: totCount },
+        timestamp: new Date().toISOString()
+      };
+      var payloadStr = JSON.stringify(payloadObj);
+
+      // 2. Envío simultáneo / redundante: Localhost + Hosting
+      var endpoints = [
+        "http://localhost:3000/api/looker/sync-browser",
+        "https://api.corporacioncespedes.com/api/looker/sync-browser"
+      ];
+
+      endpoints.forEach(function(url) {
+        // Intento 1: fetch POST con JSON
+        try {
+          fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: payloadStr,
+            mode: "cors"
+          }).catch(function() {
+            // Intento 2 (Fallback si hay bloqueo CORS): sendBeacon
+            try {
+              var blob = new Blob([payloadStr], { type: "application/json" });
+              navigator.sendBeacon(url, blob);
+            } catch(e) {}
+          });
+        } catch(e) {}
+      });
+
+      // Intento 3 (Fallback clásico Formulario oculto en iFrame)
+      try {
+        var ifr = document.getElementById("ces_ifr");
+        if (!ifr) {
+          ifr = document.createElement("iframe");
+          ifr.id = "ces_ifr";
+          ifr.name = "ces_ifr";
+          ifr.style.display = "none";
+          document.body.appendChild(ifr);
+        }
+        var f = document.createElement("form");
+        f.method = "POST";
+        f.action = "http://localhost:3000/api/looker/sync-browser";
+        f.target = "ces_ifr";
+        var inp = document.createElement("input");
+        inp.type = "hidden";
+        inp.name = "payload";
+        inp.value = payloadStr;
+        f.appendChild(inp);
+        document.body.appendChild(f);
+        f.submit();
+        setTimeout(function() { f.remove(); }, 1500);
+      } catch(e) {}
+
+      return { sur: sur, tot: totCount, pref: prefCount, alto: altoCount, moto: motoCount };
+    } catch (err) {
+      console.error("Error en sync:", err);
+      return null;
+    }
+  }
+
+  function auto() {
+    try {
+      var btns = Array.from(document.querySelectorAll('button, div[role="button"]'));
+      var rB = btns.find(function(b) { return (b.innerText || "").trim().toLowerCase() === "restablecer"; });
+      if (rB) rB.click();
+    } catch(e) {}
+
+    setTimeout(function() {
+      var res = sync();
+      var badge = document.getElementById("ces_badge");
+      if (!badge) {
+        badge = document.createElement("div");
+        badge.id = "ces_badge";
+        badge.style.cssText = "position:fixed;top:16px;right:16px;z-index:999999999;background:#0f172a;color:#f8fafc;padding:12px 18px;border-radius:12px;font-family:system-ui,-apple-system,sans-serif;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,0.4);border:2px solid #38bdf8;font-weight:bold;line-height:1.4;";
+        document.body.appendChild(badge);
+      }
+
+      if (res && res.tot !== null && res.tot !== undefined) {
+        if (res.tot > 0) {
+          var surTag = res.sur > 0 
+            ? '<span style="color:#fecaca;background:rgba(220,38,38,0.5);padding:2px 7px;border-radius:6px;margin-left:4px;">🚨 Sur: ' + res.sur + '</span>'
+            : '<span style="color:#bbf7d0;">Sur: 0</span>';
+
+          badge.style.borderColor = "#10b981";
+          badge.innerHTML = "✅ <b>Céspedes Sincronizado</b> (" + surTag + " | Total: " + res.tot + ")<br>" +
+            "<span style='font-size:11px;font-weight:normal;color:#94a3b8;'>Pref: " + res.pref + " | Alto: " + res.alto + " | Moto: " + res.moto + "</span><br>" +
+            "<span style='font-size:10px;font-weight:normal;color:#38bdf8;'>🔄 Auto-Sync cada 2.5 min</span>";
+        } else {
+          badge.style.borderColor = "#10b981";
+          badge.innerHTML = "✅ <b>Céspedes Sincronizado</b> (0 Averías activas - Al día)<br>" +
+            "<span style='font-size:10px;font-weight:normal;color:#38bdf8;'>🔄 Auto-Sync cada 2.5 min</span>";
+        }
+      } else {
+        badge.style.borderColor = "#f59e0b";
+        badge.innerHTML = "⚠️ <b>Looker Detectado</b> (Leyendo página...)<br><span style='font-size:10px;font-weight:normal;color:#cbd5e1;'>Reintentando en 10 seg...</span>";
+      }
+    }, 1500);
+  }
+
+  if (window._cesInt) clearInterval(window._cesInt);
+  auto();
+  window._cesInt = setInterval(auto, 150000);
+})();

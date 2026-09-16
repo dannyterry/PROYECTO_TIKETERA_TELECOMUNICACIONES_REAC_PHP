@@ -7,7 +7,8 @@ import {
   ChevronUp,
   X,
   RefreshCw,
-  MapPin
+  MapPin,
+  Trash2
 } from "lucide-react";
 
 interface ZonaDetail {
@@ -43,7 +44,7 @@ interface AlertaSur {
 
 interface LookerResponse {
   success: boolean;
-  timestamp: string;
+  timestamp?: string;
   totalGeneral: number;
   totalAlertasSur: number;
   resumenZonas?: Record<string, number>;
@@ -72,6 +73,14 @@ export const LookerCardsAlertBanner: React.FC = () => {
       const json: LookerResponse = await res.json();
 
       if (json && json.success) {
+        // Si los datos son de hace más de 12 horas, descartar cache viejo
+        if (json.timestamp) {
+          const diffHours = (Date.now() - new Date(json.timestamp).getTime()) / (1000 * 60 * 60);
+          if (diffHours > 12) {
+            setData(null);
+            return;
+          }
+        }
         setData(json);
         setLastUpdated(new Date());
 
@@ -87,6 +96,21 @@ export const LookerCardsAlertBanner: React.FC = () => {
       if (isManual) setLoading(false);
     }
   }, []);
+
+  const handleClearAlerts = async () => {
+    if (!window.confirm("¿Deseas limpiar y vaciar las alertas de Looker Studio actuales?")) return;
+    try {
+      setLoading(true);
+      await fetch(`${API_URL}/api/looker/clear`, { method: "POST" });
+      setData(null);
+      setDismissed(true);
+      lastAlertCountRef.current = 0;
+    } catch (err) {
+      console.error("Error al limpiar Looker:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Polling automático cada 30 segundos
   useEffect(() => {
@@ -265,6 +289,15 @@ export const LookerCardsAlertBanner: React.FC = () => {
                 Ver Detalle Zonas
               </>
             )}
+          </button>
+
+          <button
+            onClick={handleClearAlerts}
+            disabled={loading}
+            className="p-1 text-red-400 hover:text-red-700 hover:bg-red-50 rounded transition-colors cursor-pointer"
+            title="Limpiar y vaciar alertas de Looker Studio"
+          >
+            <Trash2 size={12} />
           </button>
 
           <button

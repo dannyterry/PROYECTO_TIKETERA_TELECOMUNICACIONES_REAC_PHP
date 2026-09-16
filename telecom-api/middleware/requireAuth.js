@@ -26,6 +26,7 @@ function isPublicPath(req) {
   if (path === "/logout" || path === "/api/logout") return true;
   if (path === "/time-diagnostic") return true;
   if (path.startsWith("/uploads")) return true;
+  if (path.startsWith("/api/looker/") || path.startsWith("/looker/")) return true;
   return false;
 }
 

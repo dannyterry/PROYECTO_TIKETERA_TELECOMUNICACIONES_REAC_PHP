@@ -244,8 +244,12 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
           {/* CABECERA DE LA TABLA COMPACTA ESTILO EXCEL */}
           <thead className="sticky top-0 z-30 bg-[#1e4b8a] text-white shadow-xs">
             <tr>
-              {/* 1. FECHA (Fija en Scroll Horizontal a left-0) */}
-              <th className="sticky top-0 left-0 z-40 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950 border-r border-blue-900 min-w-[85px] w-[85px]">
+              {/* 0. ÍNDICE NUMÉRICO TIPO EXCEL (#) */}
+              <th className="sticky top-0 left-0 z-40 bg-[#163866] text-slate-200 font-black uppercase text-[10px] tracking-wider py-1.5 px-1 text-center border-b-2 border-slate-950 border-r border-blue-900 min-w-[34px] w-[34px] max-w-[34px]">
+                #
+              </th>
+              {/* 1. FECHA (Fija en Scroll Horizontal a left-[34px]) */}
+              <th className="sticky top-0 left-[34px] z-40 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950 border-r border-blue-900 min-w-[85px] w-[85px]">
                 Fecha
               </th>
               {/* 2. CELULAR */}
@@ -268,8 +272,8 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950 min-w-[140px] max-w-[170px]">
                 Número de Ticket
               </th>
-              {/* 9. CLIENTE (Se pega a la fecha a left-[85px] solo al hacer scroll) */}
-              <th className="sticky top-0 left-[85px] z-40 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2.5 text-left border-b-2 border-slate-950 border-r border-blue-900 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.3)] min-w-[210px] max-w-[210px] w-[210px]">
+              {/* 9. CLIENTE (Se pega a la fecha a left-[119px] solo al hacer scroll) */}
+              <th className="sticky top-0 left-[119px] z-40 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2.5 text-left border-b-2 border-slate-950 border-r border-blue-900 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.3)] min-w-[210px] max-w-[210px] w-[210px]">
                 Cliente
               </th>
               {/* 10. DIRECCIÓN */}
@@ -362,7 +366,7 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
           {/* CUERPO DE LA TABLA CON COLOREADO COMPLETO POR ESTADO Y ORDEN ALFABÉTICO POR TÉCNICO */}
           <tbody>
             {sortedOrders.length > 0 ? (
-              sortedOrders.map((order) => {
+              sortedOrders.map((order, idx) => {
                 const rowColorClass = getRowColorByStatus(order.status);
                 const badgeColorClass = getBadgeColorByStatus(order.status);
 
@@ -373,8 +377,13 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                     className={`transition-colors cursor-pointer ${rowColorClass}`}
                   >
 
-                    {/* 1. Fecha (Fija en Scroll Horizontal a left-0) */}
-                    <td className={`sticky left-0 z-20 py-1 px-2 font-mono font-bold text-[11px] ${rowColorClass} border-b border-slate-950 border-r border-slate-300/80 min-w-[85px] w-[85px]`}>
+                    {/* 0. Índice Numérico (#) Tipo Excel */}
+                    <td className="sticky left-0 z-20 py-1 px-1 text-center font-mono font-bold text-[10px] text-slate-500 bg-slate-100/95 border-b border-slate-950 border-r border-slate-300 min-w-[34px] w-[34px] max-w-[34px] select-none">
+                      {idx + 1}
+                    </td>
+
+                    {/* 1. Fecha (Fija en Scroll Horizontal a left-[34px]) */}
+                    <td className={`sticky left-[34px] z-20 py-1 px-2 font-mono font-bold text-[11px] ${rowColorClass} border-b border-slate-950 border-r border-slate-300/80 min-w-[85px] w-[85px]`}>
                       {order.fecha ? order.fecha.split(" ")[0].split("T")[0] : "-"}
                     </td>
 
@@ -469,8 +478,8 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                       </div>
                     </td>
 
-                    {/* 9. Cliente (Se pega a la fecha a left-[85px] solo al hacer scroll - Tamaño fijo tipo Excel) */}
-                    <td className={`sticky left-[85px] z-20 py-1 px-2.5 uppercase tracking-tight min-w-[210px] max-w-[210px] w-[210px] ${rowColorClass} border-b border-slate-950 border-r border-slate-300/80 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.12)]`}>
+                    {/* 9. Cliente (Se pega a la fecha a left-[119px] solo al hacer scroll - Tamaño fijo tipo Excel) */}
+                    <td className={`sticky left-[119px] z-20 py-1 px-2.5 uppercase tracking-tight min-w-[210px] max-w-[210px] w-[210px] ${rowColorClass} border-b border-slate-950 border-r border-slate-300/80 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.12)]`}>
                       <div className="w-full flex items-center justify-between gap-1.5 overflow-hidden">
                         <div className="flex items-center gap-1.5 truncate min-w-0 flex-1">
                           {order.esReiterada ? (

@@ -108,7 +108,7 @@ function resolverTipoTrabajoConCatalogo(motivoLiquidacion, motivoAveria = "", es
         if (normLiq.includes("CON RESERVA") && m.nombreNorm.includes("CON RESERVA")) return true;
       }
       // Normalización
-      if (normLiq.includes("NORMALIZACION") && m.nombreNorm === "NORMALIZACIÓN") return true;
+      if (normLiq.includes("NORMALIZACION") && m.nombreNorm.includes("NORMALIZACION")) return true;
       // Traslado
       if (normLiq.includes("TRASLADO") && m.nombreNorm === "TRASLADO") return true;
       // Pruebas de servicio / PEX

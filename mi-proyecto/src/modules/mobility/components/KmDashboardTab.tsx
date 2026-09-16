@@ -599,33 +599,38 @@ export const KmDashboardTab: React.FC<Props> = ({
                       {/* KM Estimado (Órdenes) con Botón Ruta Clientes */}
                       <td className="py-3.5 px-4 text-center bg-teal-50/30">
                         <div className="flex flex-col items-center gap-1">
-                          <span className="font-mono font-black text-xs text-teal-950">
-                            {kmEst > 0 ? `${formatKm(kmEst)} km` : "--"}
-                          </span>
-                          {kmEst > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setModalRecorrido({
-                                  isOpen: true,
-                                  idTrabajador: insp.id_trabajador,
-                                  nombreTecnico: insp.nombre_tecnico || "Técnico",
-                                  cuadrilla: insp.cuadrilla,
-                                  placa: insp.placa,
-                                  fecha: insp.fecha,
-                                  modoInicial: "ordenes",
-                                })
-                              }
-                              className="px-2 py-0.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
-                              title="Ver clientes visitados y ruta en mapa"
-                            >
-                              <MapPin size={10} />
-                              <span>Ruta Clientes</span>
-                            </button>
+                          {(insp.puntos_ruta_count || 0) > 0 ? (
+                            <>
+                              <span className="font-mono font-black text-xs text-teal-950">
+                                {kmEst > 0 ? `${formatKm(kmEst)} km` : "0.0 km"}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setModalRecorrido({
+                                    isOpen: true,
+                                    idTrabajador: insp.id_trabajador,
+                                    nombreTecnico: insp.nombre_tecnico || "Técnico",
+                                    cuadrilla: insp.cuadrilla,
+                                    placa: insp.placa,
+                                    fecha: insp.fecha,
+                                    modoInicial: "ordenes",
+                                  })
+                                }
+                                className="px-2 py-0.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
+                                title="Ver clientes visitados y ruta en mapa"
+                              >
+                                <MapPin size={10} />
+                                <span>{(insp.puntos_ruta_count || 0) === 1 ? "1 Cliente" : `Ruta (${insp.puntos_ruta_count})`}</span>
+                              </button>
+                            </>
                           ) : (
-                            <span className="text-[10px] text-slate-400 font-normal">
-                              Sin órdenes
-                            </span>
+                            <>
+                              <span className="font-mono font-bold text-xs text-slate-400">--</span>
+                              <span className="text-[10px] text-slate-400 font-normal">
+                                Sin órdenes
+                              </span>
+                            </>
                           )}
                         </div>
                       </td>

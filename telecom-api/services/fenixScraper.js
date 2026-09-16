@@ -344,7 +344,7 @@ async function cargarGrillaWin(pagina = 1, fechaDesdeStr = null, fechaHastaStr =
     provincia: "0",
     region: "0",
     suscrip: "",
-    tipoOrden: 1,
+    tipoOrden: 0,
     tipoProduc: "0",
     tipoTraba: "0",
     tipoUbi: "",
@@ -361,9 +361,9 @@ let cachedTableHeaders = [
   'Nº',
   'Cod Seguimiento Cliente',
   'Código De Seguimiento',
-  'Móvil',
-  'Número Documento',
   'Cliente',
+  'Número Documento',
+  'Móvil',
   'Fecha Visita',
   'Inicio de Visita',
   'Fin de Visita',
@@ -380,10 +380,10 @@ let cachedTableHeaders = [
   'Motivo de Cancelación',
   'Motivo de Anulación',
   'Georeferencia',
-  'Producto',
+  'Motivo',
   'Suscripción',
-  'Prioridad',
-  'Datos Técnicos'
+  'Datos Técnicos',
+  'Producto'
 ];
 
 function normalizeKey(str) {
@@ -559,11 +559,13 @@ function mapearOrden(f, rawTds = [], offset = 0) {
 
   // 🚀 Extracción inteligente de Producto
   const rawProducto = (() => {
-    const v = getVal('producto') || getCol(22);
-    if (v && !/(1GBPS|500MBPS|Mbps|Gbps|WIN PRO)/i.test(String(v).trim())) return String(v).trim();
+    const v = getVal('producto') || getCol(25) || getCol(26);
+    if (v && !/(1GBPS|500MBPS|Mbps|Gbps|WIN PRO|COMENTARIO|NODO|CTO|PUERTO)/i.test(String(v).trim())) {
+      return String(v).trim();
+    }
     for (let i = 0; i < rawTds.length; i++) {
       const clean = (rawTds[i] || '').replace(/<[^>]+>/g, '').trim();
-      if (/^(AVERIAS|REITERADA|MOTOWIN|POSTVENTA|PLANTA EXTERNA|AVERIAS ALTO VALOR)$/i.test(clean)) {
+      if (/^(AVERIAS|REITERADA|MOTOWIN|POSTVENTA|PLANTA EXTERNA|AVERIAS ALTO VALOR|MOTOWIN POSTVENTA)/i.test(clean) || /(POSTVENTA|POST-VENTA|POST VENTA)/i.test(clean)) {
         return clean;
       }
     }
@@ -735,7 +737,7 @@ async function guardarOrdenesEnBD(ordenes) {
           tipo_ubicacion = COALESCE(?, tipo_ubicacion),
           codigo_postal = COALESCE(?, codigo_postal),
           tipo_documento = COALESCE(?, tipo_documento),
-          producto = COALESCE(?, producto),
+          producto = COALESCE(NULLIF(?, ''), NULLIF(producto, '')),
           id_proyecto = COALESCE(?, id_proyecto),
           proveedor = COALESCE(?, proveedor),
           localidad = COALESCE(?, localidad),
@@ -744,7 +746,7 @@ async function guardarOrdenesEnBD(ordenes) {
           historial_estados = COALESCE(?, historial_estados),
           fijo = COALESCE(?, fijo),
           sector_operativo = COALESCE(?, sector_operativo),
-          suscripcion = COALESCE(?, suscripcion)
+          suscripcion = COALESCE(NULLIF(?, ''), NULLIF(suscripcion, ''))
         WHERE numero = ?`,
         [
           o.fecha_solicitud, o.cliente, o.inicio_visita, o.fin_visita,
@@ -1392,6 +1394,8 @@ module.exports = {
   sincronizarFenix,
   loginWin,
   cargarGrillaWin,
+  parsearHtmlFenix,
+  requestWin,
   obtenerOrdeVisiId,
   obtenerTareasOrden,
   obtenerDetalleTarea,

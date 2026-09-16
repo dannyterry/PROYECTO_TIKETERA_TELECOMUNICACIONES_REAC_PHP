@@ -332,10 +332,17 @@ export const GestorAlertsModal: React.FC<GestorAlertsModalProps> = ({
                               </div>
 
                               {isDesocupado ? (
-                                <span className="px-2.5 py-1 rounded-xl text-[10px] font-black bg-emerald-600 text-white shadow-xs flex items-center gap-1 shrink-0">
-                                  <CheckCircle2 size={12} />
-                                  <span>Completó {t.ordenes_finalizadas || 1} {(t.ordenes_finalizadas || 1) === 1 ? 'orden' : 'órdenes'}</span>
-                                </span>
+                                t.motivo_libre === "cancelada" || ((t.ordenes_canceladas || 0) > 0 && (t.ordenes_finalizadas || 0) === 0) ? (
+                                  <span className="px-2.5 py-1 rounded-xl text-[10px] font-black bg-amber-600 text-white shadow-xs flex items-center gap-1 shrink-0">
+                                    <AlertTriangle size={12} />
+                                    <span>{(t.ordenes_canceladas || 1) === 1 ? '1 Cancelada/Regest.' : `${t.ordenes_canceladas} Canceladas`}</span>
+                                  </span>
+                                ) : (
+                                  <span className="px-2.5 py-1 rounded-xl text-[10px] font-black bg-emerald-600 text-white shadow-xs flex items-center gap-1 shrink-0">
+                                    <CheckCircle2 size={12} />
+                                    <span>Completó {t.ordenes_finalizadas || 1} {(t.ordenes_finalizadas || 1) === 1 ? 'orden' : 'órdenes'}</span>
+                                  </span>
+                                )
                               ) : t.asistio_hoy ? (
                                 <span className="px-2 py-0.5 rounded-lg text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200 shrink-0">
                                   Asistió {t.hora_entrada ? t.hora_entrada.slice(0, 5) : "07:30"}
@@ -384,16 +391,16 @@ export const GestorAlertsModal: React.FC<GestorAlertsModalProps> = ({
                             {onFilterBySearch && (
                               <button
                                 type="button"
-                                onClick={() => handleSearchOrder(t.nombre_completo.split(" ")[0])}
+                                onClick={() => handleSearchOrder(t.ultima_orden_numero || t.cuadrilla || t.nombre_completo)}
                                 className={`py-1.5 px-3 rounded-xl text-xs font-bold border transition-all flex items-center gap-1 cursor-pointer ${
                                   isDesocupado
                                     ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200"
                                     : "bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200"
                                 }`}
-                                title="Buscar en órdenes"
+                                title={t.ultima_orden_numero ? `Filtrar por orden #${t.ultima_orden_numero}` : "Buscar en órdenes"}
                               >
                                 <Search size={13} />
-                                <span>Ver Órdenes</span>
+                                <span>{t.ultima_orden_numero ? "Ver Orden" : "Ver Órdenes"}</span>
                               </button>
                             )}
                           </div>

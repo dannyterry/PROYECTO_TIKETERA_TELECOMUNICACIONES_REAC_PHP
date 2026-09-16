@@ -858,8 +858,12 @@ export interface TecnicoSinOrdenAlert {
   hora_entrada: string | null;
   asistio_hoy: boolean;
   tipo_alerta?: "sin_orden" | "desocupado";
+  motivo_libre?: "completado" | "cancelada";
   total_ordenes?: number;
   ordenes_finalizadas?: number;
+  ordenes_canceladas?: number;
+  ultima_orden_numero?: string;
+  ultima_orden_id?: number | null;
   hora_fin?: string | null;
   proximo_tramo?: string;
   mensaje: string;

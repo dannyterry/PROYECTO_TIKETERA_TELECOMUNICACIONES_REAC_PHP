@@ -124,10 +124,10 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
 
   return (
     <div className="flex flex-col gap-3 bg-white p-4 md:p-5 rounded-2xl border border-slate-200 shadow-sm">
-      
+
       {/* FILA SUPERIOR: TÍTULO, ESTADÍSTICAS Y BOTÓN DE SINCRONIZACIÓN */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-100">
-        
+
         {/* TÍTULO Y CONTADORES POR COLOR */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
@@ -139,47 +139,47 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
                 Órdenes de Trabajo
               </h1>
               <p className="text-[11px] text-slate-500 font-medium">
-                Monitoreo y liquidación de servicios técnicos en tiempo real
+                Monitoreo de Ordenes
               </p>
             </div>
           </div>
 
           {/* Badges de estados con conteos */}
           <div className="flex flex-wrap items-center gap-1.5 ml-0 lg:ml-2">
-            <span 
+            <span
               onClick={() => onFilterChange({ ...filters, status: "Todos" })}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${
-                !filters.status || filters.status === "Todos"
-                  ? "bg-slate-800 text-white border-slate-900 ring-2 ring-slate-400 shadow-xs" 
-                  : "bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200 shadow-2xs"
-              }`}
-              title="Mostrar todas las órdenes regulares"
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${!filters.status || filters.status === "Todos"
+                ? "bg-slate-900 text-white border-slate-950 ring-2 ring-slate-400 shadow-xs"
+                : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200 shadow-2xs"
+                }`}
+              title={`Total en Fénix: ${stats.agendadas + stats.verdes + stats.azules + stats.amarillos + (stats.ordenamientos || 0)} órdenes (${stats.agendadas + stats.verdes + stats.azules + stats.amarillos} Operativas + ${stats.ordenamientos || 0} Ordenamientos)`}
             >
-              <span>Total:</span>
-              <span className="font-mono">{totalCount}</span>
+              <span>Total Phoenix:</span>
+              <span className="font-mono font-black">{stats.agendadas + stats.verdes + stats.azules + stats.amarillos + (stats.ordenamientos || 0)}</span>
+              <span className={`text-[10.5px] font-semibold px-1.5 py-0.2 rounded ${!filters.status || filters.status === "Todos" ? "bg-slate-800 text-sky-200" : "bg-slate-200 text-slate-800"}`}>
+                ({stats.agendadas + stats.verdes + stats.azules + stats.amarillos} Operativas +  {stats.ordenamientos || 0} Ordenamientos)
+              </span>
             </span>
 
-            <span 
+            <span
               onClick={() => onFilterChange({ ...filters, status: filters.status === "Agendadas" ? "Todos" : "Agendadas" })}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${
-                filters.status === "Agendadas" 
-                  ? "bg-slate-800 text-white border-slate-900 ring-2 ring-slate-400 shadow-xs" 
-                  : "bg-white text-slate-800 border-slate-300 hover:bg-slate-100 shadow-2xs"
-              }`}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${filters.status === "Agendadas"
+                ? "bg-slate-800 text-white border-slate-900 ring-2 ring-slate-400 shadow-xs"
+                : "bg-white text-slate-800 border-slate-300 hover:bg-slate-100 shadow-2xs"
+                }`}
               title="Filtrar Agendadas / Asignadas / En camino"
             >
               <span className="w-2.5 h-2.5 rounded-full bg-white border border-slate-400 shadow-2xs"></span>
               <span>Agendadas / Asignadas:</span>
               <span className="font-mono font-black">{stats.agendadas}</span>
             </span>
-            
-            <span 
+
+            <span
               onClick={() => onFilterChange({ ...filters, status: filters.status === "Verdes" ? "Todos" : "Verdes" })}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${
-                filters.status === "Verdes" 
-                  ? "bg-[#70ad47] text-white border-[#568735] ring-2 ring-emerald-300 shadow-xs" 
-                  : "bg-[#70ad47]/20 text-emerald-950 border-[#70ad47]/40 hover:bg-[#70ad47]/30"
-              }`}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${filters.status === "Verdes"
+                ? "bg-[#70ad47] text-white border-[#568735] ring-2 ring-emerald-300 shadow-xs"
+                : "bg-[#70ad47]/20 text-emerald-950 border-[#70ad47]/40 hover:bg-[#70ad47]/30"
+                }`}
               title="Filtrar Iniciadas / Proceso"
             >
               <span className="w-2.5 h-2.5 rounded-full bg-[#70ad47] border border-[#568735]"></span>
@@ -187,13 +187,12 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
               <span className="font-mono font-black">{stats.verdes}</span>
             </span>
 
-            <span 
+            <span
               onClick={() => onFilterChange({ ...filters, status: filters.status === "Finalizadas" ? "Todos" : "Finalizadas" })}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${
-                filters.status === "Finalizadas" 
-                  ? "bg-[#5b9bd5] text-white border-[#3c78b0] ring-2 ring-sky-300 shadow-xs" 
-                  : "bg-[#5b9bd5]/25 text-sky-950 border-[#5b9bd5]/40 hover:bg-[#5b9bd5]/35"
-              }`}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${filters.status === "Finalizadas"
+                ? "bg-[#5b9bd5] text-white border-[#3c78b0] ring-2 ring-sky-300 shadow-xs"
+                : "bg-[#5b9bd5]/25 text-sky-950 border-[#5b9bd5]/40 hover:bg-[#5b9bd5]/35"
+                }`}
               title="Filtrar Finalizadas / Liquidadas"
             >
               <span className="w-2.5 h-2.5 rounded-full bg-[#5b9bd5] border border-[#3c78b0]"></span>
@@ -201,13 +200,12 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
               <span className="font-mono font-black">{stats.azules}</span>
             </span>
 
-            <span 
+            <span
               onClick={() => onFilterChange({ ...filters, status: filters.status === "Amarillos" ? "Todos" : "Amarillos" })}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${
-                filters.status === "Amarillos" 
-                  ? "bg-amber-500 text-white border-amber-600 ring-2 ring-amber-300" 
-                  : "bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100"
-              }`}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${filters.status === "Amarillos"
+                ? "bg-amber-500 text-white border-amber-600 ring-2 ring-amber-300"
+                : "bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100"
+                }`}
               title="Filtrar Regestión / Canceladas / Observadas / Anuladas"
             >
               <span className="w-2 h-2 rounded-full bg-amber-500"></span>
@@ -217,11 +215,10 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
 
             <span
               onClick={() => onFilterChange({ ...filters, status: filters.status === "Ordenamientos" ? "Todos" : "Ordenamientos" })}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${
-                filters.status === "Ordenamientos"
-                  ? "bg-violet-600 text-white border-violet-700 ring-2 ring-violet-300"
-                  : "bg-violet-50 text-violet-900 border-violet-200 hover:bg-violet-100"
-              }`}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${filters.status === "Ordenamientos"
+                ? "bg-violet-600 text-white border-violet-700 ring-2 ring-violet-300"
+                : "bg-violet-50 text-violet-900 border-violet-200 hover:bg-violet-100"
+                }`}
               title="Mostrar únicamente órdenes de ordenamiento"
             >
               <span className="w-2 h-2 rounded-full bg-violet-500"></span>
@@ -237,11 +234,10 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
             <button
               type="button"
               onClick={onOpenAlerts}
-              className={`relative flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black border transition-all cursor-pointer shadow-xs ${
-                alertsCount > 0
-                  ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-amber-500/25 ring-2 ring-amber-300"
-                  : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200"
-              }`}
+              className={`relative flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black border transition-all cursor-pointer shadow-xs ${alertsCount > 0
+                ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-amber-500/25 ring-2 ring-amber-300"
+                : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200"
+                }`}
               title="Centro de Alertas Operativas (Técnicos sin orden, Actas pendientes, Tramos)"
             >
               <Bell size={14} className={alertsCount > 0 ? "animate-bounce" : ""} />
@@ -267,7 +263,7 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
 
       {/* FILA INFERIOR: FILTROS DE FECHA, ESTADO, TÉCNICO, CUADRILLA Y BUSCADOR */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-2.5 items-end pt-1">
-        
+
         {/* 1. Fecha Desde */}
         <div className="w-full">
           <div className="flex items-center justify-between mb-1">
@@ -335,11 +331,10 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
           <select
             value={filters.tecnico || "Todos"}
             onChange={(e) => onFilterChange({ ...filters, tecnico: e.target.value })}
-            className={`w-full h-9 rounded-md border px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer font-bold truncate ${
-              filters.tecnico && filters.tecnico !== "Todos"
-                ? "bg-amber-50 border-amber-400 text-amber-900"
-                : "bg-slate-50 border-slate-300 text-slate-800"
-            }`}
+            className={`w-full h-9 rounded-md border px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer font-bold truncate ${filters.tecnico && filters.tecnico !== "Todos"
+              ? "bg-amber-50 border-amber-400 text-amber-900"
+              : "bg-slate-50 border-slate-300 text-slate-800"
+              }`}
           >
             <option value="Todos">👷 Todos los Técnicos ({tecnicos.length})</option>
             {tecnicos.map((tec) => (
@@ -358,11 +353,10 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
           <select
             value={filters.cuadrilla || "Todos"}
             onChange={(e) => onFilterChange({ ...filters, cuadrilla: e.target.value })}
-            className={`w-full h-9 rounded-md border px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer font-bold truncate ${
-              filters.cuadrilla && filters.cuadrilla !== "Todos"
-                ? "bg-sky-50 border-sky-400 text-sky-900"
-                : "bg-slate-50 border-slate-300 text-slate-800"
-            }`}
+            className={`w-full h-9 rounded-md border px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer font-bold truncate ${filters.cuadrilla && filters.cuadrilla !== "Todos"
+              ? "bg-sky-50 border-sky-400 text-sky-900"
+              : "bg-slate-50 border-slate-300 text-slate-800"
+              }`}
           >
             <option value="Todos">👥 Todas las Cuadrillas ({cuadrillas.length})</option>
             {cuadrillas.map((c) => {

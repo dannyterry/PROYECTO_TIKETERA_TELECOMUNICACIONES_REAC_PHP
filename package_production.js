@@ -101,6 +101,21 @@ if (fs.existsSync(srcServices)) {
   copyRecursiveSync(srcServices, path.join(stagingApiDir, 'services'));
 }
 
+const srcLib = path.join(baseDir, 'telecom-api', 'lib');
+if (fs.existsSync(srcLib)) {
+  copyRecursiveSync(srcLib, path.join(stagingApiDir, 'lib'));
+}
+
+const srcMiddleware = path.join(baseDir, 'telecom-api', 'middleware');
+if (fs.existsSync(srcMiddleware)) {
+  copyRecursiveSync(srcMiddleware, path.join(stagingApiDir, 'middleware'));
+}
+
+const uploadsDir = path.join(stagingApiDir, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
 const zipApi = path.join(baseDir, 'telecom_api_listo_hosting.zip');
 try { if (fs.existsSync(zipApi)) fs.unlinkSync(zipApi); } catch (e) {}
 
