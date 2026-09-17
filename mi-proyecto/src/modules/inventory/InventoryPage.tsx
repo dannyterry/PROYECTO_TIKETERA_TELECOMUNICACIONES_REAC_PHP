@@ -23,6 +23,7 @@ import { OrderLiquidationsAuditTab } from "./components/OrderLiquidationsAuditTa
 import { CategoriesTab } from "./components/CategoriesTab";
 import { SuppliersTab } from "./components/SuppliersTab";
 import { authService } from "../../services/authService";
+import { OnlineChatDropdown } from "../../components/chat/OnlineChatDropdown";
 
 export const InventoryPage: React.FC = () => {
   // Permisos por sub-pestaña de Almacén
@@ -141,12 +142,21 @@ export const InventoryPage: React.FC = () => {
 
         {/* Título & Badge */}
         <div className="flex items-center gap-3.5">
-          <div className="w-13 h-13 rounded-2xl bg-gradient-to-tr from-sky-600 to-cyan-500 text-white flex items-center justify-center font-black shadow-md shadow-sky-600/20 border border-sky-500/20">
-            <Package size={26} />
-          </div>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent("toggleSidebar"))}
+            className="w-13 h-13 rounded-2xl bg-gradient-to-tr from-sky-600 to-cyan-500 hover:from-sky-700 hover:to-cyan-600 active:scale-95 text-white flex items-center justify-center font-black shadow-md shadow-sky-600/20 border border-sky-500/20 cursor-pointer transition-all group shrink-0"
+            title="📋 Clic para abrir el menú lateral"
+          >
+            <Package size={26} className="group-hover:scale-110 transition-transform" />
+          </button>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">
+              <h1
+                onClick={() => window.dispatchEvent(new CustomEvent("toggleSidebar"))}
+                className="text-xl md:text-2xl font-black text-slate-900 tracking-tight cursor-pointer hover:text-sky-700 transition-colors"
+                title="📋 Clic para abrir el menú lateral"
+              >
                 Almacén & Logística Central
               </h1>
               <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-sky-50 text-sky-700 border border-sky-200/80">
@@ -160,15 +170,18 @@ export const InventoryPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Botón Refrescar */}
-        <button
-          onClick={cargarDatos}
-          disabled={loading}
-          className="p-2.5 rounded-2xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-2xs"
-        >
-          <RefreshCw size={15} className={loading ? "animate-spin text-sky-600" : ""} />
-          <span className="hidden sm:inline">Actualizar</span>
-        </button>
+        {/* Botones de Acción: Chat y Refrescar */}
+        <div className="flex items-center gap-2">
+          <OnlineChatDropdown />
+          <button
+            onClick={cargarDatos}
+            disabled={loading}
+            className="p-2.5 rounded-2xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-2xs h-9"
+          >
+            <RefreshCw size={15} className={loading ? "animate-spin text-sky-600" : ""} />
+            <span className="hidden sm:inline">Actualizar</span>
+          </button>
+        </div>
 
       </div>
 

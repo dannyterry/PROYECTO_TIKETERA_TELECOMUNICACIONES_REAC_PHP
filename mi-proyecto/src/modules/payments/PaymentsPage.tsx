@@ -30,6 +30,7 @@ import {
   getPagoDetalleTecnico,
 } from "./services/paymentService";
 import { AdelantosTab } from "./components/AdelantosTab";
+import { OnlineChatDropdown } from "../../components/chat/OnlineChatDropdown";
 
 interface PaymentsPageProps {
   currentUserId?: number;
@@ -160,11 +161,20 @@ export const PaymentsPage: React.FC<PaymentsPageProps> = ({ currentUserId }) => 
       {/* Header General del Módulo */}
       <div className="bg-white border-b border-slate-200/80 px-6 py-4 flex flex-wrap items-center justify-between gap-4 shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-sky-50 text-sky-600 border border-sky-100 flex items-center justify-center font-black shadow-xs">
-            <Coins size={22} />
-          </div>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent("toggleSidebar"))}
+            className="w-11 h-11 rounded-2xl bg-sky-50 hover:bg-sky-100 active:scale-95 text-sky-600 hover:text-sky-800 border border-sky-200 hover:border-sky-300 flex items-center justify-center font-black shadow-xs cursor-pointer transition-all group shrink-0"
+            title="📋 Clic para abrir el menú lateral"
+          >
+            <Coins size={22} className="group-hover:scale-110 transition-transform" />
+          </button>
           <div>
-            <h1 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
+            <h1
+              onClick={() => window.dispatchEvent(new CustomEvent("toggleSidebar"))}
+              className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2 cursor-pointer hover:text-sky-700 transition-colors"
+              title="📋 Clic para abrir el menú lateral"
+            >
               <span>Liquidación Financiera y Pagos</span>
             </h1>
             <p className="text-xs text-slate-500 font-medium">
@@ -173,18 +183,20 @@ export const PaymentsPage: React.FC<PaymentsPageProps> = ({ currentUserId }) => 
           </div>
         </div>
 
-        {activeTab === "liquidaciones" && (
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
+          <OnlineChatDropdown />
+
+          {activeTab === "liquidaciones" && (
             <button
               type="button"
               onClick={exportarExcel}
-              className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm shadow-sky-600/20 transition-all cursor-pointer"
+              className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm shadow-sky-600/20 transition-all cursor-pointer h-9"
             >
               <FileSpreadsheet size={15} />
               <span>Exportar CSV</span>
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Pestañas Principales del Módulo: Liquidaciones vs Adelantos */}

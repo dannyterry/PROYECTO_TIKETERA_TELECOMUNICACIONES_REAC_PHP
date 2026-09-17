@@ -102,6 +102,7 @@ export const AttendanceTab: React.FC = () => {
 
   // --- SubTab 3: Descansos Programados ---
   const [descansos, setDescansos] = useState<any[]>([]);
+  const [personalParaDescansos, setPersonalParaDescansos] = useState<AsistenciaDiariaItem[]>([]);
   const [modalDescanso, setModalDescanso] = useState(false);
   const [guardandoDescanso, setGuardandoDescanso] = useState(false);
   const [descansoForm, setDescansoForm] = useState({
@@ -123,6 +124,9 @@ export const AttendanceTab: React.FC = () => {
       const rolParam = !canVerTodosRoles ? rolTecnicoId : filtroRol;
       const res = await getAsistenciaDiaria(fechaSeleccionada, rolParam);
       setAsistencias(res.asistencias || []);
+      if (res.asistencias) {
+        setPersonalParaDescansos(res.asistencias);
+      }
     } catch (err: any) {
       console.error("Error al cargar pase diario:", err);
     } finally {
@@ -164,13 +168,21 @@ export const AttendanceTab: React.FC = () => {
     }
   }, [fechaInicioMatriz, rangoTipo, filtroRol, subTab, canVerTodosRoles, rolTecnicoId]);
 
-  // Cargar Descansos
+  // Cargar Descansos y lista de personal simultáneamente
   const cargarDescansos = async () => {
     try {
       setLoading(true);
       const rolParam = !canVerTodosRoles ? rolTecnicoId : undefined;
-      const data = await getDescansos(rolParam);
-      setDescansos(data || []);
+      const hoyStr = new Date().toISOString().slice(0, 10);
+      const [dataDesc, resDiaria] = await Promise.all([
+        getDescansos(rolParam),
+        getAsistenciaDiaria(hoyStr, rolParam),
+      ]);
+      setDescansos(dataDesc || []);
+      if (resDiaria && Array.isArray(resDiaria.asistencias)) {
+        setPersonalParaDescansos(resDiaria.asistencias);
+        setAsistencias(resDiaria.asistencias);
+      }
     } catch (err: any) {
       console.error("Error al cargar descansos:", err);
     } finally {
@@ -348,7 +360,7 @@ export const AttendanceTab: React.FC = () => {
     setSemanaDescanso(new Date());
   };
 
-  const handleAbrirModalDescanso = () => {
+  const handleAbrirModalDescanso = async () => {
     const hoy = new Date();
     setSemanaDescanso(hoy);
     const info = calcularDiasSemana(hoy);
@@ -357,6 +369,18 @@ export const AttendanceTab: React.FC = () => {
       id_trabajador: "",
       motivo: "Descanso semanal",
     });
+
+    if (personalParaDescansos.length === 0) {
+      try {
+        const rolParam = !canVerTodosRoles ? rolTecnicoId : (filtroRol !== "Todos" ? filtroRol : undefined);
+        const res = await getAsistenciaDiaria(hoy.toISOString().slice(0, 10), rolParam);
+        if (res && Array.isArray(res.asistencias)) {
+          setPersonalParaDescansos(res.asistencias);
+        }
+      } catch (e) {
+        console.error("Error al cargar lista de personal:", e);
+      }
+    }
     setModalDescanso(true);
   };
 
@@ -373,9 +397,16 @@ export const AttendanceTab: React.FC = () => {
       return;
     }
 
-    const selectedTrabajador = asistencias.find(
-      (a) => String(a.id_trabajador) === descansoForm.id_trabajador || String(a.id_usuario) === descansoForm.id_trabajador
+    const listaTrabajadores = personalParaDescansos.length > 0 ? personalParaDescansos : asistencias;
+    const idUsuarioNum = Number(descansoForm.id_trabajador);
+    const selectedTrabajador = listaTrabajadores.find(
+      (a) => a.id_usuario === idUsuarioNum
     );
+
+    if (!selectedTrabajador && !idUsuarioNum) {
+      alert("Selecciona un trabajador válido");
+      return;
+    }
 
     try {
       setGuardandoDescanso(true);
@@ -406,8 +437,8 @@ export const AttendanceTab: React.FC = () => {
 
       for (const r of rangos) {
         await programarDescanso({
-          id_trabajador: selectedTrabajador?.id_trabajador || Number(descansoForm.id_trabajador),
-          id_usuario: selectedTrabajador?.id_usuario,
+          id_usuario: selectedTrabajador ? selectedTrabajador.id_usuario : idUsuarioNum,
+          id_trabajador: selectedTrabajador?.id_trabajador,
           fecha_inicio: r.fecha_inicio,
           fecha_fin: r.fecha_fin,
           motivo: descansoForm.motivo?.trim() || "Descanso semanal",
@@ -1176,10 +1207,10 @@ export const AttendanceTab: React.FC = () => {
                   onChange={(e) => setDescansoForm((prev) => ({ ...prev, id_trabajador: e.target.value }))}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-teal-500 transition-all cursor-pointer"
                 >
-                  <option value="">-- Seleccionar Trabajador --</option>
-                  {asistencias.map((a) => (
-                    <option key={`opt-u-${a.id_usuario}`} value={a.id_trabajador || a.id_usuario}>
-                      {a.nombre_completo} {canVerDetallesPersonal ? `(${a.cuadrilla || a.rol_nombre})` : (a.cuadrilla ? `(${a.cuadrilla})` : '')}
+                  <option value="">-- Seleccionar Trabajador ({personalParaDescansos.length > 0 ? personalParaDescansos.length : asistencias.length}) --</option>
+                  {(personalParaDescansos.length > 0 ? personalParaDescansos : asistencias).map((a) => (
+                    <option key={`opt-u-${a.id_usuario}`} value={String(a.id_usuario)}>
+                      {a.nombre_completo} {canVerDetallesPersonal ? `(${a.cuadrilla || a.rol_nombre || 'Personal'})` : (a.cuadrilla ? `(${a.cuadrilla})` : '')}
                     </option>
                   ))}
                 </select>

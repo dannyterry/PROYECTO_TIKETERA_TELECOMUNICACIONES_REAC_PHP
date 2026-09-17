@@ -49,6 +49,7 @@ export interface Order {
   totalTareas?: number;
   tareasFinalizadas?: number;
   progresoPorcentaje?: number;
+  estado?: string;
 }
 
 export type OrderStatus =

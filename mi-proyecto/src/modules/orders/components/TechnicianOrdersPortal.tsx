@@ -23,6 +23,7 @@ import {
   Maximize2,
   Minimize2,
   Coffee,
+  LayoutDashboard,
 } from "lucide-react";
 import { Order } from "../types/Order";
 import { getOrders } from "../services/orderService";
@@ -32,6 +33,7 @@ import { TechnicianChecklistModal } from "../../mobility/components/TechnicianCh
 import { TechnicianDashboardTab } from "./TechnicianDashboardTab";
 import { registrarLogGps } from "../../mobility/services/mobilityService";
 import { extractCuadrillaKey } from "../utils/cuadrillaUtils";
+import { authService } from "../../../services/authService";
 import axios from "axios";
 import { API_URL } from "../../../config/api";
 
@@ -336,13 +338,17 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
 
   const getPortalStatusBadge = (status?: string) => {
     const s = (status || "").toUpperCase().trim();
-    // 🔵 Celeste: Finalizada, Liquidada, Fenix, Cerrada
-    if (s.includes("FINALIZ") || s.includes("LIQUID") || s.includes("TERMIN") || s.includes("CERRAD") || s.includes("FENIX")) {
-      return "bg-sky-50 text-sky-800 border border-sky-300";
+    // 🔵 Celeste / Azul brillante: Liquidada (Acta completada)
+    if (s.includes("LIQUID")) {
+      return "bg-sky-500 text-white font-black shadow-2xs border border-sky-400";
     }
-    // 🟢 Verde: Iniciada, En proceso, Proceso, Inicio
-    if (s.includes("INICIAD") || s.includes("PROCESO")) {
+    // 🟢 Verde: Finalizada, Fenix, Cerrada, Terminada
+    if (s.includes("FINALIZ") || s.includes("TERMIN") || s.includes("CERRAD") || s.includes("FENIX")) {
       return "bg-emerald-50 text-emerald-800 border border-emerald-300";
+    }
+    // 🟢 Verde suave: Iniciada, En proceso, Proceso, Inicio
+    if (s.includes("INICIAD") || s.includes("PROCESO")) {
+      return "bg-teal-50 text-teal-800 border border-teal-300";
     }
     // 🟡 Amarillo: Cancelada, Regestión, Observada, Anulada
     if (s.includes("CANCELAD") || s.includes("OBSERVAD") || s.includes("REGESTION") || s.includes("ANULAD") || s.includes("SUSPENDID")) {
@@ -422,17 +428,53 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
       }}
     >
       {/* Brand Header Móvil */}
-      <div className="flex items-center justify-between px-1">
-        <img
-          src="/assets/images/LOGO_CORPORACION.png"
-          alt="Corporación Céspedes"
-          className="h-7 w-auto object-contain"
-        />
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-            En línea
-          </span>
+      <div className="flex items-center justify-between px-1 gap-2">
+        <div className="flex items-center gap-2">
+          <img
+            src="/assets/images/LOGO_CORPORACION.png"
+            alt="Corporación Céspedes"
+            className="h-7 w-auto object-contain"
+          />
+          {/* Si tiene acceso al panel general (Admin, Gestor, etc.) */}
+          {(esAdminOSimulador || authService.canAccessModule("ordenes") || authService.canAccessModule("dashboard")) && (
+            <button
+              type="button"
+              onClick={() => {
+                window.location.hash = "ordenes";
+              }}
+              className="px-2.5 py-1 bg-slate-200/90 hover:bg-slate-300 text-slate-700 text-[10.5px] font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
+              title="Volver a la vista del sistema"
+            >
+              <LayoutDashboard size={13} className="text-slate-600" />
+              <span>Volver al Panel</span>
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 bg-white/90 px-2 py-1 rounded-xl border border-slate-200 shadow-2xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+              En línea
+            </span>
+          </div>
+
+          {/* Botón Cerrar Sesión */}
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm("¿Deseas cerrar sesión?")) {
+                authService.logout();
+                window.location.hash = "login";
+                window.location.reload();
+              }
+            }}
+            className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/80 rounded-xl text-[10.5px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs active:scale-95"
+            title="Cerrar sesión de la cuenta"
+          >
+            <LogOut size={13} />
+            <span>Salir</span>
+          </button>
         </div>
       </div>
       {/* ─────────────────────────────────────────────────────────────
@@ -761,8 +803,9 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
             </div>
           ) : (
             ordenes.map((ord) => {
-              const s = (ord.status || "").toUpperCase().trim();
-              const isFinalizada = s.includes("FINALIZ") || s.includes("LIQUID") || s.includes("TERMIN") || s.includes("CERRAD") || s.includes("FENIX");
+              const s = (ord.status || ord.estado || "").toUpperCase().trim();
+              const isLiquidada = s.includes("LIQUID") || Boolean(ord.acta && ord.acta.trim() && ord.acta !== "-");
+              const isFinalizada = s.includes("FINALIZ") || s.includes("TERMIN") || s.includes("CERRAD") || s.includes("FENIX") || isLiquidada;
               const esReiterada = Boolean(ord.esReiterada || (ord.totalOrdenesCliente && ord.totalOrdenesCliente > 1));
               // Tipo de liquidación / motivo de finalización
               const tipoLiq = (ord.tipoLiquidacion || ord.motivoLiquidacion || ord.motivoFinalizacion || ord.tipoTrabajo || "").trim();
@@ -772,7 +815,11 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
               return (
                 <div
                   key={ord.id}
-                  className="bg-white rounded-3xl p-4 border border-slate-200/90 shadow-xs space-y-2.5 hover:border-indigo-300 transition-all"
+                  className={`rounded-3xl p-4 border shadow-xs space-y-2.5 transition-all ${
+                    isLiquidada
+                      ? "bg-sky-50/50 border-sky-300/90 hover:border-sky-400 shadow-sky-500/10 ring-1 ring-sky-200/60"
+                      : "bg-white border-slate-200/90 hover:border-indigo-300"
+                  }`}
                 >
                   {/* Fila Principal: Cliente + Badge de Estado */}
                   <div className="space-y-1.5">
@@ -786,7 +833,7 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
                         title="Toca para copiar nombre del cliente"
                       >
                         <div className="flex items-start gap-1.5">
-                          <User size={16} className="text-indigo-600 shrink-0 mt-0.5" />
+                          <User size={16} className={isLiquidada ? "text-sky-600 shrink-0 mt-0.5" : "text-indigo-600 shrink-0 mt-0.5"} />
                           <h3 className="font-extrabold text-sm text-slate-900 leading-snug group-hover:text-indigo-700 transition-colors break-words">
                             {ord.cliente || "Cliente"}
                           </h3>
@@ -802,9 +849,9 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
                         )}
 
                         <span
-                          className={`px-2 py-0.5 rounded-lg text-[10px] font-black shrink-0 ${getPortalStatusBadge(ord.status)}`}
+                          className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black shrink-0 ${getPortalStatusBadge(isLiquidada ? "Liquidada" : ord.status)}`}
                         >
-                          {ord.status || "Agendada"}
+                          {isLiquidada ? "Liquidada" : (ord.status || "Agendada")}
                         </span>
                       </div>
                     </div>
@@ -832,7 +879,11 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
 
                     {/* Fila Dedicada: Tipo de Liquidación de la Orden */}
                     {mostrarTipoLiq && (
-                      <div className="mt-1 p-2 bg-sky-50/90 rounded-xl border border-sky-200 text-sky-950 flex items-center justify-between gap-2 text-xs font-bold shadow-2xs">
+                      <div className={`mt-1 p-2 rounded-xl border flex items-center justify-between gap-2 text-xs font-bold shadow-2xs ${
+                        isLiquidada
+                          ? "bg-sky-100/70 border-sky-300 text-sky-950"
+                          : "bg-sky-50/90 border-sky-200 text-sky-950"
+                      }`}>
                         <span className="flex items-center gap-1.5 truncate">
                           <Sparkles size={13} className="text-sky-600 shrink-0" />
                           <span className="text-[10px] uppercase font-black text-sky-700 tracking-wider">Tipo Liq:</span>
@@ -893,8 +944,18 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
                     )}
                   </div>
 
-                  {/* 4. Botón Principal: Llenar Acta WIN / Liquidar (Habilitado SOLO cuando está Finalizada) */}
-                  {isFinalizada ? (
+                  {/* 4. Botón Principal: Liquidar o Consultar Acta */}
+                  {isLiquidada ? (
+                    <button
+                      type="button"
+                      onClick={() => abrirActa(ord)}
+                      className="w-full py-2.5 px-4 bg-gradient-to-r from-sky-500 via-sky-600 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white rounded-2xl font-black text-xs shadow-md shadow-sky-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                      title="Esta orden ya fue liquidada con su Acta WIN. Toca para ver el detalle."
+                    >
+                      <CheckCircle2 size={16} className="text-white" />
+                      <span>✅ Orden Liquidada • Ver Acta WIN</span>
+                    </button>
+                  ) : isFinalizada ? (
                     <button
                       onClick={() => abrirActa(ord)}
                       className="w-full py-2.5 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-2xl font-black text-xs shadow-md shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"

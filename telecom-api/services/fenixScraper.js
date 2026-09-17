@@ -689,6 +689,31 @@ async function guardarOrdenesEnBD(ordenes) {
     return found ? { id: found.id_usuario, nombre: `${found.nombres} ${found.apellidos || found.primer_apellido || ''}`.trim() } : (rawName.length > 3 ? { id: null, nombre: rawName } : null);
   };
 
+  const extractCuadrillaKey = (cuadStr) => {
+    if (!cuadStr) return '';
+    let clean = String(cuadStr)
+      .toUpperCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[-_.,]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    clean = clean.replace(/^CUADRILLA\s+/i, '');
+    clean = clean.replace(/\b([A-Z])\s*0*(\d+)\b/g, '$1 $2');
+    const tokens = clean.split(' ');
+    if (tokens.length === 0) return '';
+    const cleanWord = (w) => (w === 'TRASLADOS' ? 'TRASLADO' : w);
+    if (tokens.length >= 3 && /^[A-Z]{1,3}$/.test(tokens[0]) && /^\d+$/.test(tokens[1])) {
+      return tokens[0] + ' ' + parseInt(tokens[1], 10) + ' ' + cleanWord(tokens[2]);
+    }
+    if (tokens.length >= 2) {
+      const match = tokens[0].match(/^([A-Z]+)(\d+)$/);
+      if (match) return match[1] + ' ' + parseInt(match[2], 10) + ' ' + cleanWord(tokens[1]);
+      return tokens[0] + ' ' + cleanWord(tokens[1]);
+    }
+    return cleanWord(tokens[0]);
+  };
+
   for (const o of ordenes) {
     if (!o.numero) continue;
 
@@ -697,6 +722,17 @@ async function guardarOrdenesEnBD(ordenes) {
       const autoIdTecnico = techInfo?.id || null;
       const autoNombreTecnico = techInfo?.nombre || null;
       const autoTipoTrabajo = resolverTipoTrabajoConCatalogo(o.motivo_finalizacion, o.tipo_trabajo || o.motivo_trabajo, o.estado, catalogoMotivos);
+
+      // Auto-actualizar cuadrilla canónica del técnico en la base de datos si estaba vacía
+      if (autoIdTecnico && o.cuadrilla) {
+        const canonicalCuad = extractCuadrillaKey(o.cuadrilla);
+        if (canonicalCuad) {
+          pool.query(
+            "UPDATE usuarios SET cuadrilla = ? WHERE id_usuario = ? AND (cuadrilla IS NULL OR cuadrilla = '' OR cuadrilla = 'Sin cuadrilla asignada')",
+            [canonicalCuad, autoIdTecnico]
+          ).catch(() => {});
+        }
+      }
 
       // 1. Intentar UPDATE blindado (si gestión ya asignó manualmente con asignacion_manual = 1, PRESERVAR id_tecnico, tecnico_asignado y cuadrilla)
       const [updateRes] = await pool.query(
@@ -720,7 +756,10 @@ async function guardarOrdenesEnBD(ordenes) {
           fecha_visita = COALESCE(?, fecha_visita),
           cod_seguimiento_cliente = COALESCE(?, cod_seguimiento_cliente),
           direccion = COALESCE(?, direccion),
-          estado = COALESCE(?, estado),
+          estado = CASE 
+            WHEN UPPER(estado) = 'LIQUIDADA' OR EXISTS(SELECT 1 FROM orden_liquidaciones ol WHERE ol.id_orden = ordenes.id_orden) THEN 'Liquidada' 
+            ELSE COALESCE(?, estado) 
+          END,
           cuadrilla_origen_fenix = COALESCE(?, cuadrilla_origen_fenix),
           cuadrilla = CASE WHEN asignacion_manual = 1 THEN cuadrilla ELSE COALESCE(?, cuadrilla) END,
           id_tecnico = CASE WHEN asignacion_manual = 1 THEN id_tecnico ELSE COALESCE(?, id_tecnico) END,

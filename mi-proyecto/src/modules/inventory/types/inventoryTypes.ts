@@ -284,6 +284,9 @@ export interface LiquidacionOrdenAudit {
   es_alerta: boolean;
   motivo_alerta?: string;
   max_drop_permitido?: number;
+  drop_conectorizado_item?: MaterialLiquidadoAudit | null;
+  drop_conectorizado_metros?: number;
+  drop_consumo_total_efectivo?: number;
 }
 
 export interface TecnicoLiqAuditResumen {

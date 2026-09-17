@@ -721,7 +721,7 @@ export const OrdersPage: React.FC = () => {
   }, []);
 
   return (
-    <div className="w-full h-full flex flex-col min-h-0 gap-2.5 overflow-hidden">
+    <div className="w-full h-full flex flex-col min-h-0 gap-1.5 overflow-hidden">
       {/* BARRA DE HERRAMIENTAS Y FILTROS */}
       <div className="shrink-0">
         <OrdersToolbar
@@ -795,11 +795,27 @@ export const OrdersPage: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL DEL ACTA DE SERVICIO TÉCNICO WIN (AUDITORÍA SOLO LECTURA ADMIN) */}
+      {/* MODAL DEL ACTA DE SERVICIO TÉCNICO WIN (AUDITORÍA / LIQUIDACIÓN GESTOR & ADMIN) */}
       {selectedOrderForActa && (
         <TechnicalActModal
           order={selectedOrderForActa}
-          readOnly={true}
+          readOnly={
+            !authService.hasAnyPermission([
+              "ordenes.liquidar",
+              "ordenes.editar",
+              "liquidaciones.crear",
+              "liquidaciones.editar",
+            ]) &&
+            authService.getCurrentUser()?.id_rol !== 1 &&
+            !authService.getCurrentUser()?.rol?.toUpperCase().includes("ADMIN") &&
+            !authService.getCurrentUser()?.rol?.toUpperCase().includes("GEST")
+          }
+          idTrabajadorActual={
+            (selectedOrderForActa as any).id_tecnico_asignado ||
+            (selectedOrderForActa as any).id_trabajador ||
+            (selectedOrderForActa as any).idTecnico ||
+            undefined
+          }
           onClose={() => setSelectedOrderForActa(null)}
           onSuccess={() => {
             setSelectedOrderForActa(null);

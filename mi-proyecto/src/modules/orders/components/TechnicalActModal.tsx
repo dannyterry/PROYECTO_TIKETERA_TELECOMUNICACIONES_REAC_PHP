@@ -26,7 +26,7 @@ import {
   Camera,
 } from "lucide-react";
 import { Order } from "../types/Order";
-import { getPlantillaPorTrabajo, PLANTILLAS_POR_TRABAJO } from "../utils/actaTemplates";
+import { getPlantillaPorTrabajo } from "../utils/actaTemplates";
 import {
   getTecnicoStock,
   liquidarActaOrden,
@@ -61,6 +61,7 @@ export const TechnicalActModal: React.FC<Props> = ({
   onClose,
   onSuccess,
 }) => {
+  const isAlreadyLiquidated = readOnly || String(order.status || order.estado || "").toUpperCase().includes("LIQUID");
   const [guardando, setGuardando] = useState(false);
   const [cargandoActaGuardada, setCargandoActaGuardada] = useState(false);
   const [actaGuardadaNoExiste, setActaGuardadaNoExiste] = useState(false);
@@ -225,37 +226,136 @@ export const TechnicalActModal: React.FC<Props> = ({
   }, [seriesAsignadasTecnico]);
 
   // 🌟 Filtrar estrictamente solo Materiales e Insumos Consumibles para la liquidación de la orden
-  // (Excluyendo herramientas, uniformes, vehículos y equipos serializados)
+  // (Excluyendo herramientas, uniformes, vehículos, equipos serializados y ACTAS/GUIAS que se ingresan únicamente en cabecera)
+  // 🌟 REGLA DE NEGOCIO DE LIQUIDACIONES:
+  // En Liquidaciones SOLO participan 2 categorías principales:
+  // 1. MATERIALES (Insumos consumibles, Cable Drop en bobina continua y Drop Pre-Conectorizado unitario)
+  // 2. EQUIPOS (Dispositivos serializados: ONTs, Routers Mesh, TV Box, Teléfonos)
+  //
+  // Jerarquía de búsqueda / filtro (Categoría primero, luego Producto):
+  //   Paso 1: Validar primero la CATEGORÍA (MATERIALES vs EQUIPOS vs HERRAMIENTAS / OTROS)
+  //   Paso 2: Validar el PRODUCTO específico dentro de esa categoría
+
+  // Helper para identificar rollos de Drop Pre-Conectorizado unitario (50M, 100M, 150M, 200M)
+  const esDropConectorizado = (m: any) => {
+    const nom = String(m?.nombre || "").toUpperCase().trim();
+    return (
+      nom.includes("CONECTORIZADO") ||
+      /drop.*(50|100|150|200)/i.test(nom) ||
+      /drop\s*(50m|100m|150m|200m|50mt|100mt|150mt|200mt)/i.test(nom)
+    );
+  };
+
+  // Filtro estricto de Materiales Consumibles para la lista de liquidación
   const soloMaterialesLiquidables = useMemo(() => {
     return stockTecnicoMateriales.filter((m) => {
       const cat = String(m.categoria || "").toUpperCase().trim();
       const catLiq = String(m.categoria_liquidar || "").toUpperCase().trim();
       const nom = String(m.nombre || "").toUpperCase().trim();
 
-      // Excluir equipos serializados (ONTs, Smart, TV Box, Teléfonos, etc.)
-      if (cat === "EQUIPOS" || catLiq === "EQUIPO" || m.maneja_serie === 1 || m.maneja_serie === true) {
-        // Excepto si es Actas/Guías físicas que son consumibles
-        if (!nom.includes("ACTA") && !nom.includes("GUIA") && !nom.includes("TALONARIO")) {
+      // ─── PASO 1: VALIDACIÓN POR CATEGORÍA ───
+      // Debe ser estrictamente categoría MATERIAL / MATERIALES
+      const esCategoriaMaterial =
+        cat === "MATERIALES" ||
+        cat === "MATERIAL" ||
+        catLiq === "MATERIAL" ||
+        Number(m.id_categoria) === 1;
+
+      // Si pertenece a HERRAMIENTAS, VEHÍCULOS, UNIFORMES, EPPS o EQUIPOS, se descarta de inmediato
+      const esCategoriaExcluida =
+        cat.includes("HERRAMIEN") ||
+        catLiq === "HERRAMIENTA" ||
+        cat.includes("VEHIC") ||
+        catLiq === "VEHICULO" ||
+        cat.includes("UNIFORM") ||
+        catLiq === "UNIFORME" ||
+        cat.includes("EPP") ||
+        cat === "EQUIPOS" ||
+        catLiq === "EQUIPO" ||
+        m.maneja_serie === 1;
+
+      if (!esCategoriaMaterial || esCategoriaExcluida) {
+        return false;
+      }
+
+      // ─── PASO 2: VALIDACIÓN POR PRODUCTO ───
+      // 2.1 Excluir actas y guías físicas (se ingresan únicamente en la cabecera N° 001-XXXX)
+      if (nom.includes("ACTA") || nom.includes("GUIA") || nom.includes("TALONARIO") || cat.includes("DOCUMENT")) {
+        return false;
+      }
+
+      // 2.2 Excluir Cable Drop continuo en bobina (se gestiona arriba en la sección de Metraje / Bobina).
+      // NOTA IMPORTANTE: Los Drops Pre-Conectorizados (50M, 100M, 150M, 200M) que se cuentan por UNIDADES SÍ se permiten aquí.
+      const esConectorizado = esDropConectorizado(m);
+      if (!esConectorizado) {
+        if (
+          m.es_drop === 1 ||
+          Number(m.id_producto) === 55 ||
+          nom === "DROP" ||
+          nom === "CABLE DROP" ||
+          nom === "FIBRA DROP"
+        ) {
           return false;
         }
       }
 
-      // Excluir vehículo, herramientas, uniformes, EPP
+      return true;
+    });
+  }, [stockTecnicoMateriales]);
+
+  // 🌟 Extraer el Stock de Bobina Continua de Drop del técnico (en metros)
+  const dropStockItem = useMemo(() => {
+    return stockTecnicoMateriales.find((m) => {
+      const nom = String(m.nombre || "").toUpperCase().trim();
+      const cat = String(m.categoria || "").toUpperCase().trim();
+      const catLiq = String(m.categoria_liquidar || "").toUpperCase().trim();
+
+      // Descartar herramientas y descartar conectorizados (los conectorizados se miden en unidades)
       if (
-        cat.includes("VEHIC") ||
+        nom.includes("PORTA") ||
+        nom.includes("PELAD") ||
         cat.includes("HERRAMIEN") ||
-        cat.includes("UNIFORM") ||
-        cat.includes("EPP") ||
-        cat.includes("SEGURIDAD VIAL") ||
-        catLiq === "VEHICULO" ||
         catLiq === "HERRAMIENTA" ||
-        catLiq === "UNIFORME"
+        esDropConectorizado(m)
       ) {
         return false;
       }
 
-      return true;
+      // Paso 1: Validar Categoría
+      const esCategoriaMaterial =
+        cat === "MATERIALES" ||
+        cat === "MATERIAL" ||
+        catLiq === "MATERIAL" ||
+        Number(m.id_categoria) === 1 ||
+        m.es_drop === 1;
+
+      if (!esCategoriaMaterial) return false;
+
+      // Paso 2: Validar Producto específico
+      return (
+        m.es_drop === 1 ||
+        Number(m.id_producto) === 55 ||
+        nom === "DROP" ||
+        nom === "CABLE DROP" ||
+        nom === "FIBRA DROP"
+      );
     });
+  }, [stockTecnicoMateriales]);
+
+  const stockDropDisponible = Number(dropStockItem?.stock ?? 0);
+
+  // Verificar si el técnico ha seleccionado un Drop Conectorizado en sus materiales
+  const dropConectorizadoSeleccionado = useMemo(() => {
+    return materiales.find(
+      (m) => esDropConectorizado(m) && Number(m.cantidad) > 0
+    );
+  }, [materiales]);
+
+  // Rollos Drop Conectorizados disponibles en el stock del técnico
+  const rollosConectorizadosDisponibles = useMemo(() => {
+    return stockTecnicoMateriales.filter(
+      (m) => esDropConectorizado(m) && Number(m.stock) > 0
+    );
   }, [stockTecnicoMateriales]);
 
   // Sugerencias de autocompletado según lo que el técnico va digitando
@@ -333,9 +433,9 @@ export const TechnicalActModal: React.FC<Props> = ({
     return null;
   };
 
-  // Si está en modo solo lectura (Admin), cargar el acta real guardada
+  // Si está en modo solo lectura (Admin) o ya fue liquidada, cargar el acta real guardada
   useEffect(() => {
-    if (readOnly) {
+    if (isAlreadyLiquidated) {
       setCargandoActaGuardada(true);
       getActaLiquidacion(order.id)
         .then((res) => {
@@ -358,12 +458,16 @@ export const TechnicalActModal: React.FC<Props> = ({
             setTecnicoNombreGuardado(a.tecnico_nombre || "");
 
             if (res.materiales && res.materiales.length > 0) {
+              const soloConsumiblesGuardados = res.materiales.filter((m: any) => {
+                const nom = String(m.nombre || "").toUpperCase().trim();
+                return m.es_drop !== 1 && Number(m.id_producto) !== 55 && nom !== "DROP" && !nom.includes("CABLE DROP") && !nom.includes("FIBRA DROP");
+              });
               setMateriales(
-                res.materiales.map((m: any) => ({
+                soloConsumiblesGuardados.map((m: any) => ({
                   id_producto: m.id_producto,
                   nombre: m.nombre,
                   cantidad: m.cantidad,
-                  unidad: m.es_drop ? "MTR" : "UND",
+                  unidad: "UND",
                 }))
               );
             }
@@ -381,13 +485,18 @@ export const TechnicalActModal: React.FC<Props> = ({
         })
         .finally(() => setCargandoActaGuardada(false));
     }
-  }, [readOnly, order.id]);
+  }, [isAlreadyLiquidated, order.id]);
+
+  const orderTecnicoId =
+    idTrabajadorActual ||
+    order.idTecnico ||
+    (order as any)?.id_trabajador ||
+    (order as any)?.id_tecnico_asignado;
 
   // Cargar stock del técnico
   useEffect(() => {
-    const targetId = idTrabajadorActual || order.idTecnico;
-    if (targetId) {
-      getTecnicoStock(targetId)
+    if (orderTecnicoId) {
+      getTecnicoStock(orderTecnicoId)
         .then((res) => {
           const mats = [...(res.materiales || []), ...(res.cablesDrop || [])];
           setStockTecnicoMateriales(mats);
@@ -395,31 +504,48 @@ export const TechnicalActModal: React.FC<Props> = ({
         })
         .catch((err) => console.error("Error al cargar stock:", err));
     }
-  }, [idTrabajadorActual, order.idTecnico]);
+  }, [orderTecnicoId]);
 
   // Aplicar sugerencias de materiales cuando cambia el Tipo de Liquidación
   useEffect(() => {
-    if (readOnly) return;
+    if (isAlreadyLiquidated) return;
     const plant = getPlantillaPorTrabajo(tipoLiquidacion);
-    const nuevasFilas: MaterialRow[] = plant.materialesDefault.map((def, idx) => {
-      // Buscar si el producto existe en el catálogo o stock del técnico
-      const match = stockTecnicoMateriales.find((m) =>
-        m.nombre.toUpperCase().includes(def.nombre.toUpperCase())
-      );
-      const prodId = match ? match.id_producto : idx + 1;
-      const lim = obtenerLimiteParaMaterial(prodId, def.nombre);
-      let cant = def.cantidadDefault;
-      if (lim !== null && cant > lim) {
-        cant = lim;
-      }
-      return {
-        id_producto: prodId,
-        nombre: def.nombre,
-        cantidad: cant,
-        unidad: def.unidad,
-        stockDisponible: match ? match.stock : undefined,
-      };
-    });
+    const nuevasFilas: MaterialRow[] = plant.materialesDefault
+      .filter((def) => !def.nombre.toUpperCase().includes("ACTA") && !def.nombre.toUpperCase().includes("GUIA"))
+      .map((def, idx) => {
+        // Buscar si el producto existe en el catálogo o stock del técnico con concordancia inteligente
+        const match = stockTecnicoMateriales.find((m) => {
+          const mName = String(m.nombre || "").toUpperCase();
+          const dName = String(def.nombre || "").toUpperCase();
+          if (mName.includes("ACTA") || mName.includes("GUIA")) return false;
+          if (mName.includes(dName) || dName.includes(mName)) return true;
+          if (dName.includes("CONECTOR") && mName.includes("CONECTOR")) return true;
+          if (dName.includes("PATCH") && mName.includes("PATCH")) return true;
+          if (dName.includes("ROSETA") && mName.includes("ROSETA")) return true;
+          if (dName.includes("DROP") && mName.includes("DROP")) return true;
+          if (dName.includes("CINTA") && mName.includes("CINTA")) return true;
+          if (dName.includes("ALCOHOL") && mName.includes("ALCOHOL")) return true;
+          return false;
+        });
+
+        const prodId = match ? match.id_producto : (idx + 1);
+        const prodNombre = match ? match.nombre : def.nombre;
+        const stockDisp = match ? Number(match.stock || 0) : 0;
+        const lim = obtenerLimiteParaMaterial(prodId, prodNombre);
+        let cant = def.cantidadDefault;
+        if (lim !== null && cant > lim) {
+          cant = lim;
+        }
+        return {
+          id_producto: prodId,
+          nombre: prodNombre,
+          cantidad: cant,
+          unidad: def.unidad,
+          stockDisponible: stockDisp,
+        };
+      })
+      .filter((row) => !row.nombre.toUpperCase().includes("ACTA") && !row.nombre.toUpperCase().includes("GUIA"));
+
     setMateriales(nuevasFilas);
   }, [tipoLiquidacion, stockTecnicoMateriales, limitesDelMotivo, readOnly]);
 
@@ -427,7 +553,7 @@ export const TechnicalActModal: React.FC<Props> = ({
   const handleAgregarMaterialDeStock = () => {
     if (!selectedStockProductoId) return;
     const prod = stockTecnicoMateriales.find((p) => p.id_producto === Number(selectedStockProductoId));
-    if (!prod) return;
+    if (!prod || prod.nombre.toUpperCase().includes("ACTA") || prod.nombre.toUpperCase().includes("GUIA")) return;
 
     const cant = Math.max(1, Number(selectedStockCantidad) || 1);
     const lim = obtenerLimiteParaMaterial(prod.id_producto, prod.nombre);
@@ -540,6 +666,56 @@ export const TechnicalActModal: React.FC<Props> = ({
       }
     }
 
+    // ─────────────────────────────────────────────────────────────
+    // REGLA DE NEGOCIO 3: VALIDACIÓN DE STOCK REAL EN CAMIONETA
+    // ─────────────────────────────────────────────────────────────
+    for (const mat of materiales) {
+      if (mat.cantidad > 0) {
+        const stockReal = Number(mat.stockDisponible ?? 0);
+        if (mat.cantidad > stockReal) {
+          alert(
+            `❌ STOCK INSUFICIENTE EN TU VEHÍCULO:\n\n` +
+            `Estás intentando liquidar ${mat.cantidad} unidad(es) de "${mat.nombre}", pero actualmente solo tienes ${stockReal} disponible(s) en tu camioneta.\n\n` +
+            `No puedes liquidar esta orden hasta que Almacén te despache el material necesario.`
+          );
+          return;
+        }
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────
+    // REGLA DE NEGOCIO 3.1: VALIDACIÓN DE STOCK DE CABLE DROP (BOBINA O CONECTORIZADO)
+    // ─────────────────────────────────────────────────────────────
+    if (plantillaActual.requiereDrop && totalDropCalculado <= 0 && !dropConectorizadoSeleccionado) {
+      alert(
+        `❌ FALTA REGISTRAR CABLE DROP:\n\n` +
+        `El tipo de liquidación "${tipoLiquidacion}" requiere Cable Drop.\n\n` +
+        `👉 Opción 1: Ingresa "Metro Inicio" y "Metro Fin" en las casillas de carrete.\n` +
+        `👉 Opción 2: O selecciona un rollo "Drop Pre-Conectorizado (50m, 100m, 150m, 200m)".`
+      );
+      return;
+    }
+
+    if (totalDropCalculado > 0) {
+      if (stockDropDisponible <= 0) {
+        alert(
+          `❌ SIN STOCK EN BOBINA CONTINUA:\n\n` +
+          `No tienes bobina de Cable Drop en metros en tu camioneta (0 m disponibles).\n\n` +
+          `💡 Si utilizaste un rollo "Drop Conectorizado (50m, 100m, 150m, 200m)", por favor borra las casillas de carrete y agrégalo desde "+ Agregar Material de mi Stock".`
+        );
+        return;
+      }
+      if (totalDropCalculado > stockDropDisponible) {
+        alert(
+          `❌ STOCK DE BOBINA INSUFICIENTE:\n\n` +
+          `Has ingresado un consumo de ${totalDropCalculado} metros de bobina continua, pero actualmente solo tienes ${stockDropDisponible} metros disponibles en tu camioneta.\n\n` +
+          `Ajusta el rango de metraje o solicita bobina a Almacén.`
+        );
+        return;
+      }
+    }
+
     try {
       setGuardando(true);
       const gps = await getGps();
@@ -573,10 +749,16 @@ export const TechnicalActModal: React.FC<Props> = ({
         });
       }
 
+      const finalTrabajadorId =
+        idTrabajadorActual ||
+        order.idTecnico ||
+        (order as any)?.id_trabajador ||
+        (order as any)?.id_tecnico_asignado;
+
       const numeroGuiaFinal = `001-${cleanSufijo}`;
 
       await liquidarActaOrden(order.id, {
-        id_trabajador: idTrabajadorActual,
+        id_trabajador: finalTrabajadorId,
         numero_guia: numeroGuiaFinal,
         numero_acta: numeroGuiaFinal,
         tipo_trabajo_acta: tipoLiquidacion,
@@ -608,32 +790,6 @@ export const TechnicalActModal: React.FC<Props> = ({
 
   const plantillaActual = getPlantillaPorTrabajo(tipoLiquidacion);
 
-  // Lista combinada de opciones de Tipo de Liquidación
-  const opcionesTipoLiquidacion = useMemo(() => {
-    const baseOptions = [
-      "RECABLEADO",
-      "NORMALIZACIÓN",
-      "CAMBIO DE CONECTOR EN CTO/NAP",
-      "CAMBIO DE CONECTOR EN ROSETA",
-      "CAMBIO DE EQUIPO ONT",
-      "CAMBIO DE EQUIPO MESH",
-      "GARANTIA",
-      "REUBICACIÓN CON RESERVA",
-      "REUBICACIÓN SIN RESERVA",
-      "TRASLADO",
-      "TRASALDO EN CONDOMINIO",
-      "RECABLEADO EN CONDOMINIO",
-      "VISITA EXTERNA",
-      "INSTALACION",
-      "PEX",
-      "ADICIONAL",
-    ];
-
-    const fromMotivos = motivosList.map((m) => m.nombre.trim()).filter(Boolean);
-    const combined = Array.from(new Set([...fromMotivos, ...baseOptions]));
-    return combined;
-  }, [motivosList]);
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-2 md:p-4 animate-fade-in">
       <div className="bg-white rounded-3xl p-5 md:p-6 max-w-3xl w-full shadow-2xl border border-slate-100 space-y-5 max-h-[95vh] overflow-y-auto relative">
@@ -651,9 +807,10 @@ export const TechnicalActModal: React.FC<Props> = ({
                 <span className="font-mono font-black text-xs px-2.5 py-0.5 rounded-lg bg-orange-100 text-orange-800 border border-orange-200">
                   ACTA DE SERVICIO TÉCNICO
                 </span>
-                {readOnly ? (
-                  <span className="px-2.5 py-0.5 rounded-lg bg-slate-900 text-amber-400 font-mono font-black text-xs border border-slate-700">
-                    N° {numeroGuiaGuardada || `001-${guiaCorrelativo || "XXXXXX"}`} 🔒
+                {isAlreadyLiquidated ? (
+                  <span className="px-2.5 py-1 rounded-xl bg-slate-900 text-amber-400 font-mono font-black text-xs border border-slate-700 shadow-2xs flex items-center gap-1.5">
+                    <span>N° {numeroGuiaGuardada || (guiaCorrelativo ? `001-${guiaCorrelativo}` : "001-XXXXXX")}</span>
+                    <span className="text-[10px] text-amber-300/80 font-sans font-bold">🔒 Registrada</span>
                   </span>
                 ) : (
                   <div className="relative">
@@ -717,7 +874,7 @@ export const TechnicalActModal: React.FC<Props> = ({
                 )}
               </div>
               <h2 className="text-base md:text-lg font-black text-slate-900 mt-0.5">
-                {readOnly
+                {isAlreadyLiquidated
                   ? `Auditoría de Liquidación (Llenado por: ${tecnicoNombreGuardado || "Técnico en Campo"})`
                   : `Liquidación de Orden de Campo`}
               </h2>
@@ -756,7 +913,7 @@ export const TechnicalActModal: React.FC<Props> = ({
             <RefreshCw size={28} className="animate-spin text-amber-500 mx-auto" />
             <p className="text-xs font-bold text-slate-600">Consultando Acta WIN guardada en base de datos...</p>
           </div>
-        ) : actaGuardadaNoExiste && readOnly ? (
+        ) : actaGuardadaNoExiste && isAlreadyLiquidated ? (
           <div className="py-12 px-6 bg-amber-50 rounded-3xl border border-amber-200 text-center space-y-3">
             <AlertCircle size={36} className="text-amber-600 mx-auto" />
             <h3 className="text-sm font-black text-amber-900">Acta Pendiente de Llenado</h3>
@@ -775,56 +932,189 @@ export const TechnicalActModal: React.FC<Props> = ({
           <form onSubmit={handleSubmit} className="space-y-4 text-xs font-semibold text-slate-700">
 
             {/* ─────────────────────────────────────────────────────────────
-                3. CÁLCULO DE CABLE DROP (SI APLICA)
+                0. TIPO DE LIQUIDACIÓN AUTOMÁTICO DE LA ORDEN
+            ───────────────────────────────────────────────────────────── */}
+            <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-2xl flex items-center justify-between gap-3 shadow-2xs">
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-black uppercase tracking-wider text-amber-800 block">
+                  Tipo de Liquidación (Asignado a la Orden)
+                </span>
+                <p className="text-xs sm:text-sm font-black text-slate-900 mt-0.5 truncate" title={tipoLiquidacion}>
+                  {tipoLiquidacion || "RECABLEADO"}
+                </p>
+              </div>
+              <span className="px-2.5 py-1 bg-amber-500 text-white font-bold text-[10px] rounded-xl shadow-2xs shrink-0">
+                Automático WIN
+              </span>
+            </div>
+
+            {/* ─────────────────────────────────────────────────────────────
+                3. CÁLCULO DE CABLE DROP (BOBINA CONTINUA O CONECTORIZADO)
             ───────────────────────────────────────────────────────────── */}
             {(plantillaActual.requiereDrop || Number(dropMetroInicio) > 0 || Number(dropMetroFin) > 0 || /fibra|drop|recableado|alta|traslado|instalac/i.test(tipoLiquidacion)) && (
-              <div className="p-4 bg-amber-50/50 border border-amber-200 rounded-2xl space-y-3">
+              <div className={`p-4 rounded-2xl space-y-3 border transition-all ${
+                dropConectorizadoSeleccionado
+                  ? "bg-emerald-50/60 border-emerald-200"
+                  : stockDropDisponible <= 0
+                  ? "bg-slate-50 border-slate-200"
+                  : "bg-amber-50/50 border-amber-200"
+              }`}>
                 <div className="flex items-center justify-between flex-wrap gap-2">
-                  <span className="font-black text-xs text-amber-900 flex items-center gap-1.5">
+                  <span className={`font-black text-xs flex items-center gap-1.5 ${
+                    dropConectorizadoSeleccionado ? "text-emerald-900" : "text-amber-900"
+                  }`}>
                     <Package size={16} />
                     Metraje de Cable Drop (Fibra Óptica)
                   </span>
+                  
                   <div className="flex items-center gap-2">
-                    {totalDropCalculado > 0 && (
-                      <span className="text-xs font-black px-3 py-1 bg-amber-500 text-white rounded-xl font-mono shadow-xs">
+                    {/* Badge según tipo de Drop utilizado */}
+                    {dropConectorizadoSeleccionado ? (
+                      <span className="text-xs font-bold px-2.5 py-1 bg-emerald-600 text-white rounded-xl font-mono shadow-2xs flex items-center gap-1">
+                        <span>✓ Conectorizado: {dropConectorizadoSeleccionado.nombre} ({dropConectorizadoSeleccionado.cantidad} UND)</span>
+                      </span>
+                    ) : stockDropDisponible > 0 ? (
+                      <span className="text-xs font-bold px-2.5 py-1 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl font-mono shadow-2xs flex items-center gap-1">
+                        <span>✓ En camioneta (Bobina):</span>
+                        <span className="font-black">{stockDropDisponible} m</span>
+                      </span>
+                    ) : (
+                      <span className="text-xs font-bold px-2.5 py-1 bg-slate-200 text-slate-700 rounded-xl shadow-2xs flex items-center gap-1">
+                        <span>ℹ️ Bobina: 0 m</span>
+                      </span>
+                    )}
+
+                    {totalDropCalculado > 0 && !dropConectorizadoSeleccionado && (
+                      <span className={`text-xs font-black px-3 py-1 rounded-xl font-mono shadow-xs ${
+                        totalDropCalculado > stockDropDisponible && stockDropDisponible > 0
+                          ? "bg-rose-600 text-white"
+                          : "bg-amber-500 text-white"
+                      }`}>
                         Total Consumido: {totalDropCalculado} metros
                       </span>
                     )}
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 items-center">
-                  <div>
-                    <label className="block mb-1 text-slate-600">Metro Inicio (Carrete)</label>
-                    <input
-                      type="number"
-                      disabled={readOnly}
-                      value={dropMetroInicio}
-                      onChange={(e) => setDropMetroInicio(e.target.value)}
-                      placeholder="Ej: 500"
-                      className="w-full p-2 bg-white border border-slate-200 rounded-xl font-mono font-bold text-xs disabled:bg-slate-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-200"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block mb-1 text-slate-600">Metro Fin (Carrete)</label>
-                    <input
-                      type="number"
-                      disabled={readOnly}
-                      value={dropMetroFin}
-                      onChange={(e) => setDropMetroFin(e.target.value)}
-                      placeholder="Ej: 435"
-                      className="w-full p-2 bg-white border border-slate-200 rounded-xl font-mono font-bold text-xs disabled:bg-slate-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-200"
-                    />
-                  </div>
-
-                  <div className="col-span-2 sm:col-span-1 bg-white p-2.5 rounded-xl border border-amber-200 text-center">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Descuento de Bobina</span>
-                    <span className="text-sm font-black text-amber-800 font-mono">
-                      -{totalDropCalculado} mtrs
+                {/* Selector rápido de Rollo Drop Conectorizado */}
+                {!isAlreadyLiquidated && rollosConectorizadosDisponibles.length > 0 && (
+                  <div className="p-2.5 rounded-xl bg-white border border-emerald-300/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs shadow-2xs">
+                    <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                      <Sparkles size={14} className="text-emerald-600" />
+                      ¿Utilizaste Rollo Pre-Conectorizado?
                     </span>
+                    <select
+                      value={dropConectorizadoSeleccionado?.id_producto || ""}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        if (!val) {
+                          setMateriales((prev) => prev.filter((m) => !esDropConectorizado(m)));
+                        } else {
+                          const prod = rollosConectorizadosDisponibles.find((p) => p.id_producto === val);
+                          if (prod) {
+                            setMateriales((prev) => {
+                              const sinOtros = prev.filter((m) => !esDropConectorizado(m));
+                              return [
+                                ...sinOtros,
+                                {
+                                  id_producto: prod.id_producto,
+                                  nombre: prod.nombre,
+                                  cantidad: 1,
+                                  unidad: "UND",
+                                  stockDisponible: prod.stock,
+                                },
+                              ];
+                            });
+                            setDropMetroInicio("");
+                            setDropMetroFin("");
+                          }
+                        }
+                      }}
+                      className="p-1.5 bg-slate-50 border border-slate-300 rounded-lg font-bold text-slate-900 text-xs focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                    >
+                      <option value="">-- No (Usar Bobina Continua en Metros) --</option>
+                      {rollosConectorizadosDisponibles.map((r) => (
+                        <option key={r.id_producto} value={r.id_producto}>
+                          {r.nombre} ({r.stock} UND en camioneta)
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                </div>
+                )}
+
+                {/* Banner: Si está usando Drop Conectorizado */}
+                {dropConectorizadoSeleccionado && (
+                  <div className="p-2.5 bg-emerald-100/90 border border-emerald-300 rounded-xl flex items-center justify-between gap-2 text-emerald-900 text-xs font-bold shadow-2xs">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">✅</span>
+                      <span>Liquidando con rollo Pre-Conectorizado: &quot;{dropConectorizadoSeleccionado.nombre}&quot; ({dropConectorizadoSeleccionado.cantidad} UND descontada de stock).</span>
+                    </div>
+                    {!isAlreadyLiquidated && (
+                      <button
+                        type="button"
+                        onClick={() => setMateriales((prev) => prev.filter((m) => !esDropConectorizado(m)))}
+                        className="px-2 py-0.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-md text-[10px] font-bold cursor-pointer transition-all"
+                      >
+                        Quitar
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Banner informativo si no tiene bobina continua */}
+                {stockDropDisponible <= 0 && !dropConectorizadoSeleccionado && !isAlreadyLiquidated && (
+                  <div className="p-2.5 bg-amber-100/90 border border-amber-300 rounded-xl flex items-center gap-2 text-amber-900 text-xs font-semibold shadow-2xs">
+                    <span className="text-base">ℹ️</span>
+                    <span>No tienes bobina continua en metros (0 m). Si tu instalación usa un rollo <strong>Drop Conectorizado (50m, 100m, 150m, 200m)</strong>, selecciónalo en el menú desplegable arriba.</span>
+                  </div>
+                )}
+
+                {/* Banner si el metraje calculado excede la bobina */}
+                {totalDropCalculado > stockDropDisponible && stockDropDisponible > 0 && !isAlreadyLiquidated && (
+                  <div className="p-2.5 bg-rose-100/90 border border-rose-300 rounded-xl flex items-center gap-2 text-rose-800 text-xs font-bold shadow-2xs">
+                    <span className="text-base">❌</span>
+                    <span>Consumo ingresado ({totalDropCalculado} m) excede tu stock de bobina en camioneta ({stockDropDisponible} m).</span>
+                  </div>
+                )}
+
+                {!dropConectorizadoSeleccionado && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 items-center">
+                    <div>
+                      <label className="block mb-1 text-slate-600 font-bold text-xs">Metro Inicio (Carrete)</label>
+                      <input
+                        type="number"
+                        disabled={isAlreadyLiquidated}
+                        value={dropMetroInicio}
+                        onChange={(e) => setDropMetroInicio(e.target.value)}
+                        placeholder={stockDropDisponible <= 0 ? "Opcional" : "Ej: 500"}
+                        className="w-full p-2 bg-white border border-slate-200 rounded-xl font-mono font-bold text-xs disabled:bg-slate-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-200"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block mb-1 text-slate-600 font-bold text-xs">Metro Fin (Carrete)</label>
+                      <input
+                        type="number"
+                        disabled={isAlreadyLiquidated}
+                        value={dropMetroFin}
+                        onChange={(e) => setDropMetroFin(e.target.value)}
+                        placeholder={stockDropDisponible <= 0 ? "Opcional" : "Ej: 435"}
+                        className="w-full p-2 bg-white border border-slate-200 rounded-xl font-mono font-bold text-xs disabled:bg-slate-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-200"
+                      />
+                    </div>
+
+                    <div className="col-span-2 sm:col-span-1 bg-white p-2.5 rounded-xl border border-amber-200 text-center">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase block">Descuento de Bobina</span>
+                      <span className={`text-sm font-black font-mono ${
+                        totalDropCalculado > stockDropDisponible && stockDropDisponible > 0
+                          ? "text-rose-600"
+                          : "text-amber-800"
+                      }`}>
+                        -{totalDropCalculado} mtrs
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -843,7 +1133,7 @@ export const TechnicalActModal: React.FC<Props> = ({
                   </span>
                 </div>
 
-                {!readOnly && (
+                {!isAlreadyLiquidated && (
                   <button
                     type="button"
                     onClick={() => setMostrarSelectorStock(!mostrarSelectorStock)}
@@ -856,7 +1146,7 @@ export const TechnicalActModal: React.FC<Props> = ({
               </div>
 
               {/* Selector emergente para escoger material del Stock del técnico (+) */}
-              {mostrarSelectorStock && !readOnly && (
+              {mostrarSelectorStock && !isAlreadyLiquidated && (
                 <div className="p-3 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-2xl space-y-2.5 animate-fade-in shadow-xs">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-black text-indigo-950 flex items-center gap-1.5">
@@ -918,6 +1208,16 @@ export const TechnicalActModal: React.FC<Props> = ({
 
               {/* Lista de Filas de Materiales */}
               <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
+                {/* Banner de Advertencia si algún material no tiene suficiente stock */}
+                {!isAlreadyLiquidated && materiales.some((m) => m.cantidad > (m.stockDisponible ?? 0)) && (
+                  <div className="p-2.5 bg-rose-50 border border-rose-300 rounded-xl flex items-center gap-2 text-rose-800 text-[11px] font-bold">
+                    <AlertCircle size={16} className="text-rose-600 shrink-0" />
+                    <span>
+                      ⚠️ No tienes stock suficiente en tu vehículo para uno o más materiales. Solicita dotación en Almacén antes de liquidar.
+                    </span>
+                  </div>
+                )}
+
                 {materiales.length === 0 ? (
                   <div className="py-4 text-center text-slate-400 text-xs font-bold">
                     No hay materiales asignados. Toca "+ Agregar Material de mi Stock" para añadir.
@@ -926,12 +1226,40 @@ export const TechnicalActModal: React.FC<Props> = ({
                   materiales.map((mat, idx) => {
                     const limite = obtenerLimiteParaMaterial(mat.id_producto, mat.nombre);
                     const tieneLimite = limite !== null;
+                    const stockDisp = Number(mat.stockDisponible ?? 0);
+                    const sinStock = stockDisp <= 0;
+                    const excedeStock = mat.cantidad > stockDisp;
+
+                    if (isAlreadyLiquidated) {
+                      return (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between gap-2 bg-white p-2.5 rounded-xl border border-slate-200/90 shadow-2xs"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-xs text-slate-900 truncate">{mat.nombre}</span>
+                              <span className="text-[10px] font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md border border-sky-200 flex items-center gap-1">
+                                ✓ Descontado / Liquidado
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 bg-slate-100 rounded-lg px-3 py-1 border border-slate-200 shrink-0">
+                            <span className="font-mono font-black text-xs text-slate-800">{mat.cantidad}</span>
+                            <span className="text-[10px] font-bold text-slate-500">{mat.unidad}</span>
+                          </div>
+                        </div>
+                      );
+                    }
 
                     return (
                       <div
                         key={idx}
                         className={`flex items-center justify-between gap-2 bg-white p-2.5 rounded-xl border shadow-2xs transition-all ${
-                          tieneLimite && mat.cantidad >= limite
+                          sinStock || excedeStock
+                            ? "border-rose-400 bg-rose-50/40 ring-1 ring-rose-200"
+                            : tieneLimite && mat.cantidad >= limite
                             ? "border-amber-300 bg-amber-50/30"
                             : "border-slate-200/80"
                         }`}
@@ -944,9 +1272,17 @@ export const TechnicalActModal: React.FC<Props> = ({
                                 Límite: Máx {limite} {mat.unidad}
                               </span>
                             )}
-                            {mat.stockDisponible !== undefined && (
-                              <span className="text-[9px] font-mono text-slate-400 font-bold">
-                                (Stock disponible: {mat.stockDisponible})
+                            {sinStock ? (
+                              <span className="text-[9.5px] font-black px-2 py-0.5 rounded-md bg-rose-100 text-rose-700 border border-rose-300 flex items-center gap-1">
+                                ⚠️ Sin stock en carro (0 disp.)
+                              </span>
+                            ) : excedeStock ? (
+                              <span className="text-[9.5px] font-black px-2 py-0.5 rounded-md bg-rose-100 text-rose-700 border border-rose-300">
+                                ⚠️ Stock insuficiente ({stockDisp} disp.)
+                              </span>
+                            ) : (
+                              <span className="text-[9.5px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                                ✓ En carro: {stockDisp} {mat.unidad}
                               </span>
                             )}
                           </div>
@@ -958,7 +1294,7 @@ export const TechnicalActModal: React.FC<Props> = ({
                               type="number"
                               min="0"
                               max={limite !== null ? limite : undefined}
-                              disabled={readOnly}
+                              disabled={isAlreadyLiquidated}
                               value={mat.cantidad}
                               onChange={(e) => handleCambiarCantidadMaterial(idx, e.target.value)}
                               className="w-16 p-1.5 bg-white border border-slate-200 rounded-lg text-center font-mono font-black text-xs focus:ring-2 focus:ring-indigo-300 focus:outline-none disabled:bg-slate-100"
@@ -967,7 +1303,7 @@ export const TechnicalActModal: React.FC<Props> = ({
                             <span className="text-[10px] font-bold text-slate-500 px-1">{mat.unidad}</span>
                           </div>
 
-                          {!readOnly && (
+                          {!isAlreadyLiquidated && (
                             <button
                               type="button"
                               onClick={() => handleEliminarMaterial(idx)}
@@ -1009,7 +1345,7 @@ export const TechnicalActModal: React.FC<Props> = ({
                         <ArrowUpRight size={14} className="text-emerald-600" />
                         S/N ONT Instalado
                       </span>
-                      {!readOnly && (
+                      {!isAlreadyLiquidated && (
                         <span className="text-[10px] text-emerald-700 font-medium bg-emerald-50 px-1.5 py-0.5 rounded">
                           Cámara o Digitar
                         </span>
@@ -1019,12 +1355,12 @@ export const TechnicalActModal: React.FC<Props> = ({
                       <input
                         type="text"
                         placeholder="Digita o escanea serie..."
-                        disabled={readOnly}
+                        disabled={isAlreadyLiquidated}
                         value={snOntInstalado}
                         onChange={(e) => setSnOntInstalado(e.target.value.toUpperCase())}
                         className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:bg-white font-bold disabled:bg-slate-100"
                       />
-                      {!readOnly && (
+                      {!isAlreadyLiquidated && (
                         <button
                           type="button"
                           onClick={() => abrirEscaner("ont_instalado", "Escanear ONT Instalada", "Apunta al código de barras o serie de la ONT nueva")}
@@ -1044,7 +1380,7 @@ export const TechnicalActModal: React.FC<Props> = ({
                         <ArrowDownLeft size={14} className="text-rose-600" />
                         S/N ONT Retirado (Recogido)
                       </span>
-                      {!readOnly && (
+                      {!isAlreadyLiquidated && (
                         <span className="text-[10px] text-rose-700 font-medium bg-rose-50 px-1.5 py-0.5 rounded">
                           Cámara o Digitar
                         </span>
@@ -1054,12 +1390,12 @@ export const TechnicalActModal: React.FC<Props> = ({
                       <input
                         type="text"
                         placeholder="Digita o escanea serie retirada..."
-                        disabled={readOnly}
+                        disabled={isAlreadyLiquidated}
                         value={snOntRetirado}
                         onChange={(e) => setSnOntRetirado(e.target.value.toUpperCase())}
                         className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:bg-white font-bold text-rose-800 disabled:bg-slate-100"
                       />
-                      {!readOnly && (
+                      {!isAlreadyLiquidated && (
                         <button
                           type="button"
                           onClick={() => abrirEscaner("ont_retirado", "Escanear ONT Retirada", "Apunta al código de barras del equipo recogido al cliente")}
@@ -1084,7 +1420,7 @@ export const TechnicalActModal: React.FC<Props> = ({
               <label className="block mb-1 text-slate-600 font-bold">Observaciones del Técnico</label>
               <textarea
                 rows={2}
-                disabled={readOnly}
+                disabled={isAlreadyLiquidated}
                 value={observaciones}
                 onChange={(e) => setObservaciones(e.target.value)}
                 placeholder="Observaciones de campo..."
@@ -1096,7 +1432,7 @@ export const TechnicalActModal: React.FC<Props> = ({
                 BOTONES DE ACCIÓN
             ───────────────────────────────────────────────────────────── */}
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
-              {readOnly ? (
+              {isAlreadyLiquidated ? (
                 <>
                   <button
                     type="button"

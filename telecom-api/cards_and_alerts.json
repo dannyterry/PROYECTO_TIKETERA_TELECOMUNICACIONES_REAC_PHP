@@ -1,13 +1,458 @@
 {
-  "timestamp": "2026-09-16T21:25:32.195Z",
-  "totalGeneral": 0,
-  "totalAlertasSur": 0,
-  "resumenZonas": {},
+  "timestamp": "2026-09-17T16:24:31.019Z",
+  "totalGeneral": 17,
+  "totalAlertasSur": 4,
+  "resumenZonas": {
+    "NORTE 1": 2,
+    "OESTE 1": 4,
+    "ESTE 1": 2,
+    "OESTE 2": 3,
+    "SUR 1": 4,
+    "OESTE 3": 2
+  },
   "cards": {
     "AVERIAS PREFERENTE": {
-      "total": 0,
-      "zonas": {},
-      "ordenes": []
+      "total": 17,
+      "zonas": {
+        "NORTE 1": {
+          "zona": "NORTE 1",
+          "total": 2,
+          "esSur": false,
+          "franjas": {
+            "08:00-11:59": 0,
+            "12:00-15:59": 2,
+            "16:00-20:00": 0,
+            "otros": 0
+          },
+          "distritos": {
+            "Zona Sur": 2
+          },
+          "ordenes": [
+            {
+              "ticket": "PREF-NORTE1",
+              "distrito": "Zona Sur",
+              "direccion": "Zona Sur (NORTE 1)",
+              "zona_nodo": "NORTE 1",
+              "franja_horaria": "12:00-15:59",
+              "motivo": "AVERIAS CRM",
+              "vehiculo_tipo": "AVERIAS",
+              "tarjeta": "AVERIAS PREFERENTE"
+            },
+            {
+              "ticket": "PREF-NORTE1",
+              "distrito": "Zona Sur",
+              "direccion": "Zona Sur (NORTE 1)",
+              "zona_nodo": "NORTE 1",
+              "franja_horaria": "12:00-15:59",
+              "motivo": "AVERIAS CRM",
+              "vehiculo_tipo": "AVERIAS",
+              "tarjeta": "AVERIAS PREFERENTE"
+            }
+          ]
+        },
+        "OESTE 1": {
+          "zona": "OESTE 1",
+          "total": 4,
+          "esSur": false,
+          "franjas": {
+            "08:00-11:59": 0,
+            "12:00-15:59": 4,
+            "16:00-20:00": 0,
+            "otros": 0
+          },
+          "distritos": {
+            "Zona Sur": 4
+          },
+          "ordenes": [
+            {
+              "ticket": "PREF-OESTE1",
+              "distrito": "Zona Sur",
+              "direccion": "Zona Sur (OESTE 1)",
+              "zona_nodo": "OESTE 1",
+              "franja_horaria": "12:00-15:59",
+              "motivo": "AVERIAS CRM",
+              "vehiculo_tipo": "AVERIAS",
+              "tarjeta": "AVERIAS PREFERENTE"
+            },
+            {
+              "ticket": "PREF-OESTE1",
+              "distrito": "Zona Sur",
+              "direccion": "Zona Sur (OESTE 1)",
+              "zona_nodo": "OESTE 1",
+              "franja_horaria": "12:00-15:59",
+              "motivo": "AVERIAS CRM",
+              "vehiculo_tipo": "AVERIAS",
+              "tarjeta": "AVERIAS PREFERENTE"
+            },
+            {
+              "ticket": "PREF-OESTE1",
+              "distrito": "Zona Sur",
+              "direccion": "Zona Sur (OESTE 1)",
+              "zona_nodo": "OESTE 1",
+              "franja_horaria": "12:00-15:59",
+              "motivo": "AVERIAS CRM",
+              "vehiculo_tipo": "AVERIAS",
+              "tarjeta": "AVERIAS PREFERENTE"
+            },
+            {
+              "ticket": "PREF-OESTE1",
+              "distrito": "Zona Sur",
+              "direccion": "Zona Sur (OESTE 1)",
+              "zona_nodo": "OESTE 1",
+              "franja_horaria": "12:00-15:59",
+              "motivo": "AVERIAS CRM",
+              "vehiculo_tipo": "AVERIAS",
+              "tarjeta": "AVERIAS PREFERENTE"
+            }
+          ]
+        },
+        "ESTE 1": {
+          "zona": "ESTE 1",
+          "total": 2,
+          "esSur": false,
+          "franjas": {
+            "08:00-11:59": 0,
+            "12:00-15:59": 2,
+            "16:00-20:00": 0,
+            "otros": 0
+          },
+          "distritos": {
+            "Zona Sur": 2
+          },
+          "ordenes": [
+            {
+              "ticket": "PREF-ESTE1",
+              "distrito": "Zona Sur",
+              "direccion": "Zona Sur (ESTE 1)",
+              "zona_nodo": "ESTE 1",
+              "franja_horaria": "12:00-15:59",
+              "motivo": "AVERIAS CRM",
+              "vehiculo_tipo": "AVERIAS",
+              "tarjeta": "AVERIAS PREFERENTE"
+            },
+            {
+              "ticket": "PREF-ESTE1",
+              "distrito": "Zona Sur",
+              "direccion": "Zona Sur (ESTE 1)",
+              "zona_nodo": "ESTE 1",
+              "franja_horaria": "12:00-15:59",
+              "motivo": "AVERIAS CRM",
+              "vehiculo_tipo": "AVERIAS",
+              "tarjeta": "AVERIAS PREFERENTE"
+            }
+          ]
+        },
+        "OESTE 2": {
+          "zona": "OESTE 2",
+          "total": 3,
+          "esSur": false,
+          "franjas": {
+            "08:00-11:59": 0,
+            "12:00-15:59": 3,
+            "16:00-20:00": 0,
+            "otros": 0
+          },
+          "distritos": {
+            "Zona Sur": 3
+          },
+          "ordenes": [
+            {
+              "ticket": "PREF-OESTE2",
+              "distrito": "Zona Sur",
+              "direccion": "Zona Sur (OESTE 2)",
+              "zona_nodo": "OESTE 2",
+              "franja_horaria": "12:00-15:59",
+              "motivo": "AVERIAS CRM",
+              "vehiculo_tipo": "AVERIAS",
+              "tarjeta": "AVERIAS PREFERENTE"
+            },
+            {
+              "ticket": "PREF-OESTE2",
+              "distrito": "Zona Sur",
+              "direccion": "Zona Sur (OESTE 2)",
+              "zona_nodo": "OESTE 2",
+              "franja_horaria": "12:00-15:59",
+              "motivo": "AVERIAS CRM",
+              "vehiculo_tipo": "AVERIAS",
+              "tarjeta": "AVERIAS PREFERENTE"
+            },
+            {
+              "ticket": "PREF-OESTE2",
+              "distrito": "Zona Sur",
+              "direccion": "Zona Sur (OESTE 2)",
+              "zona_nodo": "OESTE 2",
+              "franja_horaria": "12:00-15:59",
+              "motivo": "AVERIAS CRM",
+              "vehiculo_tipo": "AVERIAS",
+              "tarjeta": "AVERIAS PREFERENTE"
+            }
+          ]
+        },
+        "SUR 1": {
+          "zona": "SUR 1",
+          "total": 4,
+          "esSur": true,
+          "franjas": {
+            "08:00-11:59": 0,
+            "12:00-15:59": 4,
+            "16:00-20:00": 0,
+            "otros": 0
+          },
+          "distritos": {
+            "Zona Sur": 4
+          },
+          "ordenes": [
+            {
+              "ticket": "PREF-SUR1",
+              "distrito": "Zona Sur",
+              "direccion": "Zona Sur (SUR 1)",
+              "zona_nodo": "SUR 1",
+              "franja_horaria": "12:00-15:59",
+              "motivo": "AVERIAS CRM",
+              "vehiculo_tipo": "AVERIAS",
+              "tarjeta": "AVERIAS PREFERENTE"
+            },
+            {
+              "ticket": "PREF-SUR1",
+              "distrito": "Zona Sur",
+              "direccion": "Zona Sur (SUR 1)",
+              "zona_nodo": "SUR 1",
+              "franja_horaria": "12:00-15:59",
+              "motivo": "AVERIAS CRM",
+              "vehiculo_tipo": "AVERIAS",
+              "tarjeta": "AVERIAS PREFERENTE"
+            },
+            {
+              "ticket": "PREF-SUR1",
+              "distrito": "Zona Sur",
+              "direccion": "Zona Sur (SUR 1)",
+              "zona_nodo": "SUR 1",
+              "franja_horaria": "12:00-15:59",
+              "motivo": "AVERIAS CRM",
+              "vehiculo_tipo": "AVERIAS",
+              "tarjeta": "AVERIAS PREFERENTE"
+            },
+            {
+              "ticket": "PREF-SUR1",
+              "distrito": "Zona Sur",
+              "direccion": "Zona Sur (SUR 1)",
+              "zona_nodo": "SUR 1",
+              "franja_horaria": "12:00-15:59",
+              "motivo": "AVERIAS CRM",
+              "vehiculo_tipo": "AVERIAS",
+              "tarjeta": "AVERIAS PREFERENTE"
+            }
+          ]
+        },
+        "OESTE 3": {
+          "zona": "OESTE 3",
+          "total": 2,
+          "esSur": false,
+          "franjas": {
+            "08:00-11:59": 0,
+            "12:00-15:59": 2,
+            "16:00-20:00": 0,
+            "otros": 0
+          },
+          "distritos": {
+            "Zona Sur": 2
+          },
+          "ordenes": [
+            {
+              "ticket": "PREF-OESTE3",
+              "distrito": "Zona Sur",
+              "direccion": "Zona Sur (OESTE 3)",
+              "zona_nodo": "OESTE 3",
+              "franja_horaria": "12:00-15:59",
+              "motivo": "AVERIAS CRM",
+              "vehiculo_tipo": "AVERIAS",
+              "tarjeta": "AVERIAS PREFERENTE"
+            },
+            {
+              "ticket": "PREF-OESTE3",
+              "distrito": "Zona Sur",
+              "direccion": "Zona Sur (OESTE 3)",
+              "zona_nodo": "OESTE 3",
+              "franja_horaria": "12:00-15:59",
+              "motivo": "AVERIAS CRM",
+              "vehiculo_tipo": "AVERIAS",
+              "tarjeta": "AVERIAS PREFERENTE"
+            }
+          ]
+        }
+      },
+      "ordenes": [
+        {
+          "ticket": "PREF-NORTE1",
+          "distrito": "Zona Sur",
+          "direccion": "Zona Sur (NORTE 1)",
+          "zona_nodo": "NORTE 1",
+          "franja_horaria": "12:00-15:59",
+          "motivo": "AVERIAS CRM",
+          "vehiculo_tipo": "AVERIAS",
+          "tarjeta": "AVERIAS PREFERENTE"
+        },
+        {
+          "ticket": "PREF-OESTE1",
+          "distrito": "Zona Sur",
+          "direccion": "Zona Sur (OESTE 1)",
+          "zona_nodo": "OESTE 1",
+          "franja_horaria": "12:00-15:59",
+          "motivo": "AVERIAS CRM",
+          "vehiculo_tipo": "AVERIAS",
+          "tarjeta": "AVERIAS PREFERENTE"
+        },
+        {
+          "ticket": "PREF-ESTE1",
+          "distrito": "Zona Sur",
+          "direccion": "Zona Sur (ESTE 1)",
+          "zona_nodo": "ESTE 1",
+          "franja_horaria": "12:00-15:59",
+          "motivo": "AVERIAS CRM",
+          "vehiculo_tipo": "AVERIAS",
+          "tarjeta": "AVERIAS PREFERENTE"
+        },
+        {
+          "ticket": "PREF-OESTE2",
+          "distrito": "Zona Sur",
+          "direccion": "Zona Sur (OESTE 2)",
+          "zona_nodo": "OESTE 2",
+          "franja_horaria": "12:00-15:59",
+          "motivo": "AVERIAS CRM",
+          "vehiculo_tipo": "AVERIAS",
+          "tarjeta": "AVERIAS PREFERENTE"
+        },
+        {
+          "ticket": "PREF-OESTE1",
+          "distrito": "Zona Sur",
+          "direccion": "Zona Sur (OESTE 1)",
+          "zona_nodo": "OESTE 1",
+          "franja_horaria": "12:00-15:59",
+          "motivo": "AVERIAS CRM",
+          "vehiculo_tipo": "AVERIAS",
+          "tarjeta": "AVERIAS PREFERENTE"
+        },
+        {
+          "ticket": "PREF-SUR1",
+          "distrito": "Zona Sur",
+          "direccion": "Zona Sur (SUR 1)",
+          "zona_nodo": "SUR 1",
+          "franja_horaria": "12:00-15:59",
+          "motivo": "AVERIAS CRM",
+          "vehiculo_tipo": "AVERIAS",
+          "tarjeta": "AVERIAS PREFERENTE"
+        },
+        {
+          "ticket": "PREF-SUR1",
+          "distrito": "Zona Sur",
+          "direccion": "Zona Sur (SUR 1)",
+          "zona_nodo": "SUR 1",
+          "franja_horaria": "12:00-15:59",
+          "motivo": "AVERIAS CRM",
+          "vehiculo_tipo": "AVERIAS",
+          "tarjeta": "AVERIAS PREFERENTE"
+        },
+        {
+          "ticket": "PREF-OESTE3",
+          "distrito": "Zona Sur",
+          "direccion": "Zona Sur (OESTE 3)",
+          "zona_nodo": "OESTE 3",
+          "franja_horaria": "12:00-15:59",
+          "motivo": "AVERIAS CRM",
+          "vehiculo_tipo": "AVERIAS",
+          "tarjeta": "AVERIAS PREFERENTE"
+        },
+        {
+          "ticket": "PREF-ESTE1",
+          "distrito": "Zona Sur",
+          "direccion": "Zona Sur (ESTE 1)",
+          "zona_nodo": "ESTE 1",
+          "franja_horaria": "12:00-15:59",
+          "motivo": "AVERIAS CRM",
+          "vehiculo_tipo": "AVERIAS",
+          "tarjeta": "AVERIAS PREFERENTE"
+        },
+        {
+          "ticket": "PREF-NORTE1",
+          "distrito": "Zona Sur",
+          "direccion": "Zona Sur (NORTE 1)",
+          "zona_nodo": "NORTE 1",
+          "franja_horaria": "12:00-15:59",
+          "motivo": "AVERIAS CRM",
+          "vehiculo_tipo": "AVERIAS",
+          "tarjeta": "AVERIAS PREFERENTE"
+        },
+        {
+          "ticket": "PREF-OESTE1",
+          "distrito": "Zona Sur",
+          "direccion": "Zona Sur (OESTE 1)",
+          "zona_nodo": "OESTE 1",
+          "franja_horaria": "12:00-15:59",
+          "motivo": "AVERIAS CRM",
+          "vehiculo_tipo": "AVERIAS",
+          "tarjeta": "AVERIAS PREFERENTE"
+        },
+        {
+          "ticket": "PREF-OESTE1",
+          "distrito": "Zona Sur",
+          "direccion": "Zona Sur (OESTE 1)",
+          "zona_nodo": "OESTE 1",
+          "franja_horaria": "12:00-15:59",
+          "motivo": "AVERIAS CRM",
+          "vehiculo_tipo": "AVERIAS",
+          "tarjeta": "AVERIAS PREFERENTE"
+        },
+        {
+          "ticket": "PREF-OESTE2",
+          "distrito": "Zona Sur",
+          "direccion": "Zona Sur (OESTE 2)",
+          "zona_nodo": "OESTE 2",
+          "franja_horaria": "12:00-15:59",
+          "motivo": "AVERIAS CRM",
+          "vehiculo_tipo": "AVERIAS",
+          "tarjeta": "AVERIAS PREFERENTE"
+        },
+        {
+          "ticket": "PREF-OESTE3",
+          "distrito": "Zona Sur",
+          "direccion": "Zona Sur (OESTE 3)",
+          "zona_nodo": "OESTE 3",
+          "franja_horaria": "12:00-15:59",
+          "motivo": "AVERIAS CRM",
+          "vehiculo_tipo": "AVERIAS",
+          "tarjeta": "AVERIAS PREFERENTE"
+        },
+        {
+          "ticket": "PREF-SUR1",
+          "distrito": "Zona Sur",
+          "direccion": "Zona Sur (SUR 1)",
+          "zona_nodo": "SUR 1",
+          "franja_horaria": "12:00-15:59",
+          "motivo": "AVERIAS CRM",
+          "vehiculo_tipo": "AVERIAS",
+          "tarjeta": "AVERIAS PREFERENTE"
+        },
+        {
+          "ticket": "PREF-SUR1",
+          "distrito": "Zona Sur",
+          "direccion": "Zona Sur (SUR 1)",
+          "zona_nodo": "SUR 1",
+          "franja_horaria": "12:00-15:59",
+          "motivo": "AVERIAS CRM",
+          "vehiculo_tipo": "AVERIAS",
+          "tarjeta": "AVERIAS PREFERENTE"
+        },
+        {
+          "ticket": "PREF-OESTE2",
+          "distrito": "Zona Sur",
+          "direccion": "Zona Sur (OESTE 2)",
+          "zona_nodo": "OESTE 2",
+          "franja_horaria": "12:00-15:59",
+          "motivo": "AVERIAS CRM",
+          "vehiculo_tipo": "AVERIAS",
+          "tarjeta": "AVERIAS PREFERENTE"
+        }
+      ]
     },
     "AVERIAS ALTO VALOR": {
       "total": 0,
@@ -20,5 +465,46 @@
       "ordenes": []
     }
   },
-  "alertasSur": []
+  "alertasSur": [
+    {
+      "alerta": "🚨 NUEVA ORDEN EN SUR 1",
+      "tarjeta": "AVERIAS PREFERENTE",
+      "zona": "SUR 1",
+      "distrito": "Zona Sur",
+      "ticket": "PREF-SUR1",
+      "direccion": "Zona Sur (SUR 1)",
+      "franja_horaria": "12:00-15:59",
+      "motivo": "AVERIAS CRM"
+    },
+    {
+      "alerta": "🚨 NUEVA ORDEN EN SUR 1",
+      "tarjeta": "AVERIAS PREFERENTE",
+      "zona": "SUR 1",
+      "distrito": "Zona Sur",
+      "ticket": "PREF-SUR1",
+      "direccion": "Zona Sur (SUR 1)",
+      "franja_horaria": "12:00-15:59",
+      "motivo": "AVERIAS CRM"
+    },
+    {
+      "alerta": "🚨 NUEVA ORDEN EN SUR 1",
+      "tarjeta": "AVERIAS PREFERENTE",
+      "zona": "SUR 1",
+      "distrito": "Zona Sur",
+      "ticket": "PREF-SUR1",
+      "direccion": "Zona Sur (SUR 1)",
+      "franja_horaria": "12:00-15:59",
+      "motivo": "AVERIAS CRM"
+    },
+    {
+      "alerta": "🚨 NUEVA ORDEN EN SUR 1",
+      "tarjeta": "AVERIAS PREFERENTE",
+      "zona": "SUR 1",
+      "distrito": "Zona Sur",
+      "ticket": "PREF-SUR1",
+      "direccion": "Zona Sur (SUR 1)",
+      "franja_horaria": "12:00-15:59",
+      "motivo": "AVERIAS CRM"
+    }
+  ]
 }

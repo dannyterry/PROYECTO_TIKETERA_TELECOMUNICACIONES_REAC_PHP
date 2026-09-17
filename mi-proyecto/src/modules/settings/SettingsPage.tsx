@@ -14,6 +14,7 @@ import { SistemaTab } from "./components/SistemaTab";
 import { PermisosTab } from "./components/PermisosTab";
 import { CorreosTab } from "./components/CorreosTab";
 import { authService } from "../../services/authService";
+import { OnlineChatDropdown } from "../../components/chat/OnlineChatDropdown";
 
 export const SettingsPage: React.FC = () => {
   // Configuración de permisos por pestaña
@@ -66,11 +67,20 @@ export const SettingsPage: React.FC = () => {
       {/* Header General del Módulo */}
       <div className="bg-white border-b border-slate-200/80 px-6 py-4 flex flex-wrap items-center justify-between gap-4 shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-sky-50 text-sky-600 border border-sky-100 flex items-center justify-center font-black shadow-xs">
-            <Settings size={22} />
-          </div>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent("toggleSidebar"))}
+            className="w-11 h-11 rounded-2xl bg-sky-50 hover:bg-sky-100 active:scale-95 text-sky-600 hover:text-sky-800 border border-sky-200 hover:border-sky-300 flex items-center justify-center font-black shadow-xs cursor-pointer transition-all group shrink-0"
+            title="📋 Clic para abrir el menú lateral"
+          >
+            <Settings size={22} className="group-hover:scale-110 transition-transform" />
+          </button>
           <div>
-            <h1 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
+            <h1
+              onClick={() => window.dispatchEvent(new CustomEvent("toggleSidebar"))}
+              className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2 cursor-pointer hover:text-sky-700 transition-colors"
+              title="📋 Clic para abrir el menú lateral"
+            >
               <span>Configuración del Sistema</span>
             </h1>
             <p className="text-xs text-slate-500 font-medium">
@@ -79,30 +89,34 @@ export const SettingsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Pestañas de Navegación del Módulo Filtradas por Permisos */}
-        <div className="flex items-center bg-slate-100 p-1.5 rounded-2xl border border-slate-200 overflow-x-auto max-w-full gap-1">
-          {tabsDisponibles.map((tab) => {
-            const Icon = tab.icon;
-            const isSelected = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => {
-                  window.location.hash = tab.id === "tipos" ? "tipos-trabajo" : tab.id;
-                  setActiveTab(tab.id);
-                }}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
-                  isSelected
-                    ? "bg-sky-600 text-white shadow-sm shadow-sky-600/20"
-                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
-                }`}
-              >
-                <Icon size={15} />
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
+        <div className="flex items-center gap-3">
+          <OnlineChatDropdown />
+
+          {/* Pestañas de Navegación del Módulo Filtradas por Permisos */}
+          <div className="flex items-center bg-slate-100 p-1.5 rounded-2xl border border-slate-200 overflow-x-auto max-w-full gap-1">
+            {tabsDisponibles.map((tab) => {
+              const Icon = tab.icon;
+              const isSelected = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => {
+                    window.location.hash = tab.id === "tipos" ? "tipos-trabajo" : tab.id;
+                    setActiveTab(tab.id);
+                  }}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+                    isSelected
+                      ? "bg-sky-600 text-white shadow-sm shadow-sky-600/20"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
+                  }`}
+                >
+                  <Icon size={15} />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 

@@ -38,6 +38,38 @@ import {
   aprobarMasivoLiquidaciones
 } from "../services/inventoryService";
 
+export const getDropConectorizadoInfo = (materiales?: any[]) => {
+  if (!materiales || !Array.isArray(materiales)) return null;
+  const match = materiales.find((m) => {
+    const nom = String(m.nombre_producto || m.nombre || "").toUpperCase();
+    return (
+      nom.includes("CONECTORIZADO") ||
+      /DROP.*(50|100|150|200)/i.test(nom) ||
+      /DROP\s*(50M|100M|150M|200M|50MT|100MT|150MT|200MT)/i.test(nom)
+    );
+  });
+  if (!match) return null;
+  const nom = String(match.nombre_producto || match.nombre || "").toUpperCase();
+  let metrosRollo = 0;
+  if (nom.includes("50")) metrosRollo = 50;
+  else if (nom.includes("100")) metrosRollo = 100;
+  else if (nom.includes("150")) metrosRollo = 150;
+  else if (nom.includes("200")) metrosRollo = 200;
+  else {
+    const numMatch = nom.match(/(\d+)/);
+    if (numMatch) metrosRollo = parseInt(numMatch[1], 10);
+  }
+  const cantidad = Number(match.cantidad) || 1;
+  const totalMetros = metrosRollo * cantidad;
+  return {
+    item: match,
+    nombre: match.nombre_producto || match.nombre,
+    cantidad,
+    metrosRollo,
+    totalMetros,
+  };
+};
+
 export const OrderLiquidationsAuditTab: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [tecnicos, setTecnicos] = useState<TecnicoLiqAuditResumen[]>([]);
@@ -585,29 +617,67 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
 
                         {/* Fibra Drop & Comparativa Fénix */}
                         <td className="py-3 px-3">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-mono font-bold text-slate-900 text-xs">
-                              {l.drop_total_metros}m
-                            </span>
-                            {l.es_alerta && (
-                              <span
-                                className="w-4 h-4 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-[10px]"
-                                title={l.motivo_alerta}
-                              >
-                                !
-                              </span>
-                            )}
-                          </div>
-                          {l.drop_metro_inicio && l.drop_metro_fin ? (
-                            <span className="text-[10px] text-slate-500 font-mono block">
-                              {l.drop_metro_inicio} → {l.drop_metro_fin}
-                            </span>
-                          ) : null}
-                          {l.metraje_fenix && (
-                            <span className="text-[10px] text-emerald-700 font-semibold block">
-                              Fénix: {l.metraje_fenix}m
-                            </span>
-                          )}
+                          {(() => {
+                            const conecInfo = getDropConectorizadoInfo(l.materiales);
+                            if (conecInfo) {
+                              return (
+                                <div>
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="font-mono font-bold text-emerald-700 text-xs">
+                                      {conecInfo.totalMetros > 0 ? `${conecInfo.totalMetros}m` : `${l.drop_total_metros}m`}
+                                    </span>
+                                    <span className="px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-extrabold text-[9px] border border-emerald-300">
+                                      Conectorizado ({conecInfo.cantidad} {conecInfo.cantidad === 1 ? "UND" : "UNDS"})
+                                    </span>
+                                    {l.es_alerta && (
+                                      <span
+                                        className="w-4 h-4 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-[10px]"
+                                        title={l.motivo_alerta}
+                                      >
+                                        !
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="text-[10px] text-slate-500 font-medium block truncate max-w-[170px]" title={conecInfo.nombre}>
+                                    {conecInfo.nombre}
+                                  </span>
+                                  {l.metraje_fenix && (
+                                    <span className="text-[10px] text-emerald-700 font-semibold block">
+                                      Fénix: {l.metraje_fenix}m
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-mono font-bold text-slate-900 text-xs">
+                                    {l.drop_total_metros}m
+                                  </span>
+                                  {l.es_alerta && (
+                                    <span
+                                      className="w-4 h-4 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-[10px]"
+                                      title={l.motivo_alerta}
+                                    >
+                                      !
+                                    </span>
+                                  )}
+                                </div>
+                                {l.drop_metro_inicio && l.drop_metro_fin ? (
+                                  <span className="text-[10px] text-slate-500 font-mono block">
+                                    {l.drop_metro_inicio} → {l.drop_metro_fin}
+                                  </span>
+                                ) : null}
+                                {l.metraje_fenix && (
+                                  <span className="text-[10px] text-emerald-700 font-semibold block">
+                                    Fénix: {l.metraje_fenix}m
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </td>
 
                         {/* Estado */}
@@ -730,38 +800,76 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
               </div>
 
               {/* Tarjeta de Fibra Drop y Mediciones */}
-              <div className="p-4 rounded-2xl bg-slate-900 text-white space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                    Medición de Fibra Drop & CTO
-                  </span>
-                  <span className="px-2 py-0.5 rounded-md bg-indigo-500/30 text-indigo-300 text-[10px] font-mono font-bold">
-                    Límite para este trabajo: {modalLiq.max_drop_permitido || 120}m
-                  </span>
-                </div>
+              {(() => {
+                const modalConecInfo = getDropConectorizadoInfo(modalLiq.materiales);
+                return (
+                  <div className="p-4 rounded-2xl bg-slate-900 text-white space-y-2.5">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <Package size={14} className="text-indigo-400" />
+                        Medición de Fibra Drop & CTO
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {modalConecInfo && (
+                          <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold">
+                            ✓ Pre-Conectorizado ({modalConecInfo.totalMetros}m)
+                          </span>
+                        )}
+                        <span className="px-2 py-0.5 rounded-md bg-indigo-500/30 text-indigo-300 text-[10px] font-mono font-bold">
+                          Límite para este trabajo: {modalLiq.max_drop_permitido || 120}m
+                        </span>
+                      </div>
+                    </div>
 
-                <div className="grid grid-cols-3 gap-2 text-center pt-1">
-                  <div className="p-2 rounded-xl bg-white/5 border border-white/10">
-                    <span className="text-[10px] text-slate-400 block font-medium">Carrete Inicio</span>
-                    <span className="font-mono font-black text-sm text-white">{modalLiq.drop_metro_inicio || "-"}m</span>
-                  </div>
-                  <div className="p-2 rounded-xl bg-white/5 border border-white/10">
-                    <span className="text-[10px] text-slate-400 block font-medium">Carrete Fin</span>
-                    <span className="font-mono font-black text-sm text-white">{modalLiq.drop_metro_fin || "-"}m</span>
-                  </div>
-                  <div className="p-2 rounded-xl bg-indigo-500/20 border border-indigo-400/40">
-                    <span className="text-[10px] text-indigo-300 block font-bold">Total Consumido</span>
-                    <span className="font-mono font-black text-sm text-indigo-200">{modalLiq.drop_total_metros}m</span>
-                  </div>
-                </div>
+                    {modalConecInfo ? (
+                      /* Vista para Rollo Drop Pre-Conectorizado */
+                      <div className="space-y-2 pt-1">
+                        <div className="p-2.5 rounded-xl bg-emerald-950/60 border border-emerald-500/40 flex items-center justify-between text-xs">
+                          <span className="text-emerald-300 font-medium">Rollo Pre-Conectorizado:</span>
+                          <span className="font-mono font-black text-emerald-100">{modalConecInfo.nombre}</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-center pt-0.5">
+                          <div className="p-2 rounded-xl bg-white/5 border border-white/10">
+                            <span className="text-[10px] text-slate-400 block font-medium">Metraje Rollo</span>
+                            <span className="font-mono font-black text-sm text-white">{modalConecInfo.metrosRollo}m</span>
+                          </div>
+                          <div className="p-2 rounded-xl bg-white/5 border border-white/10">
+                            <span className="text-[10px] text-slate-400 block font-medium">Cantidad Usada</span>
+                            <span className="font-mono font-black text-sm text-white">{modalConecInfo.cantidad} UND</span>
+                          </div>
+                          <div className="p-2 rounded-xl bg-emerald-500/20 border border-emerald-400/40">
+                            <span className="text-[10px] text-emerald-300 block font-bold">Total Fibra</span>
+                            <span className="font-mono font-black text-sm text-emerald-200">{modalConecInfo.totalMetros}m</span>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Vista para Bobina Continua estándar */
+                      <div className="grid grid-cols-3 gap-2 text-center pt-1">
+                        <div className="p-2 rounded-xl bg-white/5 border border-white/10">
+                          <span className="text-[10px] text-slate-400 block font-medium">Carrete Inicio</span>
+                          <span className="font-mono font-black text-sm text-white">{modalLiq.drop_metro_inicio || "-"}m</span>
+                        </div>
+                        <div className="p-2 rounded-xl bg-white/5 border border-white/10">
+                          <span className="text-[10px] text-slate-400 block font-medium">Carrete Fin</span>
+                          <span className="font-mono font-black text-sm text-white">{modalLiq.drop_metro_fin || "-"}m</span>
+                        </div>
+                        <div className="p-2 rounded-xl bg-indigo-500/20 border border-indigo-400/40">
+                          <span className="text-[10px] text-indigo-300 block font-bold">Total Consumido</span>
+                          <span className="font-mono font-black text-sm text-indigo-200">{modalLiq.drop_total_metros}m</span>
+                        </div>
+                      </div>
+                    )}
 
-                {modalLiq.cto && (
-                  <div className="text-[11px] text-slate-400 pt-1 flex items-center justify-between">
-                    <span>CTO: <strong className="text-white font-mono">{modalLiq.cto}</strong></span>
-                    <span>Puerto: <strong className="text-white font-mono">{modalLiq.puerto || "-"}</strong></span>
+                    {modalLiq.cto && (
+                      <div className="text-[11px] text-slate-400 pt-1 flex items-center justify-between border-t border-white/10">
+                        <span>CTO: <strong className="text-white font-mono">{modalLiq.cto}</strong></span>
+                        <span>Puerto: <strong className="text-white font-mono">{modalLiq.puerto || "-"}</strong></span>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                );
+              })()}
 
               {/* Desglose de Materiales y Equipos */}
               <div className="space-y-2">

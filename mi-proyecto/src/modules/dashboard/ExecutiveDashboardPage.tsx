@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { API_URL } from "../../config/api";
+import { authService } from "../../services/authService";
 import {
   Activity,
   Users,
@@ -7,29 +8,20 @@ import {
   Clock,
   ShieldCheck,
   TrendingUp,
-  Package,
   PhoneCall,
-  UserCheck,
   RefreshCw,
   Search,
-  Calendar,
-  AlertTriangle,
-  Radio,
-  FileSpreadsheet,
   Truck,
   Layers,
-  ArrowUpRight,
-  Filter,
   BarChart3,
   PieChart as PieIcon,
-  Warehouse,
-  Flame,
-  MapPin,
   ChevronDown,
   Target,
   XCircle,
-  Eye,
   X,
+  MessageSquare,
+  LogOut,
+  MapPin,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -41,8 +33,6 @@ import {
   Bar,
   LineChart,
   Line,
-  AreaChart,
-  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -50,6 +40,7 @@ import {
 } from "recharts";
 import { TechnicianPerformanceTab } from "./components/TechnicianPerformanceTab";
 import { MonthlyEffectivenessSection } from "./components/MonthlyEffectivenessSection";
+import { ClassificationOrdersModal } from "./components/ClassificationOrdersModal";
 interface OnlineUser {
   id_usuario: number;
   documento: string;
@@ -234,7 +225,6 @@ export const ExecutiveDashboardPage: React.FC = () => {
   // 1. Selector inteligente de período (Días, Semanas, Meses, Año)
   const [periodMode, setPeriodMode] = useState<"dia" | "semana" | "mes" | "anio">("mes");
   const [selectedOption, setSelectedOption] = useState<string>("");
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   // Estados de datos
@@ -244,6 +234,94 @@ export const ExecutiveDashboardPage: React.FC = () => {
   const [filtroModuloAudit, setFiltroModuloAudit] = useState<string>("Todos");
   const [busquedaAudit, setBusquedaAudit] = useState<string>("");
   const [datosGestion, setDatosGestion] = useState<GestionData | null>(null);
+
+  // 👤 Datos del Usuario Activo y Chat
+  const currentUser = authService.getCurrentUser();
+  const userId = currentUser ? String(currentUser.id_usuario) : "";
+  const userName = currentUser?.nombreCompleto || `${currentUser?.nombres || ""} ${currentUser?.apellidos || ""}`.trim() || "Usuario";
+  const userSoloNombres = (currentUser?.nombres || currentUser?.nombreCompleto || "").trim().split(/\s+/).slice(0, 2).join(" ") || userName;
+  const userRol = currentUser ? String(currentUser.id_rol) : "";
+  const rolNombre = currentUser?.rol || "Gestión";
+  const isTecnico = userRol === "2" || Boolean(rolNombre && (rolNombre.toUpperCase().includes("TECNICO") || rolNombre.toUpperCase().includes("TÉCNICO")));
+  const canUseGroupChat = !isTecnico && (userRol === "1" || userRol === "3" || userRol === "5" || (rolNombre && (rolNombre.toUpperCase().includes("ADMIN") || rolNombre.toUpperCase().includes("RECURSO") || rolNombre.toUpperCase().includes("RRHH") || rolNombre.toUpperCase().includes("ALMACEN") || rolNombre.toUpperCase().includes("LOGISTICA"))));
+
+  // 🔍 Estado para Modal Drill-Down de Clasificación de Órdenes
+  const [drilldownModal, setDrilldownModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    classificationKey: string;
+    accentColor: string;
+  }>({
+    isOpen: false,
+    title: "",
+    classificationKey: "",
+    accentColor: "#5b9bd5",
+  });
+
+  const handleOpenClassificationModal = (classificationKey: string, title: string, accentColor: string = "#5b9bd5") => {
+    setDrilldownModal({
+      isOpen: true,
+      title,
+      classificationKey,
+      accentColor,
+    });
+  };
+
+  const [totalNoLeidos, setTotalNoLeidos] = useState(0);
+  const [noLeidosPorUsuario, setNoLeidosPorUsuario] = useState<Record<number, number>>({});
+  const [onlineDropdownOpen, setOnlineDropdownOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [userSearchTerm, setUserSearchTerm] = useState("");
+  const [avatarImgError, setAvatarImgError] = useState(false);
+  const onlineDropdownRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (onlineDropdownRef.current && !onlineDropdownRef.current.contains(e.target as Node)) {
+        setOnlineDropdownOpen(false);
+      }
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (isTecnico || !userId) return;
+    const fetchNoLeidos = () => {
+      if (document.hidden) return;
+      fetch(`${API_URL}/api/chat/noleidos?id_usuario=${userId}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data && typeof data.total === "number") {
+            setTotalNoLeidos(data.total);
+            setNoLeidosPorUsuario(data.por_usuario || {});
+          }
+        })
+        .catch(() => {});
+    };
+    fetchNoLeidos();
+    const interval = setInterval(fetchNoLeidos, 25000);
+    return () => clearInterval(interval);
+  }, [userId, isTecnico]);
+
+  const handleOpenGroupChat = () => {
+    window.dispatchEvent(new CustomEvent("openTeamChat", { detail: { tab: "general" } }));
+    setOnlineDropdownOpen(false);
+  };
+
+  const handleOpenUserChat = (target: OnlineUser) => {
+    window.dispatchEvent(new CustomEvent("openTeamChat", { detail: { tab: target.id_usuario, user: target } }));
+    setOnlineDropdownOpen(false);
+  };
+
+  const handleLogout = () => {
+    authService.logout();
+    window.location.reload();
+  };
 
   // Generadores de opciones de período
   const opcionesDias = useMemo(() => {
@@ -350,12 +428,26 @@ export const ExecutiveDashboardPage: React.FC = () => {
     }
   }, [periodMode, opcionesDias, opcionesSemanas, opcionesMeses, opcionesAnios]);
 
+  // Período activo actual resuelto
+  const currentPeriodInfo = useMemo(() => {
+    let targetPeriod: { id?: string; label?: string; desde?: string; hasta?: string; anio?: number } | undefined;
+    if (periodMode === "dia") targetPeriod = opcionesDias.find((o) => o.id === selectedOption);
+    else if (periodMode === "semana") targetPeriod = opcionesSemanas.find((o) => o.id === selectedOption);
+    else if (periodMode === "mes") targetPeriod = opcionesMeses.todos.find((o) => o.id === selectedOption);
+    else targetPeriod = opcionesAnios.find((o) => o.id === selectedOption);
+
+    return {
+      label: targetPeriod?.label || "Período actual",
+      desde: targetPeriod?.desde,
+      hasta: targetPeriod?.hasta,
+    };
+  }, [periodMode, selectedOption, opcionesDias, opcionesSemanas, opcionesMeses, opcionesAnios]);
+
   // Carga de datos unificada según el período
-  const cargarDashboard = useCallback(async (isSilent = false) => {
+  const cargarDashboard = useCallback(async () => {
     if (!selectedOption) return;
 
-    if (!isSilent) setLoading(true);
-    else setRefreshing(true);
+    setRefreshing(true);
 
     try {
       let targetPeriod: { desde: string; hasta: string; anio?: number } | undefined;
@@ -364,7 +456,6 @@ export const ExecutiveDashboardPage: React.FC = () => {
       else if (periodMode === "mes") targetPeriod = opcionesMeses.todos.find((o) => o.id === selectedOption);
       else targetPeriod = opcionesAnios.find((o) => o.id === selectedOption);
 
-      const hoy = new Date().toISOString().split("T")[0];
       const desdeParam = targetPeriod?.desde ? `&desde=${targetPeriod.desde}` : "";
       const hastaParam = targetPeriod?.hasta ? `&hasta=${targetPeriod.hasta}` : "";
       const anioParam = targetPeriod?.anio ? `&anio=${targetPeriod.anio}` : "";
@@ -391,21 +482,20 @@ export const ExecutiveDashboardPage: React.FC = () => {
     } catch (err) {
       console.error("Error al cargar dashboard ejecutivo:", err);
     } finally {
-      setLoading(false);
       setRefreshing(false);
     }
-  }, [selectedOption, filtroModuloAudit, opcionesDias, opcionesSemanas, opcionesMeses, opcionesAnios]);
+  }, [selectedOption, periodMode, filtroModuloAudit, opcionesDias, opcionesSemanas, opcionesMeses, opcionesAnios]);
 
   // Carga inicial y por cambio de filtros
   useEffect(() => {
-    cargarDashboard(false);
+    cargarDashboard();
   }, [cargarDashboard]);
 
   // Polling automático cada 20 segundos para usuarios online y auditoría
   useEffect(() => {
     const interval = setInterval(() => {
       if (!document.hidden) {
-        cargarDashboard(true);
+        cargarDashboard();
       }
     }, 20000);
     return () => clearInterval(interval);
@@ -432,6 +522,22 @@ export const ExecutiveDashboardPage: React.FC = () => {
   const totalEvaluadas = finalizadas + canceladasObs;
   const porcentajeEfectividad = totalEvaluadas > 0 ? ((finalizadas / totalEvaluadas) * 100).toFixed(1) : "0.0";
   const porcentajeCanceladas = totalEvaluadas > 0 ? ((canceladasObs / totalEvaluadas) * 100).toFixed(1) : "0.0";
+
+  // Conteos exactos por cada estado oficial
+  const conteoEstados = useMemo(() => {
+    const mapa: Record<string, number> = {};
+    (stats?.ordenes_por_estado || []).forEach((item) => {
+      mapa[item.estado] = Number(item.total) || 0;
+    });
+    return {
+      finalizada: mapa["Finalizada"] ?? stats?.kpis?.ordenes_finalizadas ?? 0,
+      cancelada: mapa["Cancelada"] ?? 0,
+      regestion: (mapa["Regestión"] || mapa["Regestion"]) ?? 0,
+      anulada: mapa["Anulada"] ?? 0,
+      agendada: mapa["Agendada"] ?? 0,
+      iniciada: (mapa["Iniciada"] || mapa["En proceso"] || mapa["En camino"]) ?? stats?.kpis?.ordenes_en_proceso ?? 0,
+    };
+  }, [stats?.ordenes_por_estado, stats?.kpis?.ordenes_finalizadas, stats?.kpis?.ordenes_en_proceso]);
 
   // 1. Gráfico Donut de Efectividad Operativa (EXCLUSIVO: Finalizadas vs Canceladas/Observadas/Anuladas)
   const dataEfectividadPie = [
@@ -463,180 +569,467 @@ export const ExecutiveDashboardPage: React.FC = () => {
           1. HEADER EJECUTIVO & NAVEGACIÓN PRINCIPAL (PARA RESUMEN Y AUDITORÍA)
       ───────────────────────────────────────────────────────────── */}
       {activeMainTab !== "tecnicos" && (
-        <div className="sticky top-0 z-30 bg-white p-3.5 md:p-4 rounded-2xl border border-slate-200/90 shadow-xs space-y-3">
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-sky-50 text-sky-600 border border-sky-100 flex items-center justify-center shadow-xs">
-              <Activity className="w-6 h-6 animate-pulse" />
-            </div>
+        <div className="sticky top-0 z-30 bg-white p-2.5 sm:p-3.5 md:p-4 rounded-2xl border border-slate-200/90 shadow-2xs space-y-2.5">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5 sm:gap-4">
+          <div className="flex items-center gap-2.5 sm:gap-3.5">
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent("toggleSidebar"))}
+              className="p-2 sm:p-2.5 rounded-xl bg-sky-50 hover:bg-sky-100 active:scale-95 border border-sky-200 hover:border-sky-300 text-sky-700 hover:text-sky-900 transition-all cursor-pointer shadow-2xs group flex items-center justify-center shrink-0"
+              title="📋 Clic para abrir el menú lateral"
+            >
+              <Activity className="w-5 h-5 text-sky-600 group-hover:scale-110 transition-transform" />
+            </button>
             <div>
-              <div className="flex items-center gap-2.5">
-                <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">
+              <div className="flex items-center gap-2">
+                <h1 className="text-base sm:text-lg md:text-xl font-black text-slate-900 tracking-tight leading-tight">
                   Análisis & Visualización
                 </h1>
-                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold font-mono">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] sm:text-xs font-bold font-mono">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
                   24/7 EN VIVO
                 </span>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-[11px] text-slate-500 hidden sm:block">
                 Inteligencia operativa, rendimiento técnico y trazabilidad en tiempo real.
               </p>
             </div>
           </div>
 
-          {/* 🗂️ SELECTOR DE PESTAÑAS PRINCIPALES */}
-          {/* 🗂️ SELECTOR DE PESTAÑAS PRINCIPALES */}
-          <div className="flex items-center gap-1.5 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/80 overflow-x-auto">
-            <button
-              type="button"
-              onClick={() => setActiveMainTab("resumen")}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                activeMainTab === "resumen"
-                  ? "bg-white text-slate-900 shadow-sm border border-slate-200/80"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
-              }`}
-            >
-              <Activity size={14} className={activeMainTab === "resumen" ? "text-sky-600" : "text-slate-400"} />
-              <span>Resumen Ejecutivo</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveMainTab("tecnicos")}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                (activeMainTab as string) === "tecnicos"
-                  ? "bg-white text-slate-900 shadow-sm border border-slate-200/80"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
-              }`}
-            >
-              <Users size={14} className={(activeMainTab as string) === "tecnicos" ? "text-emerald-600" : "text-slate-400"} />
-              <span>Rendimiento Técnicos</span>
-              <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-500 text-white shadow-xs animate-pulse">
-                NUEVO
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveMainTab("auditoria")}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                activeMainTab === "auditoria"
-                  ? "bg-white text-slate-900 shadow-sm border border-slate-200/80"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
-              }`}
-            >
-              <ShieldCheck size={14} className={activeMainTab === "auditoria" ? "text-sky-600" : "text-slate-400"} />
-              <span>Auditoría & Personal</span>
-              <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-sky-100 text-sky-700">
-                {totalGestoresOnline} online
-              </span>
-            </button>
-          </div>
-        </div>
-
-        {/* 📅 SELECTOR DE PERÍODO INTEGRADO (PARA RESUMEN Y AUDITORÍA) */}
-        {(activeMainTab === "resumen" || activeMainTab === "auditoria") && (
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
-            {/* Pestañas de Modo */}
-            <div className="bg-slate-100 p-1 rounded-2xl border border-slate-200 flex items-center gap-1">
+          {/* Lado Derecho: Pestañas + Chat En Línea + Menú Usuario */}
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap justify-end">
+            {/* 🗂️ SELECTOR DE PESTAÑAS PRINCIPALES */}
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80 overflow-x-auto">
               <button
                 type="button"
-                onClick={() => setPeriodMode("dia")}
-                className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
-                  periodMode === "dia" ? "bg-sky-600 text-white shadow-sm shadow-sky-600/20" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
+                onClick={() => setActiveMainTab("resumen")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  activeMainTab === "resumen"
+                    ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
                 }`}
               >
-                📅 Por Días
+                <Activity size={13} className={activeMainTab === "resumen" ? "text-sky-600" : "text-slate-400"} />
+                <span>Resumen</span>
               </button>
+
               <button
                 type="button"
-                onClick={() => setPeriodMode("semana")}
-                className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
-                  periodMode === "semana" ? "bg-sky-600 text-white shadow-sm shadow-sky-600/20" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
+                onClick={() => setActiveMainTab("tecnicos")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  (activeMainTab as string) === "tecnicos"
+                    ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
                 }`}
               >
-                🗓️ Por Semanas
+                <Users size={13} className={(activeMainTab as string) === "tecnicos" ? "text-emerald-600" : "text-slate-400"} />
+                <span>Rendimiento Técnicos</span>
+                <span className="px-1.5 py-0.2 rounded-full text-[8.5px] font-black uppercase tracking-wider bg-emerald-500 text-white shadow-2xs">
+                  NUEVO
+                </span>
               </button>
+
               <button
                 type="button"
-                onClick={() => setPeriodMode("mes")}
-                className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
-                  periodMode === "mes" ? "bg-sky-600 text-white shadow-sm shadow-sky-600/20" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
+                onClick={() => setActiveMainTab("auditoria")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  activeMainTab === "auditoria"
+                    ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
                 }`}
               >
-                📊 Por Meses
-              </button>
-              <button
-                type="button"
-                onClick={() => setPeriodMode("anio")}
-                className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
-                  periodMode === "anio" ? "bg-sky-600 text-white shadow-sm shadow-sky-600/20" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
-                }`}
-              >
-                📈 Anual
+                <ShieldCheck size={13} className={activeMainTab === "auditoria" ? "text-sky-600" : "text-slate-400"} />
+                <span>Auditoría</span>
               </button>
             </div>
 
-            {/* Dropdown de Rango Exacto */}
-            <div className="flex items-center gap-2">
-              <div className="relative min-w-[200px]">
-                <select
-                  value={selectedOption}
-                  onChange={(e) => setSelectedOption(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 font-bold text-slate-800 text-xs rounded-2xl px-3.5 py-2 appearance-none focus:outline-none focus:border-sky-500 shadow-2xs pr-9 cursor-pointer"
+            {/* 💬 Desplegable En Línea / Chat (Oculto a Técnicos) */}
+            {!isTecnico && (
+              <div className="relative shrink-0" ref={onlineDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setOnlineDropdownOpen(!onlineDropdownOpen)}
+                  className={`flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer shadow-2xs h-7.5 ${
+                    totalNoLeidos > 0
+                      ? "bg-emerald-500 text-white border-emerald-400 ring-2 ring-emerald-300 shadow-md animate-bounce"
+                      : onlineDropdownOpen
+                      ? "bg-sky-50 text-sky-900 border-sky-300 ring-1 ring-sky-200"
+                      : "bg-slate-50 hover:bg-sky-50 text-slate-700 hover:text-sky-900 border-slate-200 hover:border-sky-300"
+                  }`}
+                  title="Personal en Línea y Chat de Equipo"
                 >
-                  {periodMode === "dia" &&
-                    opcionesDias.map((op) => (
-                      <option key={op.id} value={op.id}>
-                        {op.label}
-                      </option>
-                    ))}
-
-                  {periodMode === "semana" &&
-                    opcionesSemanas.map((op) => (
-                      <option key={op.id} value={op.id}>
-                        {op.label}
-                      </option>
-                    ))}
-
-                  {periodMode === "mes" && (
-                    <>
-                      <optgroup label={`📅 Año ${new Date().getFullYear()} (Meses Transcurridos)`}>
-                        {opcionesMeses.listActual.map((op) => (
-                          <option key={op.id} value={op.id}>
-                            {op.label}
-                          </option>
-                        ))}
-                      </optgroup>
-                      <optgroup label={`📂 Año ${new Date().getFullYear() - 1} (Histórico)`}>
-                        {opcionesMeses.listAnterior.map((op) => (
-                          <option key={op.id} value={op.id}>
-                            {op.label}
-                          </option>
-                        ))}
-                      </optgroup>
-                    </>
+                  <span className="relative flex h-2 w-2">
+                    {totalGestoresOnline > 0 && (
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    )}
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  <span className="font-mono font-black text-slate-900">{totalGestoresOnline}</span>
+                  <MessageSquare size={12} className="text-sky-600 shrink-0" />
+                  {totalNoLeidos > 0 && (
+                    <span className="bg-red-600 text-white text-[9px] font-black px-1 py-0.2 rounded-full shadow-xs">
+                      {totalNoLeidos}
+                    </span>
                   )}
+                  <ChevronDown size={11} className={`text-slate-400 transition-transform ${onlineDropdownOpen ? "rotate-180" : ""}`} />
+                </button>
 
-                  {periodMode === "anio" &&
-                    opcionesAnios.map((op) => (
-                      <option key={op.id} value={op.id}>
-                        {op.label}
-                      </option>
-                    ))}
-                </select>
-                <ChevronDown size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                {/* Dropdown flotante de chat */}
+                {onlineDropdownOpen && (
+                  <div className="absolute right-0 mt-1 w-72 max-w-[90vw] bg-white rounded-2xl shadow-xl border border-slate-200/90 z-50 overflow-hidden flex flex-col animate-in fade-in slide-in-from-top-1 duration-150">
+                    <div className="p-2.5 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between">
+                      <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                        <Users size={13} className="text-sky-600" />
+                        Equipo y Chat
+                      </span>
+                      <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded-full">
+                        {totalGestoresOnline} en línea
+                      </span>
+                    </div>
+
+                    {canUseGroupChat && (
+                      <div className="p-2 border-b border-slate-100 bg-sky-50/40">
+                        <button
+                          type="button"
+                          onClick={handleOpenGroupChat}
+                          className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-black text-xs transition-all shadow-xs cursor-pointer"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <MessageSquare size={13} />
+                            <span>Canal Grupal 24/7</span>
+                          </div>
+                          <span className="bg-white/20 px-1.5 py-0.2 rounded text-[9px] font-mono">Abrir</span>
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="p-2 border-b border-slate-100">
+                      <div className="relative">
+                        <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          value={userSearchTerm}
+                          onChange={(e) => setUserSearchTerm(e.target.value)}
+                          placeholder="Buscar compañero..."
+                          className="w-full bg-slate-100 text-slate-800 text-xs pl-7 pr-2 py-1 rounded-lg border-none focus:ring-1 focus:ring-sky-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="max-h-60 overflow-y-auto p-1.5 space-y-1 custom-scrollbar">
+                      {usuariosOnline
+                        .filter(
+                          (u) =>
+                            !userSearchTerm ||
+                            u.nombre_completo.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
+                            (u.rol_nombre && u.rol_nombre.toLowerCase().includes(userSearchTerm.toLowerCase()))
+                        )
+                        .map((u) => {
+                          const isOnline = u.esta_online === 1;
+                          const isMe = String(u.id_usuario) === String(userId);
+                          const cantNoLeidos = noLeidosPorUsuario[u.id_usuario] || 0;
+                          const hasUnread = cantNoLeidos > 0 && !isMe;
+
+                          return (
+                            <button
+                              key={u.id_usuario}
+                              type="button"
+                              disabled={isMe}
+                              onClick={() => handleOpenUserChat(u)}
+                              className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-all ${
+                                isMe
+                                  ? "opacity-60 bg-slate-50 cursor-default"
+                                  : hasUnread
+                                  ? "bg-emerald-50 hover:bg-emerald-100 border border-emerald-300"
+                                  : "hover:bg-slate-100 cursor-pointer"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <span className="relative flex h-2 w-2 shrink-0">
+                                  {isOnline && (
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                  )}
+                                  <span
+                                    className={`relative inline-flex rounded-full h-2 w-2 ${
+                                      isOnline ? "bg-emerald-500" : "bg-slate-300"
+                                    }`}
+                                  ></span>
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-bold text-slate-900 truncate">
+                                    {u.nombre_completo} {isMe && "(Tú)"}
+                                  </p>
+                                  <p className="text-[10px] text-slate-500 truncate">
+                                    {u.rol_nombre || "Personal"} • {u.area || "Operaciones"}
+                                  </p>
+                                </div>
+                              </div>
+                              {hasUnread ? (
+                                <span className="bg-emerald-600 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full animate-pulse shrink-0">
+                                  {cantNoLeidos}
+                                </span>
+                              ) : (
+                                !isMe && <MessageSquare size={13} className="text-slate-400 hover:text-sky-600 shrink-0" />
+                              )}
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 👤 Menú de Usuario y Cerrar Sesión */}
+            <div className="relative shrink-0 pl-1 border-l border-slate-200" ref={userMenuRef}>
+              <button
+                type="button"
+                onClick={() => setUserMenuOpen(!userMenuOpen)}
+                className="flex items-center gap-1.5 py-0.5 px-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer border border-transparent hover:border-slate-200 text-left h-7.5"
+                title="Cuenta de Usuario"
+              >
+                <div className="text-right hidden xl:block leading-none">
+                  <span className="text-[11px] font-black text-slate-900 block truncate max-w-[130px]">
+                    {userSoloNombres}
+                  </span>
+                  <span className="text-[9px] font-bold text-sky-600 uppercase tracking-wider block">
+                    {rolNombre}
+                  </span>
+                </div>
+
+                {currentUser?.foto_personal && !avatarImgError ? (
+                  <img
+                    src={`${API_URL}/uploads/${currentUser.foto_personal}`}
+                    alt={userName}
+                    className="w-6 h-6 rounded-full object-cover border border-sky-500 shrink-0 shadow-2xs"
+                    onError={() => setAvatarImgError(true)}
+                  />
+                ) : (
+                  <div className="w-6 h-6 rounded-full bg-sky-600 text-white flex items-center justify-center font-black text-[10px] shrink-0 shadow-2xs uppercase">
+                    {(userName || "US").slice(0, 2)}
+                  </div>
+                )}
+
+                <ChevronDown size={11} className={`text-slate-400 transition-transform ${userMenuOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              {/* Dropdown de Usuario */}
+              {userMenuOpen && (
+                <div className="absolute right-0 mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-200/90 z-50 p-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                  <div className="px-2.5 py-2 border-b border-slate-100 mb-1">
+                    <p className="text-xs font-black text-slate-900 truncate">{userName}</p>
+                    <p className="text-[10px] text-sky-600 font-bold uppercase tracking-wider">{rolNombre}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-bold text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                  >
+                    <LogOut size={13} />
+                    <span>Cerrar Sesión</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* 📅 SELECTOR DE PERÍODO & ESTADOS INTEGRADOS (PARA RESUMEN Y AUDITORÍA) */}
+        {(activeMainTab === "resumen" || activeMainTab === "auditoria") && (
+          <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5 pt-2.5 border-t border-slate-100">
+            {/* Lado Izquierdo: Fila de Estados Oficiales (Solo en Resumen) */}
+            {activeMainTab === "resumen" ? (
+              <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto scrollbar-none">
+                {/* 1. Finalizada */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleOpenClassificationModal("Finalizada", "Órdenes Finalizadas", "#5b9bd5")
+                  }
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#deebf7] hover:bg-[#cee2f3] active:scale-95 text-[#1f4e78] border border-[#bdd7ee] hover:border-sky-400 shadow-2xs hover:shadow-xs transition-all cursor-pointer shrink-0 group"
+                  title="📋 Clic para ver órdenes Finalizadas"
+                >
+                  <span className="w-2 h-2 rounded-full bg-[#5b9bd5] inline-block group-hover:scale-125 transition-transform"></span>
+                  <span>Finalizada:</span>
+                  <span className="font-mono font-black">{conteoEstados.finalizada}</span>
+                </button>
+
+                {/* 2. Cancelada */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleOpenClassificationModal("Cancelada", "Órdenes Canceladas", "#ef4444")
+                  }
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#fee2e2] hover:bg-[#fed7d7] active:scale-95 text-[#991b1b] border border-[#fca5a5] hover:border-rose-400 shadow-2xs hover:shadow-xs transition-all cursor-pointer shrink-0 group"
+                  title="📋 Clic para ver órdenes Canceladas"
+                >
+                  <span className="w-2 h-2 rounded-full bg-[#ef4444] inline-block group-hover:scale-125 transition-transform"></span>
+                  <span>Cancelada:</span>
+                  <span className="font-mono font-black">{conteoEstados.cancelada}</span>
+                </button>
+
+                {/* 3. Regestión */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleOpenClassificationModal("Regestión", "Órdenes en Regestión", "#ffc000")
+                  }
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#fff2cc] hover:bg-[#fae7b4] active:scale-95 text-[#833c0c] border border-[#ffe699] hover:border-amber-400 shadow-2xs hover:shadow-xs transition-all cursor-pointer shrink-0 group"
+                  title="📋 Clic para ver órdenes en Regestión"
+                >
+                  <span className="w-2 h-2 rounded-full bg-[#ffc000] inline-block group-hover:scale-125 transition-transform"></span>
+                  <span>Regestión:</span>
+                  <span className="font-mono font-black">{conteoEstados.regestion}</span>
+                </button>
+
+                {/* 4. Anulada */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleOpenClassificationModal("Anulada", "Órdenes Anuladas", "#475569")
+                  }
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#f1f5f9] hover:bg-[#e2e8f0] active:scale-95 text-[#334155] border border-[#cbd5e1] hover:border-slate-400 shadow-2xs hover:shadow-xs transition-all cursor-pointer shrink-0 group"
+                  title="📋 Clic para ver órdenes Anuladas"
+                >
+                  <span className="w-2 h-2 rounded-full bg-[#475569] inline-block group-hover:scale-125 transition-transform"></span>
+                  <span>Anulada:</span>
+                  <span className="font-mono font-black">{conteoEstados.anulada}</span>
+                </button>
+
+                {/* 5. Agendada */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleOpenClassificationModal("Agendada", "Órdenes Agendadas", "#64748b")
+                  }
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-white hover:bg-slate-50 active:scale-95 text-[#1f3864] border border-[#bdd7ee] hover:border-sky-400 shadow-2xs hover:shadow-xs transition-all cursor-pointer shrink-0 group"
+                  title="📋 Clic para ver órdenes Agendadas"
+                >
+                  <span className="w-2 h-2 rounded-full bg-[#64748b] inline-block group-hover:scale-125 transition-transform"></span>
+                  <span>Agendada:</span>
+                  <span className="font-mono font-black">{conteoEstados.agendada}</span>
+                </button>
+
+                {/* 6. Iniciada */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleOpenClassificationModal("Iniciada", "Órdenes Iniciadas / En Proceso", "#70ad47")
+                  }
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#e2efda] hover:bg-[#d5e8cd] active:scale-95 text-[#375623] border border-[#a9d18e] hover:border-emerald-500 shadow-2xs hover:shadow-xs transition-all cursor-pointer shrink-0 group"
+                  title="📋 Clic para ver órdenes Iniciadas / En Proceso"
+                >
+                  <span className="w-2 h-2 rounded-full bg-[#70ad47] inline-block group-hover:scale-125 transition-transform"></span>
+                  <span>Iniciada:</span>
+                  <span className="font-mono font-black">{conteoEstados.iniciada}</span>
+                </button>
+              </div>
+            ) : (
+              <div />
+            )}
+
+            {/* Lado Derecho: Pestañas de Modo de Período + Dropdown + Refrescar */}
+            <div className="flex flex-wrap sm:flex-nowrap items-center justify-end gap-2 shrink-0">
+              {/* Pestañas de Modo */}
+              <div className="bg-slate-100 p-1 rounded-2xl border border-slate-200 flex items-center gap-1 overflow-x-auto">
+                <button
+                  type="button"
+                  onClick={() => setPeriodMode("dia")}
+                  className={`px-2.5 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer whitespace-nowrap ${
+                    periodMode === "dia" ? "bg-sky-600 text-white shadow-sm shadow-sky-600/20" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
+                  }`}
+                >
+                  📅 Por Días
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPeriodMode("semana")}
+                  className={`px-2.5 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer whitespace-nowrap ${
+                    periodMode === "semana" ? "bg-sky-600 text-white shadow-sm shadow-sky-600/20" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
+                  }`}
+                >
+                  🗓️ Por Semanas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPeriodMode("mes")}
+                  className={`px-2.5 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer whitespace-nowrap ${
+                    periodMode === "mes" ? "bg-sky-600 text-white shadow-sm shadow-sky-600/20" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
+                  }`}
+                >
+                  📊 Por Meses
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPeriodMode("anio")}
+                  className={`px-2.5 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer whitespace-nowrap ${
+                    periodMode === "anio" ? "bg-sky-600 text-white shadow-sm shadow-sky-600/20" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
+                  }`}
+                >
+                  📈 Anual
+                </button>
               </div>
 
-              <button
-                onClick={() => cargarDashboard(true)}
-                disabled={refreshing}
-                className="p-2 bg-white hover:bg-slate-50 active:scale-95 border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 transition-all cursor-pointer shadow-2xs disabled:opacity-50"
-                title="Refrescar datos del período"
-              >
-                <RefreshCw size={15} className={refreshing ? "animate-spin text-sky-600" : "text-slate-500"} />
-              </button>
+              {/* Dropdown de Rango Exacto */}
+              <div className="flex items-center gap-1.5">
+                <div className="relative min-w-[180px]">
+                  <select
+                    value={selectedOption}
+                    onChange={(e) => setSelectedOption(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 font-bold text-slate-800 text-xs rounded-2xl px-3 py-1.5 appearance-none focus:outline-none focus:border-sky-500 shadow-2xs pr-8 cursor-pointer"
+                  >
+                    {periodMode === "dia" &&
+                      opcionesDias.map((op) => (
+                        <option key={op.id} value={op.id}>
+                          {op.label}
+                        </option>
+                      ))}
+
+                    {periodMode === "semana" &&
+                      opcionesSemanas.map((op) => (
+                        <option key={op.id} value={op.id}>
+                          {op.label}
+                        </option>
+                      ))}
+
+                    {periodMode === "mes" && (
+                      <>
+                        <optgroup label={`📅 Año ${new Date().getFullYear()} (Meses Transcurridos)`}>
+                          {opcionesMeses.listActual.map((op) => (
+                            <option key={op.id} value={op.id}>
+                              {op.label}
+                            </option>
+                          ))}
+                        </optgroup>
+                        <optgroup label={`📂 Año ${new Date().getFullYear() - 1} (Histórico)`}>
+                          {opcionesMeses.listAnterior.map((op) => (
+                            <option key={op.id} value={op.id}>
+                              {op.label}
+                            </option>
+                          ))}
+                        </optgroup>
+                      </>
+                    )}
+
+                    {periodMode === "anio" &&
+                      opcionesAnios.map((op) => (
+                        <option key={op.id} value={op.id}>
+                          {op.label}
+                        </option>
+                      ))}
+                  </select>
+                  <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                </div>
+
+                <button
+                  onClick={() => cargarDashboard()}
+                  disabled={refreshing}
+                  className="p-1.5 bg-white hover:bg-slate-50 active:scale-95 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 transition-all cursor-pointer shadow-2xs disabled:opacity-50"
+                  title="Refrescar datos del período"
+                >
+                  <RefreshCw size={14} className={refreshing ? "animate-spin text-sky-600" : "text-slate-500"} />
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -654,59 +1047,43 @@ export const ExecutiveDashboardPage: React.FC = () => {
 
       {/* 📊 PESTAÑA: RESUMEN EJECUTIVO */}
       {activeMainTab === "resumen" && (
-        <div className="space-y-4">
-          {/* Fila de Estados Oficiales con Colores Institucionales Suaves */}
-          <div className="flex flex-wrap items-center gap-2 bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-white text-[#1f3864] border border-[#bdd7ee] shadow-2xs">
-              <span className="w-2.5 h-2.5 rounded-full border border-[#8ea9db] bg-white inline-block"></span>
-              <span>Agendadas / Asignadas:</span>
-              <span className="font-mono font-black">
-                {Math.max(0, totalOrdenes - (finalizadas + (stats?.kpis?.ordenes_en_proceso || 0) + canceladasObs))}
-              </span>
-            </span>
-
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#e2efda] text-[#375623] border border-[#a9d18e] shadow-2xs">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#70ad47] inline-block"></span>
-              <span>Iniciadas / Proceso:</span>
-              <span className="font-mono font-black">{stats?.kpis?.ordenes_en_proceso || 0}</span>
-            </span>
-
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#deebf7] text-[#1f4e78] border border-[#bdd7ee] shadow-2xs">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#5b9bd5] inline-block"></span>
-              <span>Finalizadas:</span>
-              <span className="font-mono font-black">{finalizadas}</span>
-            </span>
-
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#fff2cc] text-[#833c0c] border border-[#ffe699] shadow-2xs">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#ffc000] inline-block"></span>
-              <span>Regestión / Canceladas:</span>
-              <span className="font-mono font-black">{canceladasObs}</span>
-            </span>
-          </div>
+        <div className="space-y-3.5">
 
           {/* ─────────────────────────────────────────────────────────────
               2. TARJETAS DE KPIS PRINCIPALES (DISEÑO CLARO CORPORATIVO)
           ───────────────────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
             {/* Total Órdenes */}
-            <div className="bg-white border border-slate-200/80 p-4 rounded-3xl shadow-xs relative overflow-hidden group">
+            <div
+              onClick={() =>
+                handleOpenClassificationModal("TOTAL", "Todas las Órdenes del Período", "#0284c7")
+              }
+              className="bg-white border border-slate-200/80 hover:border-sky-300 p-4 rounded-3xl shadow-xs hover:shadow-md relative overflow-hidden group cursor-pointer transition-all active:scale-[0.98]"
+              title="📋 Clic para ver todas las órdenes de este período"
+            >
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-sky-700">Órdenes Totales</span>
-                <div className="w-7 h-7 rounded-lg bg-sky-50 text-sky-600 flex items-center justify-center">
+                <div className="w-7 h-7 rounded-lg bg-sky-50 text-sky-600 group-hover:bg-sky-600 group-hover:text-white flex items-center justify-center transition-colors">
                   <Layers className="w-4 h-4" />
                 </div>
               </div>
               <div className="text-2xl lg:text-3xl font-black text-slate-900 mt-2">
                 {totalOrdenes}
               </div>
-              <span className="text-[10px] text-slate-500 block mt-1 capitalize">En el período seleccionado</span>
+              <span className="text-[10px] text-slate-500 block mt-1 capitalize">Ver listado completo →</span>
             </div>
 
             {/* Órdenes Finalizadas */}
-            <div className="bg-white border border-[#bdd7ee]/70 p-4 rounded-3xl shadow-xs relative overflow-hidden group">
+            <div
+              onClick={() =>
+                handleOpenClassificationModal("FINALIZADAS", "Órdenes Finalizadas (Liquidadas)", "#5b9bd5")
+              }
+              className="bg-white border border-[#bdd7ee]/70 hover:border-sky-400 p-4 rounded-3xl shadow-xs hover:shadow-md relative overflow-hidden group cursor-pointer transition-all active:scale-[0.98]"
+              title="📋 Clic para ver órdenes finalizadas y liquidadas"
+            >
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-[#1f4e78]">Finalizadas</span>
-                <div className="w-7 h-7 rounded-lg bg-[#deebf7] text-[#1f4e78] flex items-center justify-center">
+                <div className="w-7 h-7 rounded-lg bg-[#deebf7] text-[#1f4e78] group-hover:bg-[#1f4e78] group-hover:text-white flex items-center justify-center transition-colors">
                   <CheckCircle2 className="w-4 h-4" />
                 </div>
               </div>
@@ -714,15 +1091,21 @@ export const ExecutiveDashboardPage: React.FC = () => {
                 {finalizadas}
               </div>
               <span className="text-[10px] text-[#1f4e78] block mt-1 font-bold">
-                {porcentajeEfectividad}% efectividad
+                {porcentajeEfectividad}% efectividad →
               </span>
             </div>
 
             {/* Observadas / Canceladas */}
-            <div className="bg-white border border-[#ffe699]/70 p-4 rounded-3xl shadow-xs relative overflow-hidden group">
+            <div
+              onClick={() =>
+                handleOpenClassificationModal("OBSERVADAS_CANCELADAS", "Órdenes Observadas / Canceladas / Anuladas", "#ef4444")
+              }
+              className="bg-white border border-[#ffe699]/70 hover:border-amber-400 p-4 rounded-3xl shadow-xs hover:shadow-md relative overflow-hidden group cursor-pointer transition-all active:scale-[0.98]"
+              title="📋 Clic para ver órdenes no liquidadas"
+            >
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-[#833c0c]">Observadas / Canc.</span>
-                <div className="w-7 h-7 rounded-lg bg-[#fff2cc] text-[#833c0c] flex items-center justify-center">
+                <div className="w-7 h-7 rounded-lg bg-[#fff2cc] text-[#833c0c] group-hover:bg-[#833c0c] group-hover:text-white flex items-center justify-center transition-colors">
                   <XCircle className="w-4 h-4" />
                 </div>
               </div>
@@ -730,22 +1113,28 @@ export const ExecutiveDashboardPage: React.FC = () => {
                 {canceladasObs}
               </div>
               <span className="text-[10px] text-[#833c0c] block mt-1 font-bold">
-                {porcentajeCanceladas}% no liquidadas
+                {porcentajeCanceladas}% no liquidadas →
               </span>
             </div>
 
             {/* Órdenes En Proceso */}
-            <div className="bg-white border border-[#a9d18e]/70 p-4 rounded-3xl shadow-xs relative overflow-hidden group">
+            <div
+              onClick={() =>
+                handleOpenClassificationModal("INICIADAS_PROCESO", "Órdenes En Proceso / Iniciadas", "#70ad47")
+              }
+              className="bg-white border border-[#a9d18e]/70 hover:border-emerald-400 p-4 rounded-3xl shadow-xs hover:shadow-md relative overflow-hidden group cursor-pointer transition-all active:scale-[0.98]"
+              title="📋 Clic para ver órdenes actualmente en proceso o iniciadas"
+            >
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-[#375623]">En Proceso / Inic.</span>
-                <div className="w-7 h-7 rounded-lg bg-[#e2efda] text-[#375623] flex items-center justify-center">
+                <div className="w-7 h-7 rounded-lg bg-[#e2efda] text-[#375623] group-hover:bg-[#375623] group-hover:text-white flex items-center justify-center transition-colors">
                   <Clock className="w-4 h-4 animate-pulse" />
                 </div>
               </div>
               <div className="text-2xl lg:text-3xl font-black text-[#375623] mt-2">
                 {stats?.kpis?.ordenes_en_proceso || 0}
               </div>
-              <span className="text-[10px] text-slate-500 block mt-1">Cuadrillas en atención</span>
+              <span className="text-[10px] text-[#375623] block mt-1 font-bold">Cuadrillas en atención →</span>
             </div>
 
             {/* Compras del Mes */}
@@ -835,16 +1224,28 @@ export const ExecutiveDashboardPage: React.FC = () => {
 
               {/* Leyenda y Comparativa de Liquidación */}
               <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-100">
-                <div className="bg-[#deebf7]/80 border border-[#bdd7ee] p-3 rounded-2xl text-center">
+                <div
+                  onClick={() =>
+                    handleOpenClassificationModal("FINALIZADAS", "Órdenes Finalizadas (Liquidadas)", "#5b9bd5")
+                  }
+                  className="bg-[#deebf7]/80 hover:bg-[#d0e4f5] active:scale-95 border border-[#bdd7ee] hover:border-sky-400 p-3 rounded-2xl text-center cursor-pointer transition-all shadow-2xs group"
+                  title="📋 Clic para ver órdenes finalizadas"
+                >
                   <span className="text-[11px] text-[#1f4e78] font-bold block">Finalizadas (Liquidadas)</span>
                   <span className="text-xl font-black text-[#1f4e78]">{finalizadas}</span>
-                  <span className="text-[10px] text-[#1f4e78] font-bold block">{porcentajeEfectividad}% de efectividad</span>
+                  <span className="text-[10px] text-[#1f4e78] font-bold block">{porcentajeEfectividad}% de efectividad →</span>
                 </div>
 
-                <div className="bg-[#fff2cc]/80 border border-[#ffe699] p-3 rounded-2xl text-center">
+                <div
+                  onClick={() =>
+                    handleOpenClassificationModal("OBSERVADAS_CANCELADAS", "Órdenes Canceladas / Observadas / Anuladas", "#ffc000")
+                  }
+                  className="bg-[#fff2cc]/80 hover:bg-[#fae7b4] active:scale-95 border border-[#ffe699] hover:border-amber-400 p-3 rounded-2xl text-center cursor-pointer transition-all shadow-2xs group"
+                  title="📋 Clic para ver órdenes canceladas / observadas"
+                >
                   <span className="text-[11px] text-[#833c0c] font-bold block">Canceladas / Obs. / Anuladas</span>
                   <span className="text-xl font-black text-[#833c0c]">{canceladasObs}</span>
-                  <span className="text-[10px] text-[#833c0c] font-bold block">{porcentajeCanceladas}% no liquidadas</span>
+                  <span className="text-[10px] text-[#833c0c] font-bold block">{porcentajeCanceladas}% no liquidadas →</span>
                 </div>
               </div>
             </div>
@@ -861,9 +1262,16 @@ export const ExecutiveDashboardPage: React.FC = () => {
                     <p className="text-[11px] text-slate-500">Desglose de estados operativos en el período</p>
                   </div>
                 </div>
-                <span className="text-[10px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleOpenClassificationModal("TOTAL", "Todas las Órdenes del Período", "#0284c7")
+                  }
+                  className="text-[10px] font-bold text-slate-700 hover:text-sky-700 bg-slate-100 hover:bg-sky-50 border border-slate-200 hover:border-sky-300 px-2.5 py-1 rounded-xl transition-all cursor-pointer shadow-2xs"
+                  title="Clic para ver todas las órdenes"
+                >
                   {totalOrdenes} Total
-                </span>
+                </button>
               </div>
 
               <div className="h-64 w-full relative flex items-center justify-center">
@@ -882,6 +1290,12 @@ export const ExecutiveDashboardPage: React.FC = () => {
                         outerRadius={95}
                         paddingAngle={4}
                         stroke="none"
+                        onClick={(entry: { name?: string; color?: string }) => {
+                          if (entry?.name) {
+                            handleOpenClassificationModal(entry.name, `Órdenes en Estado: ${entry.name}`, entry.color || "#5b9bd5");
+                          }
+                        }}
+                        className="cursor-pointer"
                       >
                         {dataEstadosPie.map((entry, index) => (
                           <Cell key={`cell-st-${index}`} fill={entry.color} />
@@ -894,21 +1308,35 @@ export const ExecutiveDashboardPage: React.FC = () => {
                 
                 {/* Texto central del Donut */}
                 {dataEstadosPie.length > 0 && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                    <span className="text-2xl font-black text-slate-900">{totalOrdenes}</span>
-                    <span className="text-[10px] font-bold text-sky-600 uppercase tracking-wider">ÓRDENES</span>
+                  <div
+                    onClick={() =>
+                      handleOpenClassificationModal("TOTAL", "Todas las Órdenes del Período", "#0284c7")
+                    }
+                    className="absolute inset-0 flex flex-col items-center justify-center cursor-pointer group"
+                    title="Clic para ver todas las órdenes"
+                  >
+                    <span className="text-2xl font-black text-slate-900 group-hover:text-sky-600 transition-colors">{totalOrdenes}</span>
+                    <span className="text-[10px] font-bold text-sky-600 uppercase tracking-wider group-hover:underline">ÓRDENES</span>
                   </div>
                 )}
               </div>
 
-              {/* Leyenda interactiva */}
+              {/* Leyenda interactiva con clic para abrir modal por estado */}
               <div className="flex flex-wrap items-center justify-center gap-2 pt-3 border-t border-slate-100">
                 {dataEstadosPie.map((item, idx) => (
-                  <div key={idx} className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-xl text-[11px]">
-                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }}></span>
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() =>
+                      handleOpenClassificationModal(item.name, `Órdenes en Estado: ${item.name}`, item.color)
+                    }
+                    className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 active:scale-95 border border-slate-200 hover:border-slate-300 px-2.5 py-1 rounded-xl text-[11px] transition-all cursor-pointer shadow-2xs group"
+                    title={`📋 Clic para ver las ${item.value} órdenes en estado "${item.name}"`}
+                  >
+                    <span className="w-2.5 h-2.5 rounded-full group-hover:scale-125 transition-transform" style={{ backgroundColor: item.color }}></span>
                     <span className="text-slate-600 font-semibold">{item.name}:</span>
                     <span className="font-black text-slate-900">{item.value}</span>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
@@ -1422,6 +1850,18 @@ export const ExecutiveDashboardPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ── MODAL DRILL-DOWN: ÓRDENES POR CLASIFICACIÓN Y ESTADO ── */}
+      <ClassificationOrdersModal
+        isOpen={drilldownModal.isOpen}
+        onClose={() => setDrilldownModal((prev) => ({ ...prev, isOpen: false }))}
+        title={drilldownModal.title}
+        classificationKey={drilldownModal.classificationKey}
+        periodLabel={currentPeriodInfo.label}
+        fechaDesde={currentPeriodInfo.desde}
+        fechaHasta={currentPeriodInfo.hasta}
+        accentColor={drilldownModal.accentColor}
+      />
 
     </div>
   );

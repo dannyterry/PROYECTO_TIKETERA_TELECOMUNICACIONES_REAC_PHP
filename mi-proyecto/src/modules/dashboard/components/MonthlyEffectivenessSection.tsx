@@ -16,7 +16,10 @@ import {
   Database,
   Award,
   ArrowRight,
+  Search,
 } from "lucide-react";
+import { MonthlyOrdersAuditModal } from "./MonthlyOrdersAuditModal";
+import { WinAuditLogSection } from "./WinAuditLogSection";
 import {
   ResponsiveContainer,
   BarChart,
@@ -86,6 +89,26 @@ export const MonthlyEffectivenessSection: React.FC = () => {
   const [modoCalculo, setModoCalculo] = useState<ModoCalculo>("oficial");
   const [loading, setLoading] = useState<boolean>(true);
   const [data, setData] = useState<ApiResponse | null>(null);
+  const [modalAuditoria, setModalAuditoria] = useState<{
+    isOpen: boolean;
+    mes: number;
+    mesNombre: string;
+    categoria: "AVERIAS" | "POSTVENTA" | "ALL";
+  }>({
+    isOpen: false,
+    mes: 1,
+    mesNombre: "Enero",
+    categoria: "ALL",
+  });
+
+  const abrirAuditoria = (mesNum: number, mesNom: string, cat: "AVERIAS" | "POSTVENTA" | "ALL" = "ALL") => {
+    setModalAuditoria({
+      isOpen: true,
+      mes: mesNum,
+      mesNombre: mesNom,
+      categoria: cat,
+    });
+  };
 
   const cargarDatos = useCallback(async (year: number) => {
     setLoading(true);
@@ -458,12 +481,21 @@ export const MonthlyEffectivenessSection: React.FC = () => {
                     return (
                       <tr
                         key={m.mesNumero}
-                        className={`hover:bg-sky-50/40 transition-colors ${
-                          !tieneDatos ? "opacity-50" : ""
+                        onClick={() => tieneDatos && abrirAuditoria(m.mesNumero, m.mesNombre, "AVERIAS")}
+                        className={`transition-colors group ${
+                          tieneDatos
+                            ? "hover:bg-sky-50/70 cursor-pointer"
+                            : "opacity-50 cursor-default"
                         }`}
+                        title={tieneDatos ? `Ver órdenes auditadas de Averías en ${m.mesNombre}` : undefined}
                       >
-                        <td className="py-2 px-3.5 border-b border-slate-100 font-bold text-slate-800 text-[11.5px]">
-                          {m.mesNombre}
+                        <td className="py-2 px-3.5 border-b border-slate-100 font-bold text-slate-800 text-[11.5px] flex items-center justify-between">
+                          <span>{m.mesNombre}</span>
+                          {tieneDatos && (
+                            <span className="opacity-0 group-hover:opacity-100 text-sky-600 transition-opacity">
+                              <Search size={12} />
+                            </span>
+                          )}
                         </td>
                         <td className="py-2 px-3 text-center border-b border-slate-100 font-mono font-medium text-slate-700">
                           {tieneDatos ? m.averias.asignadas : "-"}
@@ -561,12 +593,21 @@ export const MonthlyEffectivenessSection: React.FC = () => {
                     return (
                       <tr
                         key={m.mesNumero}
-                        className={`hover:bg-indigo-50/40 transition-colors ${
-                          !tieneDatos ? "opacity-50" : ""
+                        onClick={() => tieneDatos && abrirAuditoria(m.mesNumero, m.mesNombre, "POSTVENTA")}
+                        className={`transition-colors group ${
+                          tieneDatos
+                            ? "hover:bg-indigo-50/70 cursor-pointer"
+                            : "opacity-50 cursor-default"
                         }`}
+                        title={tieneDatos ? `Ver órdenes auditadas de Postventa en ${m.mesNombre}` : undefined}
                       >
-                        <td className="py-2 px-3.5 border-b border-slate-100 font-bold text-slate-800 text-[11.5px]">
-                          {m.mesNombre}
+                        <td className="py-2 px-3.5 border-b border-slate-100 font-bold text-slate-800 text-[11.5px] flex items-center justify-between">
+                          <span>{m.mesNombre}</span>
+                          {tieneDatos && (
+                            <span className="opacity-0 group-hover:opacity-100 text-indigo-600 transition-opacity">
+                              <Search size={12} />
+                            </span>
+                          )}
                         </td>
                         <td className="py-2 px-3 text-center border-b border-slate-100 font-mono font-medium text-slate-700">
                           {tieneDatos ? m.postventa.asignadas : "-"}
@@ -674,10 +715,26 @@ export const MonthlyEffectivenessSection: React.FC = () => {
 
                       const diffPct = parseFloat((prodPct - oficPct).toFixed(2));
 
+                      const tieneDatos = oficAsig > 0 || prodAsig > 0;
+
                       return (
-                        <tr key={mOfic.mesNumero} className="hover:bg-sky-50/30 transition-colors">
-                          <td className="py-1.5 px-2.5 border-b border-slate-100 font-bold text-slate-800 text-[11px]">
-                            {mOfic.mesNombre}
+                        <tr
+                          key={mOfic.mesNumero}
+                          onClick={() => tieneDatos && abrirAuditoria(mOfic.mesNumero, mOfic.mesNombre, "AVERIAS")}
+                          className={`transition-colors group ${
+                            tieneDatos
+                              ? "hover:bg-sky-50/70 cursor-pointer"
+                              : "opacity-50 cursor-default"
+                          }`}
+                          title={tieneDatos ? `Ver órdenes auditadas de Averías en ${mOfic.mesNombre}` : undefined}
+                        >
+                          <td className="py-1.5 px-2.5 border-b border-slate-100 font-bold text-slate-800 text-[11px] flex items-center justify-between">
+                            <span>{mOfic.mesNombre}</span>
+                            {tieneDatos && (
+                              <span className="opacity-0 group-hover:opacity-100 text-sky-600 transition-opacity">
+                                <Search size={11} />
+                              </span>
+                            )}
                           </td>
                           <td className="py-1.5 px-2 text-center border-b border-slate-100 font-mono font-bold text-amber-950 bg-amber-50/30">
                             {oficAsig > 0 ? oficAsig : "-"}
@@ -781,10 +838,26 @@ export const MonthlyEffectivenessSection: React.FC = () => {
 
                       const diffPct = parseFloat((prodPct - oficPct).toFixed(2));
 
+                      const tieneDatos = oficAsig > 0 || prodAsig > 0;
+
                       return (
-                        <tr key={mOfic.mesNumero} className="hover:bg-indigo-50/30 transition-colors">
-                          <td className="py-1.5 px-2.5 border-b border-slate-100 font-bold text-slate-800 text-[11px]">
-                            {mOfic.mesNombre}
+                        <tr
+                          key={mOfic.mesNumero}
+                          onClick={() => tieneDatos && abrirAuditoria(mOfic.mesNumero, mOfic.mesNombre, "POSTVENTA")}
+                          className={`transition-colors group ${
+                            tieneDatos
+                              ? "hover:bg-indigo-50/70 cursor-pointer"
+                              : "opacity-50 cursor-default"
+                          }`}
+                          title={tieneDatos ? `Ver órdenes auditadas de Postventa en ${mOfic.mesNombre}` : undefined}
+                        >
+                          <td className="py-1.5 px-2.5 border-b border-slate-100 font-bold text-slate-800 text-[11px] flex items-center justify-between">
+                            <span>{mOfic.mesNombre}</span>
+                            {tieneDatos && (
+                              <span className="opacity-0 group-hover:opacity-100 text-indigo-600 transition-opacity">
+                                <Search size={11} />
+                              </span>
+                            )}
                           </td>
                           <td className="py-1.5 px-2 text-center border-b border-slate-100 font-mono font-bold text-amber-950 bg-amber-50/30">
                             {oficAsig > 0 ? oficAsig : "-"}
@@ -978,6 +1051,19 @@ export const MonthlyEffectivenessSection: React.FC = () => {
           </ResponsiveContainer>
         </div>
       </div>
+
+      {/* ── BITÁCORA DE AUDITORÍA Y EXCEPCIONES TÉCNICAS WIN ── */}
+      <WinAuditLogSection anio={data?.anio || anioSeleccionado} />
+
+      {/* ── MODAL DRILL-DOWN: AUDITORÍA DE ÓRDENES POR MES ── */}
+      <MonthlyOrdersAuditModal
+        isOpen={modalAuditoria.isOpen}
+        onClose={() => setModalAuditoria((prev) => ({ ...prev, isOpen: false }))}
+        anio={data?.anio || anioSeleccionado}
+        mes={modalAuditoria.mes}
+        mesNombre={modalAuditoria.mesNombre}
+        categoriaInicial={modalAuditoria.categoria}
+      />
     </div>
   );
 };

@@ -1,8 +1,35 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { OrderFilters } from "../types/Order";
 import { Input } from "../../../components/ui/input";
 import { Button } from "../../../components/ui/button";
-import { RotateCw, Search, Calendar, Filter, X, Layers, Bell } from "lucide-react";
+import {
+  RotateCw,
+  Search,
+  Calendar,
+  Filter,
+  X,
+  Layers,
+  Bell,
+  Radio,
+  MessageSquare,
+  ChevronDown,
+  Users,
+  LogOut,
+  User,
+} from "lucide-react";
+import { authService } from "../../../services/authService";
+import { API_URL } from "../../../config/api";
+
+interface OnlineUser {
+  id_usuario: number;
+  nombre_completo: string;
+  rol_nombre: string;
+  area: string;
+  distrito?: string | null;
+  distrito_conexion?: string | null;
+  esta_online: number;
+  ultimo_acceso: string | null;
+}
 
 interface OrdersToolbarProps {
   filters: OrderFilters;
@@ -33,6 +60,111 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
   alertsCount = 0,
   onOpenAlerts,
 }) => {
+  // Datos del Usuario Activo
+  const currentUser = authService.getCurrentUser();
+  const userId = currentUser ? String(currentUser.id_usuario) : "";
+  const userName = currentUser?.nombreCompleto || `${currentUser?.nombres || ""} ${currentUser?.apellidos || ""}`.trim() || "Usuario";
+  const userSoloNombres = (currentUser?.nombres || currentUser?.nombreCompleto || "").trim().split(/\s+/).slice(0, 2).join(" ") || userName;
+  const userRol = currentUser ? String(currentUser.id_rol) : "";
+  const rolNombre = currentUser?.rol || "Gestión";
+
+  // 🛡️ Identificación de Técnico (Ocultar chat completamente a técnicos)
+  const isTecnico =
+    userRol === "2" ||
+    Boolean(rolNombre && (rolNombre.toUpperCase().includes("TECNICO") || rolNombre.toUpperCase().includes("TÉCNICO")));
+
+  const canUseGroupChat =
+    !isTecnico &&
+    (userRol === "1" ||
+      userRol === "3" ||
+      userRol === "5" ||
+      (rolNombre &&
+        (rolNombre.toUpperCase().includes("ADMIN") ||
+         rolNombre.toUpperCase().includes("RECURSO") ||
+         rolNombre.toUpperCase().includes("RRHH") ||
+         rolNombre.toUpperCase().includes("ALMACEN") ||
+         rolNombre.toUpperCase().includes("LOGISTICA"))));
+
+  // Estados para Chat y Usuarios Online
+  const [usuariosOnline, setUsuariosOnline] = useState<OnlineUser[]>([]);
+  const [totalNoLeidos, setTotalNoLeidos] = useState(0);
+  const [noLeidosPorUsuario, setNoLeidosPorUsuario] = useState<Record<number, number>>({});
+  const [onlineDropdownOpen, setOnlineDropdownOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [userSearchTerm, setUserSearchTerm] = useState("");
+  const [avatarImgError, setAvatarImgError] = useState(false);
+
+  const onlineDropdownRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  // Cerrar dropdowns al hacer clic fuera
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (onlineDropdownRef.current && !onlineDropdownRef.current.contains(e.target as Node)) {
+        setOnlineDropdownOpen(false);
+      }
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Polling de usuarios online y mensajes no leídos (Solo para personal que no sea técnico)
+  useEffect(() => {
+    if (isTecnico) return;
+    const fetchOnline = () => {
+      if (document.hidden) return;
+      fetch(`${API_URL}/api/auditoria/usuarios-online`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (Array.isArray(data)) setUsuariosOnline(data);
+        })
+        .catch(() => {});
+    };
+
+    const fetchNoLeidos = () => {
+      if (document.hidden || !userId) return;
+      fetch(`${API_URL}/api/chat/noleidos?id_usuario=${userId}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data && typeof data.total === "number") {
+            setTotalNoLeidos(data.total);
+            setNoLeidosPorUsuario(data.por_usuario || {});
+          }
+        })
+        .catch(() => {});
+    };
+
+    fetchOnline();
+    fetchNoLeidos();
+
+    const iOnline = setInterval(fetchOnline, 15000);
+    const iNoLeidos = setInterval(fetchNoLeidos, 25000);
+
+    return () => {
+      clearInterval(iOnline);
+      clearInterval(iNoLeidos);
+    };
+  }, [userId]);
+
+  const totalOnline = usuariosOnline.filter((u) => u.esta_online === 1).length;
+
+  const handleOpenGroupChat = () => {
+    window.dispatchEvent(new CustomEvent("openTeamChat", { detail: { tab: "general" } }));
+    setOnlineDropdownOpen(false);
+  };
+
+  const handleOpenUserChat = (target: OnlineUser) => {
+    window.dispatchEvent(new CustomEvent("openTeamChat", { detail: { tab: target.id_usuario, user: target } }));
+    setOnlineDropdownOpen(false);
+  };
+
+  const handleLogout = () => {
+    authService.logout();
+    window.location.reload();
+  };
   // Temporizador regresivo de sincronización en vivo (ej. 60s)
   const [countdown, setCountdown] = useState(60);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -122,158 +254,704 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
     });
   };
 
+  const handleToggleMenu = () => {
+    window.dispatchEvent(new CustomEvent("toggleSidebar"));
+  };
+
+  // Estado para desplegar filtros en pantalla pequeña/celular
+  const [filtrosAbiertosMobile, setFiltrosAbiertosMobile] = useState(false);
+
+  const activeFiltersCount = [
+    Boolean(filters.fechaDesde),
+    Boolean(filters.fechaHasta),
+    Boolean(filters.status && filters.status !== "Todos"),
+    Boolean(filters.tecnico && filters.tecnico !== "Todos"),
+    Boolean(filters.cuadrilla && filters.cuadrilla !== "Todos"),
+    Boolean(filters.inconcert && filters.inconcert !== "Todos"),
+  ].filter(Boolean).length;
+
   return (
-    <div className="flex flex-col gap-3 bg-white p-4 md:p-5 rounded-2xl border border-slate-200 shadow-sm">
+    <div className="flex flex-col gap-1 bg-white px-2.5 py-1.5 rounded-xl border border-slate-200/90 shadow-2xs">
 
-      {/* FILA SUPERIOR: TÍTULO, ESTADÍSTICAS Y BOTÓN DE SINCRONIZACIÓN */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+      {/* ─────────────────────────────────────────────────────────────
+          FILA 1: TÍTULO, BOTÓN MENÚ Y ACCIONES (RESPONSIVE)
+      ───────────────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between gap-1.5 pb-1 border-b border-slate-100">
 
-        {/* TÍTULO Y CONTADORES POR COLOR */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-xl bg-sky-50 border border-sky-200 text-sky-700">
-              <Layers size={20} />
-            </div>
-            <div>
-              <h1 className="text-lg md:text-xl font-black text-slate-900 tracking-tight">
-                Órdenes de Trabajo
-              </h1>
-              <p className="text-[11px] text-slate-500 font-medium">
-                Monitoreo de Ordenes
-              </p>
-            </div>
-          </div>
-
-          {/* Badges de estados con conteos */}
-          <div className="flex flex-wrap items-center gap-1.5 ml-0 lg:ml-2">
-            <span
-              onClick={() => onFilterChange({ ...filters, status: "Todos" })}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${!filters.status || filters.status === "Todos"
-                ? "bg-slate-900 text-white border-slate-950 ring-2 ring-slate-400 shadow-xs"
-                : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200 shadow-2xs"
-                }`}
-              title={`Total en Fénix: ${stats.agendadas + stats.verdes + stats.azules + stats.amarillos + (stats.ordenamientos || 0)} órdenes (${stats.agendadas + stats.verdes + stats.azules + stats.amarillos} Operativas + ${stats.ordenamientos || 0} Ordenamientos)`}
+        {/* Lado Izquierdo: Icono Menú + Título */}
+        <div className="flex items-center gap-1.5 min-w-0 shrink-0">
+          <button
+            type="button"
+            onClick={handleToggleMenu}
+            className="p-1 rounded-lg bg-sky-50 hover:bg-sky-100 active:scale-95 border border-sky-200 hover:border-sky-300 text-sky-700 hover:text-sky-900 transition-all cursor-pointer shadow-2xs group flex items-center justify-center shrink-0"
+            title="📋 Clic para abrir el menú lateral"
+          >
+            <Layers size={15} className="group-hover:scale-110 transition-transform" />
+          </button>
+          <div className="flex items-baseline gap-1 min-w-0">
+            <h1
+              onClick={handleToggleMenu}
+              className="text-xs sm:text-sm font-black text-slate-900 tracking-tight whitespace-nowrap cursor-pointer hover:text-sky-700 transition-colors truncate"
+              title="📋 Clic para abrir el menú lateral"
             >
-              <span>Total Phoenix:</span>
-              <span className="font-mono font-black">{stats.agendadas + stats.verdes + stats.azules + stats.amarillos + (stats.ordenamientos || 0)}</span>
-              <span className={`text-[10.5px] font-semibold px-1.5 py-0.2 rounded ${!filters.status || filters.status === "Todos" ? "bg-slate-800 text-sky-200" : "bg-slate-200 text-slate-800"}`}>
-                ({stats.agendadas + stats.verdes + stats.azules + stats.amarillos} Operativas +  {stats.ordenamientos || 0} Ordenamientos)
-              </span>
-            </span>
-
-            <span
-              onClick={() => onFilterChange({ ...filters, status: filters.status === "Agendadas" ? "Todos" : "Agendadas" })}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${filters.status === "Agendadas"
-                ? "bg-slate-800 text-white border-slate-900 ring-2 ring-slate-400 shadow-xs"
-                : "bg-white text-slate-800 border-slate-300 hover:bg-slate-100 shadow-2xs"
-                }`}
-              title="Filtrar Agendadas / Asignadas / En camino"
-            >
-              <span className="w-2.5 h-2.5 rounded-full bg-white border border-slate-400 shadow-2xs"></span>
-              <span>Agendadas / Asignadas:</span>
-              <span className="font-mono font-black">{stats.agendadas}</span>
-            </span>
-
-            <span
-              onClick={() => onFilterChange({ ...filters, status: filters.status === "Verdes" ? "Todos" : "Verdes" })}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${filters.status === "Verdes"
-                ? "bg-[#70ad47] text-white border-[#568735] ring-2 ring-emerald-300 shadow-xs"
-                : "bg-[#70ad47]/20 text-emerald-950 border-[#70ad47]/40 hover:bg-[#70ad47]/30"
-                }`}
-              title="Filtrar Iniciadas / Proceso"
-            >
-              <span className="w-2.5 h-2.5 rounded-full bg-[#70ad47] border border-[#568735]"></span>
-              <span>Iniciadas / Proceso:</span>
-              <span className="font-mono font-black">{stats.verdes}</span>
-            </span>
-
-            <span
-              onClick={() => onFilterChange({ ...filters, status: filters.status === "Finalizadas" ? "Todos" : "Finalizadas" })}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${filters.status === "Finalizadas"
-                ? "bg-[#5b9bd5] text-white border-[#3c78b0] ring-2 ring-sky-300 shadow-xs"
-                : "bg-[#5b9bd5]/25 text-sky-950 border-[#5b9bd5]/40 hover:bg-[#5b9bd5]/35"
-                }`}
-              title="Filtrar Finalizadas / Liquidadas"
-            >
-              <span className="w-2.5 h-2.5 rounded-full bg-[#5b9bd5] border border-[#3c78b0]"></span>
-              <span>Finalizadas:</span>
-              <span className="font-mono font-black">{stats.azules}</span>
-            </span>
-
-            <span
-              onClick={() => onFilterChange({ ...filters, status: filters.status === "Amarillos" ? "Todos" : "Amarillos" })}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${filters.status === "Amarillos"
-                ? "bg-amber-500 text-white border-amber-600 ring-2 ring-amber-300"
-                : "bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100"
-                }`}
-              title="Filtrar Regestión / Canceladas / Observadas / Anuladas"
-            >
-              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-              <span>Regestión / Canceladas:</span>
-              <span className="font-mono">{stats.amarillos}</span>
-            </span>
-
-            <span
-              onClick={() => onFilterChange({ ...filters, status: filters.status === "Ordenamientos" ? "Todos" : "Ordenamientos" })}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${filters.status === "Ordenamientos"
-                ? "bg-violet-600 text-white border-violet-700 ring-2 ring-violet-300"
-                : "bg-violet-50 text-violet-900 border-violet-200 hover:bg-violet-100"
-                }`}
-              title="Mostrar únicamente órdenes de ordenamiento"
-            >
-              <span className="w-2 h-2 rounded-full bg-violet-500"></span>
-              <span>Ordenamientos:</span>
-              <span className="font-mono">{stats.ordenamientos}</span>
+              Órdenes de Trabajo
+            </h1>
+            <span className="hidden xl:inline text-[9.5px] text-slate-400 font-semibold shrink-0">
+              Monitoreo Fénix
             </span>
           </div>
         </div>
 
-        {/* BOTÓN DE ALERTAS DE GESTIÓN Y SINCRONIZACIÓN */}
-        <div className="flex items-center gap-2 self-end lg:self-auto">
+        {/* Lado Derecho: Alertas, Sincronizar, Chat y Perfil Usuario */}
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+          {/* 1. Alertas */}
           {onOpenAlerts && (
             <button
               type="button"
               onClick={onOpenAlerts}
-              className={`relative flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black border transition-all cursor-pointer shadow-xs ${alertsCount > 0
+              className={`relative flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-lg text-xs font-black border transition-all cursor-pointer shadow-2xs h-7.5 ${alertsCount > 0
                 ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-amber-500/25 ring-2 ring-amber-300"
                 : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200"
                 }`}
-              title="Centro de Alertas Operativas (Técnicos sin orden, Actas pendientes, Tramos)"
+              title="Centro de Alertas Operativas"
             >
-              <Bell size={14} className={alertsCount > 0 ? "animate-bounce" : ""} />
-              <span>Alertas</span>
+              <Bell size={12} className={alertsCount > 0 ? "animate-bounce" : ""} />
+              <span className="hidden md:inline">Alertas</span>
               {alertsCount > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-red-600 text-white animate-pulse">
+                <span className="px-1 py-0.2 rounded-full text-[9px] font-black bg-red-600 text-white animate-pulse">
                   {alertsCount}
                 </span>
               )}
             </button>
           )}
 
+          {/* 2. Sincronización */}
           <Button
             onClick={handleManualSync}
-            className="bg-sky-600 hover:bg-sky-700 text-white font-bold px-4 py-2 rounded-xl shadow-xs flex items-center gap-2 text-xs transition-all cursor-pointer shadow-sky-600/20"
+            className="bg-sky-600 hover:bg-sky-700 text-white font-bold px-1.5 sm:px-2 py-1 rounded-lg shadow-2xs flex items-center gap-1 text-xs transition-all cursor-pointer h-7.5"
+            title="Sincronizar órdenes con Fénix"
           >
-            <RotateCw size={14} className={isSyncing ? "animate-spin" : ""} />
-            <span>Sincronizar ({countdown}s)</span>
+            <RotateCw size={12} className={isSyncing ? "animate-spin" : ""} />
+            <span className="hidden sm:inline">Sincronizar</span>
+            <span className="font-mono text-[11px]">({countdown}s)</span>
           </Button>
+
+          {/* 3. Desplegable de En Línea y Chat (Oculto estrictamente para Técnicos) */}
+          {!isTecnico && (
+            <div className="relative shrink-0" ref={onlineDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setOnlineDropdownOpen(!onlineDropdownOpen)}
+                className={`flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer shadow-2xs h-7.5 ${
+                  totalNoLeidos > 0
+                    ? "bg-emerald-500 text-white border-emerald-400 ring-2 ring-emerald-300 shadow-md animate-bounce"
+                    : onlineDropdownOpen
+                    ? "bg-sky-50 text-sky-900 border-sky-300 ring-1 ring-sky-200"
+                    : "bg-slate-50 hover:bg-sky-50 text-slate-700 hover:text-sky-900 border-slate-200 hover:border-sky-300"
+                }`}
+                title="Personal en Línea y Chat de Equipo"
+              >
+                <span className="relative flex h-2 w-2">
+                  {totalOnline > 0 && (
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  )}
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span className="font-mono font-black text-slate-900">{totalOnline}</span>
+                <span className="text-[10px] text-slate-600 font-semibold hidden md:inline">En Línea</span>
+                <MessageSquare size={12} className="text-sky-600 shrink-0" />
+                {totalNoLeidos > 0 && (
+                  <span className="bg-red-600 text-white text-[9px] font-black px-1 py-0.2 rounded-full shadow-xs">
+                    {totalNoLeidos}
+                  </span>
+                )}
+                <ChevronDown size={11} className={`text-slate-400 transition-transform ${onlineDropdownOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              {/* DROPDOWN FLOTANTE DE CHAT & EQUIPO */}
+              {onlineDropdownOpen && (
+                <div className="absolute right-0 mt-1 w-72 max-w-[90vw] bg-white rounded-2xl shadow-xl border border-slate-200/90 z-50 overflow-hidden flex flex-col animate-in fade-in slide-in-from-top-1 duration-150">
+                  <div className="p-2.5 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between">
+                    <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                      <Users size={13} className="text-sky-600" />
+                      Equipo y Chat
+                    </span>
+                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded-full">
+                      {totalOnline} en línea
+                    </span>
+                  </div>
+
+                  {canUseGroupChat && (
+                    <div className="p-2 border-b border-slate-100 bg-sky-50/40">
+                      <button
+                        type="button"
+                        onClick={handleOpenGroupChat}
+                        className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-black text-xs transition-all shadow-xs cursor-pointer"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <MessageSquare size={13} />
+                          <span>Canal Grupal 24/7</span>
+                        </div>
+                        <span className="bg-white/20 px-1.5 py-0.2 rounded text-[9px] font-mono">Abrir</span>
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="p-2 border-b border-slate-100">
+                    <div className="relative">
+                      <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        value={userSearchTerm}
+                        onChange={(e) => setUserSearchTerm(e.target.value)}
+                        placeholder="Buscar compañero..."
+                        className="w-full bg-slate-100 text-slate-800 text-xs pl-7 pr-2 py-1 rounded-lg border-none focus:ring-1 focus:ring-sky-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="max-h-60 overflow-y-auto p-1.5 space-y-1 custom-scrollbar">
+                    {usuariosOnline
+                      .filter(
+                        (u) =>
+                          !userSearchTerm ||
+                          u.nombre_completo.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
+                          (u.rol_nombre && u.rol_nombre.toLowerCase().includes(userSearchTerm.toLowerCase()))
+                      )
+                      .map((u) => {
+                        const isOnline = u.esta_online === 1;
+                        const isMe = String(u.id_usuario) === String(userId);
+                        const cantNoLeidos = noLeidosPorUsuario[u.id_usuario] || 0;
+                        const hasUnread = cantNoLeidos > 0 && !isMe;
+
+                        return (
+                          <button
+                            key={u.id_usuario}
+                            type="button"
+                            disabled={isMe}
+                            onClick={() => handleOpenUserChat(u)}
+                            className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-all ${
+                              isMe
+                                ? "opacity-60 bg-slate-50 cursor-default"
+                                : hasUnread
+                                ? "bg-emerald-50 hover:bg-emerald-100 border border-emerald-300"
+                                : "hover:bg-slate-100 cursor-pointer"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <span className="relative flex h-2 w-2 shrink-0">
+                                {isOnline && (
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                )}
+                                <span
+                                  className={`relative inline-flex rounded-full h-2 w-2 ${
+                                    isOnline ? "bg-emerald-500" : "bg-slate-300"
+                                  }`}
+                                ></span>
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-bold text-slate-900 truncate">
+                                  {u.nombre_completo} {isMe && "(Tú)"}
+                                </p>
+                                <p className="text-[10px] text-slate-500 truncate">
+                                  {u.rol_nombre || "Personal"} • {u.area || "Operaciones"}
+                                </p>
+                              </div>
+                            </div>
+                            {hasUnread ? (
+                              <span className="bg-emerald-600 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full animate-pulse shrink-0">
+                                {cantNoLeidos}
+                              </span>
+                            ) : (
+                              !isMe && <MessageSquare size={13} className="text-slate-400 hover:text-sky-600 shrink-0" />
+                            )}
+                          </button>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 4. Menú de Usuario y Cerrar Sesión */}
+          <div className="relative shrink-0 pl-1 border-l border-slate-200" ref={userMenuRef}>
+            <button
+              type="button"
+              onClick={() => setUserMenuOpen(!userMenuOpen)}
+              className="flex items-center gap-1.5 py-0.5 px-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer border border-transparent hover:border-slate-200 text-left h-7.5"
+              title="Cuenta de Usuario"
+            >
+              <div className="text-right hidden xl:block leading-none">
+                <span className="text-[11px] font-black text-slate-900 block truncate max-w-[130px]">
+                  {userSoloNombres}
+                </span>
+                <span className="text-[9px] font-bold text-sky-600 uppercase tracking-wider block">
+                  {rolNombre}
+                </span>
+              </div>
+
+              {currentUser?.foto_personal && !avatarImgError ? (
+                <img
+                  src={`${API_URL}/uploads/${currentUser.foto_personal}`}
+                  alt={userName}
+                  className="w-6 h-6 rounded-full object-cover border border-sky-500 shrink-0 shadow-2xs"
+                  onError={() => setAvatarImgError(true)}
+                />
+              ) : (
+                <div className="w-6 h-6 rounded-full bg-sky-600 text-white flex items-center justify-center font-black text-[10px] shrink-0 shadow-2xs uppercase">
+                  {(userName || "US").slice(0, 2)}
+                </div>
+              )}
+
+              <ChevronDown size={11} className={`text-slate-400 transition-transform ${userMenuOpen ? "rotate-180" : ""}`} />
+            </button>
+
+            {/* Dropdown de Usuario */}
+            {userMenuOpen && (
+              <div className="absolute right-0 mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-200/90 z-50 p-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                <div className="px-2.5 py-2 border-b border-slate-100 mb-1">
+                  <p className="text-xs font-black text-slate-900 truncate">{userName}</p>
+                  <p className="text-[10px] text-sky-600 font-bold uppercase tracking-wider">{rolNombre}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-bold text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                >
+                  <LogOut size={13} />
+                  <span>Cerrar Sesión</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
       </div>
 
-      {/* FILA INFERIOR: FILTROS DE FECHA, ESTADO, TÉCNICO, CUADRILLA Y BUSCADOR */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-2.5 items-end pt-1">
+      {/* ─────────────────────────────────────────────────────────────
+          FILA 2: BADGES DE ESTADOS (MÓVIL: CUADRÍCULA 2 FILAS | PC: TIRA ÚNICA)
+      ───────────────────────────────────────────────────────────── */}
+      {/* 📱 En Celular / Tablet: Cuadrícula compacta 3x2 (Ordenamientos 100% visible sin cortes) */}
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 py-0.5 lg:hidden">
+        <button
+          type="button"
+          onClick={() => onFilterChange({ ...filters, status: "Todos" })}
+          className={`flex items-center justify-between px-1.5 py-1 rounded-md text-[10.5px] font-bold border cursor-pointer transition-all ${
+            !filters.status || filters.status === "Todos"
+              ? "bg-slate-900 text-white border-slate-950 ring-1 ring-slate-400 shadow-2xs"
+              : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
+          }`}
+          title={`Total en Fénix: ${stats.agendadas + stats.verdes + stats.azules + stats.amarillos + (stats.ordenamientos || 0)}`}
+        >
+          <span className="truncate">Total:</span>
+          <span className="font-mono font-black ml-1">
+            {stats.agendadas + stats.verdes + stats.azules + stats.amarillos + (stats.ordenamientos || 0)}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onFilterChange({ ...filters, status: filters.status === "Agendadas" ? "Todos" : "Agendadas" })}
+          className={`flex items-center justify-between px-1.5 py-1 rounded-md text-[10.5px] font-bold border cursor-pointer transition-all ${
+            filters.status === "Agendadas"
+              ? "bg-slate-800 text-white border-slate-900 ring-1 ring-slate-400 shadow-2xs"
+              : "bg-white text-slate-800 border-slate-300 hover:bg-slate-100"
+          }`}
+          title="Filtrar Asignadas"
+        >
+          <div className="flex items-center gap-1 min-w-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-white border border-slate-400 shrink-0"></span>
+            <span className="truncate">Asign.:</span>
+          </div>
+          <span className="font-mono font-black ml-1">{stats.agendadas}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onFilterChange({ ...filters, status: filters.status === "Verdes" ? "Todos" : "Verdes" })}
+          className={`flex items-center justify-between px-1.5 py-1 rounded-md text-[10.5px] font-bold border cursor-pointer transition-all ${
+            filters.status === "Verdes"
+              ? "bg-[#70ad47] text-white border-[#568735] ring-1 ring-emerald-300 shadow-2xs"
+              : "bg-[#70ad47]/15 text-emerald-950 border-[#70ad47]/30 hover:bg-[#70ad47]/25"
+          }`}
+          title="Filtrar Iniciadas"
+        >
+          <div className="flex items-center gap-1 min-w-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#70ad47] border border-[#568735] shrink-0"></span>
+            <span className="truncate">Inic.:</span>
+          </div>
+          <span className="font-mono font-black ml-1">{stats.verdes}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onFilterChange({ ...filters, status: filters.status === "Finalizadas" ? "Todos" : "Finalizadas" })}
+          className={`flex items-center justify-between px-1.5 py-1 rounded-md text-[10.5px] font-bold border cursor-pointer transition-all ${
+            filters.status === "Finalizadas"
+              ? "bg-[#5b9bd5] text-white border-[#3c78b0] ring-1 ring-sky-300 shadow-2xs"
+              : "bg-[#5b9bd5]/20 text-sky-950 border-[#5b9bd5]/35 hover:bg-[#5b9bd5]/30"
+          }`}
+          title="Filtrar Finalizadas"
+        >
+          <div className="flex items-center gap-1 min-w-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#5b9bd5] border border-[#3c78b0] shrink-0"></span>
+            <span className="truncate">Fin.:</span>
+          </div>
+          <span className="font-mono font-black ml-1">{stats.azules}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onFilterChange({ ...filters, status: filters.status === "Amarillos" ? "Todos" : "Amarillos" })}
+          className={`flex items-center justify-between px-1.5 py-1 rounded-md text-[10.5px] font-bold border cursor-pointer transition-all ${
+            filters.status === "Amarillos"
+              ? "bg-amber-500 text-white border-amber-600 ring-1 ring-amber-300"
+              : "bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100"
+          }`}
+          title="Filtrar Regestión / Canceladas"
+        >
+          <div className="flex items-center gap-1 min-w-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
+            <span className="truncate">Regest.:</span>
+          </div>
+          <span className="font-mono font-black ml-1">{stats.amarillos}</span>
+        </button>
+
+        {/* 🟣 ORDENAMIENTOS DESTACADO EN CELULAR */}
+        <button
+          type="button"
+          onClick={() => onFilterChange({ ...filters, status: filters.status === "Ordenamientos" ? "Todos" : "Ordenamientos" })}
+          className={`flex items-center justify-between px-1.5 py-1 rounded-md text-[10.5px] font-bold border cursor-pointer transition-all ${
+            filters.status === "Ordenamientos"
+              ? "bg-violet-600 text-white border-violet-700 ring-2 ring-violet-400 shadow-xs scale-102"
+              : "bg-violet-100 text-violet-950 border-violet-300 hover:bg-violet-200"
+          }`}
+          title="Mostrar únicamente órdenes de ordenamiento"
+        >
+          <div className="flex items-center gap-1 min-w-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-violet-600 shrink-0"></span>
+            <span className="truncate font-black text-violet-900">Ordenam.:</span>
+          </div>
+          <span className="font-mono font-black ml-1 bg-violet-700 text-white px-1 py-0 rounded text-[9.5px]">
+            {stats.ordenamientos}
+          </span>
+        </button>
+      </div>
+
+      {/* 💻 En PC / Pantalla Grande: Tira Horizontal Continua */}
+      <div className="hidden lg:flex items-center gap-1 overflow-x-auto scrollbar-none py-0.5 whitespace-nowrap min-w-0 max-w-full">
+        <span
+          onClick={() => onFilterChange({ ...filters, status: "Todos" })}
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border cursor-pointer transition-all shrink-0 ${!filters.status || filters.status === "Todos"
+            ? "bg-slate-900 text-white border-slate-950 ring-1 ring-slate-400 shadow-2xs"
+            : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
+            }`}
+          title={`Total en Fénix: ${stats.agendadas + stats.verdes + stats.azules + stats.amarillos + (stats.ordenamientos || 0)}`}
+        >
+          <span>Total:</span>
+          <span className="font-mono font-black">{stats.agendadas + stats.verdes + stats.azules + stats.amarillos + (stats.ordenamientos || 0)}</span>
+          <span className={`text-[9.5px] font-semibold px-1 py-0 rounded ${!filters.status || filters.status === "Todos" ? "bg-slate-800 text-sky-200" : "bg-slate-200 text-slate-800"}`}>
+            ({stats.agendadas + stats.verdes + stats.azules + stats.amarillos} Op + {stats.ordenamientos || 0} Ord)
+          </span>
+        </span>
+
+        <span
+          onClick={() => onFilterChange({ ...filters, status: filters.status === "Agendadas" ? "Todos" : "Agendadas" })}
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border cursor-pointer transition-all shrink-0 ${filters.status === "Agendadas"
+            ? "bg-slate-800 text-white border-slate-900 ring-1 ring-slate-400 shadow-2xs"
+            : "bg-white text-slate-800 border-slate-300 hover:bg-slate-100"
+            }`}
+          title="Filtrar Agendadas / Asignadas / En camino"
+        >
+          <span className="w-2 h-2 rounded-full bg-white border border-slate-400"></span>
+          <span>Asignadas:</span>
+          <span className="font-mono font-black">{stats.agendadas}</span>
+        </span>
+
+        <span
+          onClick={() => onFilterChange({ ...filters, status: filters.status === "Verdes" ? "Todos" : "Verdes" })}
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border cursor-pointer transition-all shrink-0 ${filters.status === "Verdes"
+            ? "bg-[#70ad47] text-white border-[#568735] ring-1 ring-emerald-300 shadow-2xs"
+            : "bg-[#70ad47]/15 text-emerald-950 border-[#70ad47]/30 hover:bg-[#70ad47]/25"
+            }`}
+          title="Filtrar Iniciadas / Proceso"
+        >
+          <span className="w-2 h-2 rounded-full bg-[#70ad47] border border-[#568735]"></span>
+          <span>Iniciadas:</span>
+          <span className="font-mono font-black">{stats.verdes}</span>
+        </span>
+
+        <span
+          onClick={() => onFilterChange({ ...filters, status: filters.status === "Finalizadas" ? "Todos" : "Finalizadas" })}
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border cursor-pointer transition-all shrink-0 ${filters.status === "Finalizadas"
+            ? "bg-[#5b9bd5] text-white border-[#3c78b0] ring-1 ring-sky-300 shadow-2xs"
+            : "bg-[#5b9bd5]/20 text-sky-950 border-[#5b9bd5]/35 hover:bg-[#5b9bd5]/30"
+            }`}
+          title="Filtrar Finalizadas / Liquidadas"
+        >
+          <span className="w-2 h-2 rounded-full bg-[#5b9bd5] border border-[#3c78b0]"></span>
+          <span>Finalizadas:</span>
+          <span className="font-mono font-black">{stats.azules}</span>
+        </span>
+
+        <span
+          onClick={() => onFilterChange({ ...filters, status: filters.status === "Amarillos" ? "Todos" : "Amarillos" })}
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border cursor-pointer transition-all shrink-0 ${filters.status === "Amarillos"
+            ? "bg-amber-500 text-white border-amber-600 ring-1 ring-amber-300"
+            : "bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100"
+            }`}
+          title="Filtrar Regestión / Canceladas / Observadas / Anuladas"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+          <span>Regestión / Canceladas:</span>
+          <span className="font-mono font-black">{stats.amarillos}</span>
+        </span>
+
+        <span
+          onClick={() => onFilterChange({ ...filters, status: filters.status === "Ordenamientos" ? "Todos" : "Ordenamientos" })}
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border cursor-pointer transition-all shrink-0 ${filters.status === "Ordenamientos"
+            ? "bg-violet-600 text-white border-violet-700 ring-1 ring-violet-300"
+            : "bg-violet-50 text-violet-900 border-violet-200 hover:bg-violet-100"
+            }`}
+          title="Mostrar únicamente órdenes de ordenamiento"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-violet-500"></span>
+          <span>Ordenamientos:</span>
+          <span className="font-mono font-black">{stats.ordenamientos}</span>
+        </span>
+      </div>
+
+      {/* 🟣 BANNER INFORMATIVO CUANDO EL FILTRO DE ORDENAMIENTOS ESTÁ ACTIVO */}
+      {filters.status === "Ordenamientos" && (
+        <div className="flex items-center justify-between px-2.5 py-1 bg-violet-50 border border-violet-300 rounded-lg text-xs text-violet-900 animate-in fade-in duration-150">
+          <div className="flex items-center gap-1.5 font-bold">
+            <span className="w-2 h-2 rounded-full bg-violet-600 animate-pulse"></span>
+            <span>Viendo {stats.ordenamientos} órdenes de Ordenamiento (Cuadrillas O)</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => onFilterChange({ ...filters, status: "Todos" })}
+            className="text-[10.5px] font-bold text-violet-700 hover:text-violet-950 underline cursor-pointer"
+          >
+            Ver todas las órdenes
+          </button>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          FILA 3: BUSCADOR & FILTROS (MÓVIL / TABLET: lg:hidden)
+      ───────────────────────────────────────────────────────────── */}
+      <div className="lg:hidden flex flex-col gap-1 pt-0.5">
+        <div className="flex items-center gap-1">
+          <div className="relative flex-1">
+            <Input
+              placeholder="Ticket, Cliente, DNI, CTO..."
+              value={localSearch}
+              onChange={(e) => setLocalSearch(e.target.value)}
+              onKeyDown={handleKeyDown}
+              className="w-full h-7.5 bg-slate-50 border-slate-300 text-xs pl-2.5 pr-6 focus:ring-sky-500 font-medium py-0.5 rounded-md"
+            />
+            {localSearch && (
+              <button
+                type="button"
+                onClick={handleClearSearch}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs p-0.5 cursor-pointer"
+                title="Borrar búsqueda"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => handleExecuteSearch()}
+            className="h-7.5 px-2 bg-sky-600 hover:bg-sky-700 active:scale-95 text-white rounded-md text-xs font-bold flex items-center gap-1 shadow-2xs cursor-pointer shrink-0"
+            title="Buscar"
+          >
+            <Search size={12} />
+            <span className="hidden sm:inline">Buscar</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setFiltrosAbiertosMobile(!filtrosAbiertosMobile)}
+            className={`h-7.5 px-2 rounded-md text-xs font-bold flex items-center gap-1 border transition-all cursor-pointer shrink-0 ${
+              filtrosAbiertosMobile || activeFiltersCount > 0
+                ? "bg-sky-50 text-sky-800 border-sky-300 ring-1 ring-sky-200"
+                : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200"
+            }`}
+            title="Mostrar / Ocultar filtros avanzados"
+          >
+            <Filter size={12} className={activeFiltersCount > 0 ? "text-sky-600" : ""} />
+            <span>Filtros</span>
+            {activeFiltersCount > 0 && (
+              <span className="px-1 py-0.2 rounded-full text-[9px] font-black bg-sky-600 text-white">
+                {activeFiltersCount}
+              </span>
+            )}
+            <ChevronDown size={11} className={`transition-transform ${filtrosAbiertosMobile ? "rotate-180" : ""}`} />
+          </button>
+        </div>
+
+        {/* Panel Desplegable de Filtros en Celular */}
+        {filtrosAbiertosMobile && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 pt-1.5 pb-0.5 border-t border-slate-100 animate-in fade-in slide-in-from-top-1 duration-150">
+            {/* 1. Desde */}
+            <div className="w-full">
+              <div className="flex items-center justify-between mb-0.5">
+                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">
+                  Desde
+                </label>
+                <button
+                  type="button"
+                  onClick={handleSetToday}
+                  className="text-[9px] font-bold text-sky-600 hover:text-sky-800 cursor-pointer"
+                >
+                  📅 Hoy
+                </button>
+              </div>
+              <Input
+                type="date"
+                value={filters.fechaDesde}
+                onChange={(e) => onFilterChange({ ...filters, fechaDesde: e.target.value })}
+                className="w-full h-7.5 bg-slate-50 border-slate-300 text-xs py-0.5 px-2 rounded-md"
+              />
+            </div>
+
+            {/* 2. Hasta */}
+            <div className="w-full">
+              <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5 block">
+                Hasta
+              </label>
+              <Input
+                type="date"
+                value={filters.fechaHasta}
+                onChange={(e) => onFilterChange({ ...filters, fechaHasta: e.target.value })}
+                className="w-full h-7.5 bg-slate-50 border-slate-300 text-xs py-0.5 px-2 rounded-md"
+              />
+            </div>
+
+            {/* 3. Estado */}
+            <div className="w-full">
+              <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5 block">
+                Estado
+              </label>
+              <select
+                value={filters.status}
+                onChange={(e) => onFilterChange({ ...filters, status: e.target.value })}
+                className="w-full h-7.5 rounded-md border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-xs font-medium"
+              >
+                <option value="Todos">🌐 Todos ({stats.agendadas + stats.verdes + stats.azules + stats.amarillos + (stats.ordenamientos || 0)})</option>
+                <option value="Verdes">🟢 Iniciadas ({stats.verdes})</option>
+                <option value="Finalizadas">🔵 Finalizadas ({stats.azules})</option>
+                <option value="Amarillos">🟡 Regestión / Canceladas ({stats.amarillos})</option>
+                <option value="Agendadas">⚪ Asignadas ({stats.agendadas})</option>
+                <option value="Ordenamientos">🟣 Ordenamientos ({stats.ordenamientos})</option>
+              </select>
+            </div>
+
+            {/* 4. Técnico */}
+            <div className="w-full">
+              <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5 block truncate">
+                👷 Técnico
+              </label>
+              <select
+                value={filters.tecnico || "Todos"}
+                onChange={(e) => onFilterChange({ ...filters, tecnico: e.target.value })}
+                className="w-full h-7.5 rounded-md border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-xs font-bold truncate"
+              >
+                <option value="Todos">👷 Todos ({tecnicos.length})</option>
+                {tecnicos.map((tec) => (
+                  <option key={tec} value={tec}>
+                    {tec}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 5. Cuadrilla */}
+            <div className="w-full">
+              <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5 block truncate">
+                👥 Cuadrilla
+              </label>
+              <select
+                value={filters.cuadrilla || "Todos"}
+                onChange={(e) => onFilterChange({ ...filters, cuadrilla: e.target.value })}
+                className="w-full h-7.5 rounded-md border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-xs font-bold truncate"
+              >
+                <option value="Todos">👥 Todas ({cuadrillas.length})</option>
+                {cuadrillas.map((c) => {
+                  const key = typeof c === "string" ? c : c.key;
+                  const label = typeof c === "string" ? c : c.label;
+                  return (
+                    <option key={key} value={key}>
+                      {label}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
+            {/* 6. Inconcert */}
+            <div className="w-full">
+              <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5 block">
+                Inconcert
+              </label>
+              <select
+                value={filters.inconcert}
+                onChange={(e) => onFilterChange({ ...filters, inconcert: e.target.value })}
+                className="w-full h-7.5 rounded-md border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-xs font-medium"
+              >
+                <option value="Todos">📞 Todos</option>
+                <option value="Si">✅ Con llamada</option>
+                <option value="No">❌ Sin llamada</option>
+              </select>
+            </div>
+
+            {/* Botones de Acción en Filtros Móvil */}
+            <div className="col-span-2 sm:col-span-3 pt-1 border-t border-slate-200/70 flex items-center justify-between gap-2">
+              {activeFiltersCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={handleClearFilters}
+                  className="px-2 py-1 rounded-md text-[10px] text-rose-600 hover:bg-rose-50 font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <X size={11} />
+                  <span>Limpiar Filtros ({activeFiltersCount})</span>
+                </button>
+              ) : (
+                <span className="text-[10px] text-slate-400 font-medium">Sin filtros aplicados</span>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setFiltrosAbiertosMobile(false)}
+                className="px-3 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-md text-[11px] font-bold shadow-2xs cursor-pointer transition-colors"
+              >
+                Cerrar Filtros
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ─────────────────────────────────────────────────────────────
+          FILA 3: FILTROS DE ESCRITORIO (DESKTOP / LAPTOP: hidden lg:grid)
+      ───────────────────────────────────────────────────────────── */}
+      <div className="hidden lg:grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-2 items-end pt-0.5">
 
         {/* 1. Fecha Desde */}
         <div className="w-full">
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">
+          <div className="flex items-center justify-between mb-0.5">
+            <label className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider block">
               Desde
             </label>
             <button
               type="button"
               onClick={handleSetToday}
-              className="text-[10px] font-bold text-sky-600 hover:text-sky-800 cursor-pointer"
+              className="text-[9.5px] font-bold text-sky-600 hover:text-sky-800 cursor-pointer"
               title="Filtrar solo el día de hoy"
             >
               📅 Hoy
@@ -284,14 +962,14 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
               type="date"
               value={filters.fechaDesde}
               onChange={(e) => onFilterChange({ ...filters, fechaDesde: e.target.value })}
-              className="w-full bg-slate-50 border-slate-300 text-xs focus:ring-sky-500"
+              className="w-full h-7.5 bg-slate-50 border-slate-300 text-xs py-0.5 px-2 rounded-md focus:ring-sky-500"
             />
           </div>
         </div>
 
         {/* 2. Fecha Hasta */}
         <div className="w-full">
-          <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">
+          <label className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider mb-0.5 block">
             Hasta
           </label>
           <div className="relative">
@@ -299,20 +977,20 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
               type="date"
               value={filters.fechaHasta}
               onChange={(e) => onFilterChange({ ...filters, fechaHasta: e.target.value })}
-              className="w-full bg-slate-50 border-slate-300 text-xs focus:ring-sky-500"
+              className="w-full h-7.5 bg-slate-50 border-slate-300 text-xs py-0.5 px-2 rounded-md focus:ring-sky-500"
             />
           </div>
         </div>
 
         {/* 3. Filtro de Estado */}
         <div className="w-full">
-          <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">
+          <label className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider mb-0.5 block">
             Estado / Color
           </label>
           <select
             value={filters.status}
             onChange={(e) => onFilterChange({ ...filters, status: e.target.value })}
-            className="w-full h-9 rounded-md border border-slate-300 bg-slate-50 px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer font-medium"
+            className="w-full h-7.5 rounded-md border border-slate-300 bg-slate-50 px-2 py-0.5 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer font-medium"
           >
             <option value="Todos">🌐 Todos los Estados</option>
             <option value="Verdes">🟢 Verde (Iniciada / Proceso)</option>
@@ -325,13 +1003,13 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
 
         {/* 4. Filtro de Técnico Específico */}
         <div className="w-full">
-          <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">
+          <label className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider mb-0.5 block">
             👷 Técnico
           </label>
           <select
             value={filters.tecnico || "Todos"}
             onChange={(e) => onFilterChange({ ...filters, tecnico: e.target.value })}
-            className={`w-full h-9 rounded-md border px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer font-bold truncate ${filters.tecnico && filters.tecnico !== "Todos"
+            className={`w-full h-7.5 rounded-md border px-2 py-0.5 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer font-bold truncate ${filters.tecnico && filters.tecnico !== "Todos"
               ? "bg-amber-50 border-amber-400 text-amber-900"
               : "bg-slate-50 border-slate-300 text-slate-800"
               }`}
@@ -345,15 +1023,15 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
           </select>
         </div>
 
-        {/* 5. Filtro de Cuadrilla (Diferenciando prefijo + descriptor: K 5 CESPEDES vs K 5 TRASLADO) */}
+        {/* 5. Filtro de Cuadrilla */}
         <div className="w-full">
-          <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">
+          <label className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider mb-0.5 block">
             👥 Cuadrilla
           </label>
           <select
             value={filters.cuadrilla || "Todos"}
             onChange={(e) => onFilterChange({ ...filters, cuadrilla: e.target.value })}
-            className={`w-full h-9 rounded-md border px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer font-bold truncate ${filters.cuadrilla && filters.cuadrilla !== "Todos"
+            className={`w-full h-7.5 rounded-md border px-2 py-0.5 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer font-bold truncate ${filters.cuadrilla && filters.cuadrilla !== "Todos"
               ? "bg-sky-50 border-sky-400 text-sky-900"
               : "bg-slate-50 border-slate-300 text-slate-800"
               }`}
@@ -373,13 +1051,13 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
 
         {/* 6. Filtro Inconcert */}
         <div className="w-full">
-          <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">
+          <label className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider mb-0.5 block">
             Inconcert
           </label>
           <select
             value={filters.inconcert}
             onChange={(e) => onFilterChange({ ...filters, inconcert: e.target.value })}
-            className="w-full h-9 rounded-md border border-slate-300 bg-slate-50 px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer font-medium"
+            className="w-full h-7.5 rounded-md border border-slate-300 bg-slate-50 px-2 py-0.5 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer font-medium"
           >
             <option value="Todos">📞 Inconcert: Todos</option>
             <option value="Si">✅ Con llamada Inconcert (Sí)</option>
@@ -389,35 +1067,35 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
 
         {/* 7. Buscador General con Botón Buscar y ENTER */}
         <div className="w-full sm:col-span-2 lg:col-span-1 xl:col-span-1">
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">
+          <div className="flex items-center justify-between mb-0.5">
+            <label className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider block">
               Búsqueda Rápida
             </label>
-            {(filters.search || filters.fechaDesde || filters.fechaHasta || filters.status !== "Todos" || (filters.tecnico && filters.tecnico !== "Todos") || (filters.cuadrilla && filters.cuadrilla !== "Todos") || filters.inconcert !== "Todos") && (
+            {activeFiltersCount > 0 && (
               <button
                 type="button"
                 onClick={handleClearFilters}
-                className="text-[10px] text-red-500 hover:text-red-700 font-semibold cursor-pointer flex items-center gap-0.5"
+                className="text-[9.5px] text-red-500 hover:text-red-700 font-semibold cursor-pointer flex items-center gap-0.5"
               >
-                <X size={10} />
+                <X size={9} />
                 <span>Limpiar filtros</span>
               </button>
             )}
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
             <div className="relative flex-1">
               <Input
-                placeholder="Ticket, Cliente, DNI, Técnico, CTO..."
+                placeholder="Ticket, Cliente, DNI, CTO..."
                 value={localSearch}
                 onChange={(e) => setLocalSearch(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="w-full bg-slate-50 border-slate-300 text-xs pl-3 pr-7 focus:ring-sky-500 font-medium"
+                className="w-full h-7.5 bg-slate-50 border-slate-300 text-xs pl-2.5 pr-6 focus:ring-sky-500 font-medium py-0.5 rounded-md"
               />
               {localSearch && (
                 <button
                   type="button"
                   onClick={handleClearSearch}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs p-0.5 cursor-pointer"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs p-0.5 cursor-pointer"
                   title="Borrar búsqueda"
                 >
                   ✕
@@ -428,10 +1106,10 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
             <button
               type="button"
               onClick={() => handleExecuteSearch()}
-              className="h-9 px-3 bg-sky-600 hover:bg-sky-700 active:scale-95 text-white rounded-md text-xs font-bold flex items-center gap-1 shadow-xs shadow-sky-600/20 transition-all cursor-pointer shrink-0"
+              className="h-7.5 px-2.5 bg-sky-600 hover:bg-sky-700 active:scale-95 text-white rounded-md text-xs font-bold flex items-center gap-1 shadow-2xs shadow-sky-600/20 transition-all cursor-pointer shrink-0"
               title="Buscar (o presiona ENTER)"
             >
-              <Search size={13} />
+              <Search size={12} />
               <span>Buscar</span>
             </button>
           </div>

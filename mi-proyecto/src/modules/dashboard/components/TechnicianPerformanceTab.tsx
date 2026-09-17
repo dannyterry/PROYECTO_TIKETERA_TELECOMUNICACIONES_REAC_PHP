@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { API_URL } from "../../../config/api";
+import { authService } from "../../../services/authService";
 import {
   Users,
   CheckCircle2,
@@ -28,6 +29,9 @@ import {
   Minimize2,
   X,
   FileSpreadsheet,
+  MessageSquare,
+  LogOut,
+  User,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -114,6 +118,89 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
   const [tipoVisualizacionTipos, setTipoVisualizacionTipos] = useState<"dona" | "barras">("dona");
   const [modoTopGrafico, setModoTopGrafico] = useState<"finalizadas" | "todos">("finalizadas");
   const [isMatrizModalOpen, setIsMatrizModalOpen] = useState<boolean>(false);
+
+  // 👤 Datos del Usuario Activo y Chat
+  const currentUser = authService.getCurrentUser();
+  const userId = currentUser ? String(currentUser.id_usuario) : "";
+  const userName = currentUser?.nombreCompleto || `${currentUser?.nombres || ""} ${currentUser?.apellidos || ""}`.trim() || "Usuario";
+  const userSoloNombres = (currentUser?.nombres || currentUser?.nombreCompleto || "").trim().split(/\s+/).slice(0, 2).join(" ") || userName;
+  const userRol = currentUser ? String(currentUser.id_rol) : "";
+  const rolNombre = currentUser?.rol || "Gestión";
+  const isTecnico = userRol === "2" || Boolean(rolNombre && (rolNombre.toUpperCase().includes("TECNICO") || rolNombre.toUpperCase().includes("TÉCNICO")));
+  const canUseGroupChat = !isTecnico && (userRol === "1" || userRol === "3" || userRol === "5" || (rolNombre && (rolNombre.toUpperCase().includes("ADMIN") || rolNombre.toUpperCase().includes("RECURSO") || rolNombre.toUpperCase().includes("RRHH") || rolNombre.toUpperCase().includes("ALMACEN") || rolNombre.toUpperCase().includes("LOGISTICA"))));
+
+  const [usuariosOnline, setUsuariosOnline] = useState<any[]>([]);
+  const [totalNoLeidos, setTotalNoLeidos] = useState(0);
+  const [noLeidosPorUsuario, setNoLeidosPorUsuario] = useState<Record<number, number>>({});
+  const [onlineDropdownOpen, setOnlineDropdownOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [userSearchTerm, setUserSearchTerm] = useState("");
+  const [avatarImgError, setAvatarImgError] = useState(false);
+  const onlineDropdownRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (onlineDropdownRef.current && !onlineDropdownRef.current.contains(e.target as Node)) {
+        setOnlineDropdownOpen(false);
+      }
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (isTecnico) return;
+    const fetchOnline = () => {
+      if (document.hidden) return;
+      fetch(`${API_URL}/api/auditoria/usuarios-online`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (Array.isArray(data)) setUsuariosOnline(data);
+        })
+        .catch(() => {});
+    };
+
+    const fetchNoLeidos = () => {
+      if (document.hidden || !userId) return;
+      fetch(`${API_URL}/api/chat/noleidos?id_usuario=${userId}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data && typeof data.total === "number") {
+            setTotalNoLeidos(data.total);
+            setNoLeidosPorUsuario(data.por_usuario || {});
+          }
+        })
+        .catch(() => {});
+    };
+
+    fetchOnline();
+    fetchNoLeidos();
+    const iOnline = setInterval(fetchOnline, 15000);
+    const iNoLeidos = setInterval(fetchNoLeidos, 25000);
+    return () => {
+      clearInterval(iOnline);
+      clearInterval(iNoLeidos);
+    };
+  }, [userId, isTecnico]);
+
+  const handleOpenGroupChat = () => {
+    window.dispatchEvent(new CustomEvent("openTeamChat", { detail: { tab: "general" } }));
+    setOnlineDropdownOpen(false);
+  };
+
+  const handleOpenUserChat = (target: any) => {
+    window.dispatchEvent(new CustomEvent("openTeamChat", { detail: { tab: target.id_usuario, user: target } }));
+    setOnlineDropdownOpen(false);
+  };
+
+  const handleLogout = () => {
+    authService.logout();
+    window.location.reload();
+  };
 
   // Paleta de colores para los tipos de trabajo en el gráfico
   const coloresTipos: Record<string, string> = {
@@ -463,9 +550,14 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
           {/* Fila 1: Título del módulo y Selector de pestañas */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-sky-50 text-sky-600 border border-sky-100 flex items-center justify-center shadow-xs shrink-0">
-                <Activity className="w-4 h-4 animate-pulse" />
-              </div>
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new CustomEvent("toggleSidebar"))}
+                className="p-1.5 sm:p-2 rounded-xl bg-sky-50 hover:bg-sky-100 active:scale-95 border border-sky-200 hover:border-sky-300 text-sky-700 hover:text-sky-900 transition-all cursor-pointer shadow-2xs group flex items-center justify-center shrink-0"
+                title="📋 Clic para abrir el menú lateral"
+              >
+                <Activity className="w-4 h-4 text-sky-600 group-hover:scale-110 transition-transform" />
+              </button>
               <div>
                 <div className="flex items-center gap-2">
                   <h1 className="text-base sm:text-lg font-black text-slate-900 tracking-tight leading-none">
@@ -482,55 +574,244 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
               </div>
             </div>
 
-            {/* Selector de pestañas de navegación */}
-            {setActiveMainTab && (
-              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80 overflow-x-auto self-start sm:self-auto">
+            {/* Selector de pestañas de navegación + Chat + Perfil */}
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap justify-end">
+              {setActiveMainTab && (
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80 overflow-x-auto self-start sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => setActiveMainTab("resumen")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      activeMainTab === "resumen"
+                        ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+                    }`}
+                  >
+                    <Activity size={13} className={activeMainTab === "resumen" ? "text-sky-600" : "text-slate-400"} />
+                    <span>Resumen Ejecutivo</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveMainTab("tecnicos")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      activeMainTab === "tecnicos"
+                        ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+                    }`}
+                  >
+                    <Users size={13} className={activeMainTab === "tecnicos" ? "text-emerald-600" : "text-slate-400"} />
+                    <span>Rendimiento Técnicos</span>
+                    <span className="px-1 py-0.2 rounded-full text-[8px] font-black uppercase tracking-wider bg-emerald-500 text-white shadow-2xs">
+                      NUEVO
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveMainTab("auditoria")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      activeMainTab === "auditoria"
+                        ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+                    }`}
+                  >
+                    <ShieldCheck size={13} className={activeMainTab === "auditoria" ? "text-sky-600" : "text-slate-400"} />
+                    <span>Auditoría & Personal</span>
+                    <span className="px-1 py-0.2 rounded-full text-[8px] font-bold bg-sky-100 text-sky-700">
+                      {totalGestoresOnline} online
+                    </span>
+                  </button>
+                </div>
+              )}
+
+              {/* 💬 Desplegable En Línea / Chat (Oculto a Técnicos) */}
+              {!isTecnico && (
+                <div className="relative shrink-0" ref={onlineDropdownRef}>
+                  <button
+                    type="button"
+                    onClick={() => setOnlineDropdownOpen(!onlineDropdownOpen)}
+                    className={`flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer shadow-2xs h-7.5 ${
+                      totalNoLeidos > 0
+                        ? "bg-emerald-500 text-white border-emerald-400 ring-2 ring-emerald-300 shadow-md animate-bounce"
+                        : onlineDropdownOpen
+                        ? "bg-sky-50 text-sky-900 border-sky-300 ring-1 ring-sky-200"
+                        : "bg-slate-50 hover:bg-sky-50 text-slate-700 hover:text-sky-900 border-slate-200 hover:border-sky-300"
+                    }`}
+                    title="Personal en Línea y Chat de Equipo"
+                  >
+                    <span className="relative flex h-2 w-2">
+                      {totalGestoresOnline > 0 && (
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      )}
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    <span className="font-mono font-black text-slate-900">{totalGestoresOnline}</span>
+                    <MessageSquare size={12} className="text-sky-600 shrink-0" />
+                    {totalNoLeidos > 0 && (
+                      <span className="bg-red-600 text-white text-[9px] font-black px-1 py-0.2 rounded-full shadow-xs">
+                        {totalNoLeidos}
+                      </span>
+                    )}
+                    <ChevronDown size={11} className={`text-slate-400 transition-transform ${onlineDropdownOpen ? "rotate-180" : ""}`} />
+                  </button>
+
+                  {onlineDropdownOpen && (
+                    <div className="absolute right-0 mt-1 w-72 max-w-[90vw] bg-white rounded-2xl shadow-xl border border-slate-200/90 z-50 overflow-hidden flex flex-col animate-in fade-in slide-in-from-top-1 duration-150">
+                      <div className="p-2.5 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between">
+                        <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                          <Users size={13} className="text-sky-600" />
+                          Equipo y Chat
+                        </span>
+                        <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded-full">
+                          {totalGestoresOnline} en línea
+                        </span>
+                      </div>
+
+                      {canUseGroupChat && (
+                        <div className="p-2 border-b border-slate-100 bg-sky-50/40">
+                          <button
+                            type="button"
+                            onClick={handleOpenGroupChat}
+                            className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-black text-xs transition-all shadow-xs cursor-pointer"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <MessageSquare size={13} />
+                              <span>Canal Grupal 24/7</span>
+                            </div>
+                            <span className="bg-white/20 px-1.5 py-0.2 rounded text-[9px] font-mono">Abrir</span>
+                          </button>
+                        </div>
+                      )}
+
+                      <div className="p-2 border-b border-slate-100">
+                        <div className="relative">
+                          <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="text"
+                            value={userSearchTerm}
+                            onChange={(e) => setUserSearchTerm(e.target.value)}
+                            placeholder="Buscar compañero..."
+                            className="w-full bg-slate-100 text-slate-800 text-xs pl-7 pr-2 py-1 rounded-lg border-none focus:ring-1 focus:ring-sky-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="max-h-60 overflow-y-auto p-1.5 space-y-1 custom-scrollbar">
+                        {usuariosOnline
+                          .filter(
+                            (u) =>
+                              !userSearchTerm ||
+                              u.nombre_completo.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
+                              (u.rol_nombre && u.rol_nombre.toLowerCase().includes(userSearchTerm.toLowerCase()))
+                          )
+                          .map((u) => {
+                            const isOnline = u.esta_online === 1;
+                            const isMe = String(u.id_usuario) === String(userId);
+                            const cantNoLeidos = noLeidosPorUsuario[u.id_usuario] || 0;
+                            const hasUnread = cantNoLeidos > 0 && !isMe;
+
+                            return (
+                              <button
+                                key={u.id_usuario}
+                                type="button"
+                                disabled={isMe}
+                                onClick={() => handleOpenUserChat(u)}
+                                className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-all ${
+                                  isMe
+                                    ? "opacity-60 bg-slate-50 cursor-default"
+                                    : hasUnread
+                                    ? "bg-emerald-50 hover:bg-emerald-100 border border-emerald-300"
+                                    : "hover:bg-slate-100 cursor-pointer"
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                  <span className="relative flex h-2 w-2 shrink-0">
+                                    {isOnline && (
+                                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                    )}
+                                    <span
+                                      className={`relative inline-flex rounded-full h-2 w-2 ${
+                                        isOnline ? "bg-emerald-500" : "bg-slate-300"
+                                      }`}
+                                    ></span>
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-xs font-bold text-slate-900 truncate">
+                                      {u.nombre_completo} {isMe && "(Tú)"}
+                                    </p>
+                                    <p className="text-[10px] text-slate-500 truncate">
+                                      {u.rol_nombre || "Personal"} • {u.area || "Operaciones"}
+                                    </p>
+                                  </div>
+                                </div>
+                                {hasUnread ? (
+                                  <span className="bg-emerald-600 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full animate-pulse shrink-0">
+                                    {cantNoLeidos}
+                                  </span>
+                                ) : (
+                                  !isMe && <MessageSquare size={13} className="text-slate-400 hover:text-sky-600 shrink-0" />
+                                )}
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 👤 Menú de Usuario y Cerrar Sesión */}
+              <div className="relative shrink-0 pl-1 border-l border-slate-200" ref={userMenuRef}>
                 <button
                   type="button"
-                  onClick={() => setActiveMainTab("resumen")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                    activeMainTab === "resumen"
-                      ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
-                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
-                  }`}
+                  onClick={() => setUserMenuOpen(!userMenuOpen)}
+                  className="flex items-center gap-1.5 py-0.5 px-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer border border-transparent hover:border-slate-200 text-left h-7.5"
+                  title="Cuenta de Usuario"
                 >
-                  <Activity size={13} className={activeMainTab === "resumen" ? "text-sky-600" : "text-slate-400"} />
-                  <span>Resumen Ejecutivo</span>
+                  <div className="text-right hidden xl:block leading-none">
+                    <span className="text-[11px] font-black text-slate-900 block truncate max-w-[130px]">
+                      {userSoloNombres}
+                    </span>
+                    <span className="text-[9px] font-bold text-sky-600 uppercase tracking-wider block">
+                      {rolNombre}
+                    </span>
+                  </div>
+
+                  {currentUser?.foto_personal && !avatarImgError ? (
+                    <img
+                      src={`${API_URL}/uploads/${currentUser.foto_personal}`}
+                      alt={userName}
+                      className="w-6 h-6 rounded-full object-cover border border-sky-500 shrink-0 shadow-2xs"
+                      onError={() => setAvatarImgError(true)}
+                    />
+                  ) : (
+                    <div className="w-6 h-6 rounded-full bg-sky-600 text-white flex items-center justify-center font-black text-[10px] shrink-0 shadow-2xs uppercase">
+                      {(userName || "US").slice(0, 2)}
+                    </div>
+                  )}
+
+                  <ChevronDown size={11} className={`text-slate-400 transition-transform ${userMenuOpen ? "rotate-180" : ""}`} />
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => setActiveMainTab("tecnicos")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                    activeMainTab === "tecnicos"
-                      ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
-                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
-                  }`}
-                >
-                  <Users size={13} className={activeMainTab === "tecnicos" ? "text-emerald-600" : "text-slate-400"} />
-                  <span>Rendimiento Técnicos</span>
-                  <span className="px-1 py-0.2 rounded-full text-[8px] font-black uppercase tracking-wider bg-emerald-500 text-white shadow-2xs">
-                    NUEVO
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setActiveMainTab("auditoria")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                    activeMainTab === "auditoria"
-                      ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
-                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
-                  }`}
-                >
-                  <ShieldCheck size={13} className={activeMainTab === "auditoria" ? "text-sky-600" : "text-slate-400"} />
-                  <span>Auditoría & Personal</span>
-                  <span className="px-1 py-0.2 rounded-full text-[8px] font-bold bg-sky-100 text-sky-700">
-                    {totalGestoresOnline} online
-                  </span>
-                </button>
+                {userMenuOpen && (
+                  <div className="absolute right-0 mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-200/90 z-50 p-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                    <div className="px-2.5 py-2 border-b border-slate-100 mb-1">
+                      <p className="text-xs font-black text-slate-900 truncate">{userName}</p>
+                      <p className="text-[10px] text-sky-600 font-bold uppercase tracking-wider">{rolNombre}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-bold text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                    >
+                      <LogOut size={13} />
+                      <span>Cerrar Sesión</span>
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
 
           {/* Fila 2: Filtros de Fecha, Atajos, Búsqueda y Exportación */}

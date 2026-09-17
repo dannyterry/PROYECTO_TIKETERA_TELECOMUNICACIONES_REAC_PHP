@@ -31,6 +31,7 @@ import { KmDashboardTab } from "./components/KmDashboardTab";
 import { FuelManagementTab } from "./components/FuelManagementTab";
 import { FleetManagementTab } from "./components/FleetManagementTab";
 import { TechnicianChecklistModal } from "./components/TechnicianChecklistModal";
+import { OnlineChatDropdown } from "../../components/chat/OnlineChatDropdown";
 
 export const MobilityPage: React.FC = () => {
   const getInitialTab = (): "inspecciones" | "dashboard" | "combustible" | "flota" => {
@@ -138,12 +139,21 @@ export const MobilityPage: React.FC = () => {
       ───────────────────────────────────────────────────────────── */}
       <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-sky-600 to-cyan-500 text-white flex items-center justify-center shadow-lg shadow-sky-500/25 shrink-0">
-            <Car size={28} />
-          </div>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent("toggleSidebar"))}
+            className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-sky-600 to-cyan-500 hover:from-sky-700 hover:to-cyan-600 active:scale-95 text-white flex items-center justify-center shadow-lg shadow-sky-500/25 shrink-0 cursor-pointer transition-all group border border-sky-500/20"
+            title="📋 Clic para abrir el menú lateral"
+          >
+            <Car size={28} className="group-hover:scale-110 transition-transform" />
+          </button>
           <div>
             <div className="flex items-center gap-2.5">
-              <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">
+              <h1
+                onClick={() => window.dispatchEvent(new CustomEvent("toggleSidebar"))}
+                className="text-xl md:text-2xl font-black text-slate-900 tracking-tight cursor-pointer hover:text-sky-700 transition-colors"
+                title="📋 Clic para abrir el menú lateral"
+              >
                 Control de Movilidad y Flota
               </h1>
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-sky-50 text-sky-700 border border-sky-200/80 font-mono">
@@ -158,18 +168,20 @@ export const MobilityPage: React.FC = () => {
 
         {/* Botones de Acción Superior */}
         <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+          <OnlineChatDropdown />
+
           <button
             onClick={cargarDatos}
             disabled={loading}
             title="Recargar datos"
-            className="p-2.5 rounded-2xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-all cursor-pointer"
+            className="p-2.5 rounded-2xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-all cursor-pointer h-9 flex items-center justify-center shadow-2xs"
           >
             <RefreshCw size={17} className={loading ? "animate-spin text-sky-600" : ""} />
           </button>
 
           <button
             onClick={() => setModalChecklistAbierto(true)}
-            className="flex-1 md:flex-none px-5 py-2.5 bg-gradient-to-r from-sky-600 to-cyan-600 hover:from-sky-700 hover:to-cyan-700 text-white font-bold text-xs rounded-2xl shadow-md shadow-sky-600/25 flex items-center justify-center gap-2 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+            className="flex-1 md:flex-none px-5 py-2 bg-gradient-to-r from-sky-600 to-cyan-600 hover:from-sky-700 hover:to-cyan-700 text-white font-bold text-xs rounded-2xl shadow-md shadow-sky-600/25 flex items-center justify-center gap-2 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98] h-9"
           >
             <Plus size={16} />
             <span>Checklist Diario (Técnico)</span>

@@ -240,124 +240,123 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
 
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto custom-scrollbar">
         <table className="w-full text-[11px] border-separate border-spacing-0 whitespace-nowrap">
-
           {/* CABECERA DE LA TABLA COMPACTA ESTILO EXCEL */}
-          <thead className="sticky top-0 z-30 bg-[#1e4b8a] text-white shadow-xs">
+          <thead className="sticky top-0 z-30 bg-[#1e4b8a] text-white shadow-2xs">
             <tr>
               {/* 0. ÍNDICE NUMÉRICO TIPO EXCEL (#) */}
-              <th className="sticky top-0 left-0 z-40 bg-[#163866] text-slate-200 font-black uppercase text-[10px] tracking-wider py-1.5 px-1 text-center border-b-2 border-slate-950 border-r border-blue-900 min-w-[34px] w-[34px] max-w-[34px]">
+              <th className="sticky top-0 left-0 z-40 bg-[#163866] text-slate-200 font-black uppercase text-[10px] tracking-wider py-1 px-1 text-center border-b border-slate-950 border-r border-blue-900 min-w-[34px] w-[34px] max-w-[34px]">
                 #
               </th>
               {/* 1. FECHA (Fija en Scroll Horizontal a left-[34px]) */}
-              <th className="sticky top-0 left-[34px] z-40 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950 border-r border-blue-900 min-w-[85px] w-[85px]">
+              <th className="sticky top-0 left-[34px] z-40 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 border-r border-blue-900 min-w-[85px] w-[85px]">
                 Fecha
               </th>
               {/* 2. CELULAR */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950">
                 Celular
               </th>
               {/* 3. LLAMADA */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                 Llamada
               </th>
               {/* 4. OBSERVACIÓN DE LLAMADA */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950">
                 Observación de Llamada
               </th>
-                    {/* 5. DNI */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
+              {/* 5. DNI */}
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950">
                 DNI
               </th>
               {/* 8. NÚMERO DE TICKET */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950 min-w-[140px] max-w-[170px]">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 min-w-[140px] max-w-[170px]">
                 Número de Ticket
               </th>
-              {/* 9. CLIENTE (Se pega a la fecha a left-[119px] solo al hacer scroll) */}
-              <th className="sticky top-0 left-[119px] z-40 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2.5 text-left border-b-2 border-slate-950 border-r border-blue-900 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.3)] min-w-[210px] max-w-[210px] w-[210px]">
+              {/* 9. CLIENTE (Fijo solo en pantallas de escritorio >= lg) */}
+              <th className="sticky top-0 lg:left-[119px] z-30 lg:z-40 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2.5 text-left border-b border-slate-950 border-r border-blue-900 shadow-none lg:shadow-[3px_0_6px_-2px_rgba(0,0,0,0.3)] min-w-[170px] lg:min-w-[210px] lg:max-w-[210px] lg:w-[210px]">
                 Cliente
               </th>
               {/* 10. DIRECCIÓN */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950">
                 Dirección
               </th>
               {/* 12 */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950">
                 Distrito
               </th>
               {/* 13 */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                 CTO
               </th>
               {/* 13.1 */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                 Código de Pedido
               </th>
               {/* 14 */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                 OT
               </th>
               {/* 16 */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                 Técnico
               </th>
               {/* ACTA (Antes de Tareas) */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                 Acta
               </th>
               {/* TAREAS (Al costado derecho de Técnico) */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-1.5 text-center border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-1.5 text-center border-b border-slate-950">
                 Tareas
               </th>
               {/* 17 */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                 Asignación
               </th>
               {/* 18 */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                 Camino
               </th>
               {/* 19 */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                 Inicio
               </th>
               {/* 20 */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                 Fin
               </th>
               {/* 21 */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                 Tramo
               </th>
               {/* 22 */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                 Status
               </th>
               {/* 23 */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950">
                 Cuadrilla
               </th>
               {/* 24. TIPO DE TRABAJO ASIGNADO */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950">
                 Tipo de Trabajo Asignado
               </th>
               {/* 25 */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950">
                 Tipo de Liquidación
               </th>
               {/* 26 */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950">
                 Tipo de Trabajo
               </th>
               {/* 27 */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-left border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950">
                 Observaciones de la Atención
               </th>
               {/* 28 */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                 Total Drop
               </th>
               {/* 29 */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1.5 px-2 text-center border-b-2 border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                 Ancho de Banda
               </th>
             </tr>
@@ -378,12 +377,12 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                   >
 
                     {/* 0. Índice Numérico (#) Tipo Excel */}
-                    <td className="sticky left-0 z-20 py-1 px-1 text-center font-mono font-bold text-[10px] text-slate-500 bg-slate-100/95 border-b border-slate-950 border-r border-slate-300 min-w-[34px] w-[34px] max-w-[34px] select-none">
+                    <td className="sticky left-0 z-20 py-1 px-1 text-center font-mono font-black text-[10px] text-slate-800 bg-slate-200 border-b border-slate-950 border-r border-slate-400 min-w-[34px] w-[34px] max-w-[34px] select-none opacity-100">
                       {idx + 1}
                     </td>
 
                     {/* 1. Fecha (Fija en Scroll Horizontal a left-[34px]) */}
-                    <td className={`sticky left-[34px] z-20 py-1 px-2 font-mono font-bold text-[11px] ${rowColorClass} border-b border-slate-950 border-r border-slate-300/80 min-w-[85px] w-[85px]`}>
+                    <td className={`sticky left-[34px] z-20 py-1 px-2 font-mono font-bold text-[11px] ${rowColorClass} border-b border-slate-950 border-r border-slate-400 min-w-[85px] w-[85px] opacity-100`}>
                       {order.fecha ? order.fecha.split(" ")[0].split("T")[0] : "-"}
                     </td>
 
@@ -444,7 +443,7 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                             (e.target as HTMLInputElement).blur();
                           }
                         }}
-                        className="w-44 h-6 text-[11px] font-medium bg-white/95 border border-slate-300 rounded px-1.5 py-0 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 shadow-2xs truncate"
+                        className="w-44 h-5 text-[10.5px] font-medium bg-white/95 border border-slate-300 rounded px-1.5 py-0 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 shadow-2xs truncate"
                         title={order.observacionLlamada}
                       />
                     </td>
@@ -478,8 +477,8 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                       </div>
                     </td>
 
-                    {/* 9. Cliente (Se pega a la fecha a left-[119px] solo al hacer scroll - Tamaño fijo tipo Excel) */}
-                    <td className={`sticky left-[119px] z-20 py-1 px-2.5 uppercase tracking-tight min-w-[210px] max-w-[210px] w-[210px] ${rowColorClass} border-b border-slate-950 border-r border-slate-300/80 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.12)]`}>
+                    {/* 9. Cliente (Fijo en la fecha solo en escritorio >= lg) */}
+                    <td className={`lg:sticky lg:left-[119px] z-10 lg:z-20 py-1 px-2.5 uppercase tracking-tight min-w-[170px] lg:min-w-[210px] lg:max-w-[210px] lg:w-[210px] ${rowColorClass} border-b border-slate-950 border-r border-slate-300/80 shadow-none lg:shadow-[3px_0_6px_-2px_rgba(0,0,0,0.12)]`}>
                       <div className="w-full flex items-center justify-between gap-1.5 overflow-hidden">
                         <div className="flex items-center gap-1.5 truncate min-w-0 flex-1">
                           {order.esReiterada ? (
@@ -737,37 +736,54 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                     {/* 6. Acta (Muestra N° de Acta o Botón para abrir / auditar Acta WIN - Antes de Tareas) */}
                     <td className="py-1 px-1.5 text-center border-b border-slate-950" onClick={(e) => e.stopPropagation()}>
                       {(() => {
-                        const s = (order.status || "").toUpperCase();
+                        const s = (order.status || order.estado || "").toUpperCase();
+                        const isLiquidada = s.includes("LIQUID") || Boolean(order.acta && order.acta.trim() && order.acta !== "-");
                         const isFinalizada =
                           s.includes("FINALIZ") ||
-                          s.includes("LIQUID") ||
                           s.includes("TERMIN") ||
                           s.includes("CERRAD") ||
-                          s.includes("FENIX");
+                          s.includes("FENIX") ||
+                          isLiquidada;
 
-                        if (order.acta) {
+                        // 🟢 ORDEN LIQUIDADA (CON ACTA REGISTRADA) -> Color Verde Esmeralda distintivo
+                        if (order.acta && order.acta.trim() && order.acta !== "-") {
                           return (
                             <button
                               type="button"
                               onClick={() => onOpenLiquidar && onOpenLiquidar(order)}
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-white/90 hover:bg-amber-50 text-amber-950 border border-amber-300 transition-all cursor-pointer shadow-2xs whitespace-nowrap"
-                              title={`Acta N° ${order.acta}. Clic para ver / auditar acta.`}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-black bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-400 transition-all cursor-pointer shadow-xs whitespace-nowrap active:scale-95"
+                              title={`Acta N° ${order.acta} (Liquidada). Clic para ver / auditar acta.`}
                             >
-                              <FileText size={10} className="text-amber-700" />
+                              <CheckCircle2 size={11} className="text-white shrink-0" />
                               <span>{order.acta}</span>
                             </button>
                           );
                         }
 
+                        if (onOpenLiquidar && isLiquidada) {
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => onOpenLiquidar && onOpenLiquidar(order)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-400 transition-all cursor-pointer shadow-xs whitespace-nowrap active:scale-95"
+                              title="Orden Liquidada. Clic para ver / auditar acta."
+                            >
+                              <CheckCircle2 size={11} className="text-white shrink-0" />
+                              <span>✅ Liquidada</span>
+                            </button>
+                          );
+                        }
+
+                        // 🟡 ORDEN FINALIZADA (PENDIENTE DE LLENAR ACTA / LIQUIDAR) -> Color Ámbar
                         if (onOpenLiquidar && isFinalizada) {
                           return (
                             <button
                               type="button"
                               onClick={() => onOpenLiquidar(order)}
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 transition-all cursor-pointer shadow-2xs whitespace-nowrap"
-                              title="Llenar Acta de Servicio Técnico WIN y Liquidar Materiales"
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-400 transition-all cursor-pointer shadow-2xs whitespace-nowrap active:scale-95"
+                              title="Llenar Acta de Servicio Técnico WIN y Liquidar Materiales (Pendiente)"
                             >
-                              <FileText size={10} className="text-amber-700" />
+                              <FileText size={10} className="text-amber-800 shrink-0" />
                               <span>Acta WIN</span>
                             </button>
                           );
