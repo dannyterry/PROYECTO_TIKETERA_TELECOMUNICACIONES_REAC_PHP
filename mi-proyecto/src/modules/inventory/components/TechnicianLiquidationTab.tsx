@@ -42,6 +42,8 @@ interface ItemVerificacion {
   producto_codigo: string;
   categoria: string;
   es_drop: boolean;
+  cantidad_asignada: number;
+  cantidad_gastada: number;
   cantidad_esperada: number;
   devuelve: boolean;
   cantidad_devuelta: number;
@@ -104,18 +106,26 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
     const id = Number(tecnicoSeleccionadoId);
     const productosTecnico = stockPorTecnico.filter((s) => s.id_trabajador === id && s.stock > 0);
 
-    const items: ItemVerificacion[] = productosTecnico.map((p) => ({
-      id_producto: p.id_producto,
-      producto_nombre: p.producto_nombre,
-      producto_codigo: p.producto_codigo || "-",
-      categoria: p.categoria || "MATERIALES",
-      es_drop: Boolean(p.es_drop),
-      cantidad_esperada: p.stock,
-      devuelve: true,
-      cantidad_devuelta: p.stock, // Por defecto se asume que entrega todo lo asignado
-      observaciones: "",
-      es_segundo_uso: true,
-    }));
+    const items: ItemVerificacion[] = productosTecnico.map((p) => {
+      const cantGastada = Number(p.cantidad_gastada || p.total_liquidadas) || 0;
+      const cantEsperada = Number(p.stock) || 0;
+      const cantAsignada = Number(p.cantidad_asignada || p.total_asignadas) || (cantEsperada + cantGastada);
+
+      return {
+        id_producto: p.id_producto,
+        producto_nombre: p.producto_nombre,
+        producto_codigo: p.producto_codigo || "-",
+        categoria: p.categoria || "MATERIALES",
+        es_drop: Boolean(p.es_drop),
+        cantidad_asignada: cantAsignada,
+        cantidad_gastada: cantGastada,
+        cantidad_esperada: cantEsperada,
+        devuelve: true,
+        cantidad_devuelta: cantEsperada, // Por defecto se asume que entrega todo lo asignado en carro
+        observaciones: "",
+        es_segundo_uso: true,
+      };
+    });
     setItemsVerificacion(items);
 
     // Series asignadas al técnico
@@ -189,18 +199,26 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
         ["MOTIVO DE DEVOLUCIÓN:", datosLiq.motivo, "OBSERVACIONES:", datosLiq.observaciones || "Conforme sin observaciones"],
         [],
         ["1. DETALLE DE MATERIALES, HERRAMIENTAS Y SUMINISTROS DEVUELTOS"],
-        ["Categoría", "Producto / Descripción", "Código", "Cant. Asignada (Sistema)", "Cant. Entregada Físicamente", "Faltante / Diferencia", "Observación / Estado"],
+        ["Categoría", "Producto / Descripción", "Código", "Cant. Asignada (Dotación)", "Gastado / Liquidado (Órdenes)", "En Auto (Saldo)", "Cant. Entregada Físicamente", "Faltante / Diferencia", "Observación / Estado"],
       ];
 
       // Agregar filas de materiales
       datosLiq.detalles.forEach((d: any) => {
+        const cantAsig = Number(d.cantidad_asignada) || (Number(d.cantidad_esperada) + Number(d.cantidad_gastada || 0)) || Number(d.cantidad_esperada) || 0;
+        const cantGast = Number(d.cantidad_gastada) || 0;
+        const cantAuto = Number(d.cantidad_esperada) || 0;
+        const cantDev = Number(d.cantidad_devuelta) || 0;
+        const cantFalt = Number(d.cantidad_faltante) || 0;
+
         rowsExcel.push([
           d.categoria || "MATERIALES",
           d.producto_nombre,
           d.producto_codigo || "-",
-          d.cantidad_esperada,
-          d.cantidad_devuelta,
-          d.cantidad_faltante > 0 ? `🚨 FALTANTE: ${d.cantidad_faltante}` : "0 (Conforme)",
+          cantAsig,
+          cantGast,
+          cantAuto,
+          cantDev,
+          cantFalt > 0 ? `🚨 FALTANTE: ${cantFalt}` : "0 (Conforme)",
           d.observaciones || "OK",
         ]);
       });
@@ -233,13 +251,15 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
       const ws = XLSX.utils.aoa_to_sheet(rowsExcel);
 
       ws["!cols"] = [
-        { wch: 22 }, // Col A
-        { wch: 36 }, // Col B
-        { wch: 16 }, // Col C
-        { wch: 24 }, // Col D
-        { wch: 26 }, // Col E
-        { wch: 22 }, // Col F
-        { wch: 28 }, // Col G
+        { wch: 18 }, // Col A Categoría
+        { wch: 34 }, // Col B Producto
+        { wch: 14 }, // Col C Código
+        { wch: 22 }, // Col D Asignado
+        { wch: 24 }, // Col E Gastado
+        { wch: 18 }, // Col F En Auto
+        { wch: 24 }, // Col G Devuelto
+        { wch: 20 }, // Col H Faltante
+        { wch: 26 }, // Col I Observación
       ];
 
       XLSX.utils.book_append_sheet(wb, ws, "Acta de Devolución");
@@ -276,19 +296,31 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
       const fecha = datosLiq.fecha_liquidacion ? datosLiq.fecha_liquidacion.replace("T", " ") : new Date().toLocaleString();
       const dni = datosLiq.tecnico_dni || "-";
 
-      const rowsMaterialesHtml = datosLiq.detalles.map((d: any, idx: number) => `
+      const rowsMaterialesHtml = datosLiq.detalles.map((d: any, idx: number) => {
+        const cantAsig = Number(d.cantidad_asignada) || (Number(d.cantidad_esperada) + Number(d.cantidad_gastada || 0)) || Number(d.cantidad_esperada) || 0;
+        const cantGast = Number(d.cantidad_gastada) || 0;
+        const cantAuto = Number(d.cantidad_esperada) || 0;
+        const cantDev = Number(d.cantidad_devuelta) || 0;
+        const cantFalt = Number(d.cantidad_faltante) || 0;
+
+        return `
         <tr style="border-bottom: 1px solid #e2e8f0; ${idx % 2 === 1 ? 'background-color: #f8fafc;' : ''}">
-          <td style="padding: 6px 8px; font-weight: 600; color: #475569;">${d.categoria || "MATERIAL"}</td>
-          <td style="padding: 6px 8px; color: #0f172a; font-weight: 700;">${d.producto_nombre}</td>
-          <td style="padding: 6px 8px; font-family: monospace; color: #64748b;">${d.producto_codigo || "-"}</td>
-          <td style="padding: 6px 8px; text-align: center; color: #334155;">${d.cantidad_esperada}</td>
-          <td style="padding: 6px 8px; text-align: center; font-weight: 700; color: #059669;">${d.cantidad_devuelta}</td>
-          <td style="padding: 6px 8px; text-align: center; font-weight: 700; color: ${Number(d.cantidad_faltante) > 0 ? '#e11d48' : '#64748b'};">
-            ${Number(d.cantidad_faltante) > 0 ? `🚨 ${d.cantidad_faltante}` : '0'}
+          <td style="padding: 5px 6px; font-weight: 600; color: #475569; font-size: 9.5px;">${d.categoria || "MATERIAL"}</td>
+          <td style="padding: 5px 6px; color: #0f172a; font-weight: 700;">
+            <div>${d.producto_nombre}</div>
+            ${d.observaciones ? `<span style="font-size: 8.5px; color: #64748b; font-style: italic;">Nota: ${d.observaciones}</span>` : ''}
           </td>
-          <td style="padding: 6px 8px; font-size: 10px; color: #475569;">${d.observaciones || "OK"}</td>
+          <td style="padding: 5px 6px; font-family: monospace; color: #64748b; font-size: 9.5px;">${d.producto_codigo || "-"}</td>
+          <td style="padding: 5px 6px; text-align: center; font-weight: 700; color: #1e293b;">${cantAsig}</td>
+          <td style="padding: 5px 6px; text-align: center; font-weight: 700; color: #d97706; background-color: #fffbeb;">${cantGast}</td>
+          <td style="padding: 5px 6px; text-align: center; font-weight: 700; color: #2563eb;">${cantAuto}</td>
+          <td style="padding: 5px 6px; text-align: center; font-weight: 700; color: #059669; background-color: #f0fdf4;">${cantDev}</td>
+          <td style="padding: 5px 6px; text-align: center; font-weight: 700; color: ${cantFalt > 0 ? '#e11d48' : '#64748b'};">
+            ${cantFalt > 0 ? `🚨 ${cantFalt}` : '0'}
+          </td>
         </tr>
-      `).join("");
+      `;
+      }).join("");
 
       const rowsSeriesHtml = (datosLiq.series_devueltas && datosLiq.series_devueltas.length > 0)
         ? datosLiq.series_devueltas.map((sn: string, idx: number) => `
@@ -531,13 +563,14 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
           <table>
             <thead>
               <tr>
-                <th style="width: 14%;">Categoría</th>
-                <th style="width: 32%;">Producto / Descripción</th>
-                <th style="width: 12%;">Código</th>
+                <th style="width: 13%;">Categoría</th>
+                <th style="width: 25%;">Producto / Descripción</th>
+                <th style="width: 10%;">Código</th>
                 <th style="width: 10%; text-align: center;">Asignado</th>
-                <th style="width: 10%; text-align: center;">Devuelto</th>
-                <th style="width: 10%; text-align: center;">Faltante</th>
-                <th style="width: 12%;">Observación</th>
+                <th style="width: 10%; text-align: center;">Gastado</th>
+                <th style="width: 10%; text-align: center;">En Auto</th>
+                <th style="width: 11%; text-align: center;">Devuelto</th>
+                <th style="width: 11%; text-align: center;">Faltante</th>
               </tr>
             </thead>
             <tbody>
@@ -617,6 +650,8 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
         producto_nombre: it.producto_nombre,
         producto_codigo: it.producto_codigo,
         categoria: it.categoria,
+        cantidad_asignada: it.cantidad_asignada,
+        cantidad_gastada: it.cantidad_gastada,
         cantidad_esperada: it.cantidad_esperada,
         cantidad_devuelta: it.devuelve ? Number(it.cantidad_devuelta) || 0 : 0,
         cantidad_faltante: it.devuelve
@@ -980,19 +1015,21 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 text-slate-400 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
                     <tr>
-                      <th className="py-3 px-4 w-12 text-center">Devolver</th>
-                      <th className="py-3 px-4">Producto / Suministro</th>
-                      <th className="py-3 px-4">Categoría</th>
-                      <th className="py-3 px-4 text-right">Cant. Asignada (Carro)</th>
-                      <th className="py-3 px-4 text-center w-36">Cant. Recibida en Mano</th>
-                      <th className="py-3 px-4 text-center w-32">Diferencia / Faltante</th>
-                      <th className="py-3 px-4">Observación / Estado del Ítem</th>
+                      <th className="py-3 px-3 w-10 text-center">Devolver</th>
+                      <th className="py-3 px-3">Producto / Suministro</th>
+                      <th className="py-3 px-3">Categoría</th>
+                      <th className="py-3 px-3 text-center">Cant. Asignada</th>
+                      <th className="py-3 px-3 text-center">Gastado (Órdenes)</th>
+                      <th className="py-3 px-3 text-center">En Auto (Saldo)</th>
+                      <th className="py-3 px-3 text-center w-32">Cant. Recibida en Mano</th>
+                      <th className="py-3 px-3 text-center w-28">Faltante</th>
+                      <th className="py-3 px-3">Observación / Estado</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {itemsVerificacion.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="py-8 text-center text-slate-400 font-medium">
+                        <td colSpan={9} className="py-8 text-center text-slate-400 font-medium">
                           Este técnico no tiene materiales registrados en su vehículo.
                         </td>
                       </tr>
@@ -1004,7 +1041,7 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
                         return (
                           <tr key={idx} className={item.devuelve ? "hover:bg-slate-50/70" : "bg-slate-50/40 opacity-60"}>
                             {/* Checkbox Devolver */}
-                            <td className="py-3.5 px-4 text-center">
+                            <td className="py-3.5 px-3 text-center">
                               <input
                                 type="checkbox"
                                 checked={item.devuelve}
@@ -1021,7 +1058,7 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
                             </td>
 
                             {/* Producto */}
-                            <td className="py-3.5 px-4 font-bold text-slate-900">
+                            <td className="py-3.5 px-3 font-bold text-slate-900">
                               <div>{item.producto_nombre}</div>
                               {item.producto_codigo && (
                                 <span className="text-[10px] font-mono text-slate-400 font-normal">
@@ -1031,19 +1068,35 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
                             </td>
 
                             {/* Categoría */}
-                            <td className="py-3.5 px-4">
+                            <td className="py-3.5 px-3">
                               <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
                                 {item.categoria}
                               </span>
                             </td>
 
-                            {/* Asignada */}
-                            <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-700">
-                              {item.cantidad_esperada} {item.es_drop ? "m" : "und"}
+                            {/* Cant. Asignada (Dotación) */}
+                            <td className="py-3.5 px-3 text-center font-mono font-bold text-slate-800">
+                              {item.cantidad_asignada} {item.es_drop ? "m" : ""}
+                            </td>
+
+                            {/* Gastado / Liquidado */}
+                            <td className="py-3.5 px-3 text-center">
+                              {item.cantidad_gastada > 0 ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-mono font-black bg-amber-50 text-amber-800 border border-amber-200">
+                                  {item.cantidad_gastada} {item.es_drop ? "m" : ""}
+                                </span>
+                              ) : (
+                                <span className="font-mono text-slate-400 font-semibold">0</span>
+                              )}
+                            </td>
+
+                            {/* En Auto (Saldo esperado) */}
+                            <td className="py-3.5 px-3 text-center font-mono font-bold text-blue-700 bg-blue-50/40">
+                              {item.cantidad_esperada} {item.es_drop ? "m" : ""}
                             </td>
 
                             {/* Recibida Input */}
-                            <td className="py-3.5 px-4 text-center">
+                            <td className="py-3.5 px-3 text-center">
                               <input
                                 type="number"
                                 min={0}
@@ -1063,14 +1116,14 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
                             </td>
 
                             {/* Faltante */}
-                            <td className="py-3.5 px-4 text-center">
+                            <td className="py-3.5 px-3 text-center">
                               {faltante > 0 ? (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-50 text-rose-700 border border-rose-200">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-50 text-rose-700 border border-rose-200">
                                   <AlertTriangle size={11} />
                                   Falta: {faltante}
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
                                   <Check size={11} />
                                   Completo
                                 </span>
@@ -1078,10 +1131,10 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
                             </td>
 
                             {/* Observación */}
-                            <td className="py-3.5 px-4">
+                            <td className="py-3.5 px-3">
                               <input
                                 type="text"
-                                placeholder="Ej: Bobina con restos, buen estado..."
+                                placeholder="Ej: Buen estado..."
                                 value={item.observaciones}
                                 onChange={(e) => {
                                   const val = e.target.value;
@@ -1501,6 +1554,8 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
                         <th className="py-2.5 px-3">Producto / Descripción</th>
                         <th className="py-2.5 px-3">Código</th>
                         <th className="py-2.5 px-3 text-center">Asignado</th>
+                        <th className="py-2.5 px-3 text-center">Gastado (Órdenes)</th>
+                        <th className="py-2.5 px-3 text-center">En Auto (Saldo)</th>
                         <th className="py-2.5 px-3 text-center">Devuelto</th>
                         <th className="py-2.5 px-3 text-center">Faltante</th>
                         <th className="py-2.5 px-3">Observación</th>
@@ -1509,28 +1564,46 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
                     <tbody className="divide-y divide-slate-100">
                       {(!modalLiquidacion.detalles || modalLiquidacion.detalles.length === 0) ? (
                         <tr>
-                          <td colSpan={7} className="py-4 text-center text-slate-400">
+                          <td colSpan={9} className="py-4 text-center text-slate-400">
                             No se registraron detalles de ítems.
                           </td>
                         </tr>
                       ) : (
-                        modalLiquidacion.detalles.map((d: any, dIdx: number) => (
-                          <tr key={dIdx} className={dIdx % 2 === 1 ? "bg-slate-50/50" : ""}>
-                            <td className="py-2.5 px-3 font-semibold text-slate-500 text-[11px]">{d.categoria || "MATERIAL"}</td>
-                            <td className="py-2.5 px-3 font-bold text-slate-900">{d.producto_nombre}</td>
-                            <td className="py-2.5 px-3 font-mono text-[11px] text-slate-500">{d.producto_codigo || "-"}</td>
-                            <td className="py-2.5 px-3 text-center font-bold text-slate-700">{d.cantidad_esperada}</td>
-                            <td className="py-2.5 px-3 text-center font-bold text-emerald-700 bg-emerald-50/50">{d.cantidad_devuelta}</td>
-                            <td className="py-2.5 px-3 text-center font-bold">
-                              {Number(d.cantidad_faltante) > 0 ? (
-                                <span className="text-rose-600 font-extrabold">🚨 {d.cantidad_faltante}</span>
-                              ) : (
-                                <span className="text-slate-400">0</span>
-                              )}
-                            </td>
-                            <td className="py-2.5 px-3 text-slate-500 text-[11px] italic">{d.observaciones || "OK"}</td>
-                          </tr>
-                        ))
+                        modalLiquidacion.detalles.map((d: any, dIdx: number) => {
+                          const cantAsig = Number(d.cantidad_asignada) || (Number(d.cantidad_esperada) + Number(d.cantidad_gastada || 0)) || Number(d.cantidad_esperada) || 0;
+                          const cantGast = Number(d.cantidad_gastada) || 0;
+                          const cantAuto = Number(d.cantidad_esperada) || 0;
+                          const cantDev = Number(d.cantidad_devuelta) || 0;
+                          const cantFalt = Number(d.cantidad_faltante) || 0;
+
+                          return (
+                            <tr key={dIdx} className={dIdx % 2 === 1 ? "bg-slate-50/50" : ""}>
+                              <td className="py-2.5 px-3 font-semibold text-slate-500 text-[11px]">{d.categoria || "MATERIAL"}</td>
+                              <td className="py-2.5 px-3 font-bold text-slate-900">{d.producto_nombre}</td>
+                              <td className="py-2.5 px-3 font-mono text-[11px] text-slate-500">{d.producto_codigo || "-"}</td>
+                              <td className="py-2.5 px-3 text-center font-bold text-slate-800">{cantAsig}</td>
+                              <td className="py-2.5 px-3 text-center font-bold">
+                                {cantGast > 0 ? (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-mono font-black bg-amber-50 text-amber-800 border border-amber-200">
+                                    {cantGast}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 font-mono">0</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-center font-bold text-blue-700 bg-blue-50/30">{cantAuto}</td>
+                              <td className="py-2.5 px-3 text-center font-bold text-emerald-700 bg-emerald-50/50">{cantDev}</td>
+                              <td className="py-2.5 px-3 text-center font-bold">
+                                {cantFalt > 0 ? (
+                                  <span className="text-rose-600 font-extrabold">🚨 {cantFalt}</span>
+                                ) : (
+                                  <span className="text-slate-400">0</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-500 text-[11px] italic">{d.observaciones || "OK"}</td>
+                            </tr>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>

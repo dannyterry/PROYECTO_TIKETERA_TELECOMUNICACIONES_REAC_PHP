@@ -35,6 +35,7 @@ import {
 } from "../../inventory/services/inventoryService";
 import { MotivoItem } from "../../inventory/types/inventoryTypes";
 import { CameraBarcodeScannerModal } from "../../../components/CameraBarcodeScannerModal";
+import { authService } from "../../../services/authService";
 
 interface MaterialRow {
   id_producto: number;
@@ -716,6 +717,43 @@ export const TechnicalActModal: React.FC<Props> = ({
       }
     }
 
+    // ─────────────────────────────────────────────────────────────
+    // REGLA DE NEGOCIO 3.2: VALIDACIÓN ESTRICTA DE EQUIPOS INSTALADOS (ONT / MESH)
+    // ─────────────────────────────────────────────────────────────
+    if (snOntInstalado) {
+      const cleanOnt = snOntInstalado.trim().toUpperCase();
+      const serieValida = seriesAsignadasTecnico.some((s: any) => {
+        const num = String(s.numero_serie || "").trim().toUpperCase();
+        return num === cleanOnt;
+      });
+
+      if (!serieValida) {
+        alert(
+          `❌ SERIE DE ONT NO ASIGNADA AL TÉCNICO:\n\n` +
+          `La serie "${cleanOnt}" no se encuentra en la dotación de equipos asignados a este técnico en Almacén.\n\n` +
+          `Por favor verifica la serie correcta de la ONT o solicita su despacho/asignación a Almacén.`
+        );
+        return;
+      }
+    }
+
+    if (snMeshInstalado) {
+      const cleanMesh = snMeshInstalado.trim().toUpperCase();
+      const serieValida = seriesAsignadasTecnico.some((s: any) => {
+        const num = String(s.numero_serie || "").trim().toUpperCase();
+        return num === cleanMesh;
+      });
+
+      if (!serieValida) {
+        alert(
+          `❌ SERIE DE MESH NO ASIGNADA AL TÉCNICO:\n\n` +
+          `La serie Router Mesh "${cleanMesh}" no se encuentra en la dotación de equipos asignados a este técnico.\n\n` +
+          `Por favor verifica la serie correcta o solicita su despacho a Almacén.`
+        );
+        return;
+      }
+    }
+
     try {
       setGuardando(true);
       const gps = await getGps();
@@ -757,8 +795,19 @@ export const TechnicalActModal: React.FC<Props> = ({
 
       const numeroGuiaFinal = `001-${cleanSufijo}`;
 
+      const currentUser = authService.getCurrentUser();
+      const esGestionOAdmin = Boolean(
+        currentUser?.id_rol === 1 ||
+        currentUser?.rol?.toUpperCase().includes("GEST") ||
+        currentUser?.rol?.toUpperCase().includes("ADMIN") ||
+        currentUser?.rol?.toUpperCase().includes("SUPER")
+      );
+      const liquidadoPorNombre = currentUser
+        ? `${currentUser.nombres || ''} ${currentUser.apellidos || ''} (${currentUser.rol || 'Usuario'})`.trim()
+        : "Técnico";
+
       await liquidarActaOrden(order.id, {
-        id_trabajador: finalTrabajadorId,
+        id_trabajador: finalTrabajadorId ? Number(finalTrabajadorId) : undefined,
         numero_guia: numeroGuiaFinal,
         numero_acta: numeroGuiaFinal,
         tipo_trabajo_acta: tipoLiquidacion,
@@ -776,9 +825,11 @@ export const TechnicalActModal: React.FC<Props> = ({
         materiales_utilizados: materiales.map((m) => ({ id_producto: m.id_producto, cantidad: m.cantidad })),
         equipos_instalados: equiposInstaladosPayload,
         equipos_retirados: equiposRetiradosPayload,
+        liquidado_por: liquidadoPorNombre,
+        es_gestion: esGestionOAdmin,
       });
 
-      alert(`✅ ¡Acta ${numeroGuiaFinal} guardada exitosamente! Orden liquidada como "${tipoLiquidacion}" y materiales descontados de tu stock.`);
+      alert(`✅ ¡Acta ${numeroGuiaFinal} guardada exitosamente! Orden liquidada como "${tipoLiquidacion}".`);
       if (onSuccess) onSuccess();
       onClose();
     } catch (err: any) {
@@ -951,7 +1002,7 @@ export const TechnicalActModal: React.FC<Props> = ({
             {/* ─────────────────────────────────────────────────────────────
                 3. CÁLCULO DE CABLE DROP (BOBINA CONTINUA O CONECTORIZADO)
             ───────────────────────────────────────────────────────────── */}
-            {(plantillaActual.requiereDrop || Number(dropMetroInicio) > 0 || Number(dropMetroFin) > 0 || /fibra|drop|recableado|alta|traslado|instalac/i.test(tipoLiquidacion)) && (
+            {(plantillaActual.requiereDrop || Number(dropMetroInicio) > 0 || Number(dropMetroFin) > 0 || Boolean(dropConectorizadoSeleccionado) || (/fibra|drop|recableado|alta|traslado|instalac/i.test(tipoLiquidacion) && !/conector|roseta|patch|ont|mesh|winbox|fono|visita/i.test(tipoLiquidacion))) && (
               <div className={`p-4 rounded-2xl space-y-3 border transition-all ${
                 dropConectorizadoSeleccionado
                   ? "bg-emerald-50/60 border-emerald-200"
@@ -1354,12 +1405,25 @@ export const TechnicalActModal: React.FC<Props> = ({
                     <div className="flex gap-1.5">
                       <input
                         type="text"
+                        list="ont-asignadas-list"
                         placeholder="Digita o escanea serie..."
                         disabled={isAlreadyLiquidated}
                         value={snOntInstalado}
                         onChange={(e) => setSnOntInstalado(e.target.value.toUpperCase())}
                         className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:bg-white font-bold disabled:bg-slate-100"
                       />
+                      <datalist id="ont-asignadas-list">
+                        {seriesAsignadasTecnico
+                          .filter((s: any) => {
+                            const nom = String(s.equipo_nombre || s.categoria || "").toUpperCase();
+                            return nom.includes("ONT") || nom.includes("ZTE") || nom.includes("HUAWEI") || nom.includes("FIBER") || !nom.includes("ACTA");
+                          })
+                          .map((s: any) => (
+                            <option key={s.id_producto_serie || s.numero_serie} value={s.numero_serie}>
+                              {s.equipo_nombre || "ONT"} (S/N: {s.numero_serie})
+                            </option>
+                          ))}
+                      </datalist>
                       {!isAlreadyLiquidated && (
                         <button
                           type="button"

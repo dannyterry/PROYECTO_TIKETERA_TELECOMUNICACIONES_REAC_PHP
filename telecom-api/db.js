@@ -120,8 +120,8 @@ pool.getConnection()
     // Sincronizar automáticamente cualquier usuario que no tenga registro en trabajadores
     try {
       await connection.query(`
-        INSERT INTO trabajadores (id_usuario, id_horario, fecha_ingreso, estado)
-        SELECT u.id_usuario, 1, CURDATE(), 'Activo'
+        INSERT INTO trabajadores (id_trabajador, id_usuario, id_horario, fecha_ingreso, estado)
+        SELECT u.id_usuario, u.id_usuario, 1, CURDATE(), 'Activo'
         FROM usuarios u
         LEFT JOIN trabajadores t ON u.id_usuario = t.id_usuario
         WHERE t.id_trabajador IS NULL
@@ -154,6 +154,64 @@ pool.getConnection()
           INDEX idx_fecha (fecha_adelanto),
           INDEX idx_estado (estado)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      `);
+    } catch (err) {}
+
+    // Asegurar columna liquidado_por y flexibilidad en orden_liquidaciones
+    try {
+      const [colLiq] = await connection.query("SHOW COLUMNS FROM orden_liquidaciones LIKE 'liquidado_por'");
+      if (colLiq.length === 0) {
+        await connection.query("ALTER TABLE orden_liquidaciones ADD COLUMN liquidado_por VARCHAR(150) NULL AFTER fecha_liquidacion");
+      }
+      await connection.query("ALTER TABLE orden_liquidaciones MODIFY COLUMN id_trabajador INT(11) NULL");
+    } catch (err) {}
+
+    // Asegurar estado varchar en trabajador_descansos
+    try {
+      await connection.query("ALTER TABLE trabajador_descansos MODIFY COLUMN estado VARCHAR(50) NOT NULL DEFAULT 'Programado'");
+    } catch (err) {}
+
+    // Asegurar tabla despachos, despacho_detalles y fecha_actualizacion
+    try {
+      const [colAct] = await connection.query("SHOW COLUMNS FROM trabajador_productos LIKE 'fecha_actualizacion'");
+      if (colAct.length === 0) {
+        await connection.query("ALTER TABLE trabajador_productos ADD COLUMN fecha_actualizacion DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER fecha_creacion");
+      }
+
+      await connection.query(`
+        CREATE TABLE IF NOT EXISTS despachos (
+          id_despacho INT AUTO_INCREMENT PRIMARY KEY,
+          codigo_despacho VARCHAR(50) NOT NULL UNIQUE,
+          id_trabajador INT NOT NULL,
+          id_usuario_despacha INT NULL,
+          id_vehiculo INT NULL,
+          tipo_despacho VARCHAR(50) DEFAULT 'DOTACION_OPERATIVA',
+          total_items INT DEFAULT 0,
+          total_series INT DEFAULT 0,
+          observaciones TEXT NULL,
+          estado ENUM('COMPLETADO', 'ANULADO') DEFAULT 'COMPLETADO',
+          fecha_despacho DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_desp_trabajador (id_trabajador),
+          INDEX idx_desp_fecha (fecha_despacho)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      `);
+
+      await connection.query(`
+        CREATE TABLE IF NOT EXISTS despacho_detalles (
+          id_detalle_despacho INT AUTO_INCREMENT PRIMARY KEY,
+          id_despacho INT NOT NULL,
+          id_producto INT NOT NULL,
+          cantidad INT NOT NULL DEFAULT 1,
+          es_segundo_uso TINYINT(1) DEFAULT 0,
+          series_entregadas TEXT NULL,
+          drop_inicio INT NULL,
+          drop_fin INT NULL,
+          observaciones VARCHAR(255) NULL,
+          INDEX idx_det_despacho (id_despacho),
+          INDEX idx_det_producto (id_producto),
+          FOREIGN KEY (id_despacho) REFERENCES despachos(id_despacho) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
       `);
     } catch (err) {}
 

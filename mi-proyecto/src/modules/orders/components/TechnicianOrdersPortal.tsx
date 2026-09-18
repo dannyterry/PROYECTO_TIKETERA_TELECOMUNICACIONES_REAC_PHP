@@ -24,6 +24,7 @@ import {
   Minimize2,
   Coffee,
   LayoutDashboard,
+  Menu,
 } from "lucide-react";
 import { Order } from "../types/Order";
 import { getOrders } from "../services/orderService";
@@ -64,7 +65,14 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
   const [ordenParaActa, setOrdenParaActa] = useState<Order | null>(null);
   const [mostrarChecklist, setMostrarChecklist] = useState(false);
   const [mostrarStock, setMostrarStock] = useState(false);
-  const [permiteVerStock, setPermiteVerStock] = useState(true);
+  const [permiteVerStock, setPermiteVerStock] = useState<boolean>(() => {
+    return authService.hasAnyPermission([
+      "ordenes.ver_stock",
+      "portal_tecnico.ver_stock",
+      "stock.ver",
+      "inventario.ver",
+    ]);
+  });
 
   // Stock en Carro
   const [miStock, setMiStock] = useState<any[]>([]);
@@ -274,18 +282,24 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
       .catch(console.error)
       .finally(() => setLoading(false));
 
+    // Sincronizar permisos en tiempo real con el servidor
+    authService.refreshUserPermissions().then(() => {
+      const allowed = authService.hasAnyPermission([
+        "ordenes.ver_stock",
+        "portal_tecnico.ver_stock",
+        "stock.ver",
+        "inventario.ver",
+      ]);
+      setPermiteVerStock(allowed);
+      if (!allowed) setMostrarStock(false);
+    });
+
     setCargandoStock(true);
     getTecnicoStock(trabajadorActual.id_trabajador)
       .then((res) => {
-        if (res && res.permitido === false) {
-          setPermiteVerStock(false);
-          setMostrarStock(false);
-        } else {
-          setPermiteVerStock(true);
-        }
-        // Siempre almacenamos los materiales y series para que el modal de liquidación pueda descontar
-        setMiStock(res.materiales || []);
-        setMisSeries(res.seriesAsignadas || []);
+        // Almacenamos materiales y series para que el técnico pueda liquidar sus actas
+        setMiStock(res?.materiales || []);
+        setMisSeries(res?.seriesAsignadas || []);
       })
       .catch(console.error)
       .finally(() => setCargandoStock(false));
@@ -435,18 +449,18 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
             alt="Corporación Céspedes"
             className="h-7 w-auto object-contain"
           />
-          {/* Si tiene acceso al panel general (Admin, Gestor, etc.) */}
-          {(esAdminOSimulador || authService.canAccessModule("ordenes") || authService.canAccessModule("dashboard")) && (
+          {/* Si tiene acceso al panel general (Admin, Gestor, Almacén, etc.): Despliega la barra de menú lateral */}
+          {(esAdminOSimulador || authService.canAccessModule("dashboard") || authService.canAccessModule("ordenes") || authService.canAccessModule("inventario")) && (
             <button
               type="button"
               onClick={() => {
-                window.location.hash = "ordenes";
+                window.dispatchEvent(new CustomEvent("openSidebar"));
               }}
-              className="px-2.5 py-1 bg-slate-200/90 hover:bg-slate-300 text-slate-700 text-[10.5px] font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
-              title="Volver a la vista del sistema"
+              className="px-2.5 py-1 bg-slate-200/90 hover:bg-slate-300 text-slate-800 text-[10.5px] font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
+              title="Abrir menú lateral para elegir módulo"
             >
-              <LayoutDashboard size={13} className="text-slate-600" />
-              <span>Volver al Panel</span>
+              <Menu size={13} className="text-slate-700" />
+              <span>Menú Lateral</span>
             </button>
           )}
         </div>
@@ -473,7 +487,7 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
             title="Cerrar sesión de la cuenta"
           >
             <LogOut size={13} />
-            <span>Salir</span>
+            <span>Cerrar Sesión</span>
           </button>
         </div>
       </div>

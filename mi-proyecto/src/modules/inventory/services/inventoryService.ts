@@ -131,6 +131,28 @@ export const despacharATecnico = async (payload: DespachoPayload) => {
   return res.data;
 };
 
+export const getDespachosHistorial = async (params?: {
+  fechaDesde?: string;
+  fechaHasta?: string;
+  id_trabajador?: string | number;
+  busqueda?: string;
+  estado?: string;
+}) => {
+  const res = await api.get("/almacen/despachos-historial", { params });
+  return res.data;
+};
+
+export const getActasHistorial = async (params?: {
+  fechaDesde?: string;
+  fechaHasta?: string;
+  id_trabajador?: string | number;
+  busqueda?: string;
+  estado?: string;
+}) => {
+  const res = await api.get("/almacen/actas-historial", { params });
+  return res.data;
+};
+
 export const verificarSerieDespacho = async (serie: string, idProducto?: number) => {
   const res = await api.get(`/almacen/verificar-serie-despacho/${encodeURIComponent(serie)}`, {
     params: idProducto ? { id_producto: idProducto } : undefined,

@@ -31,6 +31,7 @@ import {
 } from "./services/paymentService";
 import { AdelantosTab } from "./components/AdelantosTab";
 import { OnlineChatDropdown } from "../../components/chat/OnlineChatDropdown";
+import { UserProfileDropdown } from "../../components/layout/UserProfileDropdown";
 
 interface PaymentsPageProps {
   currentUserId?: number;
@@ -196,6 +197,10 @@ export const PaymentsPage: React.FC<PaymentsPageProps> = ({ currentUserId }) => 
               <span>Exportar CSV</span>
             </button>
           )}
+
+          <div className="border-l border-slate-200/90 pl-1.5 ml-0.5">
+            <UserProfileDropdown />
+          </div>
         </div>
       </div>
 

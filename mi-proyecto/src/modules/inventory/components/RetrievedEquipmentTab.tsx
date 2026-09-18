@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Search,
   ArrowDownLeft,
+  ArrowUpRight,
   Calendar,
   Clock,
   AlertTriangle,
@@ -104,7 +105,8 @@ export const RetrievedEquipmentTab: React.FC = () => {
       "Distrito": e.distrito || "S/D",
       "Código Producto": e.codigo_producto || "ONT/MESH",
       "Tipo de Equipo": e.tipo_equipo || "ONT",
-      "Número de Serie (S/N)": e.numero_serie,
+      "Número de Serie Retirada (S/N)": e.numero_serie,
+      "Equipo Instalado / Entregado (S/N)": e.equipo_instalado_detalle || e.equipo_instalado_serie || "N/A",
       "ID Modelo": proidsEditados[e.id_equipo_retirado] ?? e.proid ?? "S/P",
       "Guía de Remisión WIN": guiasEditadas[e.id_equipo_retirado] ?? e.guia_remision_win ?? "PENDIENTE",
       "Técnico que Retiró": e.tecnico_nombre || "S/N",
@@ -336,7 +338,8 @@ export const RetrievedEquipmentTab: React.FC = () => {
         <table className="w-full text-left text-xs">
           <thead className="bg-slate-50/80 text-slate-400 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
             <tr>
-              <th className="py-3.5 px-4">Equipo & Serie (S/N)</th>
+              <th className="py-3.5 px-4">Equipo Retirado (S/N)</th>
+              <th className="py-3.5 px-4">Equipo Instalado (S/N)</th>
               <th className="py-3.5 px-4">ID Modelo</th>
               <th className="py-3.5 px-4">Guía Remisión WIN</th>
               <th className="py-3.5 px-4">Cliente & Ticket / Acta</th>
@@ -351,7 +354,7 @@ export const RetrievedEquipmentTab: React.FC = () => {
           <tbody className="divide-y divide-slate-100">
             {equiposFiltrados.length === 0 ? (
               <tr>
-                <td colSpan={10} className="py-10 text-center text-slate-400 font-bold">
+                <td colSpan={11} className="py-10 text-center text-slate-400 font-bold">
                   No hay equipos recogidos registrados con los filtros actuales.
                 </td>
               </tr>
@@ -366,10 +369,10 @@ export const RetrievedEquipmentTab: React.FC = () => {
                 return (
                   <tr key={eq.id_equipo_retirado} className="hover:bg-slate-50/60 transition-colors">
                     
-                    {/* 1. Equipo & Serie & Código */}
+                    {/* 1. Equipo Retirado & Serie & Código */}
                     <td className="py-3.5 px-4">
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+                        <div className="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-200">
                           <ArrowDownLeft size={16} />
                         </div>
                         <div>
@@ -387,6 +390,27 @@ export const RetrievedEquipmentTab: React.FC = () => {
                           </div>
                         </div>
                       </div>
+                    </td>
+
+                    {/* 1.1 Equipo Instalado / Entregado (en caso haya) */}
+                    <td className="py-3.5 px-4">
+                      {eq.equipo_instalado_serie || eq.equipo_instalado_detalle ? (
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-200">
+                            <ArrowUpRight size={16} />
+                          </div>
+                          <div>
+                            <span className="font-extrabold text-emerald-900 block font-mono text-xs">
+                              {eq.equipo_instalado_serie || eq.equipo_instalado_detalle}
+                            </span>
+                            <span className="text-[10px] text-emerald-700 font-bold block">
+                              {eq.equipo_instalado_detalle ? eq.equipo_instalado_detalle.split("(")[0].trim() : "Instalado"}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 font-mono text-xs pl-3">—</span>
+                      )}
                     </td>
 
                     {/* 2. ID Modelo */}

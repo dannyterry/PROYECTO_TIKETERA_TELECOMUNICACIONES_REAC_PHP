@@ -590,14 +590,44 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                           l.es_alerta ? "bg-amber-50/30" : ""
                         }`}
                       >
-                        {/* Orden & Fecha */}
+                        {/* Orden & Fecha y Hora */}
                         <td className="py-3 px-3">
                           <span className="font-mono font-bold text-slate-900 block">
                             #{l.numero_orden}
                           </span>
-                          <span className="text-[11px] text-slate-500 block">
-                            {l.fecha_liquidacion ? l.fecha_liquidacion.split(" ")[0] : "-"}
-                          </span>
+                          <div className="space-y-0.5 mt-0.5 font-mono text-[10px]">
+                            {/* Fecha de la Orden / Solicitud */}
+                            {l.fecha_orden && (
+                              <span className="text-slate-500 block truncate" title="Fecha de solicitud/visita de la orden">
+                                <span className="font-bold text-slate-400">Ord:</span> {l.fecha_orden.slice(0, 10)}
+                              </span>
+                            )}
+                            {/* Fecha y Hora de Liquidación */}
+                            <span className="text-indigo-600 font-semibold block truncate" title="Fecha y hora de liquidación">
+                              <span className="font-bold text-indigo-400">Liq:</span>{" "}
+                              {(() => {
+                                if (!l.fecha_liquidacion) return "-";
+                                try {
+                                  const parts = l.fecha_liquidacion.split(" ");
+                                  if (parts.length >= 2) {
+                                    const time = parts[1].substring(0, 5);
+                                    return `${parts[0]} ${time}`;
+                                  }
+                                  const d = new Date(l.fecha_liquidacion);
+                                  if (!isNaN(d.getTime())) {
+                                    return (
+                                      d.toLocaleDateString("es-PE", { year: "numeric", month: "2-digit", day: "2-digit" }) +
+                                      " " +
+                                      d.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })
+                                    );
+                                  }
+                                  return l.fecha_liquidacion;
+                                } catch {
+                                  return l.fecha_liquidacion;
+                                }
+                              })()}
+                            </span>
+                          </div>
                         </td>
 
                         {/* Cliente & Técnico */}
@@ -650,29 +680,23 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                               );
                             }
 
+                            const dropMetros = Number(l.drop_total_metros || 0);
                             return (
-                              <div>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="font-mono font-bold text-slate-900 text-xs">
-                                    {l.drop_total_metros}m
+                              <div className="flex items-center gap-2">
+                                <span className={`font-mono text-xs ${dropMetros > 0 ? "font-bold text-slate-800" : "font-semibold text-slate-400"}`}>
+                                  {dropMetros}m
+                                </span>
+                                {dropMetros > (l.max_drop_permitido || 120) && (
+                                  <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 text-[10px] font-bold">
+                                    Excede
                                   </span>
-                                  {l.es_alerta && (
-                                    <span
-                                      className="w-4 h-4 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-[10px]"
-                                      title={l.motivo_alerta}
-                                    >
-                                      !
-                                    </span>
-                                  )}
-                                </div>
-                                {l.drop_metro_inicio && l.drop_metro_fin ? (
-                                  <span className="text-[10px] text-slate-500 font-mono block">
-                                    {l.drop_metro_inicio} → {l.drop_metro_fin}
-                                  </span>
-                                ) : null}
-                                {l.metraje_fenix && (
-                                  <span className="text-[10px] text-emerald-700 font-semibold block">
-                                    Fénix: {l.metraje_fenix}m
+                                )}
+                                {l.es_alerta && (
+                                  <span
+                                    className="w-4 h-4 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-[10px]"
+                                    title={l.motivo_alerta}
+                                  >
+                                    !
                                   </span>
                                 )}
                               </div>
@@ -682,26 +706,25 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
 
                         {/* Estado */}
                         <td className="py-3 px-3 text-center">
-                          {esAprobada && (
-                            <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 font-extrabold text-[10px] inline-flex items-center gap-1">
-                              <Check size={11} /> Aprobada
-                            </span>
-                          )}
-                          {esPendiente && (
-                            <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 font-extrabold text-[10px] inline-flex items-center gap-1">
-                              <Clock size={11} /> Pendiente
-                            </span>
-                          )}
-                          {esRechazada && (
-                            <span className="px-2.5 py-1 rounded-full bg-rose-100 text-rose-800 font-extrabold text-[10px] inline-flex items-center gap-1">
-                              <X size={11} /> Rechazada
-                            </span>
-                          )}
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold tracking-tight shadow-2xs ${
+                              esAprobada
+                                ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                                : esRechazada
+                                ? "bg-rose-100 text-rose-800 border border-rose-300"
+                                : "bg-amber-100 text-amber-800 border border-amber-300"
+                            }`}
+                          >
+                            {esAprobada && <CheckCircle2 size={12} />}
+                            {esRechazada && <XCircle size={12} />}
+                            {esPendiente && <Clock size={12} />}
+                            {l.estado_liquidacion || "Pendiente"}
+                          </span>
                         </td>
 
                         {/* Costo */}
-                        <td className="py-3 px-3 text-right font-mono font-bold text-slate-900">
-                          S/ {parseFloat(String(l.total_costo)).toFixed(2)}
+                        <td className="py-3 px-3 text-right font-mono font-bold text-slate-800">
+                          S/ {parseFloat(String(l.total_costo || 0)).toFixed(2)}
                         </td>
 
                         {/* Acción */}
@@ -713,7 +736,7 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                               setMostrandoRechazoInput(false);
                               setMotivoRechazo("");
                             }}
-                            className="px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs inline-flex items-center gap-1 transition-all cursor-pointer"
+                            className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl text-xs transition-all cursor-pointer shadow-2xs hover:scale-[1.02]"
                           >
                             <Eye size={13} />
                             <span>Auditar</span>
@@ -797,17 +820,41 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                     DNI: {modalLiq.tecnico_dni || "No registrado"}
                   </span>
                 </div>
+                {/* Fechas de Orden y Liquidación */}
+                <div className="sm:col-span-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-600 font-mono">
+                  <span>
+                    📅 Fecha Orden: <strong className="text-slate-900">{modalLiq.fecha_orden ? modalLiq.fecha_orden.slice(0, 10) : "-"}</strong>
+                  </span>
+                  <span>
+                    ⏱️ Liquidado: <strong className="text-indigo-700">{modalLiq.fecha_liquidacion || "-"}</strong>
+                  </span>
+                </div>
+                {modalLiq.cto && (
+                  <div className="sm:col-span-2 pt-1 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+                    <span>CTO: <strong className="text-slate-800 font-mono">{modalLiq.cto}</strong></span>
+                    <span>Puerto: <strong className="text-slate-800 font-mono">{modalLiq.puerto || "-"}</strong></span>
+                  </div>
+                )}
               </div>
 
-              {/* Tarjeta de Fibra Drop y Mediciones */}
+              {/* Tarjeta de Fibra Drop y Mediciones (SOLO si realmente se usó Drop: Conectorizado o Bobina) */}
               {(() => {
                 const modalConecInfo = getDropConectorizadoInfo(modalLiq.materiales);
+                const hasBobinaDrop = Number(modalLiq.drop_total_metros || 0) > 0 || Number(modalLiq.drop_metro_inicio || 0) > 0 || Number(modalLiq.drop_metro_fin || 0) > 0;
+                
+                // Si NO se usó Drop en la orden, no renderizar la tarjeta negra
+                if (!modalConecInfo && !hasBobinaDrop) {
+                  return null;
+                }
+
                 return (
                   <div className="p-4 rounded-2xl bg-slate-900 text-white space-y-2.5">
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                         <Package size={14} className="text-indigo-400" />
-                        Medición de Fibra Drop & CTO
+                        {modalConecInfo
+                          ? "Cable Drop Pre-Conectorizado"
+                          : "Medición de Bobina Drop Continua"}
                       </span>
                       <div className="flex items-center gap-2">
                         {modalConecInfo && (
@@ -815,8 +862,13 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                             ✓ Pre-Conectorizado ({modalConecInfo.totalMetros}m)
                           </span>
                         )}
-                        <span className="px-2 py-0.5 rounded-md bg-indigo-500/30 text-indigo-300 text-[10px] font-mono font-bold">
-                          Límite para este trabajo: {modalLiq.max_drop_permitido || 120}m
+                        {hasBobinaDrop && (
+                          <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 text-[10px] font-bold">
+                            ✓ Bobina Continua ({modalLiq.drop_total_metros}m)
+                          </span>
+                        )}
+                        <span className="px-2 py-0.5 rounded-md bg-white/10 text-slate-300 text-[10px] font-mono font-bold">
+                          Límite: {modalLiq.max_drop_permitido || 120}m
                         </span>
                       </div>
                     </div>
@@ -844,7 +896,7 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                         </div>
                       </div>
                     ) : (
-                      /* Vista para Bobina Continua estándar */
+                      /* Vista para Bobina Continua */
                       <div className="grid grid-cols-3 gap-2 text-center pt-1">
                         <div className="p-2 rounded-xl bg-white/5 border border-white/10">
                           <span className="text-[10px] text-slate-400 block font-medium">Carrete Inicio</span>

@@ -230,8 +230,11 @@ export default function Dashboard({ selectedEmpProp, onDataUpdated }: DashboardP
                   <h2 className="text-3xl font-extrabold text-gray-900 uppercase tracking-tight">{selectedEmpleado.nombres} {selectedEmpleado.primerApellido} {selectedEmpleado.segundoApellido}</h2>
                   <div className="mt-2.5 flex flex-wrap items-center gap-x-6 gap-y-1.5 text-sm text-gray-600">
                     <p><span className="font-semibold text-gray-800">DNI:</span> {selectedEmpleado.dni}</p>
-                    <p><span className="font-semibold text-gray-800">Rol:</span> {selectedEmpleado.rolNombre || selectedEmpleado.id_rol}</p>
-                    <p><span className="font-semibold text-gray-800">Área:</span> {selectedEmpleado.area || "OPERACIONES"}</p>
+                    <p><span className="font-semibold text-gray-800">Área:</span> {selectedEmpleado.rolNombre || selectedEmpleado.id_rol}</p>
+                    <p><span className="font-semibold text-gray-800">Cargo:</span> {selectedEmpleado.area || "OPERACIONES"}</p>
+                    {selectedEmpleado.tipo_servicio && (
+                      <p><span className="font-semibold text-teal-700">Servicio:</span> <span className="font-bold text-teal-950 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-md text-xs">{selectedEmpleado.tipo_servicio}</span></p>
+                    )}
                     {selectedEmpleado.cuadrilla && (
                       <p><span className="font-semibold text-indigo-700">Cuadrilla:</span> <span className="font-bold text-indigo-950 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md text-xs font-mono">{selectedEmpleado.cuadrilla}</span></p>
                     )}
@@ -309,8 +312,9 @@ export default function Dashboard({ selectedEmpProp, onDataUpdated }: DashboardP
               <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm print:shadow-none print:border-gray-300 print:break-inside-avoid">
                 <h3 className="mb-4 text-base font-bold text-teal-700">Datos Laborales</h3>
                 <div className="space-y-2.5 text-sm text-gray-600">
-                  <p><strong className="text-gray-800">Rol:</strong> {selectedEmpleado.rolNombre || selectedEmpleado.id_rol || "N/A"}</p>
-                  <p><strong className="text-gray-800">Área:</strong> {selectedEmpleado.area || "N/A"}</p>
+                  <p><strong className="text-gray-800">Área:</strong> {selectedEmpleado.rolNombre || selectedEmpleado.id_rol || "N/A"}</p>
+                  <p><strong className="text-gray-800">Cargo:</strong> {selectedEmpleado.area || "N/A"}</p>
+                  <p><strong className="text-gray-800">Tipo de Servicio:</strong> {selectedEmpleado.tipo_servicio || "N/A"}</p>
                   <p><strong className="text-gray-800">Cuadrilla:</strong> {selectedEmpleado.cuadrilla || "No asignada"}</p>
                   <p><strong className="text-gray-800">Régimen:</strong> {selectedEmpleado.regimenPensionario || "N/A"}</p>
                   {selectedEmpleado.regimenPensionario?.includes("AFP") && (
@@ -375,40 +379,55 @@ export default function Dashboard({ selectedEmpProp, onDataUpdated }: DashboardP
 
               {/* DOCUMENTOS ADJUNTOS */}
               <div className="col-span-full md:col-span-2 xl:col-span-2 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm mt-2 print:shadow-none print:mt-0 print:border-t-2 print:break-inside-avoid print:p-4">
-                <h3 className="mb-4 text-lg font-bold text-teal-700 flex items-center gap-2 print:mb-2">
-                  📄 Documentos Adjuntos
-                </h3>
+                <div className="flex items-center justify-between mb-4 print:mb-2">
+                  <h3 className="text-lg font-bold text-teal-700 flex items-center gap-2">
+                    📄 Documentos Adjuntos
+                  </h3>
+                  <span className="text-xs text-gray-500 font-medium">
+                    13 documentos disponibles
+                  </span>
+                </div>
                 
-                <div className="divide-y divide-gray-100 border-t border-gray-100 print:divide-y-0 print:grid print:grid-cols-2 print:gap-x-12 print:gap-y-1 print:pt-2">
+                <div className="divide-y divide-gray-100 border-t border-gray-100 grid grid-cols-1 md:grid-cols-2 gap-x-6 print:divide-y-0 print:grid print:grid-cols-2 print:gap-x-12 print:gap-y-1 print:pt-2">
                   {[
-                    { label: "Foto de perfil", archivo: selectedEmpleado.foto },
-                    { label: "Licencia (PDF)", archivo: selectedEmpleado.licencia_pdf },
-                    { label: "CV (PDF)", archivo: selectedEmpleado.cv },
-                    { label: "DNI (PDF)", archivo: selectedEmpleado.dni_pdf },
-                    { label: "Recibo de servicio (PDF)", archivo: selectedEmpleado.recibo_servicio_pdf },
-                    { label: "Certificado (PDF)", archivo: selectedEmpleado.certijoven_pdf }
+                    { label: "📸 Foto de Perfil", archivo: selectedEmpleado.foto, tipo: "JPG/PNG" },
+                    { label: "🪪 DNI - Frontal", archivo: selectedEmpleado.doc_delantera || selectedEmpleado.dni_pdf, tipo: "JPG/PNG" },
+                    { label: "🪪 DNI - Posterior", archivo: selectedEmpleado.doc_trasera, tipo: "JPG/PNG" },
+                    { label: "🚗 Brevete - Frontal", archivo: selectedEmpleado.brevete_delantera || selectedEmpleado.licencia_pdf, tipo: "JPG/PNG" },
+                    { label: "🚗 Brevete - Posterior", archivo: selectedEmpleado.brevete_trasera, tipo: "JPG/PNG" },
+                    { label: "🛠️ Rev. Técnica - Frontal", archivo: selectedEmpleado.revision_tecnica_frontal, tipo: "JPG/PNG" },
+                    { label: "🛠️ Rev. Técnica - Posterior", archivo: selectedEmpleado.revision_tecnica_posterior, tipo: "JPG/PNG" },
+                    { label: "📜 Tarjeta Propiedad - Frontal", archivo: selectedEmpleado.tarjeta_propiedad_frontal, tipo: "JPG/PNG" },
+                    { label: "📜 Tarjeta Propiedad - Posterior", archivo: selectedEmpleado.tarjeta_propiedad_posterior, tipo: "JPG/PNG" },
+                    { label: "💡 Recibo Agua/Luz", archivo: selectedEmpleado.recibo_servicio_pdf, tipo: "PDF" },
+                    { label: "📄 CV (Curriculum)", archivo: selectedEmpleado.cv, tipo: "PDF" },
+                    { label: "🎓 CertiJoven / Adulto", archivo: selectedEmpleado.certijoven_pdf, tipo: "PDF" },
+                    { label: "📂 Otros Documentos", archivo: selectedEmpleado.otro_documento_pdf, tipo: "PDF / IMG" }
                   ].map((doc, idx) => (
-                    <div key={idx} className="flex items-center justify-between py-3.5 print:py-2 print:border-b print:border-gray-100 print:break-inside-avoid">
-                      <span className="text-sm font-medium text-gray-700">{doc.label}</span>
+                    <div key={idx} className="flex items-center justify-between py-2.5 border-b border-gray-100 print:py-1.5 print:break-inside-avoid">
+                      <div className="flex flex-col min-w-0 pr-2">
+                        <span className="text-xs font-semibold text-gray-800 truncate">{doc.label}</span>
+                        <span className="text-[10px] text-gray-400">{doc.tipo}</span>
+                      </div>
                       
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2 shrink-0">
                         {doc.archivo ? (
                           <>
-                            <span className="rounded-md bg-emerald-50 border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-700 print:border print:border-green-500 print:bg-white">
+                            <span className="rounded-md bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[11px] font-bold text-emerald-700 print:border print:border-green-500 print:bg-white">
                               Sí
                             </span>
                             <a
                               href={`${API_URL}/uploads/${doc.archivo}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="flex items-center gap-1 rounded-lg bg-teal-50 border border-teal-200 px-3.5 py-1.5 text-xs font-bold text-teal-700 hover:bg-teal-100 transition-colors print:hidden"
+                              className="flex items-center gap-1 rounded-md bg-teal-50 border border-teal-200 px-2.5 py-1 text-xs font-bold text-teal-700 hover:bg-teal-100 transition-colors print:hidden"
                               title="Ver documento"
                             >
-                               Ver
+                              Ver ↗
                             </a>
                           </>
                         ) : (
-                          <span className="rounded-md bg-gray-100 border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-500 print:border print:border-gray-300 print:bg-white">
+                          <span className="rounded-md bg-gray-100 border border-gray-200 px-2 py-0.5 text-[11px] font-semibold text-gray-400 print:border print:border-gray-300 print:bg-white">
                             No
                           </span>
                         )}

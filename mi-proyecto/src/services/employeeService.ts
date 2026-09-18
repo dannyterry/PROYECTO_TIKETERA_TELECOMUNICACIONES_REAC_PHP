@@ -50,6 +50,7 @@ export const getEmpleados = async (): Promise<Employee[]> => {
       condicionContribuyente: emp.sunat_condicion || "",
       actividadEconomica: emp.sunat_actividad || "",
       area: emp.area || "",
+      tipo_servicio: emp.tipo_servicio || "",
       fechaIngreso: formatFecha(emp.fecha_ingreso),
       opcionPersonal: emp.opcion_personal || "",
       cuadrilla: emp.cuadrilla || "",
@@ -83,7 +84,21 @@ export const getEmpleados = async (): Promise<Employee[]> => {
       telefonoEmergencia: emp.numero_emergencia || "",
       telefonoAlternativo: emp.emergencia_telefono_2 || "",
       direccionEmergencia: emp.emergencia_direccion || "",
-      foto: emp.foto_personal || "", cv: emp.cv_pdf || "", dni_pdf: emp.dni_pdf || "", licencia_pdf: emp.licencia_pdf || "", recibo_servicio_pdf: emp.recibo_servicio_pdf || "", certijoven_pdf: emp.certificado_pdf || ""
+      foto: emp.foto_personal || "",
+      doc_delantera: emp.doc_delantera || "",
+      doc_trasera: emp.doc_trasera || "",
+      brevete_delantera: emp.brevete_delantera || "",
+      brevete_trasera: emp.brevete_trasera || "",
+      revision_tecnica_frontal: emp.revision_tecnica_frontal || "",
+      revision_tecnica_posterior: emp.revision_tecnica_posterior || "",
+      tarjeta_propiedad_frontal: emp.tarjeta_propiedad_frontal || "",
+      tarjeta_propiedad_posterior: emp.tarjeta_propiedad_posterior || "",
+      recibo_servicio_pdf: emp.recibo_servicio_pdf || "",
+      cv: emp.cv_pdf || "",
+      certijoven_pdf: emp.certificado_pdf || "",
+      otro_documento_pdf: emp.otro_documento_pdf || "",
+      dni_pdf: emp.dni_pdf || "",
+      licencia_pdf: emp.licencia_pdf || ""
     }));
   } catch (error) { return []; }
 };

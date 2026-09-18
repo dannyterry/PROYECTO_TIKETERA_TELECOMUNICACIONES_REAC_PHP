@@ -1198,125 +1198,127 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
         </div>
 
         {/* Tabla Estilo Hoja de Cálculo Excel / Pivot Table: Centrada si es pequeña y adaptable si crece */}
-        <div className="overflow-x-auto border-t border-slate-300 w-full p-2 bg-slate-50/20">
-          <table className="w-auto mx-auto text-left text-xs border-separate border-spacing-0 shadow-2xs bg-white">
-            {/* Encabezado Nivel 1 y 2 - Estilo Excel Pivot */}
-            <thead>
-              {/* Nivel 1: TIPO DE TRABAJO agrupado */}
-              <tr className="bg-[#8ea9db] text-[#1f3864]">
-                <th
-                  rowSpan={2}
-                  className="bg-[#8ea9db] py-1 px-1.5 border-b-2 border-r border-slate-300 text-left font-black tracking-wide text-[10px] w-[130px] min-w-[110px] max-w-[140px] align-middle"
-                >
-                  TECNICO
-                </th>
-                <th
-                  colSpan={columnasVisibles.length}
-                  className="bg-[#8ea9db] py-0.5 px-1 border-b border-r border-slate-300 text-center font-black tracking-wider text-[10px] uppercase italic"
-                >
-                  TIPO DE TRABAJO
-                </th>
-                <th
-                  rowSpan={2}
-                  className="bg-[#8ea9db] py-1 px-0.5 border-b-2 border-slate-300 text-center font-black tracking-tight text-[9px] w-[46px] min-w-[40px] max-w-[50px] leading-tight align-middle"
-                >
-                  Suma total
-                </th>
-              </tr>
-              {/* Nivel 2: Columnas de cada tipo de trabajo con ajuste de texto abajo */}
-              <tr className="bg-[#8ea9db] text-[#1f3864]">
-                {columnasVisibles.map((col) => (
+        <div className="overflow-x-auto border-t border-slate-300 w-full p-2.5 bg-slate-50/20 flex">
+          <div className="m-auto inline-block shadow-2xs rounded-lg overflow-hidden border border-slate-300 bg-white">
+            <table className="table-fixed text-left text-xs border-separate border-spacing-0 bg-white">
+              {/* Encabezado Nivel 1 y 2 - Estilo Excel Pivot */}
+              <thead>
+                {/* Nivel 1: TIPO DE TRABAJO agrupado */}
+                <tr className="bg-[#8ea9db] text-[#1f3864]">
                   <th
-                    key={col}
-                    className="bg-[#8ea9db] py-1 px-0.5 border-b-2 border-r border-slate-300 text-center font-black text-[8.5px] leading-[1.05] uppercase tracking-tighter w-[50px] min-w-[42px] max-w-[58px] whitespace-normal break-words align-middle"
-                    title={`${col} (Total: ${data?.totales_columnas_tipo[col] || 0})`}
+                    rowSpan={2}
+                    className="bg-[#8ea9db] py-1.5 px-2 border-b-2 border-r border-slate-300 text-left font-black tracking-wide text-[10px] w-[130px] min-w-[130px] max-w-[130px] align-middle"
                   >
-                    {col}
+                    TECNICO
                   </th>
+                  <th
+                    colSpan={columnasVisibles.length}
+                    className="bg-[#8ea9db] py-0.5 px-1 border-b border-r border-slate-300 text-center font-black tracking-wider text-[10px] uppercase italic"
+                  >
+                    TIPO DE TRABAJO
+                  </th>
+                  <th
+                    rowSpan={2}
+                    className="bg-[#8ea9db] py-1.5 px-0.5 border-b-2 border-slate-300 text-center font-black tracking-tight text-[9px] w-[48px] min-w-[48px] max-w-[48px] leading-tight align-middle"
+                  >
+                    Suma total
+                  </th>
+                </tr>
+                {/* Nivel 2: Columnas de cada tipo de trabajo con tamaño uniforme */}
+                <tr className="bg-[#8ea9db] text-[#1f3864]">
+                  {columnasVisibles.map((col) => (
+                    <th
+                      key={col}
+                      className="bg-[#8ea9db] py-1 px-0.5 border-b-2 border-r border-slate-300 text-center font-black text-[8.5px] leading-[1.05] uppercase tracking-tighter w-[52px] min-w-[52px] max-w-[52px] whitespace-normal break-words align-middle"
+                      title={`${col} (Total: ${data?.totales_columnas_tipo[col] || 0})`}
+                    >
+                      {col}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+
+              {/* Filas de Técnicos - Ultra compactas con cuadrícula Excel */}
+              <tbody className="bg-white">
+                {tecnicosFiltrados.map((t, idx) => (
+                  <tr
+                    key={t.id_tecnico || idx}
+                    className="hover:bg-blue-50/50 transition-colors group"
+                  >
+                    {/* Nombre Técnico Fijo a la Izquierda (Sin Cuadrilla) */}
+                    <td className="bg-white group-hover:bg-blue-50/90 py-1 px-2 border-b border-r border-slate-300 text-slate-800 w-[130px] min-w-[130px] max-w-[130px] align-middle">
+                      <div className="font-bold text-[9.5px] uppercase truncate" title={t.tecnico}>
+                        {t.tecnico}
+                      </div>
+                    </td>
+
+                    {/* Celdas por Tipo de Trabajo (Si es 0 queda vacío como en Excel) */}
+                    {columnasVisibles.map((col) => {
+                      const cant = t.tipos_trabajo[col] || 0;
+                      return (
+                        <td
+                          key={col}
+                          className="py-1 px-0.5 text-center border-b border-r border-slate-300 text-[10px] font-mono leading-none w-[52px] min-w-[52px] max-w-[52px] align-middle"
+                        >
+                          {cant > 0 ? (
+                            <span className="font-bold text-slate-900">{cant}</span>
+                          ) : (
+                            ""
+                          )}
+                        </td>
+                      );
+                    })}
+
+                    {/* Suma Total Fila Técnico Dinámica según columnas visibles */}
+                    {(() => {
+                      const sumaFilaVisible = columnasVisibles.reduce(
+                        (acc, col) => acc + (t.tipos_trabajo[col] || 0),
+                        0
+                      );
+                      return (
+                        <td className="py-1 px-0.5 text-center border-b border-r border-slate-300 bg-slate-50/80 font-mono font-black text-slate-900 text-[10px] leading-none w-[48px] min-w-[48px] max-w-[48px] align-middle">
+                          {sumaFilaVisible > 0 ? sumaFilaVisible : ""}
+                        </td>
+                      );
+                    })()}
+                  </tr>
                 ))}
-              </tr>
-            </thead>
 
-            {/* Filas de Técnicos - Ultra compactas con cuadrícula Excel */}
-            <tbody className="bg-white">
-              {tecnicosFiltrados.map((t, idx) => (
-                <tr
-                  key={t.id_tecnico || idx}
-                  className="hover:bg-blue-50/50 transition-colors group"
-                >
-                  {/* Nombre Técnico Fijo a la Izquierda (Sin Cuadrilla) */}
-                  <td className="bg-white group-hover:bg-blue-50/90 py-0.5 px-1.5 border-b border-r border-slate-300 text-slate-800 w-[130px] min-w-[110px] max-w-[140px]">
-                    <div className="font-bold text-[9.5px] uppercase truncate" title={t.tecnico}>
-                      {t.tecnico}
-                    </div>
-                  </td>
+                {tecnicosFiltrados.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={columnasVisibles.length + 2}
+                      className="p-8 text-center text-slate-400 font-semibold border-b border-slate-300"
+                    >
+                      No se encontraron técnicos para este filtro.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
 
-                  {/* Celdas por Tipo de Trabajo (Si es 0 queda vacío como en Excel) */}
-                  {columnasVisibles.map((col) => {
-                    const cant = t.tipos_trabajo[col] || 0;
-                    return (
+              {/* Fila Resumen Inferior: Suma total dinámica */}
+              {tecnicosFiltrados.length > 0 && (
+                <tfoot>
+                  <tr className="bg-[#d9e1f2] text-[#1f3864] font-black">
+                    <td className="bg-[#d9e1f2] py-1 px-2 border-t-2 border-r border-slate-400 font-black text-[9.5px] uppercase w-[130px] min-w-[130px] max-w-[130px] align-middle">
+                      SUMA TOTAL
+                    </td>
+                    {columnasVisibles.map((col) => (
                       <td
                         key={col}
-                        className="py-0.5 px-0.5 text-center border-b border-r border-slate-300 text-[10px] font-mono leading-none w-[50px] min-w-[42px] max-w-[58px]"
+                        className="py-1 px-0.5 text-center border-t-2 border-r border-slate-400 font-black text-slate-900 font-mono text-[10px] bg-[#d9e1f2] leading-none w-[52px] min-w-[52px] max-w-[52px] align-middle"
                       >
-                        {cant > 0 ? (
-                          <span className="font-bold text-slate-900">{cant}</span>
-                        ) : (
-                          ""
-                        )}
+                        {totalesMatriz.porColumna[col] || 0}
                       </td>
-                    );
-                  })}
-
-                  {/* Suma Total Fila Técnico Dinámica según columnas visibles */}
-                  {(() => {
-                    const sumaFilaVisible = columnasVisibles.reduce(
-                      (acc, col) => acc + (t.tipos_trabajo[col] || 0),
-                      0
-                    );
-                    return (
-                      <td className="py-0.5 px-0.5 text-center border-b border-r border-slate-300 bg-slate-50/80 font-mono font-black text-slate-900 text-[10px] leading-none w-[46px] min-w-[40px] max-w-[50px]">
-                        {sumaFilaVisible > 0 ? sumaFilaVisible : ""}
-                      </td>
-                    );
-                  })()}
-                </tr>
-              ))}
-
-              {tecnicosFiltrados.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={columnasVisibles.length + 2}
-                    className="p-8 text-center text-slate-400 font-semibold border-b border-slate-300"
-                  >
-                    No se encontraron técnicos para este filtro.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-
-            {/* Fila Resumen Inferior: Suma total dinámica */}
-            {tecnicosFiltrados.length > 0 && (
-              <tfoot>
-                <tr className="bg-[#d9e1f2] text-[#1f3864] font-black">
-                  <td className="bg-[#d9e1f2] py-1 px-1.5 border-t-2 border-r border-slate-400 font-black text-[9.5px] uppercase w-[130px] min-w-[110px] max-w-[140px]">
-                    SUMA TOTAL
-                  </td>
-                  {columnasVisibles.map((col) => (
-                    <td
-                      key={col}
-                      className="py-1 px-0.5 text-center border-t-2 border-r border-slate-400 font-black text-slate-900 font-mono text-[10px] bg-[#d9e1f2] leading-none w-[50px] min-w-[42px] max-w-[58px]"
-                    >
-                      {totalesMatriz.porColumna[col] || 0}
+                    ))}
+                    <td className="py-1 px-0.5 text-center border-t-2 border-r border-slate-400 font-black text-slate-950 font-mono text-[10px] bg-[#c6d9f1] leading-none w-[48px] min-w-[48px] max-w-[48px] align-middle">
+                      {totalesMatriz.granTotal}
                     </td>
-                  ))}
-                  <td className="py-1 px-0.5 text-center border-t-2 border-r border-slate-400 font-black text-slate-950 font-mono text-[10px] bg-[#c6d9f1] leading-none w-[46px] min-w-[40px] max-w-[50px]">
-                    {totalesMatriz.granTotal}
-                  </td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
         </div>
       </div>
 
@@ -2021,128 +2023,130 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
               </div>
             </div>
 
-            {/* Tabla en el Modal: expandida para ocupar el 100% de la altura y ancho disponibles */}
-            <div className="flex-1 overflow-auto p-2 bg-slate-50/40 flex flex-col">
-              <table className="w-full h-full text-left border-separate border-spacing-0 shadow-sm bg-white rounded-lg overflow-hidden border border-slate-300">
-                {/* Encabezado Nivel 1 y 2 - Estilo Excel Pivot */}
-                <thead className="sticky top-0 z-30 shadow-xs">
-                  {/* Nivel 1: TIPO DE TRABAJO agrupado */}
-                  <tr className="bg-[#8ea9db] text-[#1f3864]">
-                    <th
-                      rowSpan={2}
-                      className="bg-[#8ea9db] py-2 px-3 border-b-2 border-r border-slate-300 text-left font-black tracking-wide text-xs w-[160px] min-w-[140px] max-w-[200px] align-middle sticky left-0 z-40"
-                    >
-                      TECNICO
-                    </th>
-                    <th
-                      colSpan={columnasVisibles.length}
-                      className="bg-[#8ea9db] py-1 px-1 border-b border-r border-slate-300 text-center font-black tracking-wider text-xs uppercase italic"
-                    >
-                      TIPO DE TRABAJO
-                    </th>
-                    <th
-                      rowSpan={2}
-                      className="bg-[#8ea9db] py-2 px-1 border-b-2 border-slate-300 text-center font-black tracking-tight text-xs w-[60px] min-w-[50px] leading-tight align-middle"
-                    >
-                      Suma total
-                    </th>
-                  </tr>
-                  {/* Nivel 2: Columnas de cada tipo de trabajo */}
-                  <tr className="bg-[#8ea9db] text-[#1f3864]">
-                    {columnasVisibles.map((col) => (
+            {/* Tabla en el Modal: Centrada horizontal y verticalmente, con celdas de tamaño uniforme estilo Excel sin estirarse */}
+            <div className="flex-1 overflow-auto p-4 sm:p-6 bg-slate-100/60 flex">
+              <div className="m-auto inline-block shadow-md rounded-xl overflow-hidden border border-slate-300 bg-white">
+                <table className="table-fixed text-left border-separate border-spacing-0 bg-white">
+                  {/* Encabezado Nivel 1 y 2 - Estilo Excel Pivot */}
+                  <thead className="sticky top-0 z-30 shadow-xs">
+                    {/* Nivel 1: TIPO DE TRABAJO agrupado */}
+                    <tr className="bg-[#8ea9db] text-[#1f3864]">
                       <th
-                        key={col}
-                        className="bg-[#8ea9db] py-1 px-1 border-b-2 border-r border-slate-300 text-center font-black text-[10px] leading-tight uppercase tracking-tighter whitespace-normal break-words align-middle"
-                        title={`${col} (Total: ${data?.totales_columnas_tipo[col] || 0})`}
+                        rowSpan={2}
+                        className="bg-[#8ea9db] py-2 px-2.5 border-b-2 border-r border-slate-300 text-left font-black tracking-wide text-xs w-[170px] min-w-[170px] max-w-[170px] align-middle sticky left-0 z-40"
                       >
-                        {col}
+                        TECNICO
                       </th>
+                      <th
+                        colSpan={columnasVisibles.length}
+                        className="bg-[#8ea9db] py-1 px-1 border-b border-r border-slate-300 text-center font-black tracking-wider text-xs uppercase italic"
+                      >
+                        TIPO DE TRABAJO
+                      </th>
+                      <th
+                        rowSpan={2}
+                        className="bg-[#8ea9db] py-2 px-1 border-b-2 border-slate-300 text-center font-black tracking-tight text-xs w-[64px] min-w-[64px] max-w-[64px] leading-tight align-middle"
+                      >
+                        Suma total
+                      </th>
+                    </tr>
+                    {/* Nivel 2: Columnas de cada tipo de trabajo con tamaño uniforme */}
+                    <tr className="bg-[#8ea9db] text-[#1f3864]">
+                      {columnasVisibles.map((col) => (
+                        <th
+                          key={col}
+                          className="bg-[#8ea9db] py-1.5 px-1 border-b-2 border-r border-slate-300 text-center font-black text-[9.5px] leading-[1.1] uppercase tracking-tight w-[68px] min-w-[68px] max-w-[68px] whitespace-normal break-words align-middle"
+                          title={`${col} (Total: ${data?.totales_columnas_tipo[col] || 0})`}
+                        >
+                          {col}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+
+                  {/* Filas de Técnicos */}
+                  <tbody className="bg-white">
+                    {tecnicosFiltrados.map((t, idx) => (
+                      <tr
+                        key={t.id_tecnico || idx}
+                        className="hover:bg-blue-50/70 transition-colors group"
+                      >
+                        {/* Técnico Fijo a la Izquierda */}
+                        <td className="bg-white group-hover:bg-blue-50/90 py-1.5 px-2.5 border-b border-r border-slate-300 text-slate-800 w-[170px] min-w-[170px] max-w-[170px] sticky left-0 z-20 align-middle">
+                          <div className="font-bold text-xs uppercase truncate" title={t.tecnico}>
+                            {t.tecnico}
+                          </div>
+                        </td>
+
+                        {/* Celdas por Tipo de Trabajo de tamaño fijo */}
+                        {columnasVisibles.map((col) => {
+                          const cant = t.tipos_trabajo[col] || 0;
+                          return (
+                            <td
+                              key={col}
+                              className="py-1.5 px-1 text-center border-b border-r border-slate-300 text-xs font-mono leading-tight w-[68px] min-w-[68px] max-w-[68px] align-middle"
+                            >
+                              {cant > 0 ? (
+                                <span className="font-bold text-slate-900">
+                                  {cant}
+                                </span>
+                              ) : (
+                                ""
+                              )}
+                            </td>
+                          );
+                        })}
+
+                        {/* Suma Total Fila Técnico */}
+                        {(() => {
+                          const sumaFilaVisible = columnasVisibles.reduce(
+                            (acc, col) => acc + (t.tipos_trabajo[col] || 0),
+                            0
+                          );
+                          return (
+                            <td className="py-1.5 px-1 text-center border-b border-r border-slate-300 bg-slate-50/80 font-mono font-black text-slate-900 text-xs leading-tight w-[64px] min-w-[64px] max-w-[64px] align-middle">
+                              {sumaFilaVisible > 0 ? sumaFilaVisible : ""}
+                            </td>
+                          );
+                        })()}
+                      </tr>
                     ))}
-                  </tr>
-                </thead>
 
-                {/* Filas de Técnicos - Repartidas equitativamente en todo el alto */}
-                <tbody className="bg-white">
-                  {tecnicosFiltrados.map((t, idx) => (
-                    <tr
-                      key={t.id_tecnico || idx}
-                      className="hover:bg-blue-50/70 transition-colors group"
-                    >
-                      {/* Técnico Fijo a la Izquierda - Solo nombre, sin cuadrilla */}
-                      <td className="bg-white group-hover:bg-blue-50/90 py-1.5 px-3 border-b border-r border-slate-300 text-slate-800 w-[160px] min-w-[140px] max-w-[200px] sticky left-0 z-20 align-middle">
-                        <div className="font-bold text-xs uppercase truncate" title={t.tecnico}>
-                          {t.tecnico}
-                        </div>
-                      </td>
+                    {tecnicosFiltrados.length === 0 && (
+                      <tr>
+                        <td
+                          colSpan={columnasVisibles.length + 2}
+                          className="p-8 text-center text-slate-400 font-semibold border-b border-slate-300"
+                        >
+                          No se encontraron técnicos para este filtro.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
 
-                      {/* Celdas por Tipo de Trabajo */}
-                      {columnasVisibles.map((col) => {
-                        const cant = t.tipos_trabajo[col] || 0;
-                        return (
+                  {/* Fila Resumen Inferior */}
+                  {tecnicosFiltrados.length > 0 && (
+                    <tfoot className="sticky bottom-0 z-30 shadow-md">
+                      <tr className="bg-[#d9e1f2] text-[#1f3864] font-black">
+                        <td className="bg-[#d9e1f2] py-2 px-2.5 border-t-2 border-r border-slate-400 font-black text-xs uppercase w-[170px] min-w-[170px] max-w-[170px] sticky left-0 z-40 align-middle">
+                          SUMA TOTAL
+                        </td>
+                        {columnasVisibles.map((col) => (
                           <td
                             key={col}
-                            className="py-1 px-1 text-center border-b border-r border-slate-300 text-xs font-mono leading-tight align-middle"
+                            className="py-2 px-1 text-center border-t-2 border-r border-slate-400 font-black text-slate-900 font-mono text-xs bg-[#d9e1f2] w-[68px] min-w-[68px] max-w-[68px] align-middle"
                           >
-                            {cant > 0 ? (
-                              <span className="font-bold text-slate-900">
-                                {cant}
-                              </span>
-                            ) : (
-                              ""
-                            )}
+                            {totalesMatriz.porColumna[col] || 0}
                           </td>
-                        );
-                      })}
-
-                      {/* Suma Total Fila Técnico */}
-                      {(() => {
-                        const sumaFilaVisible = columnasVisibles.reduce(
-                          (acc, col) => acc + (t.tipos_trabajo[col] || 0),
-                          0
-                        );
-                        return (
-                          <td className="py-1 px-1 text-center border-b border-r border-slate-300 bg-slate-50/80 font-mono font-black text-slate-900 text-xs leading-tight w-[60px] min-w-[50px] align-middle">
-                            {sumaFilaVisible > 0 ? sumaFilaVisible : ""}
-                          </td>
-                        );
-                      })()}
-                    </tr>
-                  ))}
-
-                  {tecnicosFiltrados.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={columnasVisibles.length + 2}
-                        className="p-8 text-center text-slate-400 font-semibold border-b border-slate-300"
-                      >
-                        No se encontraron técnicos para este filtro.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-
-                {/* Fila Resumen Inferior */}
-                {tecnicosFiltrados.length > 0 && (
-                  <tfoot className="sticky bottom-0 z-30 shadow-md">
-                    <tr className="bg-[#d9e1f2] text-[#1f3864] font-black">
-                      <td className="bg-[#d9e1f2] py-2 px-3 border-t-2 border-r border-slate-400 font-black text-xs uppercase w-[160px] min-w-[140px] max-w-[200px] sticky left-0 z-40 align-middle">
-                        SUMA TOTAL
-                      </td>
-                      {columnasVisibles.map((col) => (
-                        <td
-                          key={col}
-                          className="py-2 px-1 text-center border-t-2 border-r border-slate-400 font-black text-slate-900 font-mono text-xs bg-[#d9e1f2] align-middle"
-                        >
-                          {totalesMatriz.porColumna[col] || 0}
+                        ))}
+                        <td className="py-2 px-1 text-center border-t-2 border-r border-slate-400 font-black text-slate-950 font-mono text-xs bg-[#c6d9f1] w-[64px] min-w-[64px] max-w-[64px] align-middle">
+                          {totalesMatriz.granTotal}
                         </td>
-                      ))}
-                      <td className="py-2 px-1 text-center border-t-2 border-r border-slate-400 font-black text-slate-950 font-mono text-xs bg-[#c6d9f1] w-[60px] min-w-[50px] align-middle">
-                        {totalesMatriz.granTotal}
-                      </td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
             </div>
 
             {/* Footer con resumen rápido de datos */}

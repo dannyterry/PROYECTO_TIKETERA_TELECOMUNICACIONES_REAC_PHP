@@ -15,6 +15,7 @@ import { PermisosTab } from "./components/PermisosTab";
 import { CorreosTab } from "./components/CorreosTab";
 import { authService } from "../../services/authService";
 import { OnlineChatDropdown } from "../../components/chat/OnlineChatDropdown";
+import { UserProfileDropdown } from "../../components/layout/UserProfileDropdown";
 
 export const SettingsPage: React.FC = () => {
   // Configuración de permisos por pestaña
@@ -116,6 +117,10 @@ export const SettingsPage: React.FC = () => {
                 </button>
               );
             })}
+          </div>
+
+          <div className="border-l border-slate-200/90 pl-2">
+            <UserProfileDropdown />
           </div>
         </div>
       </div>

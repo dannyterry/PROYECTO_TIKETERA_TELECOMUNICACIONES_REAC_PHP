@@ -68,6 +68,25 @@ export const authService = {
     if (!user) return false;
     // SuperAdmin o Rol 1 tiene acceso irrestricto a todo
     if (user.id_rol === 1 || user.rol?.toUpperCase().includes("ADMIN")) return true;
+
+    // 👷 REGLA: Todos los técnicos de campo activos tienen permiso de liquidar actas por defecto
+    const esTecnico =
+      user.id_rol === 2 ||
+      user.rol?.toUpperCase().includes("TECNIC") ||
+      user.rol?.toUpperCase().includes("TÉCNIC") ||
+      user.rol?.toUpperCase().includes("CAMPO");
+
+    if (
+      esTecnico &&
+      (clavePermiso === "ordenes.liquidar" ||
+        clavePermiso === "ordenes.liquidar_acta" ||
+        clavePermiso === "liquidaciones.crear" ||
+        clavePermiso === "liquidaciones.liquidar" ||
+        clavePermiso === "liquidaciones.ver")
+    ) {
+      return true;
+    }
+
     return user.permisos?.includes(clavePermiso) || false;
   },
 
@@ -75,6 +94,27 @@ export const authService = {
     const user = this.getCurrentUser();
     if (!user) return false;
     if (user.id_rol === 1 || user.rol?.toUpperCase().includes("ADMIN")) return true;
+
+    const esTecnico =
+      user.id_rol === 2 ||
+      user.rol?.toUpperCase().includes("TECNIC") ||
+      user.rol?.toUpperCase().includes("TÉCNIC") ||
+      user.rol?.toUpperCase().includes("CAMPO");
+
+    if (
+      esTecnico &&
+      claves.some(
+        (c) =>
+          c === "ordenes.liquidar" ||
+          c === "ordenes.liquidar_acta" ||
+          c === "liquidaciones.crear" ||
+          c === "liquidaciones.liquidar" ||
+          c === "liquidaciones.ver"
+      )
+    ) {
+      return true;
+    }
+
     if (!user.permisos || !Array.isArray(user.permisos)) return false;
     return claves.some((c) => user.permisos.includes(c));
   },
@@ -92,25 +132,29 @@ export const authService = {
     if (!user) return false;
     if (user.id_rol === 1 || user.rol?.toUpperCase().includes("ADMIN")) return true;
 
+    const esTecnico =
+      user.id_rol === 2 ||
+      user.rol?.toUpperCase().includes("TECNIC") ||
+      user.rol?.toUpperCase().includes("TÉCNIC") ||
+      user.rol?.toUpperCase().includes("CAMPO");
+
     switch (moduleId) {
       case "dashboard":
         return this.hasPermission("dashboard.ver");
 
       case "ordenes":
-        return this.hasAnyPermission([
-          "ordenes.ver",
-          "ordenes.crear",
-          "ordenes.editar",
-          "ordenes.eliminar",
-          "ordenes.liquidar",
-          "ordenes.sincronizar",
-        ]);
+        // El módulo administrativo de Órdenes solo para quien tenga permiso explícito de ver órdenes
+        return this.hasPermission("ordenes.ver");
 
       case "portal-tecnico":
         return (
-          user.id_rol === 2 ||
-          user.rol?.toUpperCase().includes("TECNICO") ||
-          this.hasAnyPermission(["liquidaciones.ver", "liquidaciones.crear"])
+          esTecnico ||
+          this.hasAnyPermission([
+            "portal_tecnico.ver",
+            "portal_tecnico.liquidar_acta",
+            "liquidaciones.ver",
+            "liquidaciones.crear",
+          ])
         );
 
       case "personal":
@@ -127,6 +171,7 @@ export const authService = {
         ]);
 
       case "inventario":
+        // El módulo administrativo de Inventario/Almacén solo con permisos explícitos de almacén
         return this.hasAnyPermission([
           "productos.ver",
           "stock.ver",
@@ -135,7 +180,6 @@ export const authService = {
           "proveedores.ver",
           "movimientos.ver",
           "categorias.ver",
-          "liquidaciones.ver",
         ]);
 
       case "movilidad":
@@ -143,27 +187,31 @@ export const authService = {
           "vehiculos.ver",
           "vehiculos.crear",
           "vehiculos.editar",
+          "inspecciones.ver",
+          "inspecciones.crear",
           "combustibles.ver",
           "combustibles.crear",
         ]);
 
       case "pagos":
         return (
-          user.id_rol !== 2 &&
+          !esTecnico &&
           this.hasAnyPermission([
-            "liquidaciones.ver",
-            "liquidaciones.aprobar",
-            "liquidaciones.exportar",
+            "pagos.ver",
+            "pagos.crear",
+            "pagos.editar",
+            "pagos.eliminar",
+            "adelantos.ver",
+            "adelantos.crear",
           ])
         );
 
       case "configuracion":
         return this.hasAnyPermission([
           "configuracion.ver",
-          "configuracion.editar",
-          "motivos.ver",
-          "tipo_trabajo.ver",
           "permisos.ver",
+          "roles.ver",
+          "parametros.ver",
         ]);
 
       default:

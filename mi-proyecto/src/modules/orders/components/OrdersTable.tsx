@@ -999,7 +999,7 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                     {/* 25. Tipo de Liquidación (Traído de Detalle de Orden: Finalización / Cancelación / Regestión / Anulación) */}
                     <td
                       className="py-1 px-2 font-semibold text-slate-900 text-[10px] max-w-[240px] truncate border-b border-slate-950"
-                      title={order.tipoLiquidacion || order.motivoLiquidacion || order.motivoFinalizacion || order.motivoCancelacion || order.motivoRegestion || order.motivoAnulacion || ""}
+                      title={order.motivoFinalizacion || order.motivoCancelacion || order.motivoRegestion || order.motivoAnulacion || order.tipoLiquidacion || order.motivoLiquidacion || ""}
                     >
                       {(() => {
                         const isGPS = (v: any) => v && /^-?\d{1,3}\.\d+.*,\s*-?\d{1,3}\.\d+/.test(String(v).trim());
@@ -1011,12 +1011,12 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                           return lower === "técnica" || lower === "tecnica" || lower === "comercial" || lower === "null" || lower === "undefined" || lower === "-";
                         };
                         const cleanVal = (v: any) => (isInvalid(v) ? "" : String(v).trim());
-                        const liq = cleanVal(order.tipoLiquidacion) ||
-                                    cleanVal(order.motivoLiquidacion) ||
-                                    cleanVal(order.motivoFinalizacion) ||
+                        const liq = cleanVal(order.motivoFinalizacion) ||
                                     cleanVal(order.motivoCancelacion) ||
                                     cleanVal(order.motivoRegestion) ||
-                                    cleanVal(order.motivoAnulacion) || "";
+                                    cleanVal(order.motivoAnulacion) ||
+                                    cleanVal(order.tipoLiquidacion) ||
+                                    cleanVal(order.motivoLiquidacion) || "";
                         return liq ? (
                           <span className="text-slate-900 font-bold tracking-tight">{liq}</span>
                         ) : (
@@ -1050,12 +1050,12 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
 
                         // 2. Emparejado automático con motivo de liquidación / finalización / avería según tabla tipos_trabajo
                         const autoPaired = mapTipificacionWinToTipoTrabajo(
-                          order.tipoLiquidacion ||
-                          order.motivoLiquidacion ||
                           order.motivoFinalizacion ||
                           order.motivoCancelacion ||
                           order.motivoRegestion ||
-                          order.motivoAnulacion,
+                          order.motivoAnulacion ||
+                          order.tipoLiquidacion ||
+                          order.motivoLiquidacion,
                           `${order.tipoAveria || ""} ${order.tipoTrabajoAsignado || ""}`
                         );
 

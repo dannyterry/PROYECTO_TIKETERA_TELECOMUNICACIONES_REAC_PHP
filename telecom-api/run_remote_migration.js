@@ -19,7 +19,7 @@ async function migrate() {
       \`fecha_inicio\` date NOT NULL,
       \`fecha_fin\` date NOT NULL,
       \`motivo\` varchar(255) DEFAULT 'Descanso / Vacaciones',
-      \`estado\` enum('Pendiente','Aprobado','Completado','Cancelado') DEFAULT 'Aprobado',
+      \`estado\` varchar(50) DEFAULT 'Programado',
       \`fecha_creacion\` timestamp NOT NULL DEFAULT current_timestamp(),
       PRIMARY KEY (\`id_descanso\`),
       KEY \`fk_descansos_trab\` (\`id_trabajador\`),

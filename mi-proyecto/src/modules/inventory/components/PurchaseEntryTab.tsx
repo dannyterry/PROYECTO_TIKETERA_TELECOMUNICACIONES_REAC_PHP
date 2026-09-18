@@ -369,8 +369,8 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
     getProveedores().then(setProveedores).catch(console.error);
     getCategorias()
       .then((cats) => {
-        if (cats && cats.length > 0) {
-          const names = Array.from(new Set([...cats.map((c) => c.nombre.toUpperCase()), ...categorias]));
+        if (cats && Array.isArray(cats) && cats.length > 0) {
+          const names = Array.from(new Set(cats.map((c) => c.nombre.toUpperCase())));
           setCategorias(names);
         }
       })

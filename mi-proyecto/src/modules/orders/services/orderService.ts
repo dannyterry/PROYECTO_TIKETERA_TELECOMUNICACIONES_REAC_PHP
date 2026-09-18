@@ -293,13 +293,15 @@ export const getOrders = async (filters?: {
         };
         const cleanText = (v: any) => (isInvalidMotivo(v) ? "" : String(v).trim());
 
-        const rawMotivoLiq = cleanText(raw.motivo_liquidacion) ||
-                             cleanText(raw.tipo_liquidacion) ||
-                             cleanText(raw.motivo_finalizacion) ||
+        const rawMotivoLiq = cleanText(raw.motivo_finalizacion) ||
                              cleanText(raw.motivo_de_finalizacion) ||
                              cleanText(raw.motivo_cancelacion) ||
+                             cleanText(raw.motivo_de_cancelacion) ||
                              cleanText(raw.motivo_regestion) ||
-                             cleanText(raw.motivo_anulacion) || "";
+                             cleanText(raw.motivo_anulacion) ||
+                             cleanText(raw.tipo_trabajo_acta) ||
+                             cleanText(raw.motivo_liquidacion) ||
+                             cleanText(raw.tipo_liquidacion) || "";
         const rawTipoTrabajo = String(raw.tipo_trabajo || "").trim();
         const rawTipoTrabajoAsignado = String(raw.tipo_trabajo_asignado || "").trim();
         const rawAveria = String(raw.motivo_trabajo || raw.tipo_averia || raw.motivo || raw.averia || "").trim();

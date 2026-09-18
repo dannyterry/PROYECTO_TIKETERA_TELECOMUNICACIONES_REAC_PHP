@@ -19,9 +19,11 @@ import {
   Barcode,
   Search,
   X,
+  Clock,
 } from "lucide-react";
 import { ProductoStock, DespachoPayload, EquipoDespachoPistoleado } from "../types/inventoryTypes";
 import { despacharATecnico, verificarSerieDespacho } from "../services/inventoryService";
+import { DispatchHistorySubTab } from "./DispatchHistorySubTab";
 import axios from "axios";
 import { API_URL } from "../../../config/api";
 
@@ -31,6 +33,7 @@ interface Props {
 }
 
 export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRealizado }) => {
+  const [subTab, setSubTab] = useState<"nuevo" | "historial">("nuevo");
   const [tecnicos, setTecnicos] = useState<any[]>([]);
   const [idTrabajador, setIdTrabajador] = useState<string>("");
   const [busquedaTecnico, setBusquedaTecnico] = useState("");
@@ -535,24 +538,75 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
   const tecActual = tecnicos.find((t) => String(t.id_trabajador) === idTrabajador);
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      onKeyDown={(e) => {
-        // Evitar que presionar ENTER en campos de texto (búsquedas, cantidades, etc.) despache accidentalmente
-        if (e.key === "Enter" && (e.target as HTMLElement).tagName === "INPUT") {
-          const inputEl = e.target as HTMLInputElement;
-          if (inputEl !== serieInputRef.current) {
-            e.preventDefault();
-          }
-        }
-      }}
-      className="space-y-6 animate-fade-in"
-    >
-      
-      {/* ─────────────────────────────────────────────────────────────
-          1. SELECCIÓN DE TÉCNICO Y VEHÍCULO
-      ───────────────────────────────────────────────────────────── */}
-      <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-4">
+    <div className="space-y-6">
+      {/* Encabezado Superior con Selector de Sub-pestañas: Nuevo vs Historial */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/80 shadow-xs">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-cyan-50 text-cyan-700 rounded-2xl border border-cyan-100">
+            <Truck size={24} />
+          </div>
+          <div>
+            <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
+              Despacho & Asignación de Dotación a Técnicos
+            </h2>
+            <p className="text-xs text-slate-500 font-medium">
+              Registro de dotación de insumos, materiales y escaneo de equipos con historial de auditoría para sustento ante reclamos.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-2xl border border-slate-200/80 self-start sm:self-auto shrink-0">
+          <button
+            type="button"
+            onClick={() => setSubTab("nuevo")}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+              subTab === "nuevo"
+                ? "bg-white text-cyan-800 shadow-xs font-black"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <Plus size={14} className={subTab === "nuevo" ? "text-cyan-600" : "text-slate-400"} />
+            <span>+ Nuevo Despacho (Salida)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSubTab("historial")}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+              subTab === "historial"
+                ? "bg-white text-indigo-700 shadow-xs font-black"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <Clock size={14} className={subTab === "historial" ? "text-indigo-600" : "text-slate-400"} />
+            <span>🕒 Historial de Despachos</span>
+          </button>
+        </div>
+      </div>
+
+      {subTab === "historial" ? (
+        <DispatchHistorySubTab
+          onNuevoDespacho={() => setSubTab("nuevo")}
+          tecnicos={tecnicos}
+        />
+      ) : (
+        <form
+          onSubmit={handleSubmit}
+          onKeyDown={(e) => {
+            // Evitar que presionar ENTER en campos de texto (búsquedas, cantidades, etc.) despache accidentalmente
+            if (e.key === "Enter" && (e.target as HTMLElement).tagName === "INPUT") {
+              const inputEl = e.target as HTMLInputElement;
+              if (inputEl !== serieInputRef.current) {
+                e.preventDefault();
+              }
+            }
+          }}
+          className="space-y-6 animate-fade-in"
+        >
+          {/* ─────────────────────────────────────────────────────────────
+              1. SELECCIÓN DE TÉCNICO Y VEHÍCULO
+          ───────────────────────────────────────────────────────────── */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-4">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <span className="font-black text-sm text-slate-900 flex items-center gap-2">
             <Truck size={18} className="text-cyan-600" />
@@ -1195,6 +1249,8 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
       </div>
 
     </form>
+      )}
+    </div>
   );
 };
 

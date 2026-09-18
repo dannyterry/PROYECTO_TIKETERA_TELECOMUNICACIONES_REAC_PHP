@@ -1147,8 +1147,16 @@ export const AttendanceTab: React.FC = () => {
                       <td className="py-3.5 px-5 font-mono font-bold text-slate-800">{d.fecha_fin.slice(0, 10)}</td>
                       <td className="py-3.5 px-5 text-slate-600">{d.motivo || "Descanso semanal regular"}</td>
                       <td className="py-3.5 px-5 text-center">
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-50 text-blue-700 border border-blue-200">
-                          {d.estado}
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                            d.estado === "Cancelado"
+                              ? "bg-rose-50 text-rose-700 border-rose-200"
+                              : d.estado === "Completado"
+                              ? "bg-slate-100 text-slate-700 border-slate-200"
+                              : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                          }`}
+                        >
+                          {d.estado || "Programado"}
                         </span>
                       </td>
                       <td className="py-3.5 px-5 text-right">

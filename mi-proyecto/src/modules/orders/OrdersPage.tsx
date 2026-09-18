@@ -802,13 +802,12 @@ export const OrdersPage: React.FC = () => {
           readOnly={
             !authService.hasAnyPermission([
               "ordenes.liquidar",
+              "ordenes.liquidar_acta",
               "ordenes.editar",
               "liquidaciones.crear",
               "liquidaciones.editar",
-            ]) &&
-            authService.getCurrentUser()?.id_rol !== 1 &&
-            !authService.getCurrentUser()?.rol?.toUpperCase().includes("ADMIN") &&
-            !authService.getCurrentUser()?.rol?.toUpperCase().includes("GEST")
+              "liquidaciones.liquidar",
+            ])
           }
           idTrabajadorActual={
             (selectedOrderForActa as any).id_tecnico_asignado ||

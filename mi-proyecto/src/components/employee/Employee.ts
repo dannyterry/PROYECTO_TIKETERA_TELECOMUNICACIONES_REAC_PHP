@@ -31,6 +31,7 @@ export interface Employee {
   
   // Laborales y Planilla
   area?: string;
+  tipo_servicio?: string;
   fechaIngreso?: string;
   opcionPersonal?: string;
   cuadrilla?: string;
@@ -74,11 +75,21 @@ export interface Employee {
   telefonoAlternativo?: string;
   direccionEmergencia?: string;
 
-  // Archivos
+  // Archivos & Documentos Adjuntos
   foto?: string;
+  doc_delantera?: string;
+  doc_trasera?: string;
+  brevete_delantera?: string;
+  brevete_trasera?: string;
+  revision_tecnica_frontal?: string;
+  revision_tecnica_posterior?: string;
+  tarjeta_propiedad_frontal?: string;
+  tarjeta_propiedad_posterior?: string;
+  recibo_servicio_pdf?: string;
   cv?: string;
+  certijoven_pdf?: string;
+  otro_documento_pdf?: string;
+  // Campos legacy
   dni_pdf?: string;
   licencia_pdf?: string;
-  recibo_servicio_pdf?: string;
-  certijoven_pdf?: string;
 }

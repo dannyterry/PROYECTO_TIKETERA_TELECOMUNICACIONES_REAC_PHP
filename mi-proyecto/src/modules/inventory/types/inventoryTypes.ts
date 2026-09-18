@@ -44,6 +44,8 @@ export interface StockTecnicoDetalle {
   total_asignadas?: number;
   total_en_carro?: number;
   total_liquidadas?: number;
+  cantidad_asignada?: number;
+  cantidad_gastada?: number;
   rangos?: string[];
 }
 
@@ -117,9 +119,54 @@ export interface EquipoDespachoPistoleado {
 
 export interface DespachoPayload {
   id_trabajador: number;
-  items: { id_producto: number; cantidad: number; es_segundo_uso?: boolean }[];
+  items: { id_producto: number; cantidad: number; es_segundo_uso?: boolean; observaciones?: string }[];
   series_pistoleadas: { numero_serie: string; id_producto?: number; es_talonario?: boolean }[];
   observaciones?: string;
+  id_usuario_despacha?: number;
+}
+
+export interface DespachoHistorialDetalle {
+  id_detalle_despacho: number;
+  id_producto: number;
+  producto_nombre: string;
+  producto_codigo?: string;
+  proid?: string;
+  es_drop?: boolean | number;
+  categoria?: string;
+  cantidad: number;
+  es_segundo_uso: number | boolean;
+  series_entregadas?: string | null;
+  series: string[];
+  drop_inicio?: number | null;
+  drop_fin?: number | null;
+  observaciones?: string | null;
+}
+
+export interface DespachoHistorialItem {
+  id_despacho: number;
+  codigo_despacho: string;
+  id_trabajador: number;
+  tecnico_nombre: string;
+  tecnico_dni?: string;
+  cuadrilla?: string;
+  vehiculo_placa?: string;
+  id_usuario_despacha?: number | null;
+  despachador_nombre?: string | null;
+  tipo_despacho: string;
+  total_items: number;
+  total_series: number;
+  observaciones?: string | null;
+  estado: "COMPLETADO" | "ANULADO";
+  fecha_despacho: string;
+  fecha_creacion: string;
+  detalles: DespachoHistorialDetalle[];
+}
+
+export interface DespachoHistorialKPIs {
+  totalDespachos: number;
+  totalItemsEntregados: number;
+  totalSeriesEntregadas: number;
+  tecnicosUnicos: number;
 }
 
 export interface EquipoRetirado {
@@ -142,6 +189,8 @@ export interface EquipoRetirado {
   distrito: string;
   tecnico_nombre: string;
   cuadrilla: string;
+  equipo_instalado_detalle?: string;
+  equipo_instalado_serie?: string;
 }
 
 export interface ActaLiquidacionPayload {
@@ -165,6 +214,8 @@ export interface ActaLiquidacionPayload {
   materiales_utilizados: { id_producto: number; cantidad: number }[];
   equipos_instalados: { numero_serie: string; tipo_equipo: string }[];
   equipos_retirados: { tipo_equipo: string; numero_serie: string; motivo_retiro: string }[];
+  liquidado_por?: string;
+  es_gestion?: boolean;
 }
 
 export interface MotivoItem {
@@ -271,6 +322,8 @@ export interface LiquidacionOrdenAudit {
   estado_liquidacion: "Pendiente" | "Aprobada" | "Rechazada";
   motivo_rechazo?: string | null;
   fecha_liquidacion: string;
+  fecha_orden?: string;
+  fecha_solicitud?: string;
   numero_orden: string;
   cliente: string;
   direccion: string;

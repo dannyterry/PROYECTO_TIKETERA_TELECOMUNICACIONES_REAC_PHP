@@ -11,6 +11,7 @@ import {
   ClipboardCheck,
   FileCheck,
   Tag,
+  LogOut,
 } from "lucide-react";
 import { ProductoStock, StockTecnicoDetalle, SerieTecnicoDetalle } from "./types/inventoryTypes";
 import { getStockGeneral } from "./services/inventoryService";
@@ -24,6 +25,7 @@ import { CategoriesTab } from "./components/CategoriesTab";
 import { SuppliersTab } from "./components/SuppliersTab";
 import { authService } from "../../services/authService";
 import { OnlineChatDropdown } from "../../components/chat/OnlineChatDropdown";
+import { UserProfileDropdown } from "../../components/layout/UserProfileDropdown";
 
 export const InventoryPage: React.FC = () => {
   // Permisos por sub-pestaña de Almacén
@@ -64,7 +66,7 @@ export const InventoryPage: React.FC = () => {
     if (hash.includes("categoria") && canCategorias) return "categorias";
     if (hash.includes("proveedor") && canProveedores) return "proveedores";
     if (hash.includes("compra") && canCompras) return "compras";
-    if (hash.includes("despacho") && canDespacho) return "despacho";
+    if ((hash.includes("historial") || hash.includes("despacho")) && canDespacho) return "despacho";
     if (hash.includes("recogido") && canRecogidos) return "recogidos";
     if ((hash.includes("devolucion") || hash.includes("liquidacion_tecnico")) && canDevoluciones) return "devoluciones";
     if ((hash.includes("liquidaciones") || hash.includes("liquidaciones_ordenes")) && canLiquidaciones) return "liquidaciones_ordenes";
@@ -108,7 +110,7 @@ export const InventoryPage: React.FC = () => {
       if (hash.includes("categoria") && canCategorias) setTabActiva("categorias");
       else if (hash.includes("proveedor") && canProveedores) setTabActiva("proveedores");
       else if (hash.includes("compra") && canCompras) setTabActiva("compras");
-      else if (hash.includes("despacho") && canDespacho) setTabActiva("despacho");
+      else if ((hash.includes("historial") || hash.includes("despacho")) && canDespacho) setTabActiva("despacho");
       else if (hash.includes("recogido") && canRecogidos) setTabActiva("recogidos");
       else if ((hash.includes("devolucion") || hash.includes("liquidacion_tecnico")) && canDevoluciones) setTabActiva("devoluciones");
       else if ((hash.includes("liquidaciones") || hash.includes("liquidaciones_ordenes")) && canLiquidaciones) setTabActiva("liquidaciones_ordenes");
@@ -170,8 +172,8 @@ export const InventoryPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Botones de Acción: Chat y Refrescar */}
-        <div className="flex items-center gap-2">
+        {/* Botones de Acción: Chat, Refrescar y Perfil de Usuario */}
+        <div className="flex items-center gap-2.5">
           <OnlineChatDropdown />
           <button
             onClick={cargarDatos}
@@ -181,6 +183,9 @@ export const InventoryPage: React.FC = () => {
             <RefreshCw size={15} className={loading ? "animate-spin text-sky-600" : ""} />
             <span className="hidden sm:inline">Actualizar</span>
           </button>
+          <div className="border-l border-slate-200/90 pl-1.5 ml-0.5">
+            <UserProfileDropdown />
+          </div>
         </div>
 
       </div>

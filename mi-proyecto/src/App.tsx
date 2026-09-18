@@ -237,6 +237,9 @@ export default function App() {
     currentView === "stock" ||
     currentView === "compras" ||
     currentView === "despacho" ||
+    currentView === "historial_despachos" ||
+    currentView === "historial-despachos" ||
+    currentView === "historial" ||
     currentView === "recogidos" ||
     currentView === "devolucion" ||
     currentView === "devoluciones" ||

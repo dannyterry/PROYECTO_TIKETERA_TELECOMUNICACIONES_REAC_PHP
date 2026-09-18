@@ -56,6 +56,7 @@ export const QuickDispatchModal: React.FC<Props> = ({
   // Asignación de Actas / Guías por Rango Correlativo (Sin escáner)
   const [prefijoActa, setPrefijoActa] = useState("001-");
   const [correlativoInicio, setCorrelativoInicio] = useState("04201");
+  const [correlativoFin, setCorrelativoFin] = useState("04250");
   const [esSegundoUso, setEsSegundoUso] = useState<boolean>(false);
 
   // Cargar técnicos
@@ -100,6 +101,7 @@ export const QuickDispatchModal: React.FC<Props> = ({
         setCantidad(50);
         setPrefijoActa("001-");
         setCorrelativoInicio("04201");
+        setCorrelativoFin("04250");
         setSeriesPistoleadas([]);
       } else if (producto.maneja_serie) {
         setCantidad(1);
@@ -129,11 +131,44 @@ export const QuickDispatchModal: React.FC<Props> = ({
   const stockActualTecnico = Number(itemEnTecnico?.stock || 0);
 
   // Cálculo del número final de acta según cantidad y correlativo inicial
-  const parseNumInicio = parseInt(correlativoInicio.replace(/\D/g, ""), 10) || 1;
-  const padLength = Math.max(5, correlativoInicio.replace(/\D/g, "").length || 5);
-  const parseNumFin = parseNumInicio + Math.max(1, cantidad) - 1;
+  const rawIni = correlativoInicio.replace(/\D/g, "");
+  const rawFin = correlativoFin.replace(/\D/g, "");
+  const padLength = Math.max(5, rawIni.length, rawFin.length);
+  const parseNumInicio = parseInt(rawIni, 10) || 1;
+  const parseNumFin = parseInt(rawFin, 10) || (parseNumInicio + Math.max(1, cantidad) - 1);
   const correlativoFinCalculado = String(parseNumFin).padStart(padLength, "0");
   const correlativoInicioFormateado = String(parseNumInicio).padStart(padLength, "0");
+
+  const handleInicioChange = (val: string) => {
+    const clean = val.replace(/\D/g, "");
+    setCorrelativoInicio(clean);
+    const pIni = parseInt(clean, 10) || 0;
+    const pFin = parseInt(correlativoFin.replace(/\D/g, ""), 10) || 0;
+    if (pFin >= pIni && pIni > 0) {
+      setCantidad(pFin - pIni + 1);
+    } else if (pIni > 0) {
+      setCorrelativoFin(String(pIni + cantidad - 1).padStart(padLength, "0"));
+    }
+  };
+
+  const handleFinChange = (val: string) => {
+    const clean = val.replace(/\D/g, "");
+    setCorrelativoFin(clean);
+    const pFin = parseInt(clean, 10) || 0;
+    const pIni = parseInt(correlativoInicio.replace(/\D/g, ""), 10) || 0;
+    if (pFin >= pIni && pIni > 0) {
+      setCantidad(pFin - pIni + 1);
+    }
+  };
+
+  const handleCantidadChange = (val: number) => {
+    const cant = Math.max(1, val);
+    setCantidad(cant);
+    const pIni = parseInt(correlativoInicio.replace(/\D/g, ""), 10) || 0;
+    if (pIni > 0) {
+      setCorrelativoFin(String(pIni + cant - 1).padStart(padLength, "0"));
+    }
+  };
 
   // Generador de series correlativas para Actas
   const generarSeriesActas = (): string[] => {
@@ -411,68 +446,90 @@ export const QuickDispatchModal: React.FC<Props> = ({
                   <FileText size={16} className="text-amber-700" />
                   Asignación de Talonario por Rango Correlativo (Sin Escáner)
                 </span>
-                <span className="text-[10px] font-black px-2 py-0.5 bg-amber-200 text-amber-900 rounded-md">
-                  {cantidad} Actas a asignar
-                </span>
+                <div className="flex items-center gap-2">
+                  {/* Selector Nuevo vs 2do Uso */}
+                  <div className="flex items-center gap-1 bg-white p-0.5 rounded-xl border border-amber-200">
+                    <button
+                      type="button"
+                      onClick={() => setEsSegundoUso(false)}
+                      className={`px-2.5 py-1 text-[10px] font-bold rounded-lg transition-all cursor-pointer ${
+                        !esSegundoUso
+                          ? "bg-emerald-500 text-white shadow-2xs font-extrabold"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      ✨ Nuevo (Central)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEsSegundoUso(true)}
+                      className={`px-2.5 py-1 text-[10px] font-bold rounded-lg transition-all cursor-pointer ${
+                        esSegundoUso
+                          ? "bg-amber-500 text-white shadow-2xs font-extrabold"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      🔄 2do Uso (Reintegrada)
+                    </button>
+                  </div>
+
+                  <span className="text-[10px] font-black px-2 py-0.5 bg-amber-200 text-amber-900 rounded-md">
+                    {cantidad} Actas a asignar
+                  </span>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 <div>
                   <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Cantidad de Actas:
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="500"
-                    value={cantidad}
-                    onChange={(e) => setCantidad(Math.max(1, Number(e.target.value) || 1))}
-                    className="w-full p-2.5 bg-white border border-amber-300 rounded-xl font-mono font-black text-sm text-slate-900 text-center shadow-2xs"
-                  />
-                  <div className="flex gap-1 mt-1 justify-center">
-                    {[25, 50, 100].map((num) => (
-                      <button
-                        key={num}
-                        type="button"
-                        onClick={() => setCantidad(num)}
-                        className={`text-[9px] font-bold px-2 py-0.5 rounded-md border transition-all cursor-pointer ${
-                          cantidad === num
-                            ? "bg-amber-600 text-white border-amber-600"
-                            : "bg-white text-amber-900 border-amber-200 hover:bg-amber-100"
-                        }`}
-                      >
-                        {num}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Prefijo de Serie:
+                    Prefijo:
                   </label>
                   <input
                     type="text"
                     value={prefijoActa}
                     onChange={(e) => setPrefijoActa(e.target.value)}
                     placeholder="001-"
-                    className="w-full p-2.5 bg-white border border-amber-300 rounded-xl font-mono font-bold text-xs text-slate-800 text-center shadow-2xs"
+                    className="w-full p-2 bg-white border border-amber-300 rounded-xl font-mono font-bold text-xs text-slate-800 text-center shadow-2xs outline-none"
                   />
-                  <span className="text-[9px] text-slate-400 block text-center mt-1">Ej: 001-</span>
                 </div>
 
                 <div>
                   <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Correlativo Inicial:
+                    Número Inicio:
                   </label>
                   <input
                     type="text"
                     value={correlativoInicio}
-                    onChange={(e) => setCorrelativoInicio(e.target.value.replace(/\D/g, ""))}
+                    onChange={(e) => handleInicioChange(e.target.value)}
                     placeholder="04201"
-                    className="w-full p-2.5 bg-white border border-amber-300 rounded-xl font-mono font-bold text-xs text-slate-800 text-center shadow-2xs"
+                    className="w-full p-2 bg-white border border-amber-300 rounded-xl font-mono font-bold text-xs text-slate-800 text-center shadow-2xs outline-none"
                   />
-                  <span className="text-[9px] text-slate-400 block text-center mt-1">Número de la 1ra hoja</span>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
+                    Número Fin:
+                  </label>
+                  <input
+                    type="text"
+                    value={correlativoFin}
+                    onChange={(e) => handleFinChange(e.target.value)}
+                    placeholder="04250"
+                    className="w-full p-2 bg-white border border-amber-300 rounded-xl font-mono font-bold text-xs text-slate-800 text-center shadow-2xs outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
+                    Cantidad:
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={cantidad}
+                    onChange={(e) => handleCantidadChange(Number(e.target.value) || 1)}
+                    className="w-full p-2 bg-amber-100/60 border border-amber-300 rounded-xl font-mono font-black text-xs text-amber-950 text-center shadow-2xs outline-none"
+                  />
                 </div>
               </div>
 
@@ -493,7 +550,12 @@ export const QuickDispatchModal: React.FC<Props> = ({
                   </span>
                 </div>
 
-                <div className="text-right">
+                <div className="text-right flex items-center gap-2">
+                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md border ${
+                    esSegundoUso ? "bg-amber-100 text-amber-800 border-amber-300" : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                  }`}>
+                    {esSegundoUso ? "🔄 2do Uso" : "✨ Nuevo"}
+                  </span>
                   <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 block">
                     ✓ {cantidad} series correlativas
                   </span>

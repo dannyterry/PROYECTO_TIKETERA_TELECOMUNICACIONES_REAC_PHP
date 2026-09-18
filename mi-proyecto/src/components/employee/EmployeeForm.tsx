@@ -69,6 +69,7 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
     
     // Laborales y Planilla
     area: "", 
+    tipo_servicio: "",
     fechaIngreso: "",
     opcionPersonal: "", 
     cuadrilla: "",      
@@ -112,13 +113,141 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
     direccionEmergencia: "",
 
     // Archivos (Guardan el nombre en estado solo para mostrar en UI)
-    foto: "", cv: "", dni_pdf: "", licencia_pdf: "", recibo_servicio_pdf: "", certijoven_pdf: ""
+    foto: "",
+    doc_delantera: "",
+    doc_trasera: "",
+    brevete_delantera: "",
+    brevete_trasera: "",
+    revision_tecnica_frontal: "",
+    revision_tecnica_posterior: "",
+    tarjeta_propiedad_frontal: "",
+    tarjeta_propiedad_posterior: "",
+    recibo_servicio_pdf: "",
+    cv: "",
+    certijoven_pdf: "",
+    otro_documento_pdf: "",
+    dni_pdf: "",
+    licencia_pdf: ""
   });
 
+  const [previewUrls, setPreviewUrls] = useState<{ [key: string]: string }>({});
   const [loading, setLoading] = useState(false);
   const [tasasAfp, setTasasAfp] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]); 
   const [areas, setAreas] = useState<AreaItem[]>([]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, fieldName: string) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setFormData(prev => ({ ...prev, [fieldName]: file.name }));
+      if (file.type.startsWith("image/")) {
+        const url = URL.createObjectURL(file);
+        setPreviewUrls(prev => ({ ...prev, [fieldName]: url }));
+      }
+    }
+  };
+
+  const handleRemoveFile = (fieldName: string) => {
+    setFormData(prev => ({ ...prev, [fieldName]: "" }));
+    setPreviewUrls(prev => {
+      const copy = { ...prev };
+      delete copy[fieldName];
+      return copy;
+    });
+    const formElement = document.querySelector("form");
+    const fileInput = formElement?.elements.namedItem(fieldName) as HTMLInputElement;
+    if (fileInput) fileInput.value = "";
+  };
+
+  const getImageSrc = (fieldName: string, currentVal: string) => {
+    if (previewUrls[fieldName]) return previewUrls[fieldName];
+    if (currentVal && typeof currentVal === "string" && currentVal.trim() !== "") {
+      if (currentVal.startsWith("blob:") || currentVal.startsWith("data:")) return currentVal;
+      // Si ya viene de la BD y es archivo de imagen
+      const lower = currentVal.toLowerCase();
+      if (lower.endsWith(".jpg") || lower.endsWith(".png") || lower.endsWith(".jpeg") || lower.endsWith(".webp") || !lower.includes(".")) {
+        return `${API_URL}/uploads/${currentVal}`;
+      }
+    }
+    return null;
+  };
+
+  const renderDocSlot = (slot: {
+    label: string;
+    name: string;
+    accept: string;
+    isPdf?: boolean;
+    isImg?: boolean;
+  }) => {
+    const valorActual = (formData as any)[slot.name];
+    const tieneArchivo = !!valorActual;
+    const imgSrc = getImageSrc(slot.name, valorActual);
+    const isImageFile = imgSrc || slot.isImg || (!slot.isPdf && valorActual && (valorActual.toLowerCase().endsWith(".jpg") || valorActual.toLowerCase().endsWith(".png") || valorActual.toLowerCase().endsWith(".jpeg") || valorActual.toLowerCase().endsWith(".webp")));
+
+    return (
+      <div key={slot.name} className="flex flex-col gap-1">
+        <div className="flex items-center justify-between text-[11px]">
+          <span className="font-semibold text-gray-700 truncate">{slot.label}</span>
+          {tieneArchivo && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">✓ Listo</span>}
+        </div>
+        <div className="relative group">
+          {tieneArchivo && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRemoveFile(slot.name);
+              }}
+              className="absolute -top-2 -right-2 z-20 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold hover:bg-red-600 shadow-sm transition-transform hover:scale-110 cursor-pointer"
+              title="Quitar archivo"
+            >
+              ✕
+            </button>
+          )}
+
+          <input
+            type="file"
+            name={slot.name}
+            accept={slot.accept}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+            onChange={(e) => handleFileChange(e, slot.name)}
+          />
+
+          <div className={`flex items-center gap-2.5 border-2 border-dashed rounded-lg p-2 transition-all duration-200 ${
+            tieneArchivo
+              ? 'border-emerald-500 bg-emerald-50/70'
+              : 'border-gray-300 bg-white group-hover:border-emerald-400 group-hover:bg-emerald-50/20'
+          }`}>
+            {tieneArchivo && isImageFile && imgSrc ? (
+              <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-md border border-emerald-300 bg-white shadow-2xs">
+                <img
+                  src={imgSrc}
+                  alt={slot.label}
+                  className="h-full w-full object-cover"
+                  onError={(e) => {
+                    (e.target as HTMLElement).style.display = "none";
+                  }}
+                />
+              </div>
+            ) : (
+              <span className="text-xl shrink-0">
+                {tieneArchivo ? "📄" : slot.isPdf ? "📕" : slot.isImg ? "🖼️" : "📁"}
+              </span>
+            )}
+
+            <div className="flex-1 min-w-0">
+              <p className={`text-xs font-bold truncate ${tieneArchivo ? 'text-emerald-800' : 'text-gray-700'}`}>
+                {tieneArchivo ? valorActual : "Seleccionar"}
+              </p>
+              <p className={`text-[10px] truncate ${tieneArchivo ? 'text-emerald-600 font-medium' : 'text-gray-400'}`}>
+                {tieneArchivo ? "Clic para cambiar" : slot.isPdf ? "Solo PDF" : "Solo JPG / PNG"}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   // Generamos un sufijo numérico y una contraseña aleatoria una sola vez al cargar
   const [credencialesAuto] = useState(() => {
@@ -180,6 +309,7 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
         actividadEconomica: e.actividadEconomica || "",
         
         area: e.area || "",
+        tipo_servicio: e.tipo_servicio || "",
         fechaIngreso: e.fechaIngreso || "",
         opcionPersonal: e.opcionPersonal || "", 
         cuadrilla: e.cuadrilla || "",            
@@ -216,11 +346,20 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
         esposaNacimiento: e.esposaNacimiento || "",
 
         foto: e.foto || "",
+        doc_delantera: e.doc_delantera || "",
+        doc_trasera: e.doc_trasera || "",
+        brevete_delantera: e.brevete_delantera || "",
+        brevete_trasera: e.brevete_trasera || "",
+        revision_tecnica_frontal: e.revision_tecnica_frontal || "",
+        revision_tecnica_posterior: e.revision_tecnica_posterior || "",
+        tarjeta_propiedad_frontal: e.tarjeta_propiedad_frontal || "",
+        tarjeta_propiedad_posterior: e.tarjeta_propiedad_posterior || "",
+        recibo_servicio_pdf: e.recibo_servicio_pdf || "",
         cv: e.cv || "",
+        certijoven_pdf: e.certijoven_pdf || "",
+        otro_documento_pdf: e.otro_documento_pdf || "",
         dni_pdf: e.dni_pdf || "",
         licencia_pdf: e.licencia_pdf || "",
-        recibo_servicio_pdf: e.recibo_servicio_pdf || "",
-        certijoven_pdf: e.certijoven_pdf || "",
         
         hijos: e.hijos && e.hijos.length > 0 
           ? e.hijos 
@@ -297,9 +436,16 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
       const formElement = e.target as HTMLFormElement;
       const formFisico = new FormData();
 
+      const docKeys = [
+        "hijos", "foto", "doc_delantera", "doc_trasera", "brevete_delantera", "brevete_trasera",
+        "revision_tecnica_frontal", "revision_tecnica_posterior", "tarjeta_propiedad_frontal",
+        "tarjeta_propiedad_posterior", "recibo_servicio_pdf", "cv", "certijoven_pdf",
+        "otro_documento_pdf", "dni_pdf", "licencia_pdf"
+      ];
+
       // 1. Agregar todos los textos al FormData
       Object.keys(formData).forEach(key => {
-        if (!["hijos", "foto", "cv", "dni_pdf", "licencia_pdf", "recibo_servicio_pdf", "certijoven_pdf"].includes(key)) {
+        if (!docKeys.includes(key)) {
           formFisico.append(key, (formData as any)[key] || "");
         }
       });
@@ -325,11 +471,18 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
       };
 
       addFileToForm("foto", "foto_personal");
-      addFileToForm("cv", "cv_pdf");
-      addFileToForm("dni_pdf", "dni_pdf");
-      addFileToForm("licencia_pdf", "licencia_pdf");
+      addFileToForm("doc_delantera", "doc_delantera");
+      addFileToForm("doc_trasera", "doc_trasera");
+      addFileToForm("brevete_delantera", "brevete_delantera");
+      addFileToForm("brevete_trasera", "brevete_trasera");
+      addFileToForm("revision_tecnica_frontal", "revision_tecnica_frontal");
+      addFileToForm("revision_tecnica_posterior", "revision_tecnica_posterior");
+      addFileToForm("tarjeta_propiedad_frontal", "tarjeta_propiedad_frontal");
+      addFileToForm("tarjeta_propiedad_posterior", "tarjeta_propiedad_posterior");
       addFileToForm("recibo_servicio_pdf", "recibo_servicio_pdf");
+      addFileToForm("cv", "cv_pdf");
       addFileToForm("certijoven_pdf", "certificado_pdf");
+      addFileToForm("otro_documento_pdf", "otro_documento_pdf");
 
       // 4. Enviar a tu servicio
       if (esModoEdicion && empleadoAEditar) {
@@ -443,11 +596,15 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
         </select>
       </div>
 
-      <div className="flex flex-col gap-1.5"><label className="text-xs font-medium text-gray-700">Rol *</label><select name="id_rol" value={formData.id_rol} onChange={handleChange} className={selectClass} required><option value="">Seleccione un rol</option>{roles.map((rol) => (<option key={rol.id_rol} value={rol.id_rol}>{rol.nombre}</option>))}</select></div>
-      <div className="flex flex-col gap-1.5"><label className="text-xs font-medium text-gray-700">Tipo Documento *</label><select name="tipoDocumento" value={formData.tipoDocumento} onChange={handleChange} className={selectClass}><option value="DNI">DNI</option><option value="CE">Carné de Extranjería</option></select></div>
-      
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-gray-700">Tipo Documento *</label>
+        <select name="tipoDocumento" value={formData.tipoDocumento} onChange={handleChange} className={selectClass}>
+          <option value="DNI">DNI</option>
+          <option value="CE">Carné de Extranjería</option>
+        </select>
+      </div>
 
-        {/* 🚀 CAJA DINÁMICA DE DETALLES DEL ESTADO */}
+      {/* 🚀 CAJA DINÁMICA DE DETALLES DEL ESTADO */}
       {(formData.estado !== "Activo" || (esModoEdicion && empleadoAEditar?.estado !== "Activo" && formData.estado === "Activo")) && (
         <div className={`col-span-full grid grid-cols-1 md:grid-cols-3 gap-4 p-4 rounded-xl border mt-1 mb-2 animate-in fade-in zoom-in duration-300 shadow-sm ${
           formData.estado === "Activo" ? "bg-emerald-50/80 border-emerald-200" : "bg-orange-50/80 border-orange-200"
@@ -485,6 +642,68 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
           </div>
         </div>
       )}
+
+      {/* 🚀 LOS 4 DESPLEGABLES JUNTOS CON ESTILO NORMAL: ÁREA, CARGO, TIPO DE SERVICIO Y OPCIÓN PERSONAL */}
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-gray-700">Área *</label>
+        <select name="id_rol" value={formData.id_rol} onChange={handleChange} className={selectClass} required>
+          <option value="">Seleccione un área</option>
+          {roles.map((rol) => (
+            <option key={rol.id_rol} value={rol.id_rol}>{rol.nombre}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-gray-700">Cargo</label>
+        <select name="area" value={formData.area} onChange={handleChange} className={selectClass}>
+          <option value="">Elegir Cargo...</option>
+          {(() => {
+            const nombresDeBd = areas
+              .filter((a) => a.estado === "Activo")
+              .map((a) => a.nombre);
+            
+            const todasLasAreas = Array.from(new Set([...areasFijas, ...nombresDeBd]));
+
+            return todasLasAreas.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ));
+          })()}
+          {formData.area &&
+            !areasFijas.includes(formData.area) &&
+            !areas.some((a) => a.nombre === formData.area) && (
+              <option value={formData.area}>{formData.area}</option>
+            )}
+        </select>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-gray-700">Tipo de Servicio</label>
+        <select name="tipo_servicio" value={formData.tipo_servicio} onChange={handleChange} className={selectClass}>
+          <option value="">Seleccionar Tipo de Servicio...</option>
+          <option value="MOTO WIN">MOTO WIN</option>
+          <option value="POST VENTA">POST VENTA</option>
+          <option value="ORDENAMIENTO">ORDENAMIENTO</option>
+          <option value="AVERIAS">AVERIAS</option>
+        </select>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-gray-700">Opción Personal</label>
+        <select
+          name="opcionPersonal"
+          value={formData.opcionPersonal?.toLowerCase() || ""}
+          onChange={handleChange}
+          className={selectClass}
+        >
+          <option value="">Seleccione Opción...</option>
+          <option value="autonomo">Autónomo</option>
+          <option value="directo">Directo</option>
+          <option value="subcontrata">Subcontrata</option>
+        </select>
+      </div>
 
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-medium text-gray-700">N° Documento (DNI) *</label>
@@ -624,49 +843,7 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
       {/* --- 2. DATOS LABORALES Y PLANILLA --- */}
       <div className="col-span-full border-t pt-4 mb-1 mt-2"><h3 className="text-sm font-bold text-emerald-700 uppercase">2. Laboral y Planilla</h3></div>
       
-      {/* ÁREA DE PERSONAL (Base fija + Áreas dinámicas de MySQL) */}
-      <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-gray-700">Área</label>
-        <select name="area" value={formData.area} onChange={handleChange} className={selectClass}>
-          <option value="">Elegir Área</option>
-          {(() => {
-            // Unir la lista base con las creadas en la BD (evitando duplicados)
-            const nombresDeBd = areas
-              .filter((a) => a.estado === "Activo")
-              .map((a) => a.nombre);
-            
-            const todasLasAreas = Array.from(new Set([...areasFijas, ...nombresDeBd]));
-
-            return todasLasAreas.map((a) => (
-              <option key={a} value={a}>
-                {a}
-              </option>
-            ));
-          })()}
-          {/* Si el empleado ya tenía otra área histórica no contemplada, mantenerla seleccionada */}
-          {formData.area &&
-            !areasFijas.includes(formData.area) &&
-            !areas.some((a) => a.nombre === formData.area) && (
-              <option value={formData.area}>{formData.area}</option>
-            )}
-        </select>
-      </div>
-
       <div className="flex flex-col gap-1.5"><label className="text-xs font-medium text-gray-700">Fecha Ingreso</label><Input name="fechaIngreso" value={formData.fechaIngreso} onChange={handleChange} type="date" className="w-full" /></div>
-      <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-gray-700">Opción personal</label>
-        <select
-          name="opcionPersonal"
-          value={formData.opcionPersonal?.toLowerCase() || ""}
-          onChange={handleChange}
-          className={selectClass}
-        >
-          <option value="">Seleccione</option>
-          <option value="autonomo">Autónomo</option>
-          <option value="directo">Directo</option>
-          <option value="subcontrata">Subcontrata</option>
-        </select>
-      </div>
       
       <div className="flex flex-col gap-1.5"><label className="text-xs font-medium text-gray-700">Régimen Pensionario (AFP/ONP)</label><select name="regimenPensionario" value={formData.regimenPensionario} onChange={(e) => { handleChange(e); if (!e.target.value.includes("AFP")) { setFormData(prev => ({ ...prev, regimenPensionario: e.target.value, tipoComision: "", cuspp: "" })); } }} className={selectClass}><option value="">Elegir Régimen</option><option value="ONP">ONP</option><option value="AFP Integra">AFP Integra</option><option value="AFP Prima">AFP Prima</option><option value="AFP Habitat">AFP Habitat</option><option value="AFP Profuturo">AFP Profuturo</option></select></div>
       {esAFP && (<div className="flex flex-col gap-1.5 animate-in fade-in zoom-in duration-300"><label className="text-xs font-bold text-emerald-700">Tipo de Comisión AFP</label><select name="tipoComision" value={formData.tipoComision} onChange={handleChange} className={`${selectClass} border-emerald-400 bg-emerald-50`}><option value="">Seleccione Comisión...</option><option value="flujo">Comisión sobre Flujo</option><option value="saldo">Comisión Anual sobre Saldo</option></select></div>)}
@@ -749,70 +926,130 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
       <div className="flex flex-col gap-1.5 col-span-1 md:col-span-2 xl:col-span-1"><label className="text-xs font-medium text-gray-700">Dirección Emergencia</label><Input name="direccionEmergencia" value={formData.direccionEmergencia} onChange={handleChange} placeholder="Dirección" className="w-full" /></div>
 
       {/* --- 6. DOCUMENTOS ADJUNTOS --- */}
-      <div className="col-span-full border-t border-gray-200 pt-6 mt-4"><h3 className="text-sm font-bold text-emerald-700 uppercase flex items-center gap-2"><span className="bg-emerald-100 p-1.5 rounded-full text-emerald-700">📄</span> 6. Documentos Adjuntos</h3></div>
+      <div className="col-span-full border-t border-gray-200 pt-6 mt-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <h3 className="text-sm font-bold text-emerald-700 uppercase flex items-center gap-2">
+            <span className="bg-emerald-100 p-1.5 rounded-full text-emerald-700">📄</span> 6. Documentos Adjuntos
+          </h3>
+          <span className="text-xs text-gray-500 font-medium">
+            Formatos admitidos: DNI, Brevete, Rev. Técnica y Tarjeta en <strong className="text-blue-600">JPG/PNG</strong> | Recibos, CV y Certificados en <strong className="text-amber-600">PDF</strong>
+          </span>
+        </div>
+      </div>
       
-      <div className="col-span-full bg-white p-6 rounded-xl border border-gray-200 shadow-sm grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {[
-          { label: "Foto Perfil (JPG/PNG)", name: "foto" },
-          { label: "Licencia (PDF Cara/Sello)", name: "licencia_pdf" },
-          { label: "CV (PDF)", name: "cv" },
-          { label: "DNI (PDF)", name: "dni_pdf" },
-          { label: "Recibo Agua/Luz (PDF)", name: "recibo_servicio_pdf" },
-          { label: "CertiJoven/Adulto (PDF)", name: "certijoven_pdf" }
-        ].map((file) => {
-          
-          const valorActual = (formData as any)[file.name];
-          const tieneArchivo = !!valorActual;
+      <div className="col-span-full bg-white p-5 rounded-xl border border-gray-200 shadow-sm grid grid-cols-1 md:grid-cols-2 gap-4">
+        
+        {/* 🪪 1. DNI (2 Caras) */}
+        <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/50 flex flex-col gap-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-bold text-gray-800 uppercase tracking-tight">🪪 DNI (Documento de Identidad)</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-800 border border-blue-200">
+              2 Caras (JPG/PNG)
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            {renderDocSlot({ label: "Cara Frontal (Anverso)", name: "doc_delantera", accept: "image/*", isImg: true })}
+            {renderDocSlot({ label: "Cara Posterior (Reverso)", name: "doc_trasera", accept: "image/*", isImg: true })}
+          </div>
+        </div>
 
-          return (
-            <div key={file.name} className="flex flex-col gap-2">
-              <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">{file.label}</label>
-              <div className="relative group">
-                
-                {tieneArchivo && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setFormData({...formData, [file.name]: ""});
-                      const formElement = document.querySelector('form');
-                      const fileInput = formElement?.elements.namedItem(file.name) as HTMLInputElement;
-                      if(fileInput) fileInput.value = '';
-                    }}
-                    className="absolute -top-2 -right-2 z-10 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold hover:bg-red-600 shadow-sm transition-transform hover:scale-110"
-                    title="Quitar archivo"
-                  >
-                    ✕
-                  </button>
-                )}
+        {/* 🚗 2. BREVETE / LICENCIA (2 Caras) */}
+        <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/50 flex flex-col gap-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-bold text-gray-800 uppercase tracking-tight">🚗 Brevete / Licencia de Conducir</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-800 border border-blue-200">
+              2 Caras (JPG/PNG)
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            {renderDocSlot({ label: "Cara Frontal", name: "brevete_delantera", accept: "image/*", isImg: true })}
+            {renderDocSlot({ label: "Cara Posterior", name: "brevete_trasera", accept: "image/*", isImg: true })}
+          </div>
+        </div>
 
-                <input 
-                  type="file" 
-                  name={file.name} 
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-0"
-                  onChange={(e) => {
-                    if(e.target.files && e.target.files[0]) {
-                      setFormData({...formData, [file.name]: e.target.files[0].name});
-                    }
-                  }}
-                />
-                
-                <div className={`flex items-center gap-3 border-2 border-dashed rounded-lg p-3 transition-all duration-300 ${tieneArchivo ? 'border-emerald-500 bg-emerald-50' : 'border-gray-300 bg-gray-50 group-hover:border-emerald-500 group-hover:bg-emerald-50'}`}>
-                  <span className="text-xl">{tieneArchivo ? "✅" : "📁"}</span>
-                  <div className="flex-1 truncate">
-                    <p className={`text-xs font-bold truncate ${tieneArchivo ? 'text-emerald-700' : 'text-gray-700'}`}>
-                      {tieneArchivo ? valorActual : "Seleccionar archivo"}
-                    </p>
-                    <p className={`text-[10px] ${tieneArchivo ? 'text-emerald-600 font-semibold' : 'text-gray-400'}`}>
-                      {tieneArchivo ? "Documento ya cargado" : "Haz clic para buscar"}
-                    </p>
-                  </div>
-                </div>
+        {/* 🛠️ 3. REVISIÓN TÉCNICA (2 Caras) */}
+        <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/50 flex flex-col gap-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-bold text-gray-800 uppercase tracking-tight">🛠️ Revisión Técnica Vehicular</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-800 border border-blue-200">
+              2 Caras (JPG/PNG)
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            {renderDocSlot({ label: "Cara Frontal", name: "revision_tecnica_frontal", accept: "image/*", isImg: true })}
+            {renderDocSlot({ label: "Cara Posterior", name: "revision_tecnica_posterior", accept: "image/*", isImg: true })}
+          </div>
+        </div>
 
-              </div>
-            </div>
-          );
-        })}
+        {/* 📜 4. TARJETA DE PROPIEDAD (2 Caras) */}
+        <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/50 flex flex-col gap-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-bold text-gray-800 uppercase tracking-tight">📜 Tarjeta / Título de Propiedad</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-800 border border-blue-200">
+              2 Caras (JPG/PNG)
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            {renderDocSlot({ label: "Cara Frontal", name: "tarjeta_propiedad_frontal", accept: "image/*", isImg: true })}
+            {renderDocSlot({ label: "Cara Posterior", name: "tarjeta_propiedad_posterior", accept: "image/*", isImg: true })}
+          </div>
+        </div>
+
+        {/* 📸 5. FOTO DE PERFIL */}
+        <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/50 flex flex-col gap-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-bold text-gray-800 uppercase tracking-tight">📸 Foto de Perfil</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-800 border border-blue-200">
+              JPG / PNG
+            </span>
+          </div>
+          {renderDocSlot({ label: "Fotografía personal", name: "foto", accept: "image/*", isImg: true })}
+        </div>
+
+        {/* 💡 6. RECIBO DE SERVICIOS */}
+        <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/50 flex flex-col gap-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-bold text-gray-800 uppercase tracking-tight">💡 Recibo Agua / Luz (Servicios)</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800 border border-amber-200">
+              Solo PDF
+            </span>
+          </div>
+          {renderDocSlot({ label: "Comprobante de domicilio", name: "recibo_servicio_pdf", accept: ".pdf,application/pdf", isPdf: true })}
+        </div>
+
+        {/* 📄 7. CURRICULUM VITAE (CV) */}
+        <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/50 flex flex-col gap-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-bold text-gray-800 uppercase tracking-tight">📄 Curriculum Vitae (CV)</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800 border border-amber-200">
+              Solo PDF
+            </span>
+          </div>
+          {renderDocSlot({ label: "Hoja de vida", name: "cv", accept: ".pdf,application/pdf", isPdf: true })}
+        </div>
+
+        {/* 🎓 8. CERTIJOVEN / CERTIADULTO */}
+        <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/50 flex flex-col gap-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-bold text-gray-800 uppercase tracking-tight">🎓 CertiJoven / CertiAdulto</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800 border border-amber-200">
+              Solo PDF
+            </span>
+          </div>
+          {renderDocSlot({ label: "Certificado único laboral", name: "certijoven_pdf", accept: ".pdf,application/pdf", isPdf: true })}
+        </div>
+
+        {/* 📂 9. OTROS DOCUMENTOS */}
+        <div className="col-span-full p-3.5 rounded-xl border border-gray-200 bg-gray-50/50 flex flex-col gap-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-bold text-gray-800 uppercase tracking-tight">📂 Otros Documentos Adicionales</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-purple-100 text-purple-800 border border-purple-200">
+              JPG / PNG / PDF
+            </span>
+          </div>
+          {renderDocSlot({ label: "Documentos complementarios u otros anexos", name: "otro_documento_pdf", accept: "image/*,.pdf,application/pdf" })}
+        </div>
+
       </div>
 
       <button type="submit" disabled={loading} className="col-span-full mt-6 rounded-lg bg-emerald-600 py-3.5 font-bold tracking-wide text-white shadow-md hover:bg-emerald-700 disabled:bg-gray-400 transition-all duration-200 focus:ring-4 focus:ring-emerald-300">

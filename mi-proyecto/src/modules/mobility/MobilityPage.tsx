@@ -10,7 +10,9 @@ import {
   ShieldCheck,
   AlertTriangle,
   Sparkles,
+  LogOut,
 } from "lucide-react";
+import { authService } from "../../services/authService";
 import {
   Vehiculo,
   Tecnico,
@@ -32,6 +34,7 @@ import { FuelManagementTab } from "./components/FuelManagementTab";
 import { FleetManagementTab } from "./components/FleetManagementTab";
 import { TechnicianChecklistModal } from "./components/TechnicianChecklistModal";
 import { OnlineChatDropdown } from "../../components/chat/OnlineChatDropdown";
+import { UserProfileDropdown } from "../../components/layout/UserProfileDropdown";
 
 export const MobilityPage: React.FC = () => {
   const getInitialTab = (): "inspecciones" | "dashboard" | "combustible" | "flota" => {
@@ -131,8 +134,14 @@ export const MobilityPage: React.FC = () => {
 
   const pendientesCount = inspecciones.filter((i) => i.estado_auditoria === "Pendiente").length;
 
+  const handleLogout = () => {
+    authService.logout();
+    window.location.hash = "";
+    window.location.reload();
+  };
+
   return (
-    <div className="w-full max-w-7xl mx-auto space-y-6 pb-12 animate-fade-in">
+    <div className="w-full space-y-6 pb-12 animate-fade-in">
       
       {/* ─────────────────────────────────────────────────────────────
           1. HEADER PRINCIPAL DEL MÓDULO DE MOVILIDAD
@@ -181,11 +190,15 @@ export const MobilityPage: React.FC = () => {
 
           <button
             onClick={() => setModalChecklistAbierto(true)}
-            className="flex-1 md:flex-none px-5 py-2 bg-gradient-to-r from-sky-600 to-cyan-600 hover:from-sky-700 hover:to-cyan-700 text-white font-bold text-xs rounded-2xl shadow-md shadow-sky-600/25 flex items-center justify-center gap-2 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98] h-9"
+            className="flex-1 md:flex-none px-4 py-2 bg-gradient-to-r from-sky-600 to-cyan-600 hover:from-sky-700 hover:to-cyan-700 text-white font-bold text-xs rounded-2xl shadow-md shadow-sky-600/25 flex items-center justify-center gap-2 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98] h-9"
           >
             <Plus size={16} />
-            <span>Checklist Diario (Técnico)</span>
+            <span>Checklist Diario</span>
           </button>
+
+          <div className="border-l border-slate-200/90 pl-1.5 ml-0.5">
+            <UserProfileDropdown />
+          </div>
         </div>
       </div>
 

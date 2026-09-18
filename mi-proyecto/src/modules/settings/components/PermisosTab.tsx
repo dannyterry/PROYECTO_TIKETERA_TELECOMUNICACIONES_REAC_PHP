@@ -30,6 +30,15 @@ const CATALOGO_AREAS: Record<
     modulos: Record<string, { nombre: string; acciones: string[] }>;
   }
 > = {
+  dashboard: {
+    nombre: "Dirección Ejecutiva & Auditoría",
+    modulos: {
+      dashboard: {
+        nombre: "Dashboard Ejecutivo, KPIs & Auditoría WIN",
+        acciones: ["ver", "exportar"],
+      },
+    },
+  },
   operaciones: {
     nombre: "Operaciones & Campo",
     modulos: {
@@ -37,9 +46,9 @@ const CATALOGO_AREAS: Record<
         nombre: "Órdenes de Trabajo",
         acciones: ["ver", "crear", "editar", "eliminar", "liquidar", "sincronizar", "ver_stock"],
       },
-      liquidaciones: {
-        nombre: "Liquidaciones Técnicos",
-        acciones: ["ver", "crear", "editar", "eliminar", "exportar"],
+      portal_tecnico: {
+        nombre: "Portal Móvil del Técnico (Campo)",
+        acciones: ["ver", "ver_stock"],
       },
     },
   },
@@ -76,15 +85,19 @@ const CATALOGO_AREAS: Record<
         acciones: ["ver", "crear", "editar", "eliminar", "exportar"],
       },
       stock: {
-        nombre: "Control de Stock",
+        nombre: "Control de Stock & Movimientos",
+        acciones: ["ver", "editar", "exportar"],
+      },
+      liquidaciones: {
+        nombre: "Auditoría de Liquidaciones (Actas WIN)",
         acciones: ["ver", "editar", "exportar"],
       },
       compras: {
-        nombre: "Compras a Proveedores",
+        nombre: "Compras a Proveedores & Series",
         acciones: ["ver", "crear", "editar", "eliminar"],
       },
       almacenes: {
-        nombre: "Almacenes",
+        nombre: "Almacenes & Sedes",
         acciones: ["ver", "crear", "editar", "eliminar"],
       },
       proveedores: {
@@ -100,8 +113,25 @@ const CATALOGO_AREAS: Record<
         nombre: "Flota de Vehículos",
         acciones: ["ver", "crear", "editar", "eliminar"],
       },
+      inspecciones: {
+        nombre: "Checklist Diario de Vehículos (Inspecciones)",
+        acciones: ["ver", "crear", "editar", "eliminar", "exportar"],
+      },
       combustibles: {
         nombre: "Cargas de Combustible",
+        acciones: ["ver", "crear", "editar", "eliminar", "exportar"],
+      },
+    },
+  },
+  pagos: {
+    nombre: "Finanzas & Pagos",
+    modulos: {
+      pagos: {
+        nombre: "Producción & Pagos a Técnicos",
+        acciones: ["ver", "exportar"],
+      },
+      adelantos: {
+        nombre: "Adelantos de Sueldo a Personal",
         acciones: ["ver", "crear", "editar", "eliminar", "exportar"],
       },
     },
@@ -114,16 +144,12 @@ const CATALOGO_AREAS: Record<
         acciones: ["ver", "crear", "editar", "eliminar"],
       },
       tipo_trabajo: {
-        nombre: "Tipos de Trabajo",
+        nombre: "Tipos de Trabajo & Tarifas",
         acciones: ["ver", "crear", "editar", "eliminar"],
       },
       configuracion: {
         nombre: "Variables de Sistema & APIs",
         acciones: ["ver", "editar"],
-      },
-      dashboard: {
-        nombre: "Dashboard Ejecutivo & Auditoría",
-        acciones: ["ver"],
       },
     },
   },
@@ -456,16 +482,18 @@ export const PermisosTab: React.FC = () => {
                           <thead>
                             <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold uppercase text-slate-400">
                               <th className="py-2.5 px-3">Módulo</th>
-                              {TODAS_ACCIONES.map((acc) => {
-                                let label = acc.replace("_", " ");
-                                if (acc === "ver_dni") label = "DNI / Rol";
-                                if (acc === "ver_todos_roles") label = "Todos Roles";
-                                return (
-                                  <th key={acc} className="py-2.5 px-2 text-center whitespace-nowrap">
-                                    {label}
-                                  </th>
-                                );
-                              })}
+                                {TODAS_ACCIONES.map((acc) => {
+                                  let label = acc.replace("_", " ");
+                                  if (acc === "ver_dni") label = "DNI / Rol";
+                                  if (acc === "ver_todos_roles") label = "Todos Roles";
+                                  if (acc === "liquidar") label = "Liquidar Acta";
+                                  if (acc === "ver_stock") label = "Ver Stock";
+                                  return (
+                                    <th key={acc} className="py-2.5 px-2 text-center whitespace-nowrap capitalize">
+                                      {label}
+                                    </th>
+                                  );
+                                })}
                               <th className="py-2.5 px-2 text-center">Todos</th>
                             </tr>
                           </thead>
