@@ -82,8 +82,8 @@ export interface PerformanceData {
 }
 
 interface TechnicianPerformanceTabProps {
-  activeMainTab?: "resumen" | "tecnicos" | "auditoria";
-  setActiveMainTab?: (tab: "resumen" | "tecnicos" | "auditoria") => void;
+  activeMainTab?: "resumen" | "tecnicos" | "latencia" | "auditoria";
+  setActiveMainTab?: (tab: "resumen" | "tecnicos" | "latencia" | "auditoria") => void;
   totalGestoresOnline?: number;
 }
 
@@ -602,8 +602,21 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
                   >
                     <Users size={13} className={activeMainTab === "tecnicos" ? "text-emerald-600" : "text-slate-400"} />
                     <span>Rendimiento Técnicos</span>
-                    <span className="px-1 py-0.2 rounded-full text-[8px] font-black uppercase tracking-wider bg-emerald-500 text-white shadow-2xs">
-                      NUEVO
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveMainTab("latencia")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      activeMainTab === "latencia"
+                        ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+                    }`}
+                  >
+                    <Clock size={13} className={activeMainTab === "latencia" ? "text-indigo-600" : "text-slate-400"} />
+                    <span>Latencia 1er Tramo</span>
+                    <span className="px-1 py-0.2 rounded-full text-[8px] font-black uppercase tracking-wider bg-indigo-600 text-white shadow-2xs">
+                      8:00 AM
                     </span>
                   </button>
 

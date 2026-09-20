@@ -9496,6 +9496,203 @@ app.get(['/api/dashboard/rendimiento-tecnicos', '/dashboard/rendimiento-tecnicos
 });
 
 // ============================================================
+// ⏱️ ENDPOINT: LATENCIA DE PRIMER TRAMO (08:00 AM)
+// ============================================================
+app.get('/api/dashboard/latencia-primer-tramo', async (req, res) => {
+  try {
+    const { desde, hasta, id_tecnico, cuadrilla } = req.query;
+
+    let fechaDesde = desde;
+    let fechaHasta = hasta;
+
+    if (!fechaDesde || !fechaHasta) {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const ultDia = new Date(y, now.getMonth() + 1, 0).getDate();
+      fechaDesde = `${y}-${m}-01`;
+      fechaHasta = `${y}-${m}-${String(ultDia).padStart(2, '0')}`;
+    }
+
+    let whereSql = `
+      WHERE DATE(o.inicio_visita) >= ? 
+        AND DATE(o.inicio_visita) <= ? 
+        AND TIME(o.inicio_visita) BETWEEN '06:00:00' AND '14:00:00'
+        AND o.tecnico_asignado IS NOT NULL 
+        AND TRIM(o.tecnico_asignado) != ''
+    `;
+    const params = [fechaDesde, fechaHasta];
+
+    if (id_tecnico) {
+      whereSql += ` AND (o.id_tecnico = ? OR o.id_tecnico_reemplazo = ?)`;
+      params.push(id_tecnico, id_tecnico);
+    }
+    if (cuadrilla && cuadrilla.trim()) {
+      whereSql += ` AND o.cuadrilla LIKE ?`;
+      params.push(`%${cuadrilla.trim()}%`);
+    }
+
+    // Consulta de todas las órdenes candidatas de la mañana ordenadas por técnico, fecha e inicio
+    const sql = `
+      SELECT 
+        o.id_orden,
+        o.numero,
+        o.cliente,
+        o.tipo_trabajo,
+        o.cuadrilla,
+        TRIM(o.tecnico_asignado) AS tecnico,
+        COALESCE(o.id_tecnico_reemplazo, o.id_tecnico, 0) AS id_tecnico,
+        DATE_FORMAT(o.inicio_visita, '%Y-%m-%d') AS fecha,
+        TIME_FORMAT(o.inicio_visita, '%H:%i:%s') AS hora_inicio,
+        TIME_FORMAT(o.hora_asignacion, '%H:%i:%s') AS hora_asignacion,
+        TIME_FORMAT(o.hora_en_camino, '%H:%i:%s') AS hora_en_camino,
+        o.estado,
+        o.motivo_finalizacion,
+        ROUND((TIME_TO_SEC(TIME(o.inicio_visita)) - TIME_TO_SEC('08:00:00')) / 60) AS diff_minutos
+      FROM ordenes o
+      ${whereSql}
+      ORDER BY DATE(o.inicio_visita) ASC, TRIM(o.tecnico_asignado) ASC, TIME(o.inicio_visita) ASC
+    `;
+
+    const [rows] = await pool.query(sql, params);
+
+    // Seleccionar estrictamente la 1ra orden por técnico y por día
+    const primeraOrdenPorTecnicoDia = new Map();
+
+    for (const r of rows) {
+      const key = `${r.tecnico}___${r.fecha}`;
+      if (!primeraOrdenPorTecnicoDia.has(key)) {
+        // Latencia de demora: si llegó antes de las 08:00, la demora efectiva es 0 min
+        const diffNum = Number(r.diff_minutos) || 0;
+        const latenciaDemora = Math.max(0, diffNum);
+        let semaforo = 'verde';
+        if (latenciaDemora > 50) {
+          semaforo = 'rojo';
+        } else if (latenciaDemora > 30) {
+          semaforo = 'amarillo';
+        }
+
+        primeraOrdenPorTecnicoDia.set(key, {
+          ...r,
+          latencia_demora: latenciaDemora,
+          diff_real: diffNum,
+          semaforo
+        });
+      }
+    }
+
+    const detallePrimerasOrdenes = Array.from(primeraOrdenPorTecnicoDia.values());
+
+    // Agrupar por técnico para generar estadísticas y ranking
+    const mapaTecnicos = new Map();
+
+    for (const ord of detallePrimerasOrdenes) {
+      const tecNombre = ord.tecnico;
+      if (!mapaTecnicos.has(tecNombre)) {
+        mapaTecnicos.set(tecNombre, {
+          id_tecnico: ord.id_tecnico,
+          tecnico: tecNombre,
+          cuadrilla: ord.cuadrilla || '',
+          dias_laborados: 0,
+          total_latencia_min: 0,
+          latencias: [],
+          ordenes: [],
+          conteo_verde: 0,
+          conteo_amarillo: 0,
+          conteo_rojo: 0
+        });
+      }
+
+      const tecObj = mapaTecnicos.get(tecNombre);
+      tecObj.dias_laborados += 1;
+      tecObj.total_latencia_min += ord.latencia_demora;
+      tecObj.latencias.push(ord.latencia_demora);
+      tecObj.ordenes.push(ord);
+
+      if (ord.semaforo === 'verde') tecObj.conteo_verde += 1;
+      else if (ord.semaforo === 'amarillo') tecObj.conteo_amarillo += 1;
+      else tecObj.conteo_rojo += 1;
+    }
+
+    let sumaTotalLatencia = 0;
+    let totalJornadas = 0;
+    let totalVerdes = 0;
+
+    const rankingTecnicos = Array.from(mapaTecnicos.values()).map((t) => {
+      const promedioMin = t.dias_laborados > 0 ? Math.round(t.total_latencia_min / t.dias_laborados) : 0;
+      sumaTotalLatencia += t.total_latencia_min;
+      totalJornadas += t.dias_laborados;
+      totalVerdes += t.conteo_verde;
+
+      let semaforoGeneral = 'verde';
+      if (promedioMin > 50) semaforoGeneral = 'rojo';
+      else if (promedioMin > 30) semaforoGeneral = 'amarillo';
+
+      // Hora estimada promedio de inicio (08:00 + promedio)
+      const hTotalMin = 8 * 60 + promedioMin;
+      const horas = Math.floor(hTotalMin / 60);
+      const minutos = hTotalMin % 60;
+      const horaPromedioTexto = `${String(horas).padStart(2, '0')}:${String(minutos).padStart(2, '0')}`;
+
+      const minLatencia = Math.min(...t.latencias);
+      const maxLatencia = Math.max(...t.latencias);
+
+      return {
+        id_tecnico: t.id_tecnico,
+        tecnico: t.tecnico,
+        cuadrilla: t.cuadrilla,
+        dias_laborados: t.dias_laborados,
+        latencia_promedio_min: promedioMin,
+        hora_promedio_inicio: horaPromedioTexto,
+        min_latencia: minLatencia,
+        max_latencia: maxLatencia,
+        conteo_verde: t.conteo_verde,
+        conteo_amarillo: t.conteo_amarillo,
+        conteo_rojo: t.conteo_rojo,
+        porcentaje_puntual: t.dias_laborados > 0 ? Math.round((t.conteo_verde / t.dias_laborados) * 100) : 0,
+        semaforo: semaforoGeneral
+      };
+    });
+
+    // Ordenar ranking: de menor latencia (más puntual) a mayor latencia
+    rankingTecnicos.sort((a, b) => a.latencia_promedio_min - b.latencia_promedio_min);
+
+    const latenciaPromedioGeneral = totalJornadas > 0 ? Math.round(sumaTotalLatencia / totalJornadas) : 0;
+    const porcentajePuntualGeneral = totalJornadas > 0 ? Math.round((totalVerdes / totalJornadas) * 100) : 0;
+
+    // Calcular hora promedio general de inicio
+    const hGenTotalMin = 8 * 60 + latenciaPromedioGeneral;
+    const hGenH = Math.floor(hGenTotalMin / 60);
+    const hGenM = hGenTotalMin % 60;
+    const horaPromedioGeneral = `${String(hGenH).padStart(2, '0')}:${String(hGenM).padStart(2, '0')}`;
+
+    res.json({
+      success: true,
+      filtros: {
+        desde: fechaDesde,
+        hasta: fechaHasta,
+        id_tecnico: id_tecnico || null,
+        cuadrilla: cuadrilla || null
+      },
+      kpis: {
+        total_tecnicos: rankingTecnicos.length,
+        total_jornadas_evaluadas: totalJornadas,
+        latencia_promedio_general: latenciaPromedioGeneral,
+        hora_promedio_general: horaPromedioGeneral,
+        porcentaje_puntual_general: porcentajePuntualGeneral,
+        tecnico_mas_puntual: rankingTecnicos[0] || null,
+        tecnico_mayor_latencia: rankingTecnicos.length > 0 ? rankingTecnicos[rankingTecnicos.length - 1] : null
+      },
+      ranking_tecnicos: rankingTecnicos,
+      detalle_ordenes: detallePrimerasOrdenes
+    });
+  } catch (error) {
+    console.error("Error en /api/dashboard/latencia-primer-tramo:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ============================================================
 // 📊 ENDPOINT: EFECTIVIDAD MENSUAL AVERIAS VS POSTVENTA
 // ============================================================
 app.get('/api/dashboard/efectividad-mensual-averias-postventa', async (req, res) => {

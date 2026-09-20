@@ -41,6 +41,7 @@ import {
 import { TechnicianPerformanceTab } from "./components/TechnicianPerformanceTab";
 import { MonthlyEffectivenessSection } from "./components/MonthlyEffectivenessSection";
 import { ClassificationOrdersModal } from "./components/ClassificationOrdersModal";
+import { LatencyFirstLegTab } from "./components/LatencyFirstLegTab";
 interface OnlineUser {
   id_usuario: number;
   documento: string;
@@ -219,8 +220,8 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export const ExecutiveDashboardPage: React.FC = () => {
-  // Pestaña principal activa: Resumen Ejecutivo | Rendimiento Técnicos | Auditoría & Personal
-  const [activeMainTab, setActiveMainTab] = useState<"resumen" | "tecnicos" | "auditoria">("resumen");
+  // Pestaña principal activa: Resumen Ejecutivo | Rendimiento Técnicos | Latencia 1er Tramo | Auditoría & Personal
+  const [activeMainTab, setActiveMainTab] = useState<"resumen" | "tecnicos" | "latencia" | "auditoria">("resumen");
 
   // 1. Selector inteligente de período (Días, Semanas, Meses, Año)
   const [periodMode, setPeriodMode] = useState<"dia" | "semana" | "mes" | "anio">("mes");
@@ -301,7 +302,7 @@ export const ExecutiveDashboardPage: React.FC = () => {
             setNoLeidosPorUsuario(data.por_usuario || {});
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     };
     fetchNoLeidos();
     const interval = setInterval(fetchNoLeidos, 25000);
@@ -337,8 +338,8 @@ export const ExecutiveDashboardPage: React.FC = () => {
         i === 0
           ? `Hoy (${diaNum} ${mesNombre})`
           : i === 1
-          ? `Ayer (${diaNum} ${mesNombre})`
-          : `Hace ${i} días (${diaNum} ${mesNombre})`;
+            ? `Ayer (${diaNum} ${mesNombre})`
+            : `Hace ${i} días (${diaNum} ${mesNombre})`;
       list.push({ id: `dia-${i}`, label, desde: iso, hasta: iso });
     }
     return list;
@@ -362,8 +363,8 @@ export const ExecutiveDashboardPage: React.FC = () => {
         i === 0
           ? `Esta Semana (${fDesde.slice(5)} al ${fHasta.slice(5)})`
           : i === 1
-          ? `Semana Pasada (${fDesde.slice(5)} al ${fHasta.slice(5)})`
-          : `Hace ${i} semanas (${fDesde.slice(5)} al ${fHasta.slice(5)})`;
+            ? `Semana Pasada (${fDesde.slice(5)} al ${fHasta.slice(5)})`
+            : `Hace ${i} semanas (${fDesde.slice(5)} al ${fHasta.slice(5)})`;
 
       list.push({ id: `sem-${i}`, label, desde: fDesde, hasta: fHasta });
     }
@@ -564,476 +565,482 @@ export const ExecutiveDashboardPage: React.FC = () => {
 
   return (
     <div className="w-full min-h-screen bg-slate-100/70 text-slate-800 p-3 md:p-4 space-y-3">
-      
+
       {/* ─────────────────────────────────────────────────────────────
           1. HEADER EJECUTIVO & NAVEGACIÓN PRINCIPAL (PARA RESUMEN Y AUDITORÍA)
       ───────────────────────────────────────────────────────────── */}
       {activeMainTab !== "tecnicos" && (
         <div className="sticky top-0 z-30 bg-white p-2.5 sm:p-3.5 md:p-4 rounded-2xl border border-slate-200/90 shadow-2xs space-y-2.5">
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5 sm:gap-4">
-          <div className="flex items-center gap-2.5 sm:gap-3.5">
-            <button
-              type="button"
-              onClick={() => window.dispatchEvent(new CustomEvent("toggleSidebar"))}
-              className="p-2 sm:p-2.5 rounded-xl bg-sky-50 hover:bg-sky-100 active:scale-95 border border-sky-200 hover:border-sky-300 text-sky-700 hover:text-sky-900 transition-all cursor-pointer shadow-2xs group flex items-center justify-center shrink-0"
-              title="📋 Clic para abrir el menú lateral"
-            >
-              <Activity className="w-5 h-5 text-sky-600 group-hover:scale-110 transition-transform" />
-            </button>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-base sm:text-lg md:text-xl font-black text-slate-900 tracking-tight leading-tight">
-                  Análisis & Visualización
-                </h1>
-                <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] sm:text-xs font-bold font-mono">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-                  24/7 EN VIVO
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-500 hidden sm:block">
-                Inteligencia operativa, rendimiento técnico y trazabilidad en tiempo real.
-              </p>
-            </div>
-          </div>
-
-          {/* Lado Derecho: Pestañas + Chat En Línea + Menú Usuario */}
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap justify-end">
-            {/* 🗂️ SELECTOR DE PESTAÑAS PRINCIPALES */}
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80 overflow-x-auto">
+          <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5 sm:gap-4">
+            <div className="flex items-center gap-2.5 sm:gap-3.5">
               <button
                 type="button"
-                onClick={() => setActiveMainTab("resumen")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                  activeMainTab === "resumen"
-                    ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
-                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
-                }`}
+                onClick={() => window.dispatchEvent(new CustomEvent("toggleSidebar"))}
+                className="p-2 sm:p-2.5 rounded-xl bg-sky-50 hover:bg-sky-100 active:scale-95 border border-sky-200 hover:border-sky-300 text-sky-700 hover:text-sky-900 transition-all cursor-pointer shadow-2xs group flex items-center justify-center shrink-0"
+                title="📋 Clic para abrir el menú lateral"
               >
-                <Activity size={13} className={activeMainTab === "resumen" ? "text-sky-600" : "text-slate-400"} />
-                <span>Resumen</span>
+                <Activity className="w-5 h-5 text-sky-600 group-hover:scale-110 transition-transform" />
               </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveMainTab("tecnicos")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                  (activeMainTab as string) === "tecnicos"
-                    ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
-                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
-                }`}
-              >
-                <Users size={13} className={(activeMainTab as string) === "tecnicos" ? "text-emerald-600" : "text-slate-400"} />
-                <span>Rendimiento Técnicos</span>
-                <span className="px-1.5 py-0.2 rounded-full text-[8.5px] font-black uppercase tracking-wider bg-emerald-500 text-white shadow-2xs">
-                  NUEVO
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveMainTab("auditoria")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                  activeMainTab === "auditoria"
-                    ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
-                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
-                }`}
-              >
-                <ShieldCheck size={13} className={activeMainTab === "auditoria" ? "text-sky-600" : "text-slate-400"} />
-                <span>Auditoría</span>
-              </button>
-            </div>
-
-            {/* 💬 Desplegable En Línea / Chat (Oculto a Técnicos) */}
-            {!isTecnico && (
-              <div className="relative shrink-0" ref={onlineDropdownRef}>
-                <button
-                  type="button"
-                  onClick={() => setOnlineDropdownOpen(!onlineDropdownOpen)}
-                  className={`flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer shadow-2xs h-7.5 ${
-                    totalNoLeidos > 0
-                      ? "bg-emerald-500 text-white border-emerald-400 ring-2 ring-emerald-300 shadow-md animate-bounce"
-                      : onlineDropdownOpen
-                      ? "bg-sky-50 text-sky-900 border-sky-300 ring-1 ring-sky-200"
-                      : "bg-slate-50 hover:bg-sky-50 text-slate-700 hover:text-sky-900 border-slate-200 hover:border-sky-300"
-                  }`}
-                  title="Personal en Línea y Chat de Equipo"
-                >
-                  <span className="relative flex h-2 w-2">
-                    {totalGestoresOnline > 0 && (
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    )}
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                  </span>
-                  <span className="font-mono font-black text-slate-900">{totalGestoresOnline}</span>
-                  <MessageSquare size={12} className="text-sky-600 shrink-0" />
-                  {totalNoLeidos > 0 && (
-                    <span className="bg-red-600 text-white text-[9px] font-black px-1 py-0.2 rounded-full shadow-xs">
-                      {totalNoLeidos}
-                    </span>
-                  )}
-                  <ChevronDown size={11} className={`text-slate-400 transition-transform ${onlineDropdownOpen ? "rotate-180" : ""}`} />
-                </button>
-
-                {/* Dropdown flotante de chat */}
-                {onlineDropdownOpen && (
-                  <div className="absolute right-0 mt-1 w-72 max-w-[90vw] bg-white rounded-2xl shadow-xl border border-slate-200/90 z-50 overflow-hidden flex flex-col animate-in fade-in slide-in-from-top-1 duration-150">
-                    <div className="p-2.5 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between">
-                      <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-                        <Users size={13} className="text-sky-600" />
-                        Equipo y Chat
-                      </span>
-                      <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded-full">
-                        {totalGestoresOnline} en línea
-                      </span>
-                    </div>
-
-                    {canUseGroupChat && (
-                      <div className="p-2 border-b border-slate-100 bg-sky-50/40">
-                        <button
-                          type="button"
-                          onClick={handleOpenGroupChat}
-                          className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-black text-xs transition-all shadow-xs cursor-pointer"
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <MessageSquare size={13} />
-                            <span>Canal Grupal 24/7</span>
-                          </div>
-                          <span className="bg-white/20 px-1.5 py-0.2 rounded text-[9px] font-mono">Abrir</span>
-                        </button>
-                      </div>
-                    )}
-
-                    <div className="p-2 border-b border-slate-100">
-                      <div className="relative">
-                        <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input
-                          type="text"
-                          value={userSearchTerm}
-                          onChange={(e) => setUserSearchTerm(e.target.value)}
-                          placeholder="Buscar compañero..."
-                          className="w-full bg-slate-100 text-slate-800 text-xs pl-7 pr-2 py-1 rounded-lg border-none focus:ring-1 focus:ring-sky-500"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="max-h-60 overflow-y-auto p-1.5 space-y-1 custom-scrollbar">
-                      {usuariosOnline
-                        .filter(
-                          (u) =>
-                            !userSearchTerm ||
-                            u.nombre_completo.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
-                            (u.rol_nombre && u.rol_nombre.toLowerCase().includes(userSearchTerm.toLowerCase()))
-                        )
-                        .map((u) => {
-                          const isOnline = u.esta_online === 1;
-                          const isMe = String(u.id_usuario) === String(userId);
-                          const cantNoLeidos = noLeidosPorUsuario[u.id_usuario] || 0;
-                          const hasUnread = cantNoLeidos > 0 && !isMe;
-
-                          return (
-                            <button
-                              key={u.id_usuario}
-                              type="button"
-                              disabled={isMe}
-                              onClick={() => handleOpenUserChat(u)}
-                              className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-all ${
-                                isMe
-                                  ? "opacity-60 bg-slate-50 cursor-default"
-                                  : hasUnread
-                                  ? "bg-emerald-50 hover:bg-emerald-100 border border-emerald-300"
-                                  : "hover:bg-slate-100 cursor-pointer"
-                              }`}
-                            >
-                              <div className="flex items-center gap-2 min-w-0 flex-1">
-                                <span className="relative flex h-2 w-2 shrink-0">
-                                  {isOnline && (
-                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                  )}
-                                  <span
-                                    className={`relative inline-flex rounded-full h-2 w-2 ${
-                                      isOnline ? "bg-emerald-500" : "bg-slate-300"
-                                    }`}
-                                  ></span>
-                                </span>
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-xs font-bold text-slate-900 truncate">
-                                    {u.nombre_completo} {isMe && "(Tú)"}
-                                  </p>
-                                  <p className="text-[10px] text-slate-500 truncate">
-                                    {u.rol_nombre || "Personal"} • {u.area || "Operaciones"}
-                                  </p>
-                                </div>
-                              </div>
-                              {hasUnread ? (
-                                <span className="bg-emerald-600 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full animate-pulse shrink-0">
-                                  {cantNoLeidos}
-                                </span>
-                              ) : (
-                                !isMe && <MessageSquare size={13} className="text-slate-400 hover:text-sky-600 shrink-0" />
-                              )}
-                            </button>
-                          );
-                        })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 👤 Menú de Usuario y Cerrar Sesión */}
-            <div className="relative shrink-0 pl-1 border-l border-slate-200" ref={userMenuRef}>
-              <button
-                type="button"
-                onClick={() => setUserMenuOpen(!userMenuOpen)}
-                className="flex items-center gap-1.5 py-0.5 px-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer border border-transparent hover:border-slate-200 text-left h-7.5"
-                title="Cuenta de Usuario"
-              >
-                <div className="text-right hidden xl:block leading-none">
-                  <span className="text-[11px] font-black text-slate-900 block truncate max-w-[130px]">
-                    {userSoloNombres}
-                  </span>
-                  <span className="text-[9px] font-bold text-sky-600 uppercase tracking-wider block">
-                    {rolNombre}
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-base sm:text-lg md:text-xl font-black text-slate-900 tracking-tight leading-tight">
+                    Análisis & Visualización
+                  </h1>
+                  <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] sm:text-xs font-bold font-mono">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                    24/7 EN VIVO
                   </span>
                 </div>
+                <p className="text-[11px] text-slate-500 hidden sm:block">
+                  Inteligencia operativa, rendimiento técnico y trazabilidad en tiempo real.
+                </p>
+              </div>
+            </div>
 
-                {currentUser?.foto_personal && !avatarImgError ? (
-                  <img
-                    src={`${API_URL}/uploads/${currentUser.foto_personal}`}
-                    alt={userName}
-                    className="w-6 h-6 rounded-full object-cover border border-sky-500 shrink-0 shadow-2xs"
-                    onError={() => setAvatarImgError(true)}
-                  />
-                ) : (
-                  <div className="w-6 h-6 rounded-full bg-sky-600 text-white flex items-center justify-center font-black text-[10px] shrink-0 shadow-2xs uppercase">
-                    {(userName || "US").slice(0, 2)}
-                  </div>
-                )}
+            {/* Lado Derecho: Pestañas + Chat En Línea + Menú Usuario */}
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap justify-end">
+              {/* 🗂️ SELECTOR DE PESTAÑAS PRINCIPALES */}
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80 overflow-x-auto">
+                <button
+                  type="button"
+                  onClick={() => setActiveMainTab("resumen")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${activeMainTab === "resumen"
+                    ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+                    }`}
+                >
+                  <Activity size={13} className={activeMainTab === "resumen" ? "text-sky-600" : "text-slate-400"} />
+                  <span>Resumen</span>
+                </button>
 
-                <ChevronDown size={11} className={`text-slate-400 transition-transform ${userMenuOpen ? "rotate-180" : ""}`} />
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveMainTab("tecnicos")}
+                  className={
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap " +
+                    ((activeMainTab as string) === "tecnicos"
+                      ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50")
+                  }
+                >
+                  <Users size={13} className={(activeMainTab as string) === "tecnicos" ? "text-emerald-600" : "text-slate-400"} />
+                  <span>Rendimiento Técnicos</span>
+                </button>
 
-              {/* Dropdown de Usuario */}
-              {userMenuOpen && (
-                <div className="absolute right-0 mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-200/90 z-50 p-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
-                  <div className="px-2.5 py-2 border-b border-slate-100 mb-1">
-                    <p className="text-xs font-black text-slate-900 truncate">{userName}</p>
-                    <p className="text-[10px] text-sky-600 font-bold uppercase tracking-wider">{rolNombre}</p>
-                  </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveMainTab("latencia")}
+                  className={
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap " +
+                    (activeMainTab === "latencia"
+                      ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50")
+                  }
+                >
+                  <Clock size={13} className={activeMainTab === "latencia" ? "text-indigo-600" : "text-slate-400"} />
+                  <span>Latencia 1er Tramo</span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[8.5px] font-black uppercase tracking-wider bg-indigo-600 text-white shadow-2xs">
+                    8:00 AM
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveMainTab("auditoria")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${activeMainTab === "auditoria"
+                    ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+                    }`}
+                >
+                  <ShieldCheck size={13} className={activeMainTab === "auditoria" ? "text-sky-600" : "text-slate-400"} />
+                  <span>Auditoría</span>
+                </button>
+              </div>
+
+              {/* 💬 Desplegable En Línea / Chat (Oculto a Técnicos) */}
+              {!isTecnico && (
+                <div className="relative shrink-0" ref={onlineDropdownRef}>
                   <button
                     type="button"
-                    onClick={handleLogout}
-                    className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-bold text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                    onClick={() => setOnlineDropdownOpen(!onlineDropdownOpen)}
+                    className={`flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer shadow-2xs h-7.5 ${totalNoLeidos > 0
+                      ? "bg-emerald-500 text-white border-emerald-400 ring-2 ring-emerald-300 shadow-md animate-bounce"
+                      : onlineDropdownOpen
+                        ? "bg-sky-50 text-sky-900 border-sky-300 ring-1 ring-sky-200"
+                        : "bg-slate-50 hover:bg-sky-50 text-slate-700 hover:text-sky-900 border-slate-200 hover:border-sky-300"
+                      }`}
+                    title="Personal en Línea y Chat de Equipo"
                   >
-                    <LogOut size={13} />
-                    <span>Cerrar Sesión</span>
+                    <span className="relative flex h-2 w-2">
+                      {totalGestoresOnline > 0 && (
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      )}
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    <span className="font-mono font-black text-slate-900">{totalGestoresOnline}</span>
+                    <MessageSquare size={12} className="text-sky-600 shrink-0" />
+                    {totalNoLeidos > 0 && (
+                      <span className="bg-red-600 text-white text-[9px] font-black px-1 py-0.2 rounded-full shadow-xs">
+                        {totalNoLeidos}
+                      </span>
+                    )}
+                    <ChevronDown size={11} className={`text-slate-400 transition-transform ${onlineDropdownOpen ? "rotate-180" : ""}`} />
                   </button>
+
+                  {/* Dropdown flotante de chat */}
+                  {onlineDropdownOpen && (
+                    <div className="absolute right-0 mt-1 w-72 max-w-[90vw] bg-white rounded-2xl shadow-xl border border-slate-200/90 z-50 overflow-hidden flex flex-col animate-in fade-in slide-in-from-top-1 duration-150">
+                      <div className="p-2.5 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between">
+                        <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                          <Users size={13} className="text-sky-600" />
+                          Equipo y Chat
+                        </span>
+                        <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded-full">
+                          {totalGestoresOnline} en línea
+                        </span>
+                      </div>
+
+                      {canUseGroupChat && (
+                        <div className="p-2 border-b border-slate-100 bg-sky-50/40">
+                          <button
+                            type="button"
+                            onClick={handleOpenGroupChat}
+                            className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-black text-xs transition-all shadow-xs cursor-pointer"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <MessageSquare size={13} />
+                              <span>Canal Grupal 24/7</span>
+                            </div>
+                            <span className="bg-white/20 px-1.5 py-0.2 rounded text-[9px] font-mono">Abrir</span>
+                          </button>
+                        </div>
+                      )}
+
+                      <div className="p-2 border-b border-slate-100">
+                        <div className="relative">
+                          <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="text"
+                            value={userSearchTerm}
+                            onChange={(e) => setUserSearchTerm(e.target.value)}
+                            placeholder="Buscar compañero..."
+                            className="w-full bg-slate-100 text-slate-800 text-xs pl-7 pr-2 py-1 rounded-lg border-none focus:ring-1 focus:ring-sky-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="max-h-60 overflow-y-auto p-1.5 space-y-1 custom-scrollbar">
+                        {usuariosOnline
+                          .filter(
+                            (u) =>
+                              !userSearchTerm ||
+                              u.nombre_completo.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
+                              (u.rol_nombre && u.rol_nombre.toLowerCase().includes(userSearchTerm.toLowerCase()))
+                          )
+                          .map((u) => {
+                            const isOnline = u.esta_online === 1;
+                            const isMe = String(u.id_usuario) === String(userId);
+                            const cantNoLeidos = noLeidosPorUsuario[u.id_usuario] || 0;
+                            const hasUnread = cantNoLeidos > 0 && !isMe;
+
+                            return (
+                              <button
+                                key={u.id_usuario}
+                                type="button"
+                                disabled={isMe}
+                                onClick={() => handleOpenUserChat(u)}
+                                className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-all ${isMe
+                                  ? "opacity-60 bg-slate-50 cursor-default"
+                                  : hasUnread
+                                    ? "bg-emerald-50 hover:bg-emerald-100 border border-emerald-300"
+                                    : "hover:bg-slate-100 cursor-pointer"
+                                  }`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                  <span className="relative flex h-2 w-2 shrink-0">
+                                    {isOnline && (
+                                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                    )}
+                                    <span
+                                      className={`relative inline-flex rounded-full h-2 w-2 ${isOnline ? "bg-emerald-500" : "bg-slate-300"
+                                        }`}
+                                    ></span>
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-xs font-bold text-slate-900 truncate">
+                                      {u.nombre_completo} {isMe && "(Tú)"}
+                                    </p>
+                                    <p className="text-[10px] text-slate-500 truncate">
+                                      {u.rol_nombre || "Personal"} • {u.area || "Operaciones"}
+                                    </p>
+                                  </div>
+                                </div>
+                                {hasUnread ? (
+                                  <span className="bg-emerald-600 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full animate-pulse shrink-0">
+                                    {cantNoLeidos}
+                                  </span>
+                                ) : (
+                                  !isMe && <MessageSquare size={13} className="text-slate-400 hover:text-sky-600 shrink-0" />
+                                )}
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
+
+              {/* 👤 Menú de Usuario y Cerrar Sesión */}
+              <div className="relative shrink-0 pl-1 border-l border-slate-200" ref={userMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setUserMenuOpen(!userMenuOpen)}
+                  className="flex items-center gap-1.5 py-0.5 px-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer border border-transparent hover:border-slate-200 text-left h-7.5"
+                  title="Cuenta de Usuario"
+                >
+                  <div className="text-right hidden xl:block leading-none">
+                    <span className="text-[11px] font-black text-slate-900 block truncate max-w-[130px]">
+                      {userSoloNombres}
+                    </span>
+                    <span className="text-[9px] font-bold text-sky-600 uppercase tracking-wider block">
+                      {rolNombre}
+                    </span>
+                  </div>
+
+                  {currentUser?.foto_personal && !avatarImgError ? (
+                    <img
+                      src={`${API_URL}/uploads/${currentUser.foto_personal}`}
+                      alt={userName}
+                      className="w-6 h-6 rounded-full object-cover border border-sky-500 shrink-0 shadow-2xs"
+                      onError={() => setAvatarImgError(true)}
+                    />
+                  ) : (
+                    <div className="w-6 h-6 rounded-full bg-sky-600 text-white flex items-center justify-center font-black text-[10px] shrink-0 shadow-2xs uppercase">
+                      {(userName || "US").slice(0, 2)}
+                    </div>
+                  )}
+
+                  <ChevronDown size={11} className={`text-slate-400 transition-transform ${userMenuOpen ? "rotate-180" : ""}`} />
+                </button>
+
+                {/* Dropdown de Usuario */}
+                {userMenuOpen && (
+                  <div className="absolute right-0 mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-200/90 z-50 p-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                    <div className="px-2.5 py-2 border-b border-slate-100 mb-1">
+                      <p className="text-xs font-black text-slate-900 truncate">{userName}</p>
+                      <p className="text-[10px] text-sky-600 font-bold uppercase tracking-wider">{rolNombre}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-bold text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                    >
+                      <LogOut size={13} />
+                      <span>Cerrar Sesión</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* 📅 SELECTOR DE PERÍODO & ESTADOS INTEGRADOS (PARA RESUMEN Y AUDITORÍA) */}
-        {(activeMainTab === "resumen" || activeMainTab === "auditoria") && (
-          <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5 pt-2.5 border-t border-slate-100">
-            {/* Lado Izquierdo: Fila de Estados Oficiales (Solo en Resumen) */}
-            {activeMainTab === "resumen" ? (
-              <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto scrollbar-none">
-                {/* 1. Finalizada */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleOpenClassificationModal("Finalizada", "Órdenes Finalizadas", "#5b9bd5")
-                  }
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#deebf7] hover:bg-[#cee2f3] active:scale-95 text-[#1f4e78] border border-[#bdd7ee] hover:border-sky-400 shadow-2xs hover:shadow-xs transition-all cursor-pointer shrink-0 group"
-                  title="📋 Clic para ver órdenes Finalizadas"
-                >
-                  <span className="w-2 h-2 rounded-full bg-[#5b9bd5] inline-block group-hover:scale-125 transition-transform"></span>
-                  <span>Finalizada:</span>
-                  <span className="font-mono font-black">{conteoEstados.finalizada}</span>
-                </button>
-
-                {/* 2. Cancelada */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleOpenClassificationModal("Cancelada", "Órdenes Canceladas", "#ef4444")
-                  }
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#fee2e2] hover:bg-[#fed7d7] active:scale-95 text-[#991b1b] border border-[#fca5a5] hover:border-rose-400 shadow-2xs hover:shadow-xs transition-all cursor-pointer shrink-0 group"
-                  title="📋 Clic para ver órdenes Canceladas"
-                >
-                  <span className="w-2 h-2 rounded-full bg-[#ef4444] inline-block group-hover:scale-125 transition-transform"></span>
-                  <span>Cancelada:</span>
-                  <span className="font-mono font-black">{conteoEstados.cancelada}</span>
-                </button>
-
-                {/* 3. Regestión */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleOpenClassificationModal("Regestión", "Órdenes en Regestión", "#ffc000")
-                  }
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#fff2cc] hover:bg-[#fae7b4] active:scale-95 text-[#833c0c] border border-[#ffe699] hover:border-amber-400 shadow-2xs hover:shadow-xs transition-all cursor-pointer shrink-0 group"
-                  title="📋 Clic para ver órdenes en Regestión"
-                >
-                  <span className="w-2 h-2 rounded-full bg-[#ffc000] inline-block group-hover:scale-125 transition-transform"></span>
-                  <span>Regestión:</span>
-                  <span className="font-mono font-black">{conteoEstados.regestion}</span>
-                </button>
-
-                {/* 4. Anulada */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleOpenClassificationModal("Anulada", "Órdenes Anuladas", "#475569")
-                  }
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#f1f5f9] hover:bg-[#e2e8f0] active:scale-95 text-[#334155] border border-[#cbd5e1] hover:border-slate-400 shadow-2xs hover:shadow-xs transition-all cursor-pointer shrink-0 group"
-                  title="📋 Clic para ver órdenes Anuladas"
-                >
-                  <span className="w-2 h-2 rounded-full bg-[#475569] inline-block group-hover:scale-125 transition-transform"></span>
-                  <span>Anulada:</span>
-                  <span className="font-mono font-black">{conteoEstados.anulada}</span>
-                </button>
-
-                {/* 5. Agendada */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleOpenClassificationModal("Agendada", "Órdenes Agendadas", "#64748b")
-                  }
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-white hover:bg-slate-50 active:scale-95 text-[#1f3864] border border-[#bdd7ee] hover:border-sky-400 shadow-2xs hover:shadow-xs transition-all cursor-pointer shrink-0 group"
-                  title="📋 Clic para ver órdenes Agendadas"
-                >
-                  <span className="w-2 h-2 rounded-full bg-[#64748b] inline-block group-hover:scale-125 transition-transform"></span>
-                  <span>Agendada:</span>
-                  <span className="font-mono font-black">{conteoEstados.agendada}</span>
-                </button>
-
-                {/* 6. Iniciada */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleOpenClassificationModal("Iniciada", "Órdenes Iniciadas / En Proceso", "#70ad47")
-                  }
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#e2efda] hover:bg-[#d5e8cd] active:scale-95 text-[#375623] border border-[#a9d18e] hover:border-emerald-500 shadow-2xs hover:shadow-xs transition-all cursor-pointer shrink-0 group"
-                  title="📋 Clic para ver órdenes Iniciadas / En Proceso"
-                >
-                  <span className="w-2 h-2 rounded-full bg-[#70ad47] inline-block group-hover:scale-125 transition-transform"></span>
-                  <span>Iniciada:</span>
-                  <span className="font-mono font-black">{conteoEstados.iniciada}</span>
-                </button>
-              </div>
-            ) : (
-              <div />
-            )}
-
-            {/* Lado Derecho: Pestañas de Modo de Período + Dropdown + Refrescar */}
-            <div className="flex flex-wrap sm:flex-nowrap items-center justify-end gap-2 shrink-0">
-              {/* Pestañas de Modo */}
-              <div className="bg-slate-100 p-1 rounded-2xl border border-slate-200 flex items-center gap-1 overflow-x-auto">
-                <button
-                  type="button"
-                  onClick={() => setPeriodMode("dia")}
-                  className={`px-2.5 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer whitespace-nowrap ${
-                    periodMode === "dia" ? "bg-sky-600 text-white shadow-sm shadow-sky-600/20" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
-                  }`}
-                >
-                  📅 Por Días
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPeriodMode("semana")}
-                  className={`px-2.5 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer whitespace-nowrap ${
-                    periodMode === "semana" ? "bg-sky-600 text-white shadow-sm shadow-sky-600/20" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
-                  }`}
-                >
-                  🗓️ Por Semanas
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPeriodMode("mes")}
-                  className={`px-2.5 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer whitespace-nowrap ${
-                    periodMode === "mes" ? "bg-sky-600 text-white shadow-sm shadow-sky-600/20" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
-                  }`}
-                >
-                  📊 Por Meses
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPeriodMode("anio")}
-                  className={`px-2.5 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer whitespace-nowrap ${
-                    periodMode === "anio" ? "bg-sky-600 text-white shadow-sm shadow-sky-600/20" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
-                  }`}
-                >
-                  📈 Anual
-                </button>
-              </div>
-
-              {/* Dropdown de Rango Exacto */}
-              <div className="flex items-center gap-1.5">
-                <div className="relative min-w-[180px]">
-                  <select
-                    value={selectedOption}
-                    onChange={(e) => setSelectedOption(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 font-bold text-slate-800 text-xs rounded-2xl px-3 py-1.5 appearance-none focus:outline-none focus:border-sky-500 shadow-2xs pr-8 cursor-pointer"
+          {/* 📅 SELECTOR DE PERÍODO & ESTADOS INTEGRADOS (PARA RESUMEN Y AUDITORÍA) */}
+          {(activeMainTab === "resumen" || activeMainTab === "auditoria") && (
+            <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5 pt-2.5 border-t border-slate-100">
+              {/* Lado Izquierdo: Fila de Estados Oficiales (Solo en Resumen) */}
+              {activeMainTab === "resumen" ? (
+                <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto scrollbar-none">
+                  {/* 1. Finalizada */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleOpenClassificationModal("Finalizada", "Órdenes Finalizadas", "#5b9bd5")
+                    }
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#deebf7] hover:bg-[#cee2f3] active:scale-95 text-[#1f4e78] border border-[#bdd7ee] hover:border-sky-400 shadow-2xs hover:shadow-xs transition-all cursor-pointer shrink-0 group"
+                    title="📋 Clic para ver órdenes Finalizadas"
                   >
-                    {periodMode === "dia" &&
-                      opcionesDias.map((op) => (
-                        <option key={op.id} value={op.id}>
-                          {op.label}
-                        </option>
-                      ))}
+                    <span className="w-2 h-2 rounded-full bg-[#5b9bd5] inline-block group-hover:scale-125 transition-transform"></span>
+                    <span>Finalizada:</span>
+                    <span className="font-mono font-black">{conteoEstados.finalizada}</span>
+                  </button>
 
-                    {periodMode === "semana" &&
-                      opcionesSemanas.map((op) => (
-                        <option key={op.id} value={op.id}>
-                          {op.label}
-                        </option>
-                      ))}
+                  {/* 2. Cancelada */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleOpenClassificationModal("Cancelada", "Órdenes Canceladas", "#ef4444")
+                    }
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#fee2e2] hover:bg-[#fed7d7] active:scale-95 text-[#991b1b] border border-[#fca5a5] hover:border-rose-400 shadow-2xs hover:shadow-xs transition-all cursor-pointer shrink-0 group"
+                    title="📋 Clic para ver órdenes Canceladas"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-[#ef4444] inline-block group-hover:scale-125 transition-transform"></span>
+                    <span>Cancelada:</span>
+                    <span className="font-mono font-black">{conteoEstados.cancelada}</span>
+                  </button>
 
-                    {periodMode === "mes" && (
-                      <>
-                        <optgroup label={`📅 Año ${new Date().getFullYear()} (Meses Transcurridos)`}>
-                          {opcionesMeses.listActual.map((op) => (
-                            <option key={op.id} value={op.id}>
-                              {op.label}
-                            </option>
-                          ))}
-                        </optgroup>
-                        <optgroup label={`📂 Año ${new Date().getFullYear() - 1} (Histórico)`}>
-                          {opcionesMeses.listAnterior.map((op) => (
-                            <option key={op.id} value={op.id}>
-                              {op.label}
-                            </option>
-                          ))}
-                        </optgroup>
-                      </>
-                    )}
+                  {/* 3. Regestión */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleOpenClassificationModal("Regestión", "Órdenes en Regestión", "#ffc000")
+                    }
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#fff2cc] hover:bg-[#fae7b4] active:scale-95 text-[#833c0c] border border-[#ffe699] hover:border-amber-400 shadow-2xs hover:shadow-xs transition-all cursor-pointer shrink-0 group"
+                    title="📋 Clic para ver órdenes en Regestión"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-[#ffc000] inline-block group-hover:scale-125 transition-transform"></span>
+                    <span>Regestión:</span>
+                    <span className="font-mono font-black">{conteoEstados.regestion}</span>
+                  </button>
 
-                    {periodMode === "anio" &&
-                      opcionesAnios.map((op) => (
-                        <option key={op.id} value={op.id}>
-                          {op.label}
-                        </option>
-                      ))}
-                  </select>
-                  <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  {/* 4. Anulada */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleOpenClassificationModal("Anulada", "Órdenes Anuladas", "#475569")
+                    }
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#f1f5f9] hover:bg-[#e2e8f0] active:scale-95 text-[#334155] border border-[#cbd5e1] hover:border-slate-400 shadow-2xs hover:shadow-xs transition-all cursor-pointer shrink-0 group"
+                    title="📋 Clic para ver órdenes Anuladas"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-[#475569] inline-block group-hover:scale-125 transition-transform"></span>
+                    <span>Anulada:</span>
+                    <span className="font-mono font-black">{conteoEstados.anulada}</span>
+                  </button>
+
+                  {/* 5. Agendada */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleOpenClassificationModal("Agendada", "Órdenes Agendadas", "#64748b")
+                    }
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-white hover:bg-slate-50 active:scale-95 text-[#1f3864] border border-[#bdd7ee] hover:border-sky-400 shadow-2xs hover:shadow-xs transition-all cursor-pointer shrink-0 group"
+                    title="📋 Clic para ver órdenes Agendadas"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-[#64748b] inline-block group-hover:scale-125 transition-transform"></span>
+                    <span>Agendada:</span>
+                    <span className="font-mono font-black">{conteoEstados.agendada}</span>
+                  </button>
+
+                  {/* 6. Iniciada */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleOpenClassificationModal("Iniciada", "Órdenes Iniciadas / En Proceso", "#70ad47")
+                    }
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#e2efda] hover:bg-[#d5e8cd] active:scale-95 text-[#375623] border border-[#a9d18e] hover:border-emerald-500 shadow-2xs hover:shadow-xs transition-all cursor-pointer shrink-0 group"
+                    title="📋 Clic para ver órdenes Iniciadas / En Proceso"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-[#70ad47] inline-block group-hover:scale-125 transition-transform"></span>
+                    <span>Iniciada:</span>
+                    <span className="font-mono font-black">{conteoEstados.iniciada}</span>
+                  </button>
+                </div>
+              ) : (
+                <div />
+              )}
+
+              {/* Lado Derecho: Pestañas de Modo de Período + Dropdown + Refrescar */}
+              <div className="flex flex-wrap sm:flex-nowrap items-center justify-end gap-2 shrink-0">
+                {/* Pestañas de Modo */}
+                <div className="bg-slate-100 p-1 rounded-2xl border border-slate-200 flex items-center gap-1 overflow-x-auto">
+                  <button
+                    type="button"
+                    onClick={() => setPeriodMode("dia")}
+                    className={`px-2.5 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer whitespace-nowrap ${periodMode === "dia" ? "bg-sky-600 text-white shadow-sm shadow-sky-600/20" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
+                      }`}
+                  >
+                    📅 Por Días
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPeriodMode("semana")}
+                    className={`px-2.5 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer whitespace-nowrap ${periodMode === "semana" ? "bg-sky-600 text-white shadow-sm shadow-sky-600/20" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
+                      }`}
+                  >
+                    🗓️ Por Semanas
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPeriodMode("mes")}
+                    className={`px-2.5 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer whitespace-nowrap ${periodMode === "mes" ? "bg-sky-600 text-white shadow-sm shadow-sky-600/20" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
+                      }`}
+                  >
+                    📊 Por Meses
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPeriodMode("anio")}
+                    className={`px-2.5 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer whitespace-nowrap ${periodMode === "anio" ? "bg-sky-600 text-white shadow-sm shadow-sky-600/20" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
+                      }`}
+                  >
+                    📈 Anual
+                  </button>
                 </div>
 
-                <button
-                  onClick={() => cargarDashboard()}
-                  disabled={refreshing}
-                  className="p-1.5 bg-white hover:bg-slate-50 active:scale-95 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 transition-all cursor-pointer shadow-2xs disabled:opacity-50"
-                  title="Refrescar datos del período"
-                >
-                  <RefreshCw size={14} className={refreshing ? "animate-spin text-sky-600" : "text-slate-500"} />
-                </button>
+                {/* Dropdown de Rango Exacto */}
+                <div className="flex items-center gap-1.5">
+                  <div className="relative min-w-[180px]">
+                    <select
+                      value={selectedOption}
+                      onChange={(e) => setSelectedOption(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 font-bold text-slate-800 text-xs rounded-2xl px-3 py-1.5 appearance-none focus:outline-none focus:border-sky-500 shadow-2xs pr-8 cursor-pointer"
+                    >
+                      {periodMode === "dia" &&
+                        opcionesDias.map((op) => (
+                          <option key={op.id} value={op.id}>
+                            {op.label}
+                          </option>
+                        ))}
+
+                      {periodMode === "semana" &&
+                        opcionesSemanas.map((op) => (
+                          <option key={op.id} value={op.id}>
+                            {op.label}
+                          </option>
+                        ))}
+
+                      {periodMode === "mes" && (
+                        <>
+                          <optgroup label={`📅 Año ${new Date().getFullYear()} (Meses Transcurridos)`}>
+                            {opcionesMeses.listActual.map((op) => (
+                              <option key={op.id} value={op.id}>
+                                {op.label}
+                              </option>
+                            ))}
+                          </optgroup>
+                          <optgroup label={`📂 Año ${new Date().getFullYear() - 1} (Histórico)`}>
+                            {opcionesMeses.listAnterior.map((op) => (
+                              <option key={op.id} value={op.id}>
+                                {op.label}
+                              </option>
+                            ))}
+                          </optgroup>
+                        </>
+                      )}
+
+                      {periodMode === "anio" &&
+                        opcionesAnios.map((op) => (
+                          <option key={op.id} value={op.id}>
+                            {op.label}
+                          </option>
+                        ))}
+                    </select>
+                    <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  </div>
+
+                  <button
+                    onClick={() => cargarDashboard()}
+                    disabled={refreshing}
+                    className="p-1.5 bg-white hover:bg-slate-50 active:scale-95 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 transition-all cursor-pointer shadow-2xs disabled:opacity-50"
+                    title="Refrescar datos del período"
+                  >
+                    <RefreshCw size={14} className={refreshing ? "animate-spin text-sky-600" : "text-slate-500"} />
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
       )}
 
       {/* 👷 PESTAÑA: RENDIMIENTO DE TÉCNICOS */}
@@ -1212,7 +1219,7 @@ export const ExecutiveDashboardPage: React.FC = () => {
                     </PieChart>
                   </ResponsiveContainer>
                 )}
-                
+
                 {/* Texto central del Donut */}
                 {totalEvaluadas > 0 && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
@@ -1305,7 +1312,7 @@ export const ExecutiveDashboardPage: React.FC = () => {
                     </PieChart>
                   </ResponsiveContainer>
                 )}
-                
+
                 {/* Texto central del Donut */}
                 {dataEstadosPie.length > 0 && (
                   <div
@@ -1387,6 +1394,9 @@ export const ExecutiveDashboardPage: React.FC = () => {
         </div>
       )}
 
+      {/* ⏱️ PESTAÑA: LATENCIA DE PRIMER TRAMO (08:00 AM) */}
+      {activeMainTab === "latencia" && <LatencyFirstLegTab />}
+
       {/* 🛡️ PESTAÑA 3: AUDITORÍA & PERSONAL (EN VIVO 24/7) */}
       {activeMainTab === "auditoria" && (
         <div className="space-y-6 animate-in fade-in duration-200">
@@ -1435,9 +1445,8 @@ export const ExecutiveDashboardPage: React.FC = () => {
                               {initials}
                             </div>
                             <span
-                              className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white ${
-                                isOnline ? "bg-emerald-500 animate-pulse" : "bg-slate-300"
-                              }`}
+                              className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white ${isOnline ? "bg-emerald-500 animate-pulse" : "bg-slate-300"
+                                }`}
                             />
                           </div>
 
@@ -1460,11 +1469,10 @@ export const ExecutiveDashboardPage: React.FC = () => {
                         </div>
 
                         <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                            isOnline
-                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                              : "bg-slate-100 text-slate-400 border border-slate-200"
-                          }`}
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${isOnline
+                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                            : "bg-slate-100 text-slate-400 border border-slate-200"
+                            }`}
                         >
                           {isOnline ? "🟢 Online" : "⚪ Offline"}
                         </span>
@@ -1569,7 +1577,7 @@ export const ExecutiveDashboardPage: React.FC = () => {
 
             {/* Dos Gráficos en Cuadrícula: Barras Apiladas + Gráfico de Líneas Multi-color */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 pt-2">
-              
+
               {/* GRÁFICO 1: BARRAS APILADAS POR GESTOR */}
               <div className="bg-slate-50/50 p-4 rounded-2xl border border-slate-200/80 space-y-3">
                 <div className="flex items-center justify-between">
