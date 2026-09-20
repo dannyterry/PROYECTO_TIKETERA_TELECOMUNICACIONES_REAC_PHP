@@ -4997,8 +4997,9 @@ app.get('/api/almacen/stock-general', async (req, res) => {
         tp.stock,
         COALESCE(
           (SELECT MAX(ts.fecha_asignacion) FROM trabajador_series ts WHERE ts.id_trabajador = tp.id_trabajador AND ts.id_producto = tp.id_producto),
-          tp.fecha_actualizacion,
-          tp.fecha_creacion
+          (SELECT MAX(d.fecha_despacho) FROM despacho_detalles dd JOIN despachos d ON dd.id_despacho = d.id_despacho WHERE d.id_trabajador = tp.id_trabajador AND dd.id_producto = tp.id_producto),
+          tp.fecha_creacion,
+          tp.fecha_actualizacion
         ) AS fecha_entrega,
         COALESCE((
           SELECT SUM(dd.cantidad) 
@@ -6442,6 +6443,30 @@ app.get('/api/almacen/verificar-serie-despacho/:serie', async (req, res) => {
   }
 });
 
+// --- 👨‍🔧 3.9.5 TÉCNICOS DISPONIBLES PARA DESPACHO Y ALMACÉN ---
+app.get('/api/almacen/tecnicos-disponibles', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        t.id_trabajador,
+        t.id_usuario,
+        u.usuario,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS nombre_completo,
+        COALESCE(u.documento, '') AS documento,
+        COALESCE(u.cuadrilla, '') AS cuadrilla,
+        COALESCE(v.placa, 'Sin vehículo') AS vehiculo_placa
+      FROM trabajadores t
+      JOIN usuarios u ON t.id_usuario = u.id_usuario
+      LEFT JOIN vehiculos v ON t.id_vehiculo = v.id_vehiculo
+      WHERE t.estado = 'Activo' AND u.estado = 'Activo'
+      ORDER BY u.nombres ASC
+    `);
+    res.json({ success: true, tecnicos: rows });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // --- 📦 4. DESPACHO / DOTACIÓN A TÉCNICOS (TRANSFERENCIA A STOCK MÓVIL) ---
 app.post('/api/almacen/despacho-tecnico', async (req, res) => {
   try {
@@ -6763,7 +6788,7 @@ app.get('/api/almacen/despachos-historial', async (req, res) => {
         TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre,
         COALESCE(u.documento, '') AS tecnico_dni,
         COALESCE(u.cuadrilla, '') AS cuadrilla,
-        COALESCE(v.placa, 'Sin vehículo') AS vehiculo_placa,
+        COALESCE(v.placa, vt.placa, 'Sin vehículo') AS vehiculo_placa,
         d.id_usuario_despacha,
         TRIM(CONCAT(COALESCE(ud.nombres, ''), ' ', COALESCE(ud.primer_apellido, ud.apellidos, ''))) AS despachador_nombre,
         d.tipo_despacho,
@@ -6778,6 +6803,7 @@ app.get('/api/almacen/despachos-historial', async (req, res) => {
       JOIN usuarios u ON t.id_usuario = u.id_usuario
       LEFT JOIN usuarios ud ON d.id_usuario_despacha = ud.id_usuario
       LEFT JOIN vehiculos v ON d.id_vehiculo = v.id_vehiculo
+      LEFT JOIN vehiculos vt ON t.id_vehiculo = vt.id_vehiculo
       ${whereSql}
       ORDER BY d.fecha_despacho DESC, d.id_despacho DESC
     `, params);

@@ -24,7 +24,8 @@ import {
   MapPin,
   FileText,
   User,
-  Info
+  Info,
+  XCircle
 } from "lucide-react";
 import {
   LiquidacionOrdenAudit,
