@@ -127,22 +127,23 @@ export const LatencyFirstLegModal: React.FC<LatencyFirstLegModalProps> = ({
         o.semaforo === "verde"
           ? "Puntual (<=30 min)"
           : o.semaforo === "amarillo"
-          ? "Aceptable (31-50 min)"
-          : "Crítico (>50 min)",
+            ? "Aceptable (31-50 min)"
+            : "Crítico (>50 min)",
       Estado: o.estado,
     }));
 
     const ws = XLSX.utils.json_to_sheet(dataParaExportar);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Latencia Primer Tramo");
+    const tecClean = String(tecnico?.tecnico || "tecnico").replace(/\s+/g, "_");
     XLSX.writeFile(
       wb,
-      `Latencia_1er_Tramo_${tecnico.tecnico.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.xlsx`
+      `Latencia_1er_Tramo_${tecClean}_${new Date().toISOString().slice(0, 10)}.xlsx`
     );
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150">
       <div className="bg-white w-full max-w-5xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
         {/* ENCABEZADO */}
         <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white p-5 sm:p-6 relative">
@@ -164,19 +165,18 @@ export const LatencyFirstLegModal: React.FC<LatencyFirstLegModalProps> = ({
                 <div className="flex items-center gap-2">
                   <h2 className="text-lg sm:text-xl font-black tracking-tight">{tecnico.tecnico || "Técnico"}</h2>
                   <span
-                    className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full border ${
-                      tecnico.semaforo === "verde"
+                    className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full border ${tecnico.semaforo === "verde"
                         ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
                         : tecnico.semaforo === "amarillo"
-                        ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
-                        : "bg-red-500/20 text-red-300 border-red-500/40"
-                    }`}
+                          ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                          : "bg-red-500/20 text-red-300 border-red-500/40"
+                      }`}
                   >
                     {tecnico.semaforo === "verde"
                       ? "Puntual"
                       : tecnico.semaforo === "amarillo"
-                      ? "Aceptable"
-                      : "Crítico"}
+                        ? "Aceptable"
+                        : "Crítico"}
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-2">
@@ -223,8 +223,8 @@ export const LatencyFirstLegModal: React.FC<LatencyFirstLegModalProps> = ({
             <div className="bg-white/5 border border-white/10 p-3 rounded-2xl">
               <span className="text-[10px] text-slate-400 uppercase font-bold block">Rango Min / Max</span>
               <span className="text-xl font-black text-white">
-                {isFinite(tecnico.min_latencia) ? tecnico.min_latencia : 0}m /{" "}
-                {isFinite(tecnico.max_latencia) ? tecnico.max_latencia : 0}m
+                {Number.isFinite(Number(tecnico.min_latencia)) ? Number(tecnico.min_latencia) : 0}m /{" "}
+                {Number.isFinite(Number(tecnico.max_latencia)) ? Number(tecnico.max_latencia) : 0}m
               </span>
               <span className="text-[10px] text-slate-400 block mt-0.5">Variación del período</span>
             </div>
@@ -248,49 +248,45 @@ export const LatencyFirstLegModal: React.FC<LatencyFirstLegModalProps> = ({
             <button
               type="button"
               onClick={() => setFiltroSemaforo("todos")}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                filtroSemaforo === "todos"
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${filtroSemaforo === "todos"
                   ? "bg-slate-800 text-white shadow-xs"
                   : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
-              }`}
+                }`}
             >
               Todos ({ordenesTecnico.length})
             </button>
             <button
               type="button"
               onClick={() => setFiltroSemaforo("verde")}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                filtroSemaforo === "verde"
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${filtroSemaforo === "verde"
                   ? "bg-emerald-600 text-white shadow-xs"
                   : "bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50"
-              }`}
+                }`}
             >
               <CheckCircle2 size={12} />
-              <span>≤ 30m ({tecnico.conteo_verde})</span>
+              <span>≤ 30m ({tecnico.conteo_verde ?? 0})</span>
             </button>
             <button
               type="button"
               onClick={() => setFiltroSemaforo("amarillo")}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                filtroSemaforo === "amarillo"
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${filtroSemaforo === "amarillo"
                   ? "bg-amber-600 text-white shadow-xs"
                   : "bg-white text-amber-700 border border-amber-200 hover:bg-amber-50"
-              }`}
+                }`}
             >
               <AlertTriangle size={12} />
-              <span>31-50m ({tecnico.conteo_amarillo})</span>
+              <span>31-50m ({tecnico.conteo_amarillo ?? 0})</span>
             </button>
             <button
               type="button"
               onClick={() => setFiltroSemaforo("rojo")}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                filtroSemaforo === "rojo"
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${filtroSemaforo === "rojo"
                   ? "bg-red-600 text-white shadow-xs"
                   : "bg-white text-red-700 border border-red-200 hover:bg-red-50"
-              }`}
+                }`}
             >
               <XCircle size={12} />
-              <span>&gt; 50m ({tecnico.conteo_rojo})</span>
+              <span>&gt; 50m ({tecnico.conteo_rojo ?? 0})</span>
             </button>
 
             <button
@@ -338,24 +334,23 @@ export const LatencyFirstLegModal: React.FC<LatencyFirstLegModalProps> = ({
                           <span className="text-[10px] text-slate-500 font-semibold">{ord.tipo_trabajo}</span>
                         </td>
                         <td className="p-3 text-center font-mono text-slate-600">
-                          {ord.hora_asignacion ? ord.hora_asignacion.slice(0, 5) : "-"}
+                          {ord.hora_asignacion ? String(ord.hora_asignacion).slice(0, 5) : "-"}
                         </td>
                         <td className="p-3 text-center font-mono text-slate-600">
-                          {ord.hora_en_camino ? ord.hora_en_camino.slice(0, 5) : "-"}
+                          {ord.hora_en_camino ? String(ord.hora_en_camino).slice(0, 5) : "-"}
                         </td>
                         <td className="p-3 text-center font-mono font-black text-slate-900">
-                          {ord.hora_inicio ? ord.hora_inicio.slice(0, 5) : "-"}
+                          {ord.hora_inicio ? String(ord.hora_inicio).slice(0, 5) : "-"}
                         </td>
                         <td className="p-3 text-center">
                           <div className="inline-flex flex-col items-center">
                             <span
-                              className={`font-black font-mono px-2 py-0.5 rounded-md text-[11px] ${
-                                ord.semaforo === "verde"
+                              className={`font-black font-mono px-2 py-0.5 rounded-md text-[11px] ${ord.semaforo === "verde"
                                   ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                                   : ord.semaforo === "amarillo"
-                                  ? "bg-amber-50 text-amber-700 border border-amber-200"
-                                  : "bg-red-50 text-red-700 border border-red-200"
-                              }`}
+                                    ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                    : "bg-red-50 text-red-700 border border-red-200"
+                                }`}
                             >
                               {ord.latencia_demora} min
                             </span>

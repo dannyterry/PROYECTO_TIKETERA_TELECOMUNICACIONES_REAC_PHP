@@ -1061,36 +1061,24 @@ export const ExecutiveDashboardPage: React.FC = () => {
           ───────────────────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
             {/* Total Órdenes */}
-            <div
-              onClick={() =>
-                handleOpenClassificationModal("TOTAL", "Todas las Órdenes del Período", "#0284c7")
-              }
-              className="bg-white border border-slate-200/80 hover:border-sky-300 p-4 rounded-3xl shadow-xs hover:shadow-md relative overflow-hidden group cursor-pointer transition-all active:scale-[0.98]"
-              title="📋 Clic para ver todas las órdenes de este período"
-            >
+            <div className="bg-white border border-slate-200/80 p-4 rounded-3xl shadow-xs relative overflow-hidden">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-sky-700">Órdenes Totales</span>
-                <div className="w-7 h-7 rounded-lg bg-sky-50 text-sky-600 group-hover:bg-sky-600 group-hover:text-white flex items-center justify-center transition-colors">
+                <div className="w-7 h-7 rounded-lg bg-sky-50 text-sky-600 flex items-center justify-center">
                   <Layers className="w-4 h-4" />
                 </div>
               </div>
               <div className="text-2xl lg:text-3xl font-black text-slate-900 mt-2">
                 {totalOrdenes}
               </div>
-              <span className="text-[10px] text-slate-500 block mt-1 capitalize">Ver listado completo →</span>
+              <span className="text-[10px] text-slate-500 block mt-1 capitalize">Volumen total evaluado</span>
             </div>
 
             {/* Órdenes Finalizadas */}
-            <div
-              onClick={() =>
-                handleOpenClassificationModal("FINALIZADAS", "Órdenes Finalizadas (Liquidadas)", "#5b9bd5")
-              }
-              className="bg-white border border-[#bdd7ee]/70 hover:border-sky-400 p-4 rounded-3xl shadow-xs hover:shadow-md relative overflow-hidden group cursor-pointer transition-all active:scale-[0.98]"
-              title="📋 Clic para ver órdenes finalizadas y liquidadas"
-            >
+            <div className="bg-white border border-[#bdd7ee]/70 p-4 rounded-3xl shadow-xs relative overflow-hidden">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-[#1f4e78]">Finalizadas</span>
-                <div className="w-7 h-7 rounded-lg bg-[#deebf7] text-[#1f4e78] group-hover:bg-[#1f4e78] group-hover:text-white flex items-center justify-center transition-colors">
+                <div className="w-7 h-7 rounded-lg bg-[#deebf7] text-[#1f4e78] flex items-center justify-center">
                   <CheckCircle2 className="w-4 h-4" />
                 </div>
               </div>
@@ -1098,21 +1086,15 @@ export const ExecutiveDashboardPage: React.FC = () => {
                 {finalizadas}
               </div>
               <span className="text-[10px] text-[#1f4e78] block mt-1 font-bold">
-                {porcentajeEfectividad}% efectividad →
+                {porcentajeEfectividad}% efectividad
               </span>
             </div>
 
             {/* Observadas / Canceladas */}
-            <div
-              onClick={() =>
-                handleOpenClassificationModal("OBSERVADAS_CANCELADAS", "Órdenes Observadas / Canceladas / Anuladas", "#ef4444")
-              }
-              className="bg-white border border-[#ffe699]/70 hover:border-amber-400 p-4 rounded-3xl shadow-xs hover:shadow-md relative overflow-hidden group cursor-pointer transition-all active:scale-[0.98]"
-              title="📋 Clic para ver órdenes no liquidadas"
-            >
+            <div className="bg-white border border-[#ffe699]/70 p-4 rounded-3xl shadow-xs relative overflow-hidden">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-[#833c0c]">Observadas / Canc.</span>
-                <div className="w-7 h-7 rounded-lg bg-[#fff2cc] text-[#833c0c] group-hover:bg-[#833c0c] group-hover:text-white flex items-center justify-center transition-colors">
+                <div className="w-7 h-7 rounded-lg bg-[#fff2cc] text-[#833c0c] flex items-center justify-center">
                   <XCircle className="w-4 h-4" />
                 </div>
               </div>
@@ -1120,28 +1102,22 @@ export const ExecutiveDashboardPage: React.FC = () => {
                 {canceladasObs}
               </div>
               <span className="text-[10px] text-[#833c0c] block mt-1 font-bold">
-                {porcentajeCanceladas}% no liquidadas →
+                {porcentajeCanceladas}% no liquidadas
               </span>
             </div>
 
             {/* Órdenes En Proceso */}
-            <div
-              onClick={() =>
-                handleOpenClassificationModal("INICIADAS_PROCESO", "Órdenes En Proceso / Iniciadas", "#70ad47")
-              }
-              className="bg-white border border-[#a9d18e]/70 hover:border-emerald-400 p-4 rounded-3xl shadow-xs hover:shadow-md relative overflow-hidden group cursor-pointer transition-all active:scale-[0.98]"
-              title="📋 Clic para ver órdenes actualmente en proceso o iniciadas"
-            >
+            <div className="bg-white border border-[#a9d18e]/70 p-4 rounded-3xl shadow-xs relative overflow-hidden">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-[#375623]">En Proceso / Inic.</span>
-                <div className="w-7 h-7 rounded-lg bg-[#e2efda] text-[#375623] group-hover:bg-[#375623] group-hover:text-white flex items-center justify-center transition-colors">
+                <div className="w-7 h-7 rounded-lg bg-[#e2efda] text-[#375623] flex items-center justify-center">
                   <Clock className="w-4 h-4 animate-pulse" />
                 </div>
               </div>
               <div className="text-2xl lg:text-3xl font-black text-[#375623] mt-2">
                 {stats?.kpis?.ordenes_en_proceso || 0}
               </div>
-              <span className="text-[10px] text-[#375623] block mt-1 font-bold">Cuadrillas en atención →</span>
+              <span className="text-[10px] text-[#375623] block mt-1 font-bold">Cuadrillas en atención</span>
             </div>
 
             {/* Compras del Mes */}
