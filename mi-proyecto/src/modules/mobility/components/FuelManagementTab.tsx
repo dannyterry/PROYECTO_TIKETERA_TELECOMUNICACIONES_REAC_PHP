@@ -528,13 +528,34 @@ export const FuelManagementTab: React.FC<Props> = ({
 
                     {/* Rendimiento */}
                     <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700">
-                      {c.rendimiento_km_galon ? (
-                        <span className="inline-block px-2 py-0.5 rounded-full bg-cyan-50 text-cyan-800 border border-cyan-200 text-[11px]">
-                          {c.rendimiento_km_galon} km/gl
-                        </span>
-                      ) : (
-                        <span className="text-slate-300 text-[10px]">1ra carga</span>
-                      )}
+                      {(() => {
+                        const tipoNorm = String(c.tipo_combustible || "").toUpperCase();
+                        const isGas = tipoNorm.includes("GLP") || tipoNorm.includes("GNV");
+                        const numRend = Number(c.rendimiento_km_galon);
+                        const gls = Number(c.galones_m3);
+                        const esReserva = !isGas && (numRend > 85 || (c.rendimiento_km_galon === null && gls <= 2.5 && gls > 0));
+
+                        if (esReserva) {
+                          return (
+                            <span
+                              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-bold"
+                              title="Carga de reserva / arranque para vehículo dual"
+                            >
+                              Reserva
+                            </span>
+                          );
+                        }
+
+                        if (c.rendimiento_km_galon && numRend > 0) {
+                          return (
+                            <span className="inline-block px-2 py-0.5 rounded-full bg-cyan-50 text-cyan-800 border border-cyan-200 text-[11px] font-bold">
+                              {numRend.toFixed(2)} km/gl
+                            </span>
+                          );
+                        }
+
+                        return <span className="text-slate-300 text-[10px]">1ra carga</span>;
+                      })()}
                     </td>
 
                     {/* Foto Comprobante */}

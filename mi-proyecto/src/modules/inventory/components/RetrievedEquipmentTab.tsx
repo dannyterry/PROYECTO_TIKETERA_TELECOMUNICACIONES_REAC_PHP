@@ -18,6 +18,7 @@ import {
   Check,
   Tag,
   FileText,
+  Copy,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { EquipoRetirado } from "../types/inventoryTypes";
@@ -40,6 +41,7 @@ export const RetrievedEquipmentTab: React.FC = () => {
   const [proidsEditados, setProidsEditados] = useState<{ [id: number]: string }>({});
   const [guardandoId, setGuardandoId] = useState<number | null>(null);
   const [guardadoExitoId, setGuardadoExitoId] = useState<number | null>(null);
+  const [copiedActaId, setCopiedActaId] = useState<number | null>(null);
 
   const cargarEquipos = () => {
     setLoading(true);
@@ -99,7 +101,8 @@ export const RetrievedEquipmentTab: React.FC = () => {
 
     const dataToExport = equiposFiltrados.map((e, idx) => ({
       "N°": idx + 1,
-      "Acta / Ticket": e.ticket || `REQ-${e.id_orden}`,
+      "Acta Física": e.numero_acta || "S/A",
+      "Ticket / OT": e.ticket || `REQ-${e.id_orden}`,
       "Cliente": e.cliente || "S/D",
       "Dirección": e.direccion || "S/D",
       "Distrito": e.distrito || "S/D",
@@ -148,6 +151,7 @@ export const RetrievedEquipmentTab: React.FC = () => {
     const matchTxt =
       !txt ||
       e.numero_serie.toLowerCase().includes(txt) ||
+      (e.numero_acta || "").toLowerCase().includes(txt) ||
       (e.proid || "").toLowerCase().includes(txt) ||
       (proidsEditados[e.id_equipo_retirado] || "").toLowerCase().includes(txt) ||
       (e.guia_remision_win || "").toLowerCase().includes(txt) ||
@@ -340,9 +344,10 @@ export const RetrievedEquipmentTab: React.FC = () => {
             <tr>
               <th className="py-3.5 px-4">Equipo Retirado (S/N)</th>
               <th className="py-3.5 px-4">Equipo Instalado (S/N)</th>
+              <th className="py-3.5 px-4 font-black text-sky-800">Acta Física</th>
               <th className="py-3.5 px-4">ID Modelo</th>
               <th className="py-3.5 px-4">Guía Remisión WIN</th>
-              <th className="py-3.5 px-4">Cliente & Ticket / Acta</th>
+              <th className="py-3.5 px-4">Cliente & Ticket</th>
               <th className="py-3.5 px-4">Técnico que Retiró</th>
               <th className="py-3.5 px-4">Motivo Retiro</th>
               <th className="py-3.5 px-4">Fecha Recojo</th>
@@ -354,7 +359,7 @@ export const RetrievedEquipmentTab: React.FC = () => {
           <tbody className="divide-y divide-slate-100">
             {equiposFiltrados.length === 0 ? (
               <tr>
-                <td colSpan={11} className="py-10 text-center text-slate-400 font-bold">
+                <td colSpan={12} className="py-10 text-center text-slate-400 font-bold">
                   No hay equipos recogidos registrados con los filtros actuales.
                 </td>
               </tr>
@@ -407,6 +412,39 @@ export const RetrievedEquipmentTab: React.FC = () => {
                               {eq.equipo_instalado_detalle ? eq.equipo_instalado_detalle.split("(")[0].trim() : "Instalado"}
                             </span>
                           </div>
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 font-mono text-xs pl-3">—</span>
+                      )}
+                    </td>
+
+                    {/* 1.2 Acta Física */}
+                    <td className="py-3.5 px-4">
+                      {eq.numero_acta ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-black text-sky-950 font-mono text-xs tracking-tight bg-sky-50 px-2.5 py-1 rounded-lg border border-sky-200/90 shadow-2xs">
+                            {eq.numero_acta}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(eq.numero_acta || "");
+                              setCopiedActaId(eq.id_equipo_retirado);
+                              setTimeout(() => setCopiedActaId(null), 1500);
+                            }}
+                            className={`p-1 rounded-md transition-all cursor-pointer ${
+                              copiedActaId === eq.id_equipo_retirado
+                                ? "bg-emerald-500 text-white shadow-2xs"
+                                : "text-slate-400 hover:text-sky-700 hover:bg-sky-50"
+                            }`}
+                            title={`Copiar N° Acta: ${eq.numero_acta}`}
+                          >
+                            {copiedActaId === eq.id_equipo_retirado ? (
+                              <Check size={12} className="stroke-[3]" />
+                            ) : (
+                              <Copy size={12} />
+                            )}
+                          </button>
                         </div>
                       ) : (
                         <span className="text-slate-400 font-mono text-xs pl-3">—</span>
@@ -473,11 +511,11 @@ export const RetrievedEquipmentTab: React.FC = () => {
                       </div>
                     </td>
 
-                    {/* 4. Cliente & Ticket / N° Acta */}
+                    {/* 4. Cliente & Ticket */}
                     <td className="py-3.5 px-4">
-                      <div className="font-bold text-slate-900 truncate max-w-[170px]">{eq.cliente}</div>
+                      <div className="font-bold text-slate-900 truncate max-w-[170px]" title={eq.cliente}>{eq.cliente}</div>
                       <span className="text-[10px] font-mono text-indigo-700 font-bold block">
-                        Ticket / Acta: #{eq.ticket}
+                        Ticket: #{eq.ticket}
                       </span>
                     </td>
 

@@ -9,14 +9,20 @@ import {
   ShieldCheck,
   MapPin,
   ChevronDown,
+  ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   RefreshCw,
   PieChart,
   BarChart3,
   Layers,
   UserCheck,
+  Calendar,
+  Coffee,
 } from "lucide-react";
 import { Order } from "../types/Order";
 import { getOrders } from "../services/orderService";
+import { getMatrizAsistencias } from "../../../services/employeeService";
 
 interface Props {
   trabajador: any;
@@ -30,6 +36,15 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
   const [selectedOption, setSelectedOption] = useState<string>("");
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Calendario Mensual de Asistencia y Descansos para el Técnico
+  const [mostrarCalendario, setMostrarCalendario] = useState<boolean>(false);
+  const [fechaCalendario, setFechaCalendario] = useState<Date>(() => new Date());
+  const [calendarioData, setCalendarioData] = useState<{
+    asistencias: any[];
+    descansos: any[];
+  }>({ asistencias: [], descansos: [] });
+  const [cargandoCalendario, setCargandoCalendario] = useState(false);
 
   // 1. Generador de Períodos: Días, Semanas y Meses
   const opcionesDias = useMemo(() => {
@@ -244,9 +259,397 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
     };
   }, [orders]);
 
+  // Cargar datos de asistencia y descansos del mes
+  useEffect(() => {
+    if (!trabajador) return;
+    const y = fechaCalendario.getFullYear();
+    const m = fechaCalendario.getMonth();
+    const fDesde = `${y}-${String(m + 1).padStart(2, "0")}-01`;
+    const fHasta = `${y}-${String(m + 1).padStart(2, "0")}-${String(new Date(y, m + 1, 0).getDate()).padStart(2, "0")}`;
+
+    setCargandoCalendario(true);
+    getMatrizAsistencias(fDesde, fHasta)
+      .then((res) => {
+        setCalendarioData({
+          asistencias: res.asistencias || [],
+          descansos: res.descansos || [],
+        });
+      })
+      .catch(console.error)
+      .finally(() => setCargandoCalendario(false));
+  }, [fechaCalendario, trabajador]);
+
+  // Cuadrícula y estados del calendario mensual para el técnico
+  const diasMesGrid = useMemo(() => {
+    const y = fechaCalendario.getFullYear();
+    const m = fechaCalendario.getMonth();
+    const totalDias = new Date(y, m + 1, 0).getDate();
+    const primerDia = new Date(y, m, 1);
+    const offsetInicio = (primerDia.getDay() + 6) % 7; // Lunes = 0 ... Domingo = 6
+    const hoyStr = new Date().toISOString().slice(0, 10);
+
+    const idUser = trabajador?.id_usuario;
+    const idTrab = trabajador?.id_trabajador;
+    const tecNombre = (trabajador?.nombre_completo || "").toLowerCase().trim();
+
+    // Map descansos programados
+    const setDescansos = new Set<string>();
+    for (const d of calendarioData.descansos) {
+      const matchId = (idUser && d.id_usuario === idUser) || (idTrab && d.id_trabajador === idTrab);
+      if (matchId && d.fecha_inicio && d.fecha_fin) {
+        let cur = new Date(d.fecha_inicio + "T00:00:00");
+        const end = new Date(d.fecha_fin + "T00:00:00");
+        while (cur <= end) {
+          setDescansos.add(cur.toISOString().slice(0, 10));
+          cur.setDate(cur.getDate() + 1);
+        }
+      }
+    }
+
+    // Map asistencias
+    const mapAsistencias = new Map<string, string>();
+    for (const a of calendarioData.asistencias) {
+      const matchId = (idUser && a.id_usuario === idUser) || (idTrab && a.id_trabajador === idTrab);
+      if (matchId && a.fecha) {
+        mapAsistencias.set(a.fecha.slice(0, 10), a.estado || "");
+      }
+    }
+
+    // Map órdenes finalizadas por fecha
+    const setDiasConOrdenes = new Set<string>();
+    for (const ord of orders) {
+      if (ord.fechaVisita && (ord.status || "").toUpperCase().includes("FINALIZ")) {
+        setDiasConOrdenes.add(ord.fechaVisita.slice(0, 10));
+      }
+    }
+
+    const celdas = [];
+    let totalD = 0;
+    let semD = 0;
+    let domD = 0;
+    let totalTA = 0;
+    let totalF = 0;
+    let totalT = 0;
+
+    for (let d = 1; d <= totalDias; d++) {
+      const curDate = new Date(y, m, d);
+      const fStr = `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      const dayOfWeek = (curDate.getDay() + 6) % 7; // 0 = Lunes, 6 = Domingo
+      const esDomingo = dayOfWeek === 6;
+      const esSabado = dayOfWeek === 5;
+      const esHoy = fStr === hoyStr;
+
+      const estadoAsist = mapAsistencias.get(fStr);
+      const tieneDescanso = setDescansos.has(fStr) || estadoAsist === "Descanso";
+      const tieneTardanza = estadoAsist === "Tardanza";
+      const tieneAsistencia = estadoAsist === "Asistio" || setDiasConOrdenes.has(fStr);
+      const tieneFalta = estadoAsist === "Falta";
+      const tienePermiso = estadoAsist === "Permiso";
+
+      let codigo = "";
+      let tipo: "descanso" | "tardanza" | "falta" | "trabajo" | "permiso" | "vacio" = "vacio";
+
+      if (tieneDescanso) {
+        codigo = "D";
+        tipo = "descanso";
+        totalD++;
+        if (esDomingo) domD++;
+        else semD++;
+      } else if (tieneTardanza) {
+        codigo = "TA";
+        tipo = "tardanza";
+        totalTA++;
+      } else if (tieneAsistencia) {
+        codigo = "T";
+        tipo = "trabajo";
+        totalT++;
+      } else if (tienePermiso) {
+        codigo = "P";
+        tipo = "permiso";
+      } else if (tieneFalta) {
+        codigo = "F";
+        tipo = "falta";
+        totalF++;
+      }
+
+      celdas.push({
+        dia: d,
+        fechaStr: fStr,
+        esHoy,
+        esDomingo,
+        esSabado,
+        codigo,
+        tipo,
+      });
+    }
+
+    const nombreMes = fechaCalendario.toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+
+    return {
+      offsetInicio,
+      celdas,
+      nombreMes: nombreMes.charAt(0).toUpperCase() + nombreMes.slice(1),
+      totales: {
+        totalD,
+        semD,
+        domD,
+        totalTA,
+        totalF,
+        totalT,
+      },
+    };
+  }, [fechaCalendario, calendarioData, orders, trabajador]);
+
   return (
     <div className="space-y-4 animate-fade-in text-slate-800">
-      
+
+      {/* ─────────────────────────────────────────────────────────────
+          📅 CALENDARIO MENSUAL DE ASISTENCIA Y DESCANSOS (ESTILO WIN)
+      ───────────────────────────────────────────────────────────── */}
+      <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-3.5 transition-all">
+        {/* Cabecera del Calendario interactiva para Desplegar / Ocultar */}
+        <div
+          onClick={() => setMostrarCalendario(!mostrarCalendario)}
+          className="flex flex-wrap items-center justify-between gap-3 cursor-pointer select-none"
+        >
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-md shadow-indigo-600/20 shrink-0">
+              <Calendar size={18} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm sm:text-base font-black text-slate-900 leading-tight">
+                  Mi Calendario de Asistencia y Descansos
+                </h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-200">
+                  {diasMesGrid.nombreMes}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                {mostrarCalendario
+                  ? "Consulta tus descansos, tardanzas, asistencias y faltas del mes"
+                  : "Haz clic para ver el desglose diario de descansos y asistencia"}
+              </p>
+            </div>
+          </div>
+
+          {/* Resumen en Chips y Botón de Toggle */}
+          <div className="flex items-center gap-2 flex-wrap ml-auto">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="px-2 py-1 rounded-xl bg-sky-50 text-sky-800 border border-sky-200 text-[10.5px] font-black">
+                {diasMesGrid.totales.totalD} Descansos
+              </span>
+              <span className="px-2 py-1 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10.5px] font-black">
+                {diasMesGrid.totales.totalT} Días Trab.
+              </span>
+              {diasMesGrid.totales.totalTA > 0 && (
+                <span className="px-2 py-1 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 text-[10.5px] font-black">
+                  {diasMesGrid.totales.totalTA} Tardanzas
+                </span>
+              )}
+              {diasMesGrid.totales.totalF > 0 && (
+                <span className="px-2 py-1 rounded-xl bg-rose-50 text-rose-800 border border-rose-200 text-[10.5px] font-black">
+                  {diasMesGrid.totales.totalF} Faltas
+                </span>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setMostrarCalendario(!mostrarCalendario);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 font-bold text-xs transition-colors cursor-pointer border border-slate-200"
+            >
+              <span>{mostrarCalendario ? "Ocultar" : "Ver Calendario"}</span>
+              {mostrarCalendario ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+            </button>
+          </div>
+        </div>
+
+        {/* CONTENIDO DESPLEGABLE CUANDO ESTÁ VISIBLE */}
+        {mostrarCalendario && (
+          <div className="space-y-3.5 pt-2 border-t border-slate-100 animate-in fade-in slide-in-from-top-2 duration-200">
+            {/* Navegación de Mes */}
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-black text-slate-700 uppercase tracking-wider">
+                Vista de {diasMesGrid.nombreMes}
+              </span>
+              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-2xl border border-slate-200 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFechaCalendario(
+                      (prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1)
+                    )
+                  }
+                  className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded-xl transition-all cursor-pointer"
+                  title="Mes anterior"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <span className="font-black text-xs text-slate-800 px-2 min-w-[120px] text-center capitalize">
+                  {diasMesGrid.nombreMes}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFechaCalendario(
+                      (prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1)
+                    )
+                  }
+                  className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded-xl transition-all cursor-pointer"
+                  title="Mes siguiente"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+
+            {/* Cuadrícula de 7 Columnas: LU MA MI JU VI SA DO */}
+            <div className="overflow-hidden rounded-2xl border border-slate-200">
+              <div className="grid grid-cols-7 bg-[#1f4e78] text-white text-center font-black text-[11px] py-2">
+                <div>LU</div>
+                <div>MA</div>
+                <div>MI</div>
+                <div>JU</div>
+                <div>VI</div>
+                <div className="text-amber-300">SÁ</div>
+                <div className="text-rose-300">DO</div>
+              </div>
+
+              {cargandoCalendario ? (
+                <div className="py-12 text-center text-slate-400 font-medium text-xs flex flex-col items-center justify-center gap-2">
+                  <RefreshCw size={20} className="animate-spin text-indigo-600" />
+                  <span>Cargando calendario del mes...</span>
+                </div>
+              ) : (
+                <div className="grid grid-cols-7 divide-x divide-y divide-slate-100 bg-slate-50/50">
+                  {/* Espacios en blanco para offset inicial */}
+                  {Array.from({ length: diasMesGrid.offsetInicio }).map((_, i) => (
+                    <div key={`offset-${i}`} className="min-h-[58px] bg-slate-100/40 p-1" />
+                  ))}
+
+                  {/* Días del Mes */}
+                  {diasMesGrid.celdas.map((dia) => (
+                    <div
+                      key={`mes-dia-${dia.fechaStr}`}
+                      className={`min-h-[58px] p-1.5 flex flex-col justify-between transition-colors ${
+                        dia.esHoy
+                          ? "bg-indigo-50/60 ring-2 ring-indigo-500 ring-inset"
+                          : dia.esDomingo
+                          ? "bg-rose-50/20"
+                          : "bg-white hover:bg-slate-50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span
+                          className={`text-[11px] font-black font-mono leading-none ${
+                            dia.esHoy ? "text-indigo-700" : "text-slate-700"
+                          }`}
+                        >
+                          {dia.dia}
+                        </span>
+                        {dia.esHoy && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-ping" />
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-center my-0.5">
+                        {dia.tipo === "descanso" ? (
+                          <span
+                            className="inline-flex items-center justify-center min-w-[28px] h-7 px-1 rounded-lg text-xs font-black bg-sky-100 text-sky-800 border border-sky-300 shadow-2xs"
+                            title="Día de Descanso"
+                          >
+                            D
+                          </span>
+                        ) : dia.tipo === "tardanza" ? (
+                          <span
+                            className="inline-flex items-center justify-center min-w-[28px] h-7 px-1 rounded-lg text-[11px] font-black bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs font-bold"
+                            title="Tardanza registrada"
+                          >
+                            TA
+                          </span>
+                        ) : dia.tipo === "falta" ? (
+                          <span
+                            className="inline-flex items-center justify-center min-w-[28px] h-7 px-1 rounded-lg text-xs font-black bg-rose-500 text-white shadow-2xs font-bold"
+                            title="Falta / Inasistencia"
+                          >
+                            F
+                          </span>
+                        ) : dia.tipo === "trabajo" ? (
+                          <span
+                            className="inline-flex items-center justify-center min-w-[28px] h-7 px-1 rounded-lg text-xs font-black bg-emerald-50 text-emerald-800 border border-emerald-300"
+                            title="Día Trabajado"
+                          >
+                            T
+                          </span>
+                        ) : dia.tipo === "permiso" ? (
+                          <span
+                            className="inline-flex items-center justify-center min-w-[28px] h-7 px-1 rounded-lg text-xs font-black bg-indigo-50 text-indigo-800 border border-indigo-200"
+                            title="Permiso"
+                          >
+                            P
+                          </span>
+                        ) : (
+                          <span className="text-slate-300 font-mono text-xs">-</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Cuadro Resumen Inferior (Estilo Hoja Técnica) */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-1">
+              <div className="bg-sky-50 border border-sky-200 rounded-2xl p-2.5 text-center">
+                <span className="text-[10px] font-bold text-sky-700 block uppercase">Total Descansos</span>
+                <span className="text-base font-black text-sky-950 font-mono">
+                  {diasMesGrid.totales.totalD}
+                </span>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-2.5 text-center">
+                <span className="text-[10px] font-bold text-slate-600 block uppercase">Sem. (Lun-Sáb)</span>
+                <span className="text-base font-black text-slate-900 font-mono">
+                  {diasMesGrid.totales.semD}
+                </span>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-2.5 text-center">
+                <span className="text-[10px] font-bold text-slate-600 block uppercase">Domingos (Dom)</span>
+                <span className="text-base font-black text-slate-900 font-mono">
+                  {diasMesGrid.totales.domD}
+                </span>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-2.5 text-center">
+                <span className="text-[10px] font-bold text-amber-700 block uppercase">Tardanzas (TA)</span>
+                <span className="text-base font-black text-amber-950 font-mono">
+                  {diasMesGrid.totales.totalTA}
+                </span>
+              </div>
+
+              <div className="bg-rose-50 border border-rose-200 rounded-2xl p-2.5 text-center">
+                <span className="text-[10px] font-bold text-rose-700 block uppercase">Faltas (F)</span>
+                <span className="text-base font-black text-rose-950 font-mono">
+                  {diasMesGrid.totales.totalF}
+                </span>
+              </div>
+
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-2.5 text-center">
+                <span className="text-[10px] font-bold text-emerald-700 block uppercase">Días Trab. (T)</span>
+                <span className="text-base font-black text-emerald-950 font-mono">
+                  {diasMesGrid.totales.totalT}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* ─────────────────────────────────────────────────────────────
           1. SELECTOR DE PERÍODO (DÍAS | SEMANAS | MESES)
       ───────────────────────────────────────────────────────────── */}

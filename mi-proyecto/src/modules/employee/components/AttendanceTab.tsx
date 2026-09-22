@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Clock,
   Calendar,
@@ -109,8 +109,42 @@ export const AttendanceTab: React.FC = () => {
     id_trabajador: "",
     motivo: "Descanso semanal",
   });
+  const [busquedaTrabajadorModal, setBusquedaTrabajadorModal] = useState("");
+  const [dropdownTrabajadorAbierto, setDropdownTrabajadorAbierto] = useState(false);
+  const dropdownTrabajadorRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        dropdownTrabajadorRef.current &&
+        !dropdownTrabajadorRef.current.contains(event.target as Node)
+      ) {
+        setDropdownTrabajadorAbierto(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+  const [modoDescansoModal, setModoDescansoModal] = useState<"semana" | "mes">("semana");
   const [semanaDescanso, setSemanaDescanso] = useState<Date>(() => new Date());
+  const [mesDescanso, setMesDescanso] = useState<Date>(() => new Date());
   const [diasSeleccionados, setDiasSeleccionados] = useState<string[]>([]);
+
+  // Lista de trabajadores filtrada para el modal de descanso
+  const listaTrabajadoresModal = personalParaDescansos.length > 0 ? personalParaDescansos : asistencias;
+  const personalFiltradoModal = useMemo(() => {
+    if (!busquedaTrabajadorModal.trim()) return listaTrabajadoresModal;
+    const term = busquedaTrabajadorModal.toLowerCase().trim();
+    return listaTrabajadoresModal.filter((a) => {
+      const nom = (a.nombre_completo || "").toLowerCase();
+      const cuad = (a.cuadrilla || "").toLowerCase();
+      const doc = (a.documento || "").toLowerCase();
+      const rol = (a.rol_nombre || "").toLowerCase();
+      return nom.includes(term) || cuad.includes(term) || doc.includes(term) || rol.includes(term);
+    });
+  }, [listaTrabajadoresModal, busquedaTrabajadorModal]);
 
   // Cargar Roles al iniciar
   useEffect(() => {
@@ -140,20 +174,45 @@ export const AttendanceTab: React.FC = () => {
     }
   }, [fechaSeleccionada, filtroRol, subTab, canVerTodosRoles, rolTecnicoId]);
 
+  // Helper para parsear fecha string "YYYY-MM-DD" en objeto Date local
+  const parseLocalDate = (dateStr: string): Date => {
+    if (!dateStr) return new Date();
+    const [y, m, d] = dateStr.split("-").map(Number);
+    return new Date(y, (m || 1) - 1, d || 1);
+  };
+
+  const formatLocalDate = (d: Date): string => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
   // Cargar Matriz
   const cargarMatriz = async () => {
     try {
       setLoading(true);
-      const inicio = new Date(fechaInicioMatriz);
-      let fin = new Date(inicio);
+      const refDate = parseLocalDate(fechaInicioMatriz);
+      let inicioStr = "";
+      let finStr = "";
+
       if (rangoTipo === "semana") {
-        fin.setDate(fin.getDate() + 6);
+        const day = refDate.getDay();
+        const diff = refDate.getDate() - day + (day === 0 ? -6 : 1); // Lunes
+        const lunes = new Date(refDate.getFullYear(), refDate.getMonth(), diff);
+        const domingo = new Date(lunes.getFullYear(), lunes.getMonth(), lunes.getDate() + 6);
+        inicioStr = formatLocalDate(lunes);
+        finStr = formatLocalDate(domingo);
       } else {
-        fin = new Date(inicio.getFullYear(), inicio.getMonth() + 1, 0);
+        // MES COMPLETO: Día 1 al último día del mes
+        const primerDia = new Date(refDate.getFullYear(), refDate.getMonth(), 1);
+        const ultimoDia = new Date(refDate.getFullYear(), refDate.getMonth() + 1, 0);
+        inicioStr = formatLocalDate(primerDia);
+        finStr = formatLocalDate(ultimoDia);
       }
-      const finStr = fin.toISOString().slice(0, 10);
+
       const rolParam = !canVerTodosRoles ? rolTecnicoId : filtroRol;
-      const res = await getMatrizAsistencias(fechaInicioMatriz, finStr, rolParam);
+      const res = await getMatrizAsistencias(inicioStr, finStr, rolParam);
       setMatrizData(res);
     } catch (err: any) {
       console.error("Error cargando matriz:", err);
@@ -167,6 +226,57 @@ export const AttendanceTab: React.FC = () => {
       cargarMatriz();
     }
   }, [fechaInicioMatriz, rangoTipo, filtroRol, subTab, canVerTodosRoles, rolTecnicoId]);
+
+  // Días generados para las columnas de la Matriz (Semana o Mes Completo)
+  const diasMatriz = React.useMemo(() => {
+    const refDate = parseLocalDate(fechaInicioMatriz);
+    const dias: Array<{
+      fechaStr: string;
+      diaSemana: string;
+      diaNum: number;
+      esHoy: boolean;
+      esFinDeSemana: boolean;
+    }> = [];
+
+    const hoyStr = formatLocalDate(new Date());
+
+    if (rangoTipo === "semana") {
+      const day = refDate.getDay();
+      const diff = refDate.getDate() - day + (day === 0 ? -6 : 1);
+      const lunes = new Date(refDate.getFullYear(), refDate.getMonth(), diff);
+
+      for (let i = 0; i < 7; i++) {
+        const cur = new Date(lunes.getFullYear(), lunes.getMonth(), lunes.getDate() + i);
+        const fechaStr = formatLocalDate(cur);
+        const diaSemana = cur.toLocaleDateString("es-ES", { weekday: "short" }).replace(".", "");
+        const diaNum = cur.getDate();
+        dias.push({
+          fechaStr,
+          diaSemana,
+          diaNum,
+          esHoy: fechaStr === hoyStr,
+          esFinDeSemana: cur.getDay() === 0 || cur.getDay() === 6,
+        });
+      }
+    } else {
+      // Mes Completo: desde día 1 hasta el último día del mes (ej: 1 al 30 o 31)
+      const totalDias = new Date(refDate.getFullYear(), refDate.getMonth() + 1, 0).getDate();
+      for (let d = 1; d <= totalDias; d++) {
+        const cur = new Date(refDate.getFullYear(), refDate.getMonth(), d);
+        const fechaStr = formatLocalDate(cur);
+        const diaSemana = cur.toLocaleDateString("es-ES", { weekday: "short" }).replace(".", "");
+        dias.push({
+          fechaStr,
+          diaSemana,
+          diaNum: d,
+          esHoy: fechaStr === hoyStr,
+          esFinDeSemana: cur.getDay() === 0 || cur.getDay() === 6,
+        });
+      }
+    }
+
+    return dias;
+  }, [fechaInicioMatriz, rangoTipo]);
 
   // Cargar Descansos y lista de personal simultáneamente
   const cargarDescansos = async () => {
@@ -322,6 +432,39 @@ export const AttendanceTab: React.FC = () => {
 
   const { lunes: lunesSemana, domingo: domingoSemana, dias: diasDeLaSemana } = calcularDiasSemana(semanaDescanso);
 
+  // Helper: Calcular días del mes para programar descansos
+  const calcularDiasMesDescanso = (fechaRef: Date) => {
+    const year = fechaRef.getFullYear();
+    const month = fechaRef.getMonth();
+    const primerDia = new Date(year, month, 1);
+    const totalDias = new Date(year, month + 1, 0).getDate();
+    const offsetInicio = (primerDia.getDay() + 6) % 7; // Lunes = 0, ..., Domingo = 6
+    const hoyStr = formatLocalDate(new Date());
+
+    const dias = [];
+    for (let d = 1; d <= totalDias; d++) {
+      const cur = new Date(year, month, d);
+      const fechaStr = formatLocalDate(cur);
+      const diaSemanaNum = cur.getDay(); // 0 = Domingo, 6 = Sábado
+      dias.push({
+        diaNum: d,
+        fechaStr,
+        esHoy: fechaStr === hoyStr,
+        esDomingo: diaSemanaNum === 0,
+        esFinDeSemana: diaSemanaNum === 0 || diaSemanaNum === 6,
+      });
+    }
+
+    const nombreMes = fechaRef.toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+    return { year, month, totalDias, offsetInicio, dias, nombreMes };
+  };
+
+  const {
+    offsetInicio: offsetInicioMesDescanso,
+    dias: diasDelMesDescanso,
+    nombreMes: nombreMesDescanso,
+  } = calcularDiasMesDescanso(mesDescanso);
+
   // Marcar / Desmarcar día de descanso
   const handleToggleDiaDescanso = (fechaStr: string) => {
     setDiasSeleccionados((prev) =>
@@ -338,6 +481,24 @@ export const AttendanceTab: React.FC = () => {
     const sabStr = diasDeLaSemana[5].fechaStr;
     const domStr = diasDeLaSemana[6].fechaStr;
     setDiasSeleccionados([sabStr, domStr]);
+  };
+
+  const handleSeleccionarDomingosDelMes = () => {
+    const domingos = diasDelMesDescanso.filter((d) => d.esDomingo).map((d) => d.fechaStr);
+    setDiasSeleccionados((prev) => {
+      const prefijoMes = `${mesDescanso.getFullYear()}-${String(mesDescanso.getMonth() + 1).padStart(2, "0")}`;
+      const otrosMeses = prev.filter((f) => !f.startsWith(prefijoMes));
+      return [...otrosMeses, ...domingos];
+    });
+  };
+
+  const handleSeleccionarFinDeSemanaDelMes = () => {
+    const findes = diasDelMesDescanso.filter((d) => d.esFinDeSemana).map((d) => d.fechaStr);
+    setDiasSeleccionados((prev) => {
+      const prefijoMes = `${mesDescanso.getFullYear()}-${String(mesDescanso.getMonth() + 1).padStart(2, "0")}`;
+      const otrosMeses = prev.filter((f) => !f.startsWith(prefijoMes));
+      return [...otrosMeses, ...findes];
+    });
   };
 
   const handleLimpiarDias = () => {
@@ -360,15 +521,30 @@ export const AttendanceTab: React.FC = () => {
     setSemanaDescanso(new Date());
   };
 
+  const handleMesDescansoAnterior = () => {
+    setMesDescanso(new Date(mesDescanso.getFullYear(), mesDescanso.getMonth() - 1, 1));
+  };
+
+  const handleMesDescansoSiguiente = () => {
+    setMesDescanso(new Date(mesDescanso.getFullYear(), mesDescanso.getMonth() + 1, 1));
+  };
+
+  const handleMesDescansoHoy = () => {
+    setMesDescanso(new Date());
+  };
+
   const handleAbrirModalDescanso = async () => {
     const hoy = new Date();
     setSemanaDescanso(hoy);
+    setMesDescanso(hoy);
     const info = calcularDiasSemana(hoy);
     setDiasSeleccionados([info.dias[6].fechaStr]); // Por defecto Domingo de la semana actual
     setDescansoForm({
       id_trabajador: "",
       motivo: "Descanso semanal",
     });
+    setBusquedaTrabajadorModal("");
+    setDropdownTrabajadorAbierto(false);
 
     if (personalParaDescansos.length === 0) {
       try {
@@ -937,14 +1113,15 @@ export const AttendanceTab: React.FC = () => {
       ───────────────────────────────────────────────────────────── */}
       {subTab === "matriz" && (
         <div className="space-y-4">
-          <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl">
+          <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+              {/* Botones de Selección Semana / Mes Completo */}
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
                 <button
                   type="button"
                   onClick={() => setRangoTipo("semana")}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    rangoTipo === "semana" ? "bg-white text-slate-900 shadow-2xs" : "text-slate-600"
+                    rangoTipo === "semana" ? "bg-white text-slate-900 shadow-2xs font-extrabold" : "text-slate-600 hover:text-slate-900"
                   }`}
                 >
                   Semana
@@ -953,33 +1130,100 @@ export const AttendanceTab: React.FC = () => {
                   type="button"
                   onClick={() => setRangoTipo("mes")}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    rangoTipo === "mes" ? "bg-white text-slate-900 shadow-2xs" : "text-slate-600"
+                    rangoTipo === "mes" ? "bg-white text-slate-900 shadow-2xs font-extrabold" : "text-slate-600 hover:text-slate-900"
                   }`}
                 >
                   Mes Completo
                 </button>
               </div>
 
-              <input
-                type="date"
-                value={fechaInicioMatriz}
-                onChange={(e) => setFechaInicioMatriz(e.target.value)}
-                className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
-              />
+              {/* Controles de Navegación Anterior / Siguiente y Fecha */}
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const ref = parseLocalDate(fechaInicioMatriz);
+                    if (rangoTipo === "semana") {
+                      ref.setDate(ref.getDate() - 7);
+                    } else {
+                      ref.setMonth(ref.getMonth() - 1);
+                    }
+                    setFechaInicioMatriz(formatLocalDate(ref));
+                  }}
+                  className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                  title="Anterior"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+
+                <input
+                  type={rangoTipo === "mes" ? "month" : "date"}
+                  value={
+                    rangoTipo === "mes"
+                      ? fechaInicioMatriz.slice(0, 7)
+                      : fechaInicioMatriz
+                  }
+                  onChange={(e) => {
+                    if (rangoTipo === "mes") {
+                      setFechaInicioMatriz(`${e.target.value}-01`);
+                    } else {
+                      setFechaInicioMatriz(e.target.value);
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const ref = parseLocalDate(fechaInicioMatriz);
+                    if (rangoTipo === "semana") {
+                      ref.setDate(ref.getDate() + 7);
+                    } else {
+                      ref.setMonth(ref.getMonth() + 1);
+                    }
+                    setFechaInicioMatriz(formatLocalDate(ref));
+                  }}
+                  className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                  title="Siguiente"
+                >
+                  <ChevronRight size={16} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setFechaInicioMatriz(formatLocalDate(new Date()))}
+                  className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-[11px] font-bold text-slate-700 transition-colors cursor-pointer ml-1"
+                >
+                  {rangoTipo === "mes" ? "Mes Actual" : "Esta Semana"}
+                </button>
+              </div>
+
+              {/* Etiqueta Informativa del Rango */}
+              <span className="text-xs font-black text-slate-800 bg-slate-100 px-2.5 py-1 rounded-xl capitalize">
+                {rangoTipo === "mes"
+                  ? `${parseLocalDate(fechaInicioMatriz).toLocaleDateString("es-ES", { month: "long", year: "numeric" })} (${diasMatriz.length} días)`
+                  : `Semana: ${diasMatriz[0]?.fechaStr || ""} al ${diasMatriz[diasMatriz.length - 1]?.fechaStr || ""}`
+                }
+              </span>
             </div>
 
+            {/* Leyenda de Estados */}
             <div className="flex items-center gap-3 text-xs font-medium text-slate-500">
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Presente
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Presente (P)
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Tardanza
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Tardanza (T)
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Falta
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Falta (F)
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Descanso
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Descanso (D)
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-purple-500" /> Permiso (J)
               </span>
             </div>
           </div>
@@ -987,102 +1231,107 @@ export const AttendanceTab: React.FC = () => {
           {/* Matriz Gráfica */}
           <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
             {loading ? (
-              <div className="p-12 text-center text-xs font-semibold text-slate-400">
-                Generando matriz de asistencia...
+              <div className="p-12 text-center text-xs font-semibold text-slate-400 flex flex-col items-center gap-2">
+                <RotateCw className="h-6 w-6 animate-spin text-teal-600" />
+                <span>Generando matriz de asistencia ({rangoTipo === "mes" ? "Mes Completo" : "Semanal"})...</span>
               </div>
             ) : (
               <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-270px)] relative scrollbar-thin">
                 <table className="w-full text-left text-xs text-slate-700 border-collapse">
                   <thead className="sticky top-0 z-20 bg-slate-100/95 backdrop-blur-xs border-b border-slate-200 text-[11px] font-bold text-slate-600 uppercase shadow-xs">
                     <tr>
-                      <th className="py-3 px-4 min-w-[180px] sticky left-0 z-30 bg-slate-100 border-r border-slate-200/80">Personal</th>
-                      {(() => {
-                        const diasCols = [];
-                        const inicio = new Date(fechaInicioMatriz);
-                        const cant = rangoTipo === "semana" ? 7 : 30;
-                        for (let i = 0; i < cant; i++) {
-                          const cur = new Date(inicio);
-                          cur.setDate(cur.getDate() + i);
-                          const diaSemana = cur.toLocaleDateString("es-ES", { weekday: "short" });
-                          const diaNum = cur.getDate();
-                          diasCols.push(
-                            <th key={i} className="py-2 px-2 text-center min-w-[42px] bg-slate-100/95">
-                              <span className="block text-[9px] text-slate-400 uppercase">{diaSemana}</span>
-                              <span className="block text-xs font-mono font-bold text-slate-800">{diaNum}</span>
-                            </th>
-                          );
-                        }
-                        return diasCols;
-                      })()}
+                      <th className="py-3 px-4 min-w-[200px] sticky left-0 z-30 bg-slate-100 border-r border-slate-200/80 shadow-2xs">
+                        Personal ({matrizData.trabajadores.length})
+                      </th>
+                      {diasMatriz.map((dia) => (
+                        <th
+                          key={dia.fechaStr}
+                          className={`py-2 px-1 text-center min-w-[34px] sm:min-w-[38px] ${
+                            dia.esHoy
+                              ? "bg-teal-50/90 ring-1 ring-teal-400"
+                              : dia.esFinDeSemana
+                              ? "bg-slate-200/70"
+                              : "bg-slate-100/95"
+                          }`}
+                        >
+                          <span className={`block text-[9px] uppercase ${dia.esHoy ? "text-teal-700 font-black" : dia.esFinDeSemana ? "text-slate-600 font-bold" : "text-slate-400"}`}>
+                            {dia.diaSemana}
+                          </span>
+                          <span className={`block text-xs font-mono font-black ${dia.esHoy ? "text-teal-950" : dia.esFinDeSemana ? "text-slate-900" : "text-slate-800"}`}>
+                            {dia.diaNum}
+                          </span>
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-mono">
                     {matrizData.trabajadores.map((t, idx) => (
-                      <tr key={t.id_usuario ? `matriz-u-${t.id_usuario}` : (t.id_trabajador ? `matriz-t-${t.id_trabajador}` : `matriz-idx-${idx}`)} className="hover:bg-slate-50/50">
-                        <td className="py-2.5 px-4 font-sans font-bold text-slate-800 text-xs truncate max-w-[200px] sticky left-0 z-10 bg-white border-r border-slate-200/80 shadow-2xs">
-                          {t.nombre_completo}
+                      <tr key={t.id_usuario ? `matriz-u-${t.id_usuario}` : (t.id_trabajador ? `matriz-t-${t.id_trabajador}` : `matriz-idx-${idx}`)} className="hover:bg-slate-50/70">
+                        <td className="py-2 px-4 font-sans font-bold text-slate-800 text-xs truncate max-w-[220px] sticky left-0 z-10 bg-white border-r border-slate-200/80 shadow-2xs">
+                          <div className="flex flex-col">
+                            <span className="truncate">{t.nombre_completo}</span>
+                            {canVerDetallesPersonal && (
+                              <span className="text-[10px] text-slate-400 font-mono font-normal">
+                                {t.cuadrilla || t.rol_nombre || ""}
+                              </span>
+                            )}
+                          </div>
                         </td>
-                        {(() => {
-                          const cells = [];
-                          const inicio = new Date(fechaInicioMatriz);
-                          const cant = rangoTipo === "semana" ? 7 : 30;
-                          for (let i = 0; i < cant; i++) {
-                            const cur = new Date(inicio);
-                            cur.setDate(cur.getDate() + i);
-                            const curStr = cur.toISOString().slice(0, 10);
+                        {diasMatriz.map((dia) => {
+                          const curStr = dia.fechaStr;
 
-                            const asist = matrizData.asistencias?.find(
-                              (a) =>
-                                ((t.id_trabajador && a.id_trabajador === t.id_trabajador) ||
-                                 (t.id_usuario && a.id_usuario === t.id_usuario)) &&
-                                a.fecha.slice(0, 10) === curStr
-                            );
-                            const desc = matrizData.descansos?.find(
-                              (d) =>
-                                ((t.id_trabajador && d.id_trabajador === t.id_trabajador) ||
-                                 (t.id_usuario && d.id_usuario === t.id_usuario)) &&
-                                curStr >= d.fecha_inicio.slice(0, 10) &&
-                                curStr <= d.fecha_fin.slice(0, 10)
-                            );
+                          const asist = matrizData.asistencias?.find(
+                            (a) =>
+                              ((t.id_trabajador && a.id_trabajador === t.id_trabajador) ||
+                               (t.id_usuario && a.id_usuario === t.id_usuario)) &&
+                              a.fecha.slice(0, 10) === curStr
+                          );
+                          const desc = matrizData.descansos?.find(
+                            (d) =>
+                              ((t.id_trabajador && d.id_trabajador === t.id_trabajador) ||
+                               (t.id_usuario && d.id_usuario === t.id_usuario)) &&
+                              curStr >= d.fecha_inicio.slice(0, 10) &&
+                              curStr <= d.fecha_fin.slice(0, 10)
+                          );
 
-                            let bgClass = "bg-slate-50 text-slate-300";
-                            let iconText = "-";
+                          let bgClass = dia.esFinDeSemana ? "bg-slate-100/60 text-slate-300" : "bg-slate-50/70 text-slate-300";
+                          let iconText = "-";
 
-                            if (asist) {
-                              if (asist.estado === "Asistio") {
-                                bgClass = "bg-emerald-100 text-emerald-800 font-bold";
-                                iconText = "P";
-                              } else if (asist.estado === "Tardanza") {
-                                bgClass = "bg-amber-100 text-amber-800 font-bold";
-                                iconText = "T";
-                              } else if (asist.estado === "Falta") {
-                                bgClass = "bg-red-100 text-red-800 font-bold";
-                                iconText = "F";
-                              } else if (asist.estado === "Descanso") {
-                                bgClass = "bg-blue-100 text-blue-800 font-bold";
-                                iconText = "D";
-                              } else if (asist.estado === "Permiso") {
-                                bgClass = "bg-purple-100 text-purple-800 font-bold";
-                                iconText = "J";
-                              }
-                            } else if (desc) {
-                              bgClass = "bg-blue-50 text-blue-600 font-bold";
+                          if (asist) {
+                            if (asist.estado === "Asistio") {
+                              bgClass = "bg-emerald-100 text-emerald-800 font-bold border border-emerald-300 shadow-2xs";
+                              iconText = "P";
+                            } else if (asist.estado === "Tardanza") {
+                              bgClass = "bg-amber-100 text-amber-800 font-bold border border-amber-300 shadow-2xs";
+                              iconText = "T";
+                            } else if (asist.estado === "Falta") {
+                              bgClass = "bg-red-100 text-red-800 font-bold border border-red-300 shadow-2xs";
+                              iconText = "F";
+                            } else if (asist.estado === "Descanso") {
+                              bgClass = "bg-blue-100 text-blue-800 font-bold border border-blue-300 shadow-2xs";
                               iconText = "D";
+                            } else if (asist.estado === "Permiso") {
+                              bgClass = "bg-purple-100 text-purple-800 font-bold border border-purple-300 shadow-2xs";
+                              iconText = "J";
                             }
-
-                            cells.push(
-                              <td key={i} className="py-2 px-1 text-center">
-                                <span
-                                  className={`inline-block w-7 h-7 rounded-lg text-xs leading-7 text-center ${bgClass}`}
-                                  title={`${curStr}: ${asist?.estado || (desc ? "Descanso" : "Sin marcar")}`}
-                                >
-                                  {iconText}
-                                </span>
-                              </td>
-                            );
+                          } else if (desc) {
+                            bgClass = "bg-blue-50 text-blue-700 font-bold border border-blue-200 shadow-2xs";
+                            iconText = "D";
                           }
-                          return cells;
-                        })()}
+
+                          return (
+                            <td key={dia.fechaStr} className="py-1.5 px-0.5 text-center">
+                              <span
+                                className={`inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs transition-transform hover:scale-110 ${bgClass}`}
+                                title={`${t.nombre_completo} - ${dia.diaSemana} ${dia.diaNum} (${dia.fechaStr}): ${
+                                  asist?.estado ? `${asist.estado}${asist.hora_entrada ? ` a las ${asist.hora_entrada.slice(0, 5)}` : ""}` : (desc ? `Descanso: ${desc.motivo || ""}` : "Sin registro")
+                                }`}
+                              >
+                                {iconText}
+                              </span>
+                            </td>
+                          );
+                        })}
                       </tr>
                     ))}
                   </tbody>
@@ -1181,19 +1430,25 @@ export const AttendanceTab: React.FC = () => {
         </div>
       )}
 
-      {/* Modal Programar Descanso con Calendario Semanal Interactivo */}
+      {/* Modal Programar Descanso con Calendario Semanal / Mensual Interactivo */}
       {modalDescanso && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden flex flex-col animate-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden flex flex-col animate-in zoom-in-95 duration-150 max-h-[90vh]">
             {/* Cabecera Modal */}
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-teal-600 text-white flex items-center justify-center font-bold shadow-md shadow-teal-600/20">
                   <Coffee size={20} />
                 </div>
                 <div>
-                  <h3 className="text-base font-black text-slate-900">Programar Descanso Semanal</h3>
-                  <p className="text-xs text-slate-500 font-medium">Marca los días de descanso en el calendario</p>
+                  <h3 className="text-base font-black text-slate-900">
+                    {modoDescansoModal === "semana" ? "Programar Descanso Semanal" : "Programar Descanso Mensual"}
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    {modoDescansoModal === "semana"
+                      ? "Marca los días de descanso en la semana"
+                      : "Asigna los descansos de todo el mes de forma rápida"}
+                  </p>
                 </div>
               </div>
               <button
@@ -1205,141 +1460,417 @@ export const AttendanceTab: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleGuardarDescanso} className="p-5 space-y-4">
-              {/* Selector de Trabajador */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Trabajador *</label>
-                <select
-                  required
-                  value={descansoForm.id_trabajador}
-                  onChange={(e) => setDescansoForm((prev) => ({ ...prev, id_trabajador: e.target.value }))}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-teal-500 transition-all cursor-pointer"
-                >
-                  <option value="">-- Seleccionar Trabajador ({personalParaDescansos.length > 0 ? personalParaDescansos.length : asistencias.length}) --</option>
-                  {(personalParaDescansos.length > 0 ? personalParaDescansos : asistencias).map((a) => (
-                    <option key={`opt-u-${a.id_usuario}`} value={String(a.id_usuario)}>
-                      {a.nombre_completo} {canVerDetallesPersonal ? `(${a.cuadrilla || a.rol_nombre || 'Personal'})` : (a.cuadrilla ? `(${a.cuadrilla})` : '')}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Calendario Semanal Interactivo para Marcar Días */}
-              <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 space-y-3">
-                {/* Control de Navegación de Semanas */}
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-1.5 text-xs font-black text-slate-800">
-                    <Calendar size={15} className="text-teal-600" />
-                    <span>
-                      {lunesSemana.toLocaleDateString("es-ES", { day: "numeric", month: "short" })} - {domingoSemana.toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" })}
+            <form onSubmit={handleGuardarDescanso} className="p-4 sm:p-5 space-y-3.5 overflow-y-auto">
+              {/* Selector de Trabajador Combobox Autodesplegable */}
+              <div ref={dropdownTrabajadorRef} className="relative">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700">
+                    Trabajador <span className="text-rose-500">*</span>
+                  </label>
+                  {descansoForm.id_trabajador ? (
+                    <span className="text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <Check size={10} className="stroke-[3]" /> Seleccionado
                     </span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={handleSemanaHoy}
-                      className="px-2 py-1 text-[11px] font-bold bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-lg transition-all cursor-pointer shadow-2xs"
-                    >
-                      Hoy
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSemanaAnterior}
-                      className="p-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 transition-all cursor-pointer shadow-2xs"
-                      title="Semana anterior"
-                    >
-                      <ChevronLeft size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSemanaSiguiente}
-                      className="p-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 transition-all cursor-pointer shadow-2xs"
-                      title="Semana siguiente"
-                    >
-                      <ChevronRight size={14} />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Cuadrícula de 7 Días para Marcar / Desmarcar con 1 Clic */}
-                <div className="grid grid-cols-7 gap-1.5">
-                  {diasDeLaSemana.map((dia) => {
-                    const isSelected = diasSeleccionados.includes(dia.fechaStr);
-                    return (
-                      <button
-                        key={dia.fechaStr}
-                        type="button"
-                        onClick={() => handleToggleDiaDescanso(dia.fechaStr)}
-                        className={`p-2 rounded-xl border flex flex-col items-center justify-center transition-all cursor-pointer select-none relative ${
-                          isSelected
-                            ? "bg-teal-600 border-teal-600 text-white shadow-md shadow-teal-600/30 scale-[1.03]"
-                            : "bg-white border-slate-200 hover:bg-teal-50/50 hover:border-teal-300 text-slate-700"
-                        }`}
-                        title={`${dia.nombreCompleto} ${dia.numeroDia}: clic para marcar descanso`}
-                      >
-                        {dia.esHoy && (
-                          <span
-                            className={`absolute top-1 right-1 w-1.5 h-1.5 rounded-full ${
-                              isSelected ? "bg-amber-300" : "bg-teal-500"
-                            }`}
-                            title="Hoy"
-                          />
-                        )}
-                        <span
-                          className={`text-[9px] font-black uppercase tracking-wider ${
-                            isSelected
-                              ? "text-teal-100"
-                              : dia.esFinDeSemana
-                              ? "text-amber-600"
-                              : "text-slate-400"
-                          }`}
-                        >
-                          {dia.nombreCorto}
-                        </span>
-                        <span className="text-sm font-black font-mono leading-tight my-0.5">
-                          {dia.numeroDia}
-                        </span>
-                        <span
-                          className={`text-[8px] font-bold uppercase ${
-                            isSelected ? "text-white" : "text-slate-400"
-                          }`}
-                        >
-                          {isSelected ? "✓ Desc." : dia.mesNombre}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Atajos rápidos de selección y Limpiar */}
-                <div className="flex items-center justify-between pt-1 text-[11px] border-t border-slate-200/60">
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={handleSeleccionarSoloDomingo}
-                      className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 font-bold transition-all cursor-pointer"
-                    >
-                      Solo Domingo
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSeleccionarFinDeSemana}
-                      className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 font-bold transition-all cursor-pointer"
-                    >
-                      Sábado & Domingo
-                    </button>
-                  </div>
-                  {diasSeleccionados.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={handleLimpiarDias}
-                      className="text-slate-400 hover:text-rose-600 font-bold cursor-pointer transition-colors"
-                    >
-                      Limpiar
-                    </button>
+                  ) : (
+                    <span className="text-[10px] font-medium text-slate-400">
+                      {listaTrabajadoresModal.length} disponibles
+                    </span>
                   )}
                 </div>
+
+                {/* Input de Búsqueda y Selección */}
+                <div className="relative">
+                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Escribe nombre, apellido, DNI o cuadrilla..."
+                    value={busquedaTrabajadorModal}
+                    onFocus={(e) => {
+                      setDropdownTrabajadorAbierto(true);
+                      e.target.select();
+                    }}
+                    onChange={(e) => {
+                      setBusquedaTrabajadorModal(e.target.value);
+                      setDropdownTrabajadorAbierto(true);
+                      if (descansoForm.id_trabajador) {
+                        setDescansoForm((prev) => ({ ...prev, id_trabajador: "" }));
+                      }
+                    }}
+                    className={`w-full pl-9 pr-16 py-2.5 bg-slate-50 hover:bg-slate-100/60 focus:bg-white border rounded-xl text-xs font-bold text-slate-800 placeholder:text-slate-400 focus:outline-none transition-all ${
+                      dropdownTrabajadorAbierto
+                        ? "border-teal-500 ring-2 ring-teal-500/20 shadow-xs"
+                        : descansoForm.id_trabajador
+                        ? "border-teal-400 bg-teal-50/20"
+                        : "border-slate-200"
+                    }`}
+                  />
+                  <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                    {busquedaTrabajadorModal && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBusquedaTrabajadorModal("");
+                          setDescansoForm((prev) => ({ ...prev, id_trabajador: "" }));
+                          setDropdownTrabajadorAbierto(true);
+                        }}
+                        className="text-slate-400 hover:text-slate-600 p-1 text-xs font-bold cursor-pointer rounded-lg hover:bg-slate-200/50"
+                        title="Limpiar"
+                      >
+                        ✕
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setDropdownTrabajadorAbierto(!dropdownTrabajadorAbierto)}
+                      className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer rounded-lg hover:bg-slate-200/50"
+                      tabIndex={-1}
+                    >
+                      <ChevronRight
+                        size={14}
+                        className={`transition-transform duration-200 ${
+                          dropdownTrabajadorAbierto ? "rotate-90 text-teal-600" : ""
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Dropdown flotante desplegable automáticamente */}
+                {dropdownTrabajadorAbierto && (
+                  <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 max-h-56 overflow-y-auto p-1.5 animate-in fade-in zoom-in-95 duration-100 divide-y divide-slate-50">
+                    {personalFiltradoModal.length > 0 ? (
+                      personalFiltradoModal.map((a) => {
+                        const isSelected = descansoForm.id_trabajador === String(a.id_usuario);
+                        return (
+                          <div
+                            key={`dropdown-worker-${a.id_usuario}`}
+                            onClick={() => {
+                              setDescansoForm((prev) => ({ ...prev, id_trabajador: String(a.id_usuario) }));
+                              setBusquedaTrabajadorModal(a.nombre_completo);
+                              setDropdownTrabajadorAbierto(false);
+                            }}
+                            className={`p-2 rounded-xl cursor-pointer flex items-center justify-between transition-colors text-xs ${
+                              isSelected
+                                ? "bg-teal-50 text-teal-900 font-bold border border-teal-200/60"
+                                : "hover:bg-slate-100/80 text-slate-700"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                              <div
+                                className={`w-7 h-7 rounded-lg flex items-center justify-center font-black text-[10px] shrink-0 ${
+                                  isSelected ? "bg-teal-600 text-white" : "bg-slate-100 text-slate-600"
+                                }`}
+                              >
+                                {a.nombre_completo.charAt(0).toUpperCase()}
+                              </div>
+                              <div className="truncate">
+                                <p className="font-bold truncate text-slate-900 leading-tight">
+                                  {a.nombre_completo}
+                                </p>
+                                <p className="text-[10px] text-slate-400 truncate">
+                                  {a.cuadrilla ? `Cuadrilla: ${a.cuadrilla}` : (a.rol_nombre || "Técnico")}
+                                  {canVerDetallesPersonal && a.documento ? ` • DNI: ${a.documento}` : ""}
+                                </p>
+                              </div>
+                            </div>
+                            {isSelected && (
+                              <div className="shrink-0 w-5 h-5 rounded-full bg-teal-600 text-white flex items-center justify-center shadow-2xs">
+                                <Check size={11} className="stroke-[3]" />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="py-4 px-3 text-center text-xs text-slate-400 font-medium">
+                        No se encontró ningún trabajador para "{busquedaTrabajadorModal}".
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
+
+              {/* Selector de Modo: Semanal vs Mensual */}
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-xs font-bold text-slate-700">Modalidad de Calendario:</label>
+                <div className="flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200/60">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setModoDescansoModal("semana");
+                      if (descansoForm.motivo === "Descanso mensual") {
+                        setDescansoForm((prev) => ({ ...prev, motivo: "Descanso semanal" }));
+                      }
+                    }}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                      modoDescansoModal === "semana"
+                        ? "bg-white text-teal-700 shadow-2xs"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    <Calendar size={13} />
+                    <span>Semanal</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setModoDescansoModal("mes");
+                      if (descansoForm.motivo === "Descanso semanal") {
+                        setDescansoForm((prev) => ({ ...prev, motivo: "Descanso mensual" }));
+                      }
+                    }}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                      modoDescansoModal === "mes"
+                        ? "bg-white text-teal-700 shadow-2xs"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    <Calendar size={13} />
+                    <span>Mensual</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* ================= VISTA SEMANAL ================= */}
+              {modoDescansoModal === "semana" && (
+                <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 space-y-3">
+                  {/* Control de Navegación de Semanas */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 text-xs font-black text-slate-800">
+                      <Calendar size={15} className="text-teal-600" />
+                      <span>
+                        {lunesSemana.toLocaleDateString("es-ES", { day: "numeric", month: "short" })} - {domingoSemana.toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" })}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={handleSemanaHoy}
+                        className="px-2 py-1 text-[11px] font-bold bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-lg transition-all cursor-pointer shadow-2xs"
+                      >
+                        Hoy
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSemanaAnterior}
+                        className="p-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 transition-all cursor-pointer shadow-2xs"
+                        title="Semana anterior"
+                      >
+                        <ChevronLeft size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSemanaSiguiente}
+                        className="p-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 transition-all cursor-pointer shadow-2xs"
+                        title="Semana siguiente"
+                      >
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Cuadrícula de 7 Días para Marcar / Desmarcar con 1 Clic */}
+                  <div className="grid grid-cols-7 gap-1.5">
+                    {diasDeLaSemana.map((dia) => {
+                      const isSelected = diasSeleccionados.includes(dia.fechaStr);
+                      return (
+                        <button
+                          key={dia.fechaStr}
+                          type="button"
+                          onClick={() => handleToggleDiaDescanso(dia.fechaStr)}
+                          className={`p-2 rounded-xl border flex flex-col items-center justify-center transition-all cursor-pointer select-none relative ${
+                            isSelected
+                              ? "bg-teal-600 border-teal-600 text-white shadow-md shadow-teal-600/30 scale-[1.03]"
+                              : "bg-white border-slate-200 hover:bg-teal-50/50 hover:border-teal-300 text-slate-700"
+                          }`}
+                          title={`${dia.nombreCompleto} ${dia.numeroDia}: clic para marcar descanso`}
+                        >
+                          {dia.esHoy && (
+                            <span
+                              className={`absolute top-1 right-1 w-1.5 h-1.5 rounded-full ${
+                                isSelected ? "bg-amber-300" : "bg-teal-500"
+                              }`}
+                              title="Hoy"
+                            />
+                          )}
+                          <span
+                            className={`text-[9px] font-black uppercase tracking-wider ${
+                              isSelected
+                                ? "text-teal-100"
+                                : dia.esFinDeSemana
+                                ? "text-amber-600"
+                                : "text-slate-400"
+                            }`}
+                          >
+                            {dia.nombreCorto}
+                          </span>
+                          <span className="text-sm font-black font-mono leading-tight my-0.5">
+                            {dia.numeroDia}
+                          </span>
+                          <span
+                            className={`text-[8px] font-bold uppercase ${
+                              isSelected ? "text-white" : "text-slate-400"
+                            }`}
+                          >
+                            {isSelected ? "✓ Desc." : dia.mesNombre}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Atajos rápidos de selección y Limpiar */}
+                  <div className="flex items-center justify-between pt-1 text-[11px] border-t border-slate-200/60">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={handleSeleccionarSoloDomingo}
+                        className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 font-bold transition-all cursor-pointer"
+                      >
+                        Solo Domingo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSeleccionarFinDeSemana}
+                        className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 font-bold transition-all cursor-pointer"
+                      >
+                        Sábado & Domingo
+                      </button>
+                    </div>
+                    {diasSeleccionados.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleLimpiarDias}
+                        className="text-slate-400 hover:text-rose-600 font-bold cursor-pointer transition-colors"
+                      >
+                        Limpiar
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ================= VISTA MENSUAL ================= */}
+              {modoDescansoModal === "mes" && (
+                <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 space-y-2.5">
+                  {/* Control de Navegación del Mes */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 text-xs font-black text-slate-800 capitalize">
+                      <Calendar size={15} className="text-teal-600" />
+                      <span>{nombreMesDescanso}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={handleMesDescansoHoy}
+                        className="px-2 py-1 text-[11px] font-bold bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-lg transition-all cursor-pointer shadow-2xs"
+                      >
+                        Este Mes
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleMesDescansoAnterior}
+                        className="p-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 transition-all cursor-pointer shadow-2xs"
+                        title="Mes anterior"
+                      >
+                        <ChevronLeft size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleMesDescansoSiguiente}
+                        className="p-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 transition-all cursor-pointer shadow-2xs"
+                        title="Mes siguiente"
+                      >
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Cabecera de Días de la Semana */}
+                  <div className="grid grid-cols-7 gap-1 text-center">
+                    {["L", "M", "X", "J", "V", "S", "D"].map((nom, idx) => (
+                      <div
+                        key={`nom-d-${idx}`}
+                        className={`text-[10px] font-black py-0.5 ${
+                          idx === 6 ? "text-rose-600" : idx === 5 ? "text-amber-600" : "text-slate-400"
+                        }`}
+                      >
+                        {nom}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Cuadrícula del Mes (1..31) */}
+                  <div className="grid grid-cols-7 gap-1">
+                    {/* Espacios vacíos antes del día 1 */}
+                    {Array.from({ length: offsetInicioMesDescanso }).map((_, i) => (
+                      <div key={`offset-${i}`} className="h-8 rounded-lg bg-slate-100/40 opacity-30" />
+                    ))}
+
+                    {/* Días del Mes */}
+                    {diasDelMesDescanso.map((dia) => {
+                      const isSelected = diasSeleccionados.includes(dia.fechaStr);
+                      return (
+                        <button
+                          key={dia.fechaStr}
+                          type="button"
+                          onClick={() => handleToggleDiaDescanso(dia.fechaStr)}
+                          className={`h-8 rounded-lg border text-xs font-mono font-bold flex items-center justify-center transition-all cursor-pointer select-none relative ${
+                            isSelected
+                              ? "bg-teal-600 border-teal-600 text-white font-black shadow-2xs scale-[1.04]"
+                              : dia.esHoy
+                              ? "bg-teal-50/80 border-teal-400 text-teal-800 font-black"
+                              : dia.esDomingo
+                              ? "bg-white border-slate-200 text-rose-600 hover:bg-teal-50/60 hover:border-teal-300"
+                              : dia.esFinDeSemana
+                              ? "bg-white border-slate-200 text-amber-600 hover:bg-teal-50/60 hover:border-teal-300"
+                              : "bg-white border-slate-200 hover:bg-teal-50/60 hover:border-teal-300 text-slate-700"
+                          }`}
+                          title={`Día ${dia.diaNum}: clic para asignar descanso`}
+                        >
+                          {dia.diaNum}
+                          {isSelected && (
+                            <span className="absolute bottom-0.5 text-[8px] leading-none font-bold text-teal-100">
+                              ✓
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Atajos rápidos para el Mes Completo */}
+                  <div className="flex items-center justify-between pt-1.5 text-[11px] border-t border-slate-200/60 flex-wrap gap-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={handleSeleccionarDomingosDelMes}
+                        className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 font-bold transition-all cursor-pointer"
+                        title="Seleccionar todos los domingos del mes mostrado"
+                      >
+                        Todos los Domingos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSeleccionarFinDeSemanaDelMes}
+                        className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 font-bold transition-all cursor-pointer"
+                        title="Seleccionar todos los sábados y domingos del mes"
+                      >
+                        Sábados & Domingos
+                      </button>
+                    </div>
+                    {diasSeleccionados.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleLimpiarDias}
+                        className="text-slate-400 hover:text-rose-600 font-bold cursor-pointer transition-colors"
+                      >
+                        Limpiar
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Resumen de días marcados */}
               <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">

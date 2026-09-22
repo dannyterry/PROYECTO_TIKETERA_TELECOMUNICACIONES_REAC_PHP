@@ -96,6 +96,8 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
 
   const onlineDropdownRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const statusDropdownRef = useRef<HTMLDivElement>(null);
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
 
   // Cerrar dropdowns al hacer clic fuera
   useEffect(() => {
@@ -105,6 +107,9 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
       }
       if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
         setUserMenuOpen(false);
+      }
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
+        setStatusDropdownOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -232,12 +237,64 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
     onFilterChange({ ...filters, search: "" });
   };
 
+  // 🎯 HELPERS PARA FILTRADO MULTI-SELECCIÓN ACUMULATIVO DE ESTADOS
+  const getActiveStatuses = (): string[] => {
+    if (filters.statuses && filters.statuses.length > 0) {
+      return filters.statuses.filter((s) => s !== "Todos");
+    }
+    if (filters.status && filters.status !== "Todos") {
+      return [filters.status];
+    }
+    return [];
+  };
+
+  const isStatusActive = (statusKey: string): boolean => {
+    const active = getActiveStatuses();
+    if (statusKey === "Todos") {
+      return active.length === 0;
+    }
+    return active.includes(statusKey);
+  };
+
+  // Alternar o sumar un estado a la selección actual
+  const handleToggleStatus = (statusKey: string) => {
+    if (statusKey === "Todos") {
+      onFilterChange({
+        ...filters,
+        statuses: [],
+        status: "Todos",
+      });
+      return;
+    }
+    const current = getActiveStatuses();
+    let next: string[];
+    if (current.includes(statusKey)) {
+      next = current.filter((s) => s !== statusKey);
+    } else {
+      next = [...current, statusKey];
+    }
+    onFilterChange({
+      ...filters,
+      statuses: next,
+      status: next.length === 1 ? next[0] : (next.length === 0 ? "Todos" : next.join(",")),
+    });
+  };
+
+  const STATUS_OPTIONS = [
+    { key: "Verdes", label: "Verde (Iniciada / Proceso)", colorDot: "bg-[#70ad47]", borderDot: "border-[#568735]", count: stats.verdes },
+    { key: "Finalizadas", label: "Celeste (Finalizada)", colorDot: "bg-[#5b9bd5]", borderDot: "border-[#3c78b0]", count: stats.azules },
+    { key: "Amarillos", label: "Amarillo (Regestión / Cancelada)", colorDot: "bg-amber-500", borderDot: "border-amber-600", count: stats.amarillos },
+    { key: "Agendadas", label: "Gris (Agendada / Asignada / En camino)", colorDot: "bg-slate-200", borderDot: "border-slate-400", count: stats.agendadas },
+    { key: "Ordenamientos", label: "Ordenamientos (Cuadrillas O)", colorDot: "bg-violet-600", borderDot: "border-violet-700", count: stats.ordenamientos },
+  ];
+
   const handleClearFilters = () => {
     setLocalSearch("");
     onFilterChange({
       fechaDesde: "",
       fechaHasta: "",
       status: "Todos",
+      statuses: [],
       tecnico: "Todos",
       cuadrilla: "Todos",
       inconcert: "Todos",
@@ -264,7 +321,7 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
   const activeFiltersCount = [
     Boolean(filters.fechaDesde),
     Boolean(filters.fechaHasta),
-    Boolean(filters.status && filters.status !== "Todos"),
+    getActiveStatuses().length > 0,
     Boolean(filters.tecnico && filters.tecnico !== "Todos"),
     Boolean(filters.cuadrilla && filters.cuadrilla !== "Todos"),
     Boolean(filters.inconcert && filters.inconcert !== "Todos"),
@@ -536,10 +593,10 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 py-0.5 lg:hidden">
         <button
           type="button"
-          onClick={() => onFilterChange({ ...filters, status: "Todos" })}
+          onClick={() => handleToggleStatus("Todos")}
           className={`flex items-center justify-between px-1.5 py-1 rounded-md text-[10.5px] font-bold border cursor-pointer transition-all ${
-            !filters.status || filters.status === "Todos"
-              ? "bg-slate-900 text-white border-slate-950 ring-1 ring-slate-400 shadow-2xs"
+            isStatusActive("Todos")
+              ? "bg-slate-900 text-white border-slate-950 ring-2 ring-slate-400 shadow-2xs"
               : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
           }`}
           title={`Total en Fénix: ${stats.agendadas + stats.verdes + stats.azules + stats.amarillos + (stats.ordenamientos || 0)}`}
@@ -552,13 +609,13 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
 
         <button
           type="button"
-          onClick={() => onFilterChange({ ...filters, status: filters.status === "Agendadas" ? "Todos" : "Agendadas" })}
+          onClick={() => handleToggleStatus("Agendadas")}
           className={`flex items-center justify-between px-1.5 py-1 rounded-md text-[10.5px] font-bold border cursor-pointer transition-all ${
-            filters.status === "Agendadas"
-              ? "bg-slate-800 text-white border-slate-900 ring-1 ring-slate-400 shadow-2xs"
+            isStatusActive("Agendadas")
+              ? "bg-slate-800 text-white border-slate-900 ring-2 ring-slate-400 shadow-2xs font-black"
               : "bg-white text-slate-800 border-slate-300 hover:bg-slate-100"
           }`}
-          title="Filtrar Asignadas"
+          title="Sumar/Filtrar Asignadas"
         >
           <div className="flex items-center gap-1 min-w-0">
             <span className="w-1.5 h-1.5 rounded-full bg-white border border-slate-400 shrink-0"></span>
@@ -569,13 +626,13 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
 
         <button
           type="button"
-          onClick={() => onFilterChange({ ...filters, status: filters.status === "Verdes" ? "Todos" : "Verdes" })}
+          onClick={() => handleToggleStatus("Verdes")}
           className={`flex items-center justify-between px-1.5 py-1 rounded-md text-[10.5px] font-bold border cursor-pointer transition-all ${
-            filters.status === "Verdes"
-              ? "bg-[#70ad47] text-white border-[#568735] ring-1 ring-emerald-300 shadow-2xs"
+            isStatusActive("Verdes")
+              ? "bg-[#70ad47] text-white border-[#568735] ring-2 ring-emerald-300 shadow-2xs font-black"
               : "bg-[#70ad47]/15 text-emerald-950 border-[#70ad47]/30 hover:bg-[#70ad47]/25"
           }`}
-          title="Filtrar Iniciadas"
+          title="Sumar/Filtrar Iniciadas"
         >
           <div className="flex items-center gap-1 min-w-0">
             <span className="w-1.5 h-1.5 rounded-full bg-[#70ad47] border border-[#568735] shrink-0"></span>
@@ -586,13 +643,13 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
 
         <button
           type="button"
-          onClick={() => onFilterChange({ ...filters, status: filters.status === "Finalizadas" ? "Todos" : "Finalizadas" })}
+          onClick={() => handleToggleStatus("Finalizadas")}
           className={`flex items-center justify-between px-1.5 py-1 rounded-md text-[10.5px] font-bold border cursor-pointer transition-all ${
-            filters.status === "Finalizadas"
-              ? "bg-[#5b9bd5] text-white border-[#3c78b0] ring-1 ring-sky-300 shadow-2xs"
+            isStatusActive("Finalizadas")
+              ? "bg-[#5b9bd5] text-white border-[#3c78b0] ring-2 ring-sky-300 shadow-2xs font-black"
               : "bg-[#5b9bd5]/20 text-sky-950 border-[#5b9bd5]/35 hover:bg-[#5b9bd5]/30"
           }`}
-          title="Filtrar Finalizadas"
+          title="Sumar/Filtrar Finalizadas"
         >
           <div className="flex items-center gap-1 min-w-0">
             <span className="w-1.5 h-1.5 rounded-full bg-[#5b9bd5] border border-[#3c78b0] shrink-0"></span>
@@ -603,13 +660,13 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
 
         <button
           type="button"
-          onClick={() => onFilterChange({ ...filters, status: filters.status === "Amarillos" ? "Todos" : "Amarillos" })}
+          onClick={() => handleToggleStatus("Amarillos")}
           className={`flex items-center justify-between px-1.5 py-1 rounded-md text-[10.5px] font-bold border cursor-pointer transition-all ${
-            filters.status === "Amarillos"
-              ? "bg-amber-500 text-white border-amber-600 ring-1 ring-amber-300"
+            isStatusActive("Amarillos")
+              ? "bg-amber-500 text-white border-amber-600 ring-2 ring-amber-300 shadow-2xs font-black"
               : "bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100"
           }`}
-          title="Filtrar Regestión / Canceladas"
+          title="Sumar/Filtrar Regestión / Canceladas"
         >
           <div className="flex items-center gap-1 min-w-0">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
@@ -621,13 +678,13 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
         {/* 🟣 ORDENAMIENTOS DESTACADO EN CELULAR */}
         <button
           type="button"
-          onClick={() => onFilterChange({ ...filters, status: filters.status === "Ordenamientos" ? "Todos" : "Ordenamientos" })}
+          onClick={() => handleToggleStatus("Ordenamientos")}
           className={`flex items-center justify-between px-1.5 py-1 rounded-md text-[10.5px] font-bold border cursor-pointer transition-all ${
-            filters.status === "Ordenamientos"
-              ? "bg-violet-600 text-white border-violet-700 ring-2 ring-violet-400 shadow-xs scale-102"
+            isStatusActive("Ordenamientos")
+              ? "bg-violet-600 text-white border-violet-700 ring-2 ring-violet-400 shadow-xs scale-102 font-black"
               : "bg-violet-100 text-violet-950 border-violet-300 hover:bg-violet-200"
           }`}
-          title="Mostrar únicamente órdenes de ordenamiento"
+          title="Sumar/Mostrar órdenes de ordenamiento"
         >
           <div className="flex items-center gap-1 min-w-0">
             <span className="w-1.5 h-1.5 rounded-full bg-violet-600 shrink-0"></span>
@@ -639,30 +696,32 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
         </button>
       </div>
 
-      {/* 💻 En PC / Pantalla Grande: Tira Horizontal Continua */}
+      {/* 💻 En PC / Pantalla Grande: Tira Horizontal Continua con Multi-Selección */}
       <div className="hidden lg:flex items-center gap-1 overflow-x-auto scrollbar-none py-0.5 whitespace-nowrap min-w-0 max-w-full">
         <span
-          onClick={() => onFilterChange({ ...filters, status: "Todos" })}
-          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border cursor-pointer transition-all shrink-0 ${!filters.status || filters.status === "Todos"
-            ? "bg-slate-900 text-white border-slate-950 ring-1 ring-slate-400 shadow-2xs"
-            : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
-            }`}
+          onClick={() => handleToggleStatus("Todos")}
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border cursor-pointer transition-all shrink-0 ${
+            isStatusActive("Todos")
+              ? "bg-slate-900 text-white border-slate-950 ring-2 ring-slate-400 shadow-2xs scale-102"
+              : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
+          }`}
           title={`Total en Fénix: ${stats.agendadas + stats.verdes + stats.azules + stats.amarillos + (stats.ordenamientos || 0)}`}
         >
           <span>Total:</span>
           <span className="font-mono font-black">{stats.agendadas + stats.verdes + stats.azules + stats.amarillos + (stats.ordenamientos || 0)}</span>
-          <span className={`text-[9.5px] font-semibold px-1 py-0 rounded ${!filters.status || filters.status === "Todos" ? "bg-slate-800 text-sky-200" : "bg-slate-200 text-slate-800"}`}>
+          <span className={`text-[9.5px] font-semibold px-1 py-0 rounded ${isStatusActive("Todos") ? "bg-slate-800 text-sky-200" : "bg-slate-200 text-slate-800"}`}>
             ({stats.agendadas + stats.verdes + stats.azules + stats.amarillos} Op + {stats.ordenamientos || 0} Ord)
           </span>
         </span>
 
         <span
-          onClick={() => onFilterChange({ ...filters, status: filters.status === "Agendadas" ? "Todos" : "Agendadas" })}
-          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border cursor-pointer transition-all shrink-0 ${filters.status === "Agendadas"
-            ? "bg-slate-800 text-white border-slate-900 ring-1 ring-slate-400 shadow-2xs"
-            : "bg-white text-slate-800 border-slate-300 hover:bg-slate-100"
-            }`}
-          title="Filtrar Agendadas / Asignadas / En camino"
+          onClick={() => handleToggleStatus("Agendadas")}
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border cursor-pointer transition-all shrink-0 ${
+            isStatusActive("Agendadas")
+              ? "bg-slate-800 text-white border-slate-900 ring-2 ring-slate-400 shadow-2xs scale-102 font-black"
+              : "bg-white text-slate-800 border-slate-300 hover:bg-slate-100"
+          }`}
+          title="Sumar/Filtrar Agendadas / Asignadas / En camino (Clic para sumar/quitar)"
         >
           <span className="w-2 h-2 rounded-full bg-white border border-slate-400"></span>
           <span>Asignadas:</span>
@@ -670,12 +729,13 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
         </span>
 
         <span
-          onClick={() => onFilterChange({ ...filters, status: filters.status === "Verdes" ? "Todos" : "Verdes" })}
-          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border cursor-pointer transition-all shrink-0 ${filters.status === "Verdes"
-            ? "bg-[#70ad47] text-white border-[#568735] ring-1 ring-emerald-300 shadow-2xs"
-            : "bg-[#70ad47]/15 text-emerald-950 border-[#70ad47]/30 hover:bg-[#70ad47]/25"
-            }`}
-          title="Filtrar Iniciadas / Proceso"
+          onClick={() => handleToggleStatus("Verdes")}
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border cursor-pointer transition-all shrink-0 ${
+            isStatusActive("Verdes")
+              ? "bg-[#70ad47] text-white border-[#568735] ring-2 ring-emerald-300 shadow-2xs scale-102 font-black"
+              : "bg-[#70ad47]/15 text-emerald-950 border-[#70ad47]/30 hover:bg-[#70ad47]/25"
+          }`}
+          title="Sumar/Filtrar Iniciadas / Proceso (Clic para sumar/quitar)"
         >
           <span className="w-2 h-2 rounded-full bg-[#70ad47] border border-[#568735]"></span>
           <span>Iniciadas:</span>
@@ -683,12 +743,13 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
         </span>
 
         <span
-          onClick={() => onFilterChange({ ...filters, status: filters.status === "Finalizadas" ? "Todos" : "Finalizadas" })}
-          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border cursor-pointer transition-all shrink-0 ${filters.status === "Finalizadas"
-            ? "bg-[#5b9bd5] text-white border-[#3c78b0] ring-1 ring-sky-300 shadow-2xs"
-            : "bg-[#5b9bd5]/20 text-sky-950 border-[#5b9bd5]/35 hover:bg-[#5b9bd5]/30"
-            }`}
-          title="Filtrar Finalizadas / Liquidadas"
+          onClick={() => handleToggleStatus("Finalizadas")}
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border cursor-pointer transition-all shrink-0 ${
+            isStatusActive("Finalizadas")
+              ? "bg-[#5b9bd5] text-white border-[#3c78b0] ring-2 ring-sky-300 shadow-2xs scale-102 font-black"
+              : "bg-[#5b9bd5]/20 text-sky-950 border-[#5b9bd5]/35 hover:bg-[#5b9bd5]/30"
+          }`}
+          title="Sumar/Filtrar Finalizadas / Liquidadas (Clic para sumar/quitar)"
         >
           <span className="w-2 h-2 rounded-full bg-[#5b9bd5] border border-[#3c78b0]"></span>
           <span>Finalizadas:</span>
@@ -696,12 +757,13 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
         </span>
 
         <span
-          onClick={() => onFilterChange({ ...filters, status: filters.status === "Amarillos" ? "Todos" : "Amarillos" })}
-          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border cursor-pointer transition-all shrink-0 ${filters.status === "Amarillos"
-            ? "bg-amber-500 text-white border-amber-600 ring-1 ring-amber-300"
-            : "bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100"
-            }`}
-          title="Filtrar Regestión / Canceladas / Observadas / Anuladas"
+          onClick={() => handleToggleStatus("Amarillos")}
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border cursor-pointer transition-all shrink-0 ${
+            isStatusActive("Amarillos")
+              ? "bg-amber-500 text-white border-amber-600 ring-2 ring-amber-300 shadow-2xs scale-102 font-black"
+              : "bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100"
+          }`}
+          title="Sumar/Filtrar Regestión / Canceladas / Observadas / Anuladas (Clic para sumar/quitar)"
         >
           <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
           <span>Regestión / Canceladas:</span>
@@ -709,12 +771,13 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
         </span>
 
         <span
-          onClick={() => onFilterChange({ ...filters, status: filters.status === "Ordenamientos" ? "Todos" : "Ordenamientos" })}
-          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border cursor-pointer transition-all shrink-0 ${filters.status === "Ordenamientos"
-            ? "bg-violet-600 text-white border-violet-700 ring-1 ring-violet-300"
-            : "bg-violet-50 text-violet-900 border-violet-200 hover:bg-violet-100"
-            }`}
-          title="Mostrar únicamente órdenes de ordenamiento"
+          onClick={() => handleToggleStatus("Ordenamientos")}
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border cursor-pointer transition-all shrink-0 ${
+            isStatusActive("Ordenamientos")
+              ? "bg-violet-600 text-white border-violet-700 ring-2 ring-violet-300 shadow-2xs scale-102 font-black"
+              : "bg-violet-50 text-violet-900 border-violet-200 hover:bg-violet-100"
+          }`}
+          title="Sumar/Mostrar únicamente órdenes de ordenamiento (Clic para sumar/quitar)"
         >
           <span className="w-1.5 h-1.5 rounded-full bg-violet-500"></span>
           <span>Ordenamientos:</span>
@@ -723,7 +786,7 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
       </div>
 
       {/* 🟣 BANNER INFORMATIVO CUANDO EL FILTRO DE ORDENAMIENTOS ESTÁ ACTIVO */}
-      {filters.status === "Ordenamientos" && (
+      {isStatusActive("Ordenamientos") && (
         <div className="flex items-center justify-between px-2.5 py-1 bg-violet-50 border border-violet-300 rounded-lg text-xs text-violet-900 animate-in fade-in duration-150">
           <div className="flex items-center gap-1.5 font-bold">
             <span className="w-2 h-2 rounded-full bg-violet-600 animate-pulse"></span>
@@ -731,10 +794,10 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
           </div>
           <button
             type="button"
-            onClick={() => onFilterChange({ ...filters, status: "Todos" })}
+            onClick={() => handleToggleStatus("Ordenamientos")}
             className="text-[10.5px] font-bold text-violet-700 hover:text-violet-950 underline cursor-pointer"
           >
-            Ver todas las órdenes
+            Quitar ordenamientos
           </button>
         </div>
       )}
@@ -835,20 +898,34 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
 
             {/* 3. Estado */}
             <div className="w-full">
-              <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5 block">
-                Estado
+              <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5 block truncate">
+                Estado {getActiveStatuses().length > 0 && `(${getActiveStatuses().length} selec.)`}
               </label>
               <select
-                value={filters.status}
-                onChange={(e) => onFilterChange({ ...filters, status: e.target.value })}
-                className="w-full h-7.5 rounded-md border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-xs font-medium"
+                value={getActiveStatuses().length === 1 ? getActiveStatuses()[0] : (getActiveStatuses().length === 0 ? "Todos" : "Multiples")}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === "Todos") {
+                    handleToggleStatus("Todos");
+                  } else if (val !== "Multiples") {
+                    handleToggleStatus(val);
+                  }
+                }}
+                className={`w-full h-7.5 rounded-md border px-1.5 py-0.5 text-xs font-medium truncate ${
+                  getActiveStatuses().length > 0 ? "bg-sky-50 border-sky-400 text-sky-900 font-bold" : "bg-slate-50 border-slate-300"
+                }`}
               >
                 <option value="Todos">🌐 Todos ({stats.agendadas + stats.verdes + stats.azules + stats.amarillos + (stats.ordenamientos || 0)})</option>
-                <option value="Verdes">🟢 Iniciadas ({stats.verdes})</option>
-                <option value="Finalizadas">🔵 Finalizadas ({stats.azules})</option>
-                <option value="Amarillos">🟡 Regestión / Canceladas ({stats.amarillos})</option>
-                <option value="Agendadas">⚪ Asignadas ({stats.agendadas})</option>
-                <option value="Ordenamientos">🟣 Ordenamientos ({stats.ordenamientos})</option>
+                {getActiveStatuses().length > 1 && (
+                  <option value="Multiples" disabled>
+                    🏷️ {getActiveStatuses().length} estados sumados
+                  </option>
+                )}
+                <option value="Verdes">🟢 {isStatusActive("Verdes") ? "✓ " : ""}Iniciadas ({stats.verdes})</option>
+                <option value="Finalizadas">🔵 {isStatusActive("Finalizadas") ? "✓ " : ""}Finalizadas ({stats.azules})</option>
+                <option value="Amarillos">🟡 {isStatusActive("Amarillos") ? "✓ " : ""}Regestión / Canc. ({stats.amarillos})</option>
+                <option value="Agendadas">⚪ {isStatusActive("Agendadas") ? "✓ " : ""}Asignadas ({stats.agendadas})</option>
+                <option value="Ordenamientos">🟣 {isStatusActive("Ordenamientos") ? "✓ " : ""}Ordenamientos ({stats.ordenamientos})</option>
               </select>
             </div>
 
@@ -982,23 +1059,127 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
           </div>
         </div>
 
-        {/* 3. Filtro de Estado */}
-        <div className="w-full">
-          <label className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider mb-0.5 block">
-            Estado / Color
+        {/* 3. Filtro de Estado (Multi-Selección Acumulativo) */}
+        <div className="w-full relative" ref={statusDropdownRef}>
+          <label className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider mb-0.5 block truncate">
+            Estado / Color {getActiveStatuses().length > 0 && `(${getActiveStatuses().length} selec.)`}
           </label>
-          <select
-            value={filters.status}
-            onChange={(e) => onFilterChange({ ...filters, status: e.target.value })}
-            className="w-full h-7.5 rounded-md border border-slate-300 bg-slate-50 px-2 py-0.5 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer font-medium"
+          <button
+            type="button"
+            onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
+            className={`w-full h-7.5 rounded-md border px-2 py-0.5 text-xs font-bold flex items-center justify-between cursor-pointer transition-all ${
+              getActiveStatuses().length > 0
+                ? "bg-sky-50 border-sky-400 text-sky-900 ring-1 ring-sky-200"
+                : "bg-slate-50 border-slate-300 text-slate-800 hover:bg-slate-100"
+            }`}
           >
-            <option value="Todos">🌐 Todos los Estados</option>
-            <option value="Verdes">🟢 Verde (Iniciada / Proceso)</option>
-            <option value="Finalizadas">🔵 Celeste (Finalizada)</option>
-            <option value="Amarillos">🟡 Amarillo (Regestión / Cancelada)</option>
-            <option value="Agendadas">⚪ Gris (Agendada / Asignada / En camino)</option>
-            <option value="Ordenamientos">🟣 Ordenamientos</option>
-          </select>
+            <div className="flex items-center gap-1.5 truncate">
+              {getActiveStatuses().length === 0 ? (
+                <>
+                  <span>🌐</span>
+                  <span className="truncate">Todos los Estados</span>
+                </>
+              ) : getActiveStatuses().length === 1 ? (
+                <>
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${
+                    getActiveStatuses()[0] === "Verdes" ? "bg-[#70ad47]" :
+                    getActiveStatuses()[0] === "Finalizadas" ? "bg-[#5b9bd5]" :
+                    getActiveStatuses()[0] === "Amarillos" ? "bg-amber-500" :
+                    getActiveStatuses()[0] === "Ordenamientos" ? "bg-violet-600" : "bg-slate-400"
+                  }`} />
+                  <span className="truncate">
+                    {STATUS_OPTIONS.find(o => o.key === getActiveStatuses()[0])?.label.split(" (")[0] || getActiveStatuses()[0]}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="bg-sky-600 text-white text-[9.5px] px-1 py-0.2 rounded-full font-black shrink-0">
+                    {getActiveStatuses().length}
+                  </span>
+                  <span className="truncate font-black text-sky-900">
+                    {getActiveStatuses().map(k => k === "Verdes" ? "Inic." : k === "Finalizadas" ? "Fin." : k === "Amarillos" ? "Regest." : k === "Agendadas" ? "Asign." : "Ord.").join(" + ")}
+                  </span>
+                </>
+              )}
+            </div>
+            <ChevronDown size={11} className={`text-slate-400 shrink-0 transition-transform ${statusDropdownOpen ? "rotate-180" : ""}`} />
+          </button>
+
+          {/* Menú Desplegable con Checkboxes y Conteo */}
+          {statusDropdownOpen && (
+            <div className="absolute left-0 top-full mt-1 w-72 max-w-[90vw] bg-white rounded-xl shadow-2xl border border-slate-200 z-50 p-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
+              <div className="flex items-center justify-between pb-1 mb-1 border-b border-slate-100 px-1.5">
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                  Sumar Estados ({getActiveStatuses().length} activos)
+                </span>
+                {getActiveStatuses().length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleToggleStatus("Todos");
+                    }}
+                    className="text-[9.5px] font-bold text-sky-600 hover:text-sky-800 cursor-pointer"
+                  >
+                    Marcar Todos
+                  </button>
+                )}
+              </div>
+
+              {/* Opción: Todos */}
+              <button
+                type="button"
+                onClick={() => {
+                  handleToggleStatus("Todos");
+                  setStatusDropdownOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs font-bold transition-all mb-1 ${
+                  isStatusActive("Todos")
+                    ? "bg-slate-900 text-white shadow-2xs"
+                    : "hover:bg-slate-100 text-slate-700 cursor-pointer"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span>🌐</span>
+                  <span>Todos los Estados</span>
+                </div>
+                <span className="font-mono text-[11px] opacity-80">
+                  {stats.agendadas + stats.verdes + stats.azules + stats.amarillos + (stats.ordenamientos || 0)}
+                </span>
+              </button>
+
+              {/* Lista de Estados Individuales para Sumar */}
+              <div className="space-y-0.5">
+                {STATUS_OPTIONS.map((opt) => {
+                  const active = isStatusActive(opt.key);
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => handleToggleStatus(opt.key)}
+                      className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        active
+                          ? "bg-sky-50 text-sky-950 border border-sky-300 shadow-2xs"
+                          : "hover:bg-slate-50 text-slate-800 border border-transparent"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className={`w-4 h-4 rounded flex items-center justify-center border text-[10px] font-black shrink-0 ${
+                          active ? "bg-sky-600 border-sky-600 text-white" : "border-slate-300 bg-white"
+                        }`}>
+                          {active ? "✓" : ""}
+                        </div>
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${opt.colorDot} ${opt.borderDot ? `border ${opt.borderDot}` : ""}`} />
+                        <span className="truncate">{opt.label}</span>
+                      </div>
+                      <span className="font-mono text-[11px] ml-1.5 font-bold text-slate-600">
+                        {opt.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 4. Filtro de Técnico Específico */}

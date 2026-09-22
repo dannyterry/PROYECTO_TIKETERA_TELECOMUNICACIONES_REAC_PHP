@@ -386,14 +386,24 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                       {order.fecha ? order.fecha.split(" ")[0].split("T")[0] : "-"}
                     </td>
 
-                    {/* 2. Celular con botón de copiado para llamada (Celular + Cliente + Dirección) */}
+                    {/* 2. Celular con Click-to-Call (tel:) y botón de copiado para llamada */}
                     <td className="py-1 px-2 font-mono text-[11px] border-b border-slate-950" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-between gap-1">
                         {order.celular ? (
-                          <span className="inline-flex items-center gap-1 font-semibold">
-                            <Phone size={9} className="text-slate-500" />
-                            {order.celular}
-                          </span>
+                          <a
+                            href={`tel:${order.celular.replace(/\D/g, "")}`}
+                            onClick={(e) => {
+                              const soloNum = order.celular?.replace(/\D/g, "");
+                              if (soloNum) {
+                                navigator.clipboard.writeText(soloNum).catch(() => {});
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 font-black text-slate-900 hover:text-indigo-700 hover:underline transition-colors group cursor-pointer"
+                            title={`📞 Clic para llamar a ${order.celular} (Abre inConcert / Softphone y copia el número)`}
+                          >
+                            <Phone size={10} className="text-slate-600 group-hover:text-indigo-600 group-hover:scale-110 transition-transform" />
+                            <span>{order.celular}</span>
+                          </a>
                         ) : (
                           <span className="text-slate-400">-</span>
                         )}
@@ -942,46 +952,50 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                       onClick={() => openAssignModal(order)}
                       title="Clic para asignar o cambiar técnicos (T1 / T2)"
                     >
-                      <div className="flex items-center justify-between gap-1">
-                        {order.cuadrilla && order.cuadrilla !== "-" ? (
-                          <div className="flex items-center gap-1 truncate min-w-0 pr-1 text-[11px]" title={order.cuadrilla}>
-                            <span className="truncate font-black text-slate-950 uppercase tracking-tight shrink-0">
-                              {extractCuadrillaKey(order.cuadrilla) || order.cuadrilla}
-                            </span>
-                            {(order.tecnico || extractCuadrillaMemberName(order.cuadrilla)) && (
-                              <span
-                                className="truncate text-[10px] font-bold text-slate-700 tracking-tight"
-                                title={`Técnico: ${order.tecnico || extractCuadrillaMemberName(order.cuadrilla)}`}
+                      {(() => {
+                        const cuadFenix = (order.cuadrillaOrigenFenix || order.cuadrilla || "").trim();
+                        const key = extractCuadrillaKey(cuadFenix);
+                        const memberName = extractCuadrillaMemberName(cuadFenix);
+
+                        return (
+                          <div className="flex items-center justify-between gap-1">
+                            {cuadFenix && cuadFenix !== "-" ? (
+                              <div className="flex items-center gap-1 truncate min-w-0 pr-1 text-[11px]" title={`Cuadrilla Fénix: ${cuadFenix}`}>
+                                <span className="truncate font-black text-slate-950 uppercase tracking-tight shrink-0">
+                                  {key || cuadFenix}
+                                </span>
+                                {memberName && (
+                                  <span
+                                    className="truncate text-[10px] font-bold text-slate-700 tracking-tight"
+                                    title={`Técnico Fénix: ${memberName}`}
+                                  >
+                                    &bull; {memberName}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 text-xs">-</span>
+                            )}
+                            {cuadFenix && cuadFenix !== "-" && (
+                              <button
+                                type="button"
+                                onClick={(e) => copyToClipboard(`cuad-${order.id}`, cuadFenix, e)}
+                                className={`p-0.5 rounded transition-all cursor-pointer shrink-0 ${copiedKey === `cuad-${order.id}`
+                                  ? "bg-slate-900 text-emerald-400 font-bold shadow-xs scale-105"
+                                  : "hover:bg-black/10 text-slate-600"
+                                  }`}
+                                title={`Copiar Cuadrilla Fénix: ${cuadFenix}`}
                               >
-                                &bull; {order.tecnico || extractCuadrillaMemberName(order.cuadrilla)}
-                              </span>
+                                {copiedKey === `cuad-${order.id}` ? (
+                                  <Check size={11} className="text-emerald-400 stroke-[3]" />
+                                ) : (
+                                  <Copy size={11} />
+                                )}
+                              </button>
                             )}
                           </div>
-                        ) : order.tecnico ? (
-                          <span className="truncate text-[10px] font-bold text-slate-700 tracking-tight" title={`Técnico: ${order.tecnico}`}>
-                            {order.tecnico}
-                          </span>
-                        ) : (
-                          <span className="text-slate-400 text-xs">-</span>
-                        )}
-                        {order.cuadrilla && order.cuadrilla !== "-" && (
-                          <button
-                            type="button"
-                            onClick={(e) => copyToClipboard(`cuad-${order.id}`, order.cuadrilla || "", e)}
-                            className={`p-0.5 rounded transition-all cursor-pointer shrink-0 ${copiedKey === `cuad-${order.id}`
-                              ? "bg-slate-900 text-emerald-400 font-bold shadow-xs scale-105"
-                              : "hover:bg-black/10 text-slate-600"
-                              }`}
-                            title={`Copiar Cuadrilla: ${order.cuadrilla}`}
-                          >
-                            {copiedKey === `cuad-${order.id}` ? (
-                              <Check size={11} className="text-emerald-400 stroke-[3]" />
-                            ) : (
-                              <Copy size={11} />
-                            )}
-                          </button>
-                        )}
-                      </div>
+                        );
+                      })()}
                     </td>
 
                     {/* 24. Tipo de Trabajo Asignado (Antes de Tipo de Liquidación) */}

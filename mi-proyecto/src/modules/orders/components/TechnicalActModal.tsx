@@ -641,7 +641,7 @@ export const TechnicalActModal: React.FC<Props> = ({
     e.preventDefault();
 
     // ─────────────────────────────────────────────────────────────
-    // REGLA DE NEGOCIO 1: NÚMERO DE ACTA ES OBLIGATORIO
+    // REGLA DE NEGOCIO 1: NÚMERO DE ACTA ES OBLIGATORIO Y DEBE ESTAR ASIGNADO AL TÉCNICO
     // ─────────────────────────────────────────────────────────────
     const cleanSufijo = guiaCorrelativo.trim();
     if (!cleanSufijo) {
@@ -649,6 +649,32 @@ export const TechnicalActModal: React.FC<Props> = ({
       if (actaInputRef.current) {
         actaInputRef.current.focus();
       }
+      return;
+    }
+
+    if (guiasDisponibles.length === 0) {
+      alert(
+        `❌ SIN ACTAS DISPONIBLES EN STOCK:\n\n` +
+        `El técnico asignado a esta orden no tiene actas de servicio físicas asignadas en su stock móvil (0 disponibles).\n\n` +
+        `Debes solicitar a Almacén la entrega y asignación de un talonario de actas antes de poder liquidar órdenes.`
+      );
+      return;
+    }
+
+    const sufijoNormalizado = cleanSufijo.replace(/^001-?/i, "").trim();
+    const actaValida = guiasDisponibles.some((g) => {
+      const gNorm = g.replace(/^001-?/i, "").trim();
+      return gNorm === sufijoNormalizado || g === cleanSufijo;
+    });
+
+    if (!actaValida) {
+      alert(
+        `❌ ACTA NO ASIGNADA AL TÉCNICO:\n\n` +
+        `El Acta física N° 001-${cleanSufijo} no se encuentra en el talonario/dotación asignada a este técnico en Almacén.\n\n` +
+        `👉 Actas disponibles en stock (${guiasDisponibles.length}):\n` +
+        `${guiasDisponibles.slice(0, 6).map((g) => `001-${g}`).join(", ")}${guiasDisponibles.length > 6 ? "..." : ""}\n\n` +
+        `Por favor haz clic en la casilla para seleccionar una de las actas asignadas o solicita un nuevo talonario a Almacén.`
+      );
       return;
     }
 

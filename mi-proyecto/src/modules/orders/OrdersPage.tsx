@@ -84,11 +84,26 @@ export const OrdersPage: React.FC = () => {
     fechaDesde: "",
     fechaHasta: "",
     status: "Todos",
+    statuses: [],
     tecnico: "Todos",
     cuadrilla: "Todos",
     inconcert: "Todos",
     search: "",
   });
+
+  // 📞 Integración inConcert CTI: Detectar parámetro de llamada en la URL (?telefono=... / ?celular=...)
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.search) {
+      const params = new URLSearchParams(window.location.search);
+      const telParam = params.get("telefono") || params.get("tel") || params.get("celular") || params.get("search") || params.get("ticket");
+      if (telParam && telParam.trim().length > 0) {
+        setFilters((prev) => ({
+          ...prev,
+          search: telParam.trim(),
+        }));
+      }
+    }
+  }, []);
 
   // 🚀 CARGAR DATOS DESDE LA BASE DE DATOS A TRAVÉS DE LA API
   const loadData = useCallback(
@@ -364,63 +379,53 @@ export const OrdersPage: React.FC = () => {
     return { verdes, azules, amarillos, agendadas, ordenamientos };
   }, [scopeOrders]);
 
-  // 3. Filtrado final para la tabla:
-  // - Si status === "Ordenamientos" -> Muestra ÚNICAMENTE las órdenes de ordenamiento
-  // - Si status !== "Ordenamientos" -> Los ordenamientos permanecen ocultos y se listan las órdenes regulares
+  // 3. Helper para verificar si una orden coincide con un estado particular
+  const checkStatusMatch = (order: Order, statusKey: string): boolean => {
+    const esOrd = esOrdenamiento(order.cuadrilla);
+    if (statusKey === "Ordenamientos") {
+      return esOrd;
+    }
+    if (esOrd) return false;
+
+    const s = normStatus(order.status);
+    const isVerde = s.includes("INICIAD") || s.includes("PROCESO");
+    const isAzul =
+      s.includes("FINALIZ") ||
+      s.includes("LIQUID") ||
+      s.includes("TERMIN") ||
+      s.includes("CERRAD") ||
+      s.includes("FENIX");
+    const isAmarillo =
+      s.includes("CANCELAD") ||
+      s.includes("OBSERVAD") ||
+      s.includes("REGESTION") ||
+      s.includes("ANULAD") ||
+      s.includes("SUSPENDID");
+
+    if (statusKey === "Verdes") return isVerde;
+    if (statusKey === "Finalizadas" || statusKey === "Azules" || statusKey === "Finalizada") return isAzul;
+    if (statusKey === "Amarillos") return isAmarillo;
+    if (statusKey === "Agendadas" || statusKey === "Agendada") return !isVerde && !isAzul && !isAmarillo;
+
+    return true;
+  };
+
+  // 4. Filtrado final para la tabla con soporte MULTI-SELECCIÓN ACUMULATIVO:
+  // - Si se seleccionan varios estados (ej: Finalizadas + Canceladas), se SUMAN (OR entre estados).
+  // - Si no hay estados seleccionados o es "Todos", muestra todas las órdenes regulares.
   const filteredOrders = useMemo(() => {
-    if (filters.status === "Ordenamientos") {
-      return scopeOrders.filter((order) => esOrdenamiento(order.cuadrilla));
+    const activeStatuses = (filters.statuses && filters.statuses.length > 0)
+      ? filters.statuses.filter((st) => st !== "Todos")
+      : (filters.status && filters.status !== "Todos" ? [filters.status] : []);
+
+    if (activeStatuses.length === 0) {
+      return scopeOrders.filter((order) => !esOrdenamiento(order.cuadrilla));
     }
 
-    // Órdenes regulares (sin ordenamientos)
-    const regularOrders = scopeOrders.filter((order) => !esOrdenamiento(order.cuadrilla));
-
-    if (!filters.status || filters.status === "Todos") {
-      return regularOrders;
-    }
-
-    return regularOrders.filter((order) => {
-      const s = normStatus(order.status);
-      if (filters.status === "Verdes") {
-        return s.includes("INICIAD") || s.includes("PROCESO");
-      }
-      if (filters.status === "Azules" || filters.status === "Finalizadas" || filters.status === "Finalizada") {
-        return (
-          s.includes("FINALIZ") ||
-          s.includes("LIQUID") ||
-          s.includes("TERMIN") ||
-          s.includes("CERRAD") ||
-          s.includes("FENIX")
-        );
-      }
-      if (filters.status === "Amarillos") {
-        return (
-          s.includes("CANCELAD") ||
-          s.includes("OBSERVAD") ||
-          s.includes("REGESTION") ||
-          s.includes("ANULAD") ||
-          s.includes("SUSPENDID")
-        );
-      }
-      if (filters.status === "Agendadas" || filters.status === "Agendada") {
-        const isVerde = s.includes("INICIAD") || s.includes("PROCESO");
-        const isAzul =
-          s.includes("FINALIZ") ||
-          s.includes("LIQUID") ||
-          s.includes("TERMIN") ||
-          s.includes("CERRAD") ||
-          s.includes("FENIX");
-        const isAmarillo =
-          s.includes("CANCELAD") ||
-          s.includes("OBSERVAD") ||
-          s.includes("REGESTION") ||
-          s.includes("ANULAD") ||
-          s.includes("SUSPENDID");
-        return !isVerde && !isAzul && !isAmarillo;
-      }
-      return normStatus(order.status) === normStatus(filters.status);
+    return scopeOrders.filter((order) => {
+      return activeStatuses.some((statusKey) => checkStatusMatch(order, statusKey));
     });
-  }, [scopeOrders, filters.status]);
+  }, [scopeOrders, filters.statuses, filters.status]);
 
   // Alternar Inconcert con persistencia en Base de Datos (Optimizado 0ms)
   const handleToggleInconcert = async (orderId: number) => {
@@ -498,7 +503,8 @@ export const OrdersPage: React.FC = () => {
 
     const newIdTecnico = targetTech?.idTecnico;
 
-    const finalCuadrilla = targetTech?.cuadrilla || targetOrder?.cuadrilla;
+    // Preservar siempre la Cuadrilla original de Fénix para que no se altere al reasignar técnico
+    const finalCuadrilla = targetOrder?.cuadrillaOrigenFenix || targetOrder?.cuadrilla || targetTech?.cuadrilla;
 
     setOrders((prev) =>
       prev.map((o) =>
@@ -508,6 +514,7 @@ export const OrdersPage: React.FC = () => {
             tecnico: technicianName,
             idTecnico: newIdTecnico,
             cuadrilla: finalCuadrilla,
+            cuadrillaOrigenFenix: o.cuadrillaOrigenFenix || targetOrder?.cuadrilla,
             asignacionManual: true,
           }
           : o
@@ -731,7 +738,7 @@ export const OrdersPage: React.FC = () => {
             handleSync();
             loadAlerts();
           }}
-          totalCount={filters.status === "Ordenamientos" ? stats.ordenamientos : (stats.verdes + stats.azules + stats.amarillos + stats.agendadas)}
+          totalCount={filteredOrders.length}
           cuadrillas={cuadrillasDisponibles}
           tecnicos={tecnicosDisponibles}
           stats={stats}

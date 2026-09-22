@@ -184,6 +184,7 @@ export interface EquipoRetirado {
   recibido_por?: string;
   observaciones?: string;
   ticket: string;
+  numero_acta?: string;
   cliente: string;
   direccion: string;
   distrito: string;

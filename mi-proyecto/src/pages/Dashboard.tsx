@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import EmployeeForm from "../components/employee/EmployeeForm";
 import { Employee } from "../components/employee/Employee";
 import { getEmpleados , getHistorialEstados } from "../services/employeeService";
@@ -6,6 +6,7 @@ import { API_URL } from "../config/api";
 import { useReactToPrint } from "react-to-print";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { authService } from "../services/authService";
+import { Search, Filter, Check, ChevronDown, X, User } from "lucide-react";
 
 interface DashboardProps {
   selectedEmpProp?: Employee | null;
@@ -22,6 +23,27 @@ export default function Dashboard({ selectedEmpProp, onDataUpdated }: DashboardP
   const [modoEdicion, setModoEdicion] = useState(false); 
   const [historial, setHistorial] = useState<any[]>([]);
   const componentRef = useRef<HTMLDivElement>(null);
+
+  // Filtros reactivos por Nombre/Apellido y Estado (Activos / Inactivos / Todos)
+  const [busquedaTexto, setBusquedaTexto] = useState<string>("");
+  const [filtroEstado, setFiltroEstado] = useState<"activos" | "inactivos" | "todos">("activos");
+  const [dropdownEmpleadoAbierto, setDropdownEmpleadoAbierto] = useState<boolean>(false);
+  const dropdownEmpleadoRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        dropdownEmpleadoRef.current &&
+        !dropdownEmpleadoRef.current.contains(event.target as Node)
+      ) {
+        setDropdownEmpleadoAbierto(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   // 1. Carga de datos principales
   useEffect(() => {
@@ -158,20 +180,190 @@ export default function Dashboard({ selectedEmpProp, onDataUpdated }: DashboardP
     return Math.round((llenos / total) * 100);
   };
 
+  // Filtrado reactivo de empleados por Estado y Texto (Nombre, Apellido, DNI, etc.)
+  const empleadosFiltrados = useMemo(() => {
+    let list = empleados;
+
+    // Filtro por Estado
+    if (filtroEstado === "activos") {
+      list = list.filter((e) => (e.estado || "Activo").toLowerCase() === "activo");
+    } else if (filtroEstado === "inactivos") {
+      list = list.filter((e) => (e.estado || "").toLowerCase() !== "activo");
+    }
+
+    // Filtro por Texto: Nombre, Primer Apellido, Segundo Apellido, Nombre Completo, DNI, Cuadrilla
+    if (busquedaTexto.trim()) {
+      const q = busquedaTexto.toLowerCase().trim();
+      list = list.filter((e) => {
+        const nom = (e.nombres || "").toLowerCase();
+        const ap1 = (e.primerApellido || "").toLowerCase();
+        const ap2 = (e.segundoApellido || "").toLowerCase();
+        const completo = `${nom} ${ap1} ${ap2}`.toLowerCase();
+        const dni = (e.dni || "").toLowerCase();
+        const cuad = (e.cuadrilla || "").toLowerCase();
+        const area = (e.area || e.rolNombre || "").toLowerCase();
+
+        return (
+          nom.includes(q) ||
+          ap1.includes(q) ||
+          ap2.includes(q) ||
+          completo.includes(q) ||
+          dni.includes(q) ||
+          cuad.includes(q) ||
+          area.includes(q)
+        );
+      });
+    }
+
+    return list;
+  }, [empleados, filtroEstado, busquedaTexto]);
+
   return (
     <div className="space-y-6">
       
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-gray-200 shadow-sm print:hidden">
         
-        <div className="flex items-center gap-4 w-full xl:w-auto">
-          <label className="font-semibold text-gray-700 text-sm whitespace-nowrap">Seleccionar Empleado:</label>
-          <select 
-            className="rounded-xl border border-gray-300 bg-gray-50/50 px-4 py-2.5 w-full sm:w-auto min-w-[240px] text-sm shadow-2xs font-medium focus:bg-white transition-all" 
-            value={selectedEmpleado?.id || ""} 
-            onChange={handleSelectChange}
-          >
-            {empleados.length === 0 ? <option value="">Cargando...</option> : empleados.map((emp) => (<option key={emp.id} value={emp.id}>{emp.nombres} {emp.primerApellido}</option>))}
-          </select>
+        {/* Selector de Empleado con Filtro de Estado y Buscador Reactivo */}
+        <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+          {/* 1. Filtro por Estado: Activos / Inactivos / Todos */}
+          <div className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-xl px-2.5 py-1.5 text-xs shadow-2xs">
+            <Filter size={13} className="text-gray-400 shrink-0" />
+            <span className="font-bold text-gray-500 text-[11px]">Estado:</span>
+            <select
+              value={filtroEstado}
+              onChange={(e) => setFiltroEstado(e.target.value as any)}
+              className="bg-transparent font-bold text-gray-800 text-xs focus:outline-none cursor-pointer"
+            >
+              <option value="activos">
+                🟢 Activos ({empleados.filter((e) => (e.estado || "Activo").toLowerCase() === "activo").length})
+              </option>
+              <option value="inactivos">
+                🔴 Inactivos / Cesados ({empleados.filter((e) => (e.estado || "").toLowerCase() !== "activo").length})
+              </option>
+              <option value="todos">Todos ({empleados.length})</option>
+            </select>
+          </div>
+
+          {/* 2. Buscador y Selector de Empleado (Combobox con autocompletado en tiempo real) */}
+          <div ref={dropdownEmpleadoRef} className="relative flex-1 sm:w-80 min-w-[260px]">
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <input
+                type="text"
+                placeholder={
+                  selectedEmpleado
+                    ? `${selectedEmpleado.nombres} ${selectedEmpleado.primerApellido}`
+                    : "Escribe nombre, apellido o DNI..."
+                }
+                value={busquedaTexto}
+                onFocus={(e) => {
+                  setDropdownEmpleadoAbierto(true);
+                  e.target.select();
+                }}
+                onChange={(e) => {
+                  setBusquedaTexto(e.target.value);
+                  setDropdownEmpleadoAbierto(true);
+                }}
+                className={`w-full pl-8 pr-16 py-2 bg-gray-50 hover:bg-gray-100/60 focus:bg-white border rounded-xl text-xs font-bold text-gray-800 placeholder:text-gray-700 placeholder:font-bold focus:outline-none transition-all ${
+                  dropdownEmpleadoAbierto
+                    ? "border-teal-500 ring-2 ring-teal-500/20 shadow-xs"
+                    : "border-gray-300"
+                }`}
+              />
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                {busquedaTexto && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBusquedaTexto("");
+                      setDropdownEmpleadoAbierto(true);
+                    }}
+                    className="text-gray-400 hover:text-gray-600 p-1 text-xs font-bold cursor-pointer rounded-lg hover:bg-gray-200/50"
+                    title="Limpiar búsqueda"
+                  >
+                    ✕
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setDropdownEmpleadoAbierto(!dropdownEmpleadoAbierto)}
+                  className="text-gray-400 hover:text-gray-600 p-1 cursor-pointer rounded-lg hover:bg-gray-200/50"
+                  tabIndex={-1}
+                >
+                  <ChevronDown
+                    size={14}
+                    className={`transition-transform duration-200 ${
+                      dropdownEmpleadoAbierto ? "rotate-180 text-teal-600" : ""
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            {/* Menú Desplegable Flotante */}
+            {dropdownEmpleadoAbierto && (
+              <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-gray-200 rounded-2xl shadow-2xl z-50 max-h-64 overflow-y-auto p-1.5 animate-in fade-in zoom-in-95 duration-100 divide-y divide-gray-50">
+                {empleadosFiltrados.length > 0 ? (
+                  empleadosFiltrados.map((emp) => {
+                    const isSelected = selectedEmpleado?.id === emp.id;
+                    const esActivo = (emp.estado || "Activo").toLowerCase() === "activo";
+                    return (
+                      <div
+                        key={`dropdown-emp-${emp.id}`}
+                        onClick={() => {
+                          setSelectedEmpleado(emp);
+                          setBusquedaTexto("");
+                          setDropdownEmpleadoAbierto(false);
+                        }}
+                        className={`p-2 rounded-xl cursor-pointer flex items-center justify-between transition-colors text-xs ${
+                          isSelected
+                            ? "bg-teal-50 text-teal-900 font-bold border border-teal-200/60"
+                            : "hover:bg-gray-100/80 text-gray-700"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                          <img
+                            src={emp.foto ? `${API_URL}/uploads/${emp.foto}` : "https://i.pravatar.cc/150?img=12"}
+                            alt=""
+                            className="w-7 h-7 rounded-full object-cover border border-gray-200 shrink-0"
+                          />
+                          <div className="truncate">
+                            <p className="font-bold truncate text-gray-900 leading-tight">
+                              {emp.nombres} {emp.primerApellido} {emp.segundoApellido || ""}
+                            </p>
+                            <p className="text-[10px] text-gray-400 truncate font-mono">
+                              DNI: {emp.dni || "---"} {emp.cuadrilla ? `• ${emp.cuadrilla}` : ""} {emp.area ? `• ${emp.area}` : ""}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 flex items-center gap-1.5">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[9.5px] font-bold ${
+                              esActivo
+                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                : "bg-red-50 text-red-700 border border-red-200"
+                            }`}
+                          >
+                            {emp.estado || "Activo"}
+                          </span>
+                          {isSelected && (
+                            <div className="w-4 h-4 rounded-full bg-teal-600 text-white flex items-center justify-center">
+                              <Check size={10} className="stroke-[3]" />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="py-4 px-3 text-center text-xs text-gray-400 font-medium">
+                    No se encontraron empleados que coincidan con "{busquedaTexto}".
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto justify-start xl:justify-end">

@@ -79,7 +79,8 @@ export type OrderStatus =
 export interface OrderFilters {
   fechaDesde: string;
   fechaHasta: string;
-  status: string;
+  status?: string;
+  statuses?: string[];
   tecnico: string;
   cuadrilla?: string;
   inconcert: string;

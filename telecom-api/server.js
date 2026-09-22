@@ -183,6 +183,51 @@ app.get("/time-diagnostic", async (req, res) => {
   }
 });
 
+// --- 4. OBTENER LISTA DE TÉCNICOS / TRABAJADORES ACTIVOS (PÚBLICO / ACCESIBLE) ---
+app.get(['/tecnicos', '/api/tecnicos'], async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        u.id_usuario AS id_tecnico,
+        u.id_usuario,
+        t.id_trabajador,
+        UPPER(TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, '')))) AS nombre_completo,
+        COALESCE(u.cuadrilla, '') AS cuadrilla,
+        COALESCE(u.telefono, '') AS telefono,
+        r.nombre AS nombre_rol
+      FROM usuarios u
+      LEFT JOIN roles r ON u.id_rol = r.id_rol
+      LEFT JOIN trabajadores t ON u.id_usuario = t.id_usuario
+      WHERE (u.estado = 'Activo' OR u.estado = 1 OR u.estado IS NULL)
+        AND (
+          u.id_rol IN (2, 6) 
+          OR UPPER(COALESCE(r.nombre, '')) LIKE '%TECNIC%' 
+          OR UPPER(COALESCE(r.nombre, '')) LIKE '%SUPERVI%'
+          OR (u.cuadrilla IS NOT NULL AND TRIM(u.cuadrilla) != '' AND TRIM(u.cuadrilla) != '-')
+        )
+        AND (u.id_rol NOT IN (1, 3, 4, 5, 7) OR (u.cuadrilla IS NOT NULL AND TRIM(u.cuadrilla) != '' AND TRIM(u.cuadrilla) != '-'))
+      ORDER BY nombre_completo ASC
+    `);
+
+    const tecnicos = rows.map(u => ({
+      idTecnico: u.id_tecnico,
+      id_tecnico: u.id_tecnico,
+      id_usuario: u.id_usuario,
+      id_trabajador: u.id_trabajador,
+      nombreCompleto: (u.nombre_completo || `Técnico #${u.id_usuario}`).toUpperCase().trim(),
+      nombre_completo: (u.nombre_completo || `Técnico #${u.id_usuario}`).toUpperCase().trim(),
+      cuadrilla: u.cuadrilla || '',
+      telefono: u.telefono || '',
+      nombre_rol: u.nombre_rol || ''
+    }));
+
+    res.json(tecnicos);
+  } catch (error) {
+    console.error("Error al obtener técnicos:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.use(requireAuth);
 
 app.get("/api/auth/me", (req, res) => {
@@ -3039,15 +3084,15 @@ app.put('/ordenes/:id/tecnico', async (req, res) => {
       }
     }
 
-    // Resolver cuadrilla si no vino explícita pero tenemos al técnico
+    // Resolver cuadrilla: Priorizar siempre la cuadrilla original de la orden (Fénix)
     let finalCuadrilla = cuadrilla || null;
-    if (!finalCuadrilla && finalIdTecnico) {
+    if (!finalCuadrilla) {
       try {
-        const [uCuad] = await pool.query("SELECT cuadrilla FROM usuarios WHERE id_usuario = ? LIMIT 1", [finalIdTecnico]);
-        if (uCuad.length > 0 && uCuad[0].cuadrilla) {
-          finalCuadrilla = uCuad[0].cuadrilla;
+        const [ordRows] = await pool.query("SELECT cuadrilla, cuadrilla_origen_fenix FROM ordenes WHERE id_orden = ? OR numero = ? LIMIT 1", [id, searchParam]);
+        if (ordRows.length > 0 && (ordRows[0].cuadrilla_origen_fenix || ordRows[0].cuadrilla)) {
+          finalCuadrilla = ordRows[0].cuadrilla_origen_fenix || ordRows[0].cuadrilla;
         }
-      } catch (eCuad) {}
+      } catch (eOrd) {}
     }
 
     // Actualizar en tabla ordenes: id_tecnico (T1), id_tecnico_reemplazo (T2), tecnico_asignado y blindaje manual
@@ -3392,42 +3437,6 @@ app.put('/ordenes/:id/tipo-trabajo', async (req, res) => {
     );
     res.json({ success: true, message: "Tipo de trabajo actualizado correctamente" });
   } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// --- 4. OBTENER LISTA DE TÉCNICOS / TRABAJADORES ACTIVOS ---
-app.get('/tecnicos', async (req, res) => {
-  try {
-    const [rows] = await pool.query(`
-      SELECT 
-        u.id_usuario AS id_tecnico,
-        u.id_usuario,
-        UPPER(TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, '')))) AS nombre_completo,
-        COALESCE(u.cuadrilla, '') AS cuadrilla,
-        COALESCE(u.telefono, '') AS telefono,
-        r.nombre AS nombre_rol
-      FROM usuarios u
-      LEFT JOIN roles r ON u.id_rol = r.id_rol
-      WHERE (u.estado = 'Activo' OR u.estado = 1 OR u.estado IS NULL)
-        AND (u.id_rol IN (2, 6) OR UPPER(COALESCE(r.nombre, '')) LIKE '%TECNIC%' OR UPPER(COALESCE(r.nombre, '')) LIKE '%SUPERVI%')
-        AND (u.id_rol NOT IN (1, 3, 4, 5, 7))
-      ORDER BY nombre_completo ASC
-    `);
-
-    const tecnicos = rows.map(u => ({
-      idTecnico: u.id_tecnico,
-      id_tecnico: u.id_tecnico,
-      id_usuario: u.id_usuario,
-      nombreCompleto: (u.nombre_completo || `Técnico #${u.id_usuario}`).toUpperCase().trim(),
-      nombre_completo: (u.nombre_completo || `Técnico #${u.id_usuario}`).toUpperCase().trim(),
-      cuadrilla: u.cuadrilla || '',
-      telefono: u.telefono || ''
-    }));
-
-    res.json(tecnicos);
-  } catch (error) {
-    console.error("Error al obtener técnicos:", error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -4258,18 +4267,39 @@ app.post('/api/movilidad/combustible', uploadInspeccion, async (req, res) => {
 
     const foto_comprobante = req.files && req.files['foto_comprobante'] ? req.files['foto_comprobante'][0].filename : null;
 
-    // Calcular rendimiento con la carga anterior si existe
+    // Calcular rendimiento con la carga anterior del mismo tipo de combustible
     let rendimiento = null;
-    const [anterior] = await pool.query(
-      "SELECT km_momento_carga FROM vehiculo_combustibles WHERE id_vehiculo = ? AND km_momento_carga < ? ORDER BY km_momento_carga DESC LIMIT 1",
+    const tipoNorm = String(tipo_combustible || '').toUpperCase();
+    const isGas = tipoNorm.includes('GLP') || tipoNorm.includes('GNV');
+
+    // Buscar carga anterior del mismo tipo de combustible (Gas con Gas, Gasolina/Diesel con Gasolina/Diesel)
+    const [anteriorMismoTipo] = await pool.query(
+      `SELECT km_momento_carga, tipo_combustible FROM vehiculo_combustibles 
+       WHERE id_vehiculo = ? 
+         AND ${isGas ? "(UPPER(tipo_combustible) LIKE '%GLP%' OR UPPER(tipo_combustible) LIKE '%GNV%')" : "(UPPER(tipo_combustible) NOT LIKE '%GLP%' AND UPPER(tipo_combustible) NOT LIKE '%GNV%')"}
+         AND km_momento_carga < ? 
+       ORDER BY km_momento_carga DESC, id_combustible_registro DESC LIMIT 1`,
       [id_vehiculo, km_momento_carga]
     );
 
-    if (anterior.length > 0) {
-      const kmDelta = Number(km_momento_carga) - Number(anterior[0].km_momento_carga);
-      const galones = Number(galones_m3);
+    // Verificar si el vehículo tiene historial de Gas (vehículo Dual)
+    const [historialGas] = await pool.query(
+      "SELECT id_combustible_registro FROM vehiculo_combustibles WHERE id_vehiculo = ? AND (UPPER(tipo_combustible) LIKE '%GLP%' OR UPPER(tipo_combustible) LIKE '%GNV%') LIMIT 1",
+      [id_vehiculo]
+    );
+    const esVehiculoDual = isGas || historialGas.length > 0;
+    const galones = Number(galones_m3);
+
+    if (anteriorMismoTipo.length > 0) {
+      const kmDelta = Number(km_momento_carga) - Number(anteriorMismoTipo[0].km_momento_carga);
       if (galones > 0 && kmDelta > 0) {
-        rendimiento = Math.round((kmDelta / galones) * 100) / 100;
+        const rawRend = kmDelta / galones;
+        // Si es vehículo dual y la carga es de gasolina pequeña (reserva/arranque) o el ratio sale disparado (> 85 km/gl)
+        if (esVehiculoDual && !isGas && (galones <= 2.5 || rawRend > 85)) {
+          rendimiento = null; // Se clasifica automáticamente como carga de reserva
+        } else {
+          rendimiento = Math.round(rawRend * 100) / 100;
+        }
       }
     }
 
@@ -6451,14 +6481,16 @@ app.get('/api/almacen/tecnicos-disponibles', async (req, res) => {
         t.id_trabajador,
         t.id_usuario,
         u.usuario,
-        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS nombre_completo,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))) AS nombre_completo,
         COALESCE(u.documento, '') AS documento,
         COALESCE(u.cuadrilla, '') AS cuadrilla,
         COALESCE(v.placa, 'Sin vehículo') AS vehiculo_placa
       FROM trabajadores t
       JOIN usuarios u ON t.id_usuario = u.id_usuario
+      LEFT JOIN roles r ON u.id_rol = r.id_rol
       LEFT JOIN vehiculos v ON t.id_vehiculo = v.id_vehiculo
       WHERE t.estado = 'Activo' AND u.estado = 'Activo'
+        AND (u.id_rol IN (2, 6) OR UPPER(COALESCE(r.nombre, '')) LIKE '%TECNIC%' OR UPPER(COALESCE(r.nombre, '')) LIKE '%SUPERVI%')
       ORDER BY u.nombres ASC
     `);
     res.json({ success: true, tecnicos: rows });
@@ -8309,6 +8341,58 @@ app.post('/api/ordenes/:id/liquidar-acta', async (req, res) => {
       });
     }
 
+    // A0.0.1 Validación Estricta: El Acta Física debe estar asignada al técnico en Almacén
+    if (numActaFinal && realIdTrabajador) {
+      const sufijoActa = numActaFinal.replace(/^001-?/i, '').trim();
+      const [actaAsignada] = await pool.query(`
+        SELECT ts.id_trabajador_serie, ps.numero_serie, ts.estado
+        FROM trabajador_series ts
+        JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
+        WHERE ts.id_trabajador = ?
+          AND (
+            ps.numero_serie = ? 
+            OR ps.numero_serie = ? 
+            OR ps.numero_serie = ? 
+            OR ps.numero_serie LIKE CONCAT('%', ?)
+          )
+          AND ts.estado = 'Asignada'
+        LIMIT 1
+      `, [
+        realIdTrabajador,
+        numActaFinal,
+        sufijoActa,
+        `001-${sufijoActa}`,
+        sufijoActa
+      ]);
+
+      if (actaAsignada.length === 0) {
+        const [totalActas] = await pool.query(`
+          SELECT COUNT(*) as total
+          FROM trabajador_series ts
+          JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
+          JOIN productos p ON ts.id_producto = p.id_producto
+          WHERE ts.id_trabajador = ? AND ts.estado = 'Asignada'
+            AND (
+              p.nombre LIKE '%ACTA%' 
+              OR p.nombre LIKE '%GUIA%' 
+              OR p.nombre LIKE '%TALONARIO%'
+              OR ps.numero_serie LIKE '001-%'
+            )
+        `, [realIdTrabajador]);
+
+        const totalDisp = totalActas[0]?.total || 0;
+        if (totalDisp === 0) {
+          return res.status(400).json({
+            error: `El técnico asignado a esta orden no tiene actas de servicio físicas asignadas en su stock móvil (0 disponibles). Solicita un talonario a Almacén antes de poder liquidar.`
+          });
+        } else {
+          return res.status(400).json({
+            error: `El Acta física ${numActaFinal} no se encuentra asignada al técnico en Almacén (tiene ${totalDisp} actas disponibles). Por favor selecciona un acta de su stock asignado.`
+          });
+        }
+      }
+    }
+
     // A0.1 Validación de Stock Disponible en Vehículo del Técnico (si es técnico directo; para gestión es flexible)
     if (Array.isArray(materiales_utilizados) && realIdTrabajador && !es_gestion) {
       for (const mat of materiales_utilizados) {
@@ -8588,6 +8672,13 @@ app.get('/api/almacen/equipos-recogidos', async (req, res) => {
         COALESCE(o.cliente, '') AS cliente,
         COALESCE(o.direccion, '') AS direccion,
         COALESCE(o.localidad, '') AS distrito,
+        COALESCE(
+          (SELECT COALESCE(ol.numero_acta, ol.numero_guia, '') 
+           FROM orden_liquidaciones ol 
+           WHERE ol.id_orden = er.id_orden 
+           ORDER BY ol.id_liquidacion DESC LIMIT 1),
+          ''
+        ) AS numero_acta,
         TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre,
         u.cuadrilla,
         (
@@ -8964,7 +9055,7 @@ app.get(['/api/auditoria/logs', '/auditoria/logs'], async (req, res) => {
       params.push(id_usuario);
     }
 
-    const limitVal = Math.min(200, Math.max(1, Number(limite) || 60));
+    const limitVal = Math.min(1000, Math.max(1, Number(limite) || 100));
     sql += ` ORDER BY fecha_creacion DESC LIMIT ${limitVal}`;
 
     const [rows] = await pool.query(sql, params);
@@ -9492,6 +9583,372 @@ app.get(['/api/dashboard/rendimiento-tecnicos', '/dashboard/rendimiento-tecnicos
   } catch (error) {
     console.error("Error en /api/dashboard/rendimiento-tecnicos:", error.message);
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// --- 📅 ANALÍTICA DE RENDIMIENTO POR FECHAS Y DÍAS TRABAJADOS ---
+app.get(['/api/dashboard/rendimiento-tecnicos-fechas', '/dashboard/rendimiento-tecnicos-fechas'], async (req, res) => {
+  try {
+    let { desde, hasta, periodo, tecnico, estado } = req.query;
+    const hoy = new Date();
+    const fmt = (d) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+
+    if (periodo && (!desde || !hasta)) {
+      if (periodo === 'hoy') {
+        desde = fmt(hoy);
+        hasta = fmt(hoy);
+      } else if (periodo === 'ayer') {
+        const ayer = new Date(hoy);
+        ayer.setDate(hoy.getDate() - 1);
+        desde = fmt(ayer);
+        hasta = fmt(ayer);
+      } else if (periodo === 'semana') {
+        const lunes = new Date(hoy);
+        lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7));
+        const domingo = new Date(lunes);
+        domingo.setDate(lunes.getDate() + 6);
+        desde = fmt(lunes);
+        hasta = fmt(domingo);
+      } else if (periodo === 'mes') {
+        const primero = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+        const ultimo = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
+        desde = fmt(primero);
+        hasta = fmt(ultimo);
+      } else if (periodo === 'mes_anterior') {
+        const primeroAnt = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+        const ultimoAnt = new Date(hoy.getFullYear(), hoy.getMonth(), 0);
+        desde = fmt(primeroAnt);
+        hasta = fmt(ultimoAnt);
+      }
+    }
+
+    if (!desde || !hasta) {
+      const primero = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+      const ultimo = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
+      desde = desde || fmt(primero);
+      hasta = hasta || fmt(ultimo);
+    }
+
+    // Generar lista continua de fechas del rango
+    const fechasList = [];
+    let curDate = new Date(desde + 'T00:00:00');
+    const endDate = new Date(hasta + 'T00:00:00');
+    while (curDate <= endDate) {
+      fechasList.push(fmt(curDate));
+      curDate.setDate(curDate.getDate() + 1);
+    }
+
+    let whereClause = 'WHERE DATE(o.fecha_visita) >= ? AND DATE(o.fecha_visita) <= ?';
+    const queryParams = [desde, hasta];
+
+    if (tecnico && String(tecnico).trim().length > 0) {
+      whereClause += ' AND (o.cuadrilla LIKE ? OR CONCAT(COALESCE(u.nombres, ""), " ", COALESCE(u.primer_apellido, u.apellidos, "")) LIKE ?)';
+      const term = `%${String(tecnico).trim()}%`;
+      queryParams.push(term, term);
+    }
+
+    if (estado && String(estado).trim() !== '' && String(estado).toLowerCase() !== 'todos') {
+      whereClause += ' AND o.estado = ?';
+      queryParams.push(String(estado).trim());
+    }
+
+    // Consulta de agregación por fecha, técnico y estado
+    const [rows] = await pool.query(`
+      SELECT 
+        DATE_FORMAT(o.fecha_visita, '%Y-%m-%d') AS fecha,
+        o.id_tecnico,
+        COALESCE(
+          NULLIF(TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))), ''),
+          NULLIF(TRIM(o.cuadrilla), ''),
+          'Sin Técnico'
+        ) AS tecnico_nombre,
+        COALESCE(NULLIF(TRIM(o.cuadrilla), ''), 'Sin Cuadrilla') AS cuadrilla,
+        COALESCE(NULLIF(TRIM(o.estado), ''), 'Sin Estado') AS estado,
+        COUNT(*) AS cantidad
+      FROM ordenes o
+      LEFT JOIN usuarios u ON o.id_tecnico = u.id_usuario
+      ${whereClause}
+      GROUP BY DATE_FORMAT(o.fecha_visita, '%Y-%m-%d'), o.id_tecnico, tecnico_nombre, cuadrilla, estado
+      ORDER BY fecha ASC, tecnico_nombre ASC
+    `, queryParams);
+
+    // Obtener todos los técnicos activos del sistema para que también aparezcan si no tuvieron órdenes
+    const [usuariosTecnicos] = await pool.query(`
+      SELECT 
+        u.id_usuario AS id_tecnico,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre,
+        COALESCE(NULLIF(TRIM(u.cuadrilla), ''), 'Sin Cuadrilla') AS cuadrilla
+      FROM usuarios u
+      WHERE u.id_rol = 2 OR u.cargo LIKE '%TECNICO%' OR u.area LIKE '%CAMPO%' OR u.area LIKE '%MOTO%'
+      ORDER BY u.nombres ASC
+    `);
+
+    // Estructurar el mapa de técnicos
+    const techMap = new Map();
+    const estadosCatalogo = new Set(['Finalizada', 'Asignada', 'Iniciada', 'Cancelada', 'Regestión']);
+
+    // Inicializar con técnicos activos
+    for (const ut of usuariosTecnicos) {
+      let tName = ut.tecnico_nombre;
+      if (tName.includes('CESPEDES SGA')) {
+        const parts = tName.split('CESPEDES SGA');
+        tName = parts[parts.length - 1].trim();
+      } else if (tName.includes('MOTOWIN CESPEDES')) {
+        const parts = tName.split('MOTOWIN CESPEDES');
+        tName = parts[parts.length - 1].trim();
+      }
+
+      if (!techMap.has(tName) && tName.length > 0) {
+        const initFechas = {};
+        for (const f of fechasList) {
+          initFechas[f] = { total: 0, finalizadas: 0, canceladas: 0, asignadas: 0, iniciadas: 0, regestion: 0, estados: {} };
+        }
+        techMap.set(tName, {
+          id_tecnico: ut.id_tecnico,
+          tecnico: tName,
+          cuadrilla: ut.cuadrilla,
+          fechas: initFechas,
+          totales: {
+            total_ordenes: 0,
+            finalizadas: 0,
+            canceladas: 0,
+            asignadas: 0,
+            iniciadas: 0,
+            regestion: 0,
+            dias_trabajados: 0,
+            dias_sin_ordenes: fechasList.length,
+            efectividad: 0
+          }
+        });
+      }
+    }
+
+    // Procesar las filas de órdenes reales
+    for (const r of rows) {
+      let tName = r.tecnico_nombre;
+      if (tName.includes('CESPEDES SGA')) {
+        const parts = tName.split('CESPEDES SGA');
+        tName = parts[parts.length - 1].trim();
+      } else if (tName.includes('MOTOWIN CESPEDES')) {
+        const parts = tName.split('MOTOWIN CESPEDES');
+        tName = parts[parts.length - 1].trim();
+      }
+
+      const est = (r.estado || 'Sin Estado').trim();
+      estadosCatalogo.add(est);
+      const cant = Number(r.cantidad) || 0;
+
+      if (!techMap.has(tName)) {
+        const initFechas = {};
+        for (const f of fechasList) {
+          initFechas[f] = { total: 0, finalizadas: 0, canceladas: 0, asignadas: 0, iniciadas: 0, regestion: 0, estados: {} };
+        }
+        techMap.set(tName, {
+          id_tecnico: r.id_tecnico,
+          tecnico: tName,
+          cuadrilla: r.cuadrilla,
+          fechas: initFechas,
+          totales: {
+            total_ordenes: 0,
+            finalizadas: 0,
+            canceladas: 0,
+            asignadas: 0,
+            iniciadas: 0,
+            regestion: 0,
+            dias_trabajados: 0,
+            dias_sin_ordenes: fechasList.length,
+            efectividad: 0
+          }
+        });
+      }
+
+      const tObj = techMap.get(tName);
+      if (tObj.fechas[r.fecha]) {
+        tObj.fechas[r.fecha].total += cant;
+        tObj.fechas[r.fecha].estados[est] = (tObj.fechas[r.fecha].estados[est] || 0) + cant;
+
+        const estLow = est.toLowerCase();
+        if (estLow.includes('finaliz') || estLow.includes('liquid')) {
+          tObj.fechas[r.fecha].finalizadas += cant;
+          tObj.totales.finalizadas += cant;
+        } else if (estLow.includes('cancel') || estLow.includes('anul')) {
+          tObj.fechas[r.fecha].canceladas += cant;
+          tObj.totales.canceladas += cant;
+        } else if (estLow.includes('asig') || estLow.includes('prog')) {
+          tObj.fechas[r.fecha].asignadas += cant;
+          tObj.totales.asignadas += cant;
+        } else if (estLow.includes('inic') || estLow.includes('camino') || estLow.includes('proceso')) {
+          tObj.fechas[r.fecha].iniciadas += cant;
+          tObj.totales.iniciadas += cant;
+        } else if (estLow.includes('regest') || estLow.includes('reagend')) {
+          tObj.fechas[r.fecha].regestion += cant;
+          tObj.totales.regestion += cant;
+        }
+
+        tObj.totales.total_ordenes += cant;
+      }
+    }
+
+    // Obtener descansos programados y registrados por asistencia en el rango de fechas
+    const [descansosProg] = await pool.query(`
+      SELECT 
+        COALESCE(t.id_usuario, td.id_trabajador) AS id_usuario,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre,
+        DATE_FORMAT(td.fecha_inicio, '%Y-%m-%d') AS fecha_inicio,
+        DATE_FORMAT(td.fecha_fin, '%Y-%m-%d') AS fecha_fin
+      FROM trabajador_descansos td
+      LEFT JOIN trabajadores t ON td.id_trabajador = t.id_trabajador
+      LEFT JOIN usuarios u ON t.id_usuario = u.id_usuario
+      WHERE td.estado != 'Cancelado'
+        AND NOT (td.fecha_fin < ? OR td.fecha_inicio > ?)
+    `, [desde, hasta]);
+
+    const [asistenciasRecords] = await pool.query(`
+      SELECT 
+        COALESCE(t.id_usuario, a.id_trabajador) AS id_usuario,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre,
+        DATE_FORMAT(a.fecha, '%Y-%m-%d') AS fecha,
+        a.estado
+      FROM asistencias a
+      LEFT JOIN trabajadores t ON a.id_trabajador = t.id_trabajador
+      LEFT JOIN usuarios u ON t.id_usuario = u.id_usuario
+      WHERE a.fecha BETWEEN ? AND ?
+    `, [desde, hasta]);
+
+    // Mapa de fechas de descansos y faltas por técnico
+    const cleanTechName = (name) => {
+      let tn = String(name || '').trim();
+      if (tn.includes('CESPEDES SGA')) {
+        const parts = tn.split('CESPEDES SGA');
+        tn = parts[parts.length - 1].trim();
+      } else if (tn.includes('MOTOWIN CESPEDES')) {
+        const parts = tn.split('MOTOWIN CESPEDES');
+        tn = parts[parts.length - 1].trim();
+      }
+      return tn;
+    };
+
+    const techDescansosMap = new Map();
+    const techFaltasMap = new Map();
+
+    const addDateToMap = (targetMap, idUser, rawName, fechaStr) => {
+      const cName = cleanTechName(rawName);
+      if (idUser) {
+        const keyId = `id_${idUser}`;
+        if (!targetMap.has(keyId)) targetMap.set(keyId, new Set());
+        targetMap.get(keyId).add(fechaStr);
+      }
+      if (cName) {
+        const keyName = `name_${cName.toLowerCase()}`;
+        if (!targetMap.has(keyName)) targetMap.set(keyName, new Set());
+        targetMap.get(keyName).add(fechaStr);
+      }
+    };
+
+    for (const dp of descansosProg) {
+      if (!dp.fecha_inicio || !dp.fecha_fin) continue;
+      let cur = new Date(dp.fecha_inicio + 'T00:00:00');
+      const end = new Date(dp.fecha_fin + 'T00:00:00');
+      const rangeStart = new Date(desde + 'T00:00:00');
+      const rangeEnd = new Date(hasta + 'T00:00:00');
+      if (cur < rangeStart) cur = new Date(rangeStart);
+      const effectiveEnd = end > rangeEnd ? rangeEnd : end;
+
+      while (cur <= effectiveEnd) {
+        addDateToMap(techDescansosMap, dp.id_usuario, dp.tecnico_nombre, fmt(cur));
+        cur.setDate(cur.getDate() + 1);
+      }
+    }
+
+    for (const ar of asistenciasRecords) {
+      if (!ar.fecha) continue;
+      const est = (ar.estado || '').toLowerCase();
+      if (est === 'descanso') {
+        addDateToMap(techDescansosMap, ar.id_usuario, ar.tecnico_nombre, ar.fecha);
+      } else if (est === 'falta') {
+        addDateToMap(techFaltasMap, ar.id_usuario, ar.tecnico_nombre, ar.fecha);
+      }
+    }
+
+    // Calcular días trabajados, días sin órdenes, días de descanso, faltas y efectividad por técnico
+    const tecnicosArr = Array.from(techMap.values());
+    for (const t of tecnicosArr) {
+      let diasTrab = 0;
+      let diasFalta = 0;
+
+      const setDescById = t.id_tecnico ? techDescansosMap.get(`id_${t.id_tecnico}`) : null;
+      const setDescByName = t.tecnico ? techDescansosMap.get(`name_${cleanTechName(t.tecnico).toLowerCase()}`) : null;
+      const combinedDescansos = new Set([
+        ...(setDescById ? Array.from(setDescById) : []),
+        ...(setDescByName ? Array.from(setDescByName) : [])
+      ]);
+
+      const setFaltaById = t.id_tecnico ? techFaltasMap.get(`id_${t.id_tecnico}`) : null;
+      const setFaltaByName = t.tecnico ? techFaltasMap.get(`name_${cleanTechName(t.tecnico).toLowerCase()}`) : null;
+      const combinedFaltas = new Set([
+        ...(setFaltaById ? Array.from(setFaltaById) : []),
+        ...(setFaltaByName ? Array.from(setFaltaByName) : [])
+      ]);
+
+      for (const f of fechasList) {
+        const esDesc = combinedDescansos.has(f);
+        const esFalt = combinedFaltas.has(f);
+        if (t.fechas[f]) {
+          t.fechas[f].es_descanso = esDesc;
+          t.fechas[f].es_falta = esFalt;
+          if (t.fechas[f].total > 0) {
+            diasTrab++;
+          }
+        }
+        if (esFalt) {
+          diasFalta++;
+        }
+      }
+
+      t.totales.dias_trabajados = diasTrab;
+      t.totales.dias_sin_ordenes = Math.max(0, fechasList.length - diasTrab);
+      t.totales.dias_descanso = combinedDescansos.size;
+      t.totales.dias_falta = diasFalta;
+
+      t.totales.efectividad = t.totales.total_ordenes > 0
+        ? Number(((t.totales.finalizadas / t.totales.total_ordenes) * 100).toFixed(1))
+        : 0;
+    }
+
+    // Totales globales por fecha
+    const totalesPorFecha = {};
+    for (const f of fechasList) {
+      totalesPorFecha[f] = { total: 0, finalizadas: 0, canceladas: 0, asignadas: 0, iniciadas: 0, regestion: 0, tecnicos_activos: 0 };
+      for (const t of tecnicosArr) {
+        const diaData = t.fechas[f];
+        if (diaData && diaData.total > 0) {
+          totalesPorFecha[f].total += diaData.total;
+          totalesPorFecha[f].finalizadas += diaData.finalizadas;
+          totalesPorFecha[f].canceladas += diaData.canceladas;
+          totalesPorFecha[f].asignadas += diaData.asignadas;
+          totalesPorFecha[f].iniciadas += diaData.iniciadas;
+          totalesPorFecha[f].regestion += diaData.regestion;
+          totalesPorFecha[f].tecnicos_activos++;
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      filtros: { desde, hasta, periodo, tecnico: tecnico || '', estado: estado || 'Todos' },
+      fechas: fechasList,
+      estados: Array.from(estadosCatalogo),
+      totales_por_fecha: totalesPorFecha,
+      tecnicos: tecnicosArr
+    });
+  } catch (error) {
+    console.error("Error en /api/dashboard/rendimiento-tecnicos-fechas:", error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 

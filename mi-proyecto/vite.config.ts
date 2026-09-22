@@ -4,6 +4,10 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
 export default defineConfig({
+  server: {
+    host: true, // Expone el servidor a tu red local
+    port: 5173,
+  },
   base: "./",
   plugins: [react(), tailwindcss()],
   resolve: {
@@ -12,7 +16,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: "C:/xampp/htdocs/corporacionescepe/public/dist_react",
+    outDir: "dist",
     emptyOutDir: true,
   },
 });

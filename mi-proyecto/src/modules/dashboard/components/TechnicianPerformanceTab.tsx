@@ -32,6 +32,7 @@ import {
   MessageSquare,
   LogOut,
   User,
+  Coffee,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -47,6 +48,8 @@ import {
   Tooltip as RechartsTooltip,
   Legend
 } from "recharts";
+import { TechnicianDailyMatrixModal } from "./TechnicianDailyMatrixModal";
+import { TechnicianMonthlyDescansosModal } from "./TechnicianMonthlyDescansosModal";
 
 export interface TechnicianStats {
   id_tecnico: number;
@@ -118,6 +121,8 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
   const [tipoVisualizacionTipos, setTipoVisualizacionTipos] = useState<"dona" | "barras">("dona");
   const [modoTopGrafico, setModoTopGrafico] = useState<"finalizadas" | "todos">("finalizadas");
   const [isMatrizModalOpen, setIsMatrizModalOpen] = useState<boolean>(false);
+  const [isDailyMatrixModalOpen, setIsDailyMatrixModalOpen] = useState<boolean>(false);
+  const [isMonthlyDescansosModalOpen, setIsMonthlyDescansosModalOpen] = useState<boolean>(false);
 
   // 👤 Datos del Usuario Activo y Chat
   const currentUser = authService.getCurrentUser();
@@ -933,6 +938,26 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
                 title="Refrescar datos"
               >
                 <RotateCw size={14} className={loading ? "animate-spin text-sky-600" : "text-slate-500"} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsDailyMatrixModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
+                title="Ver Matriz de Rendimiento Diario por Fechas y Estados"
+              >
+                <Calendar size={13} />
+                <span>Matriz por Fechas</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsMonthlyDescansosModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1f4e78] hover:bg-[#1b4368] text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
+                title="Ver Tabla de Programación Mensual de Descansos por Técnico"
+              >
+                <Coffee size={13} />
+                <span>Descansos del Mes</span>
               </button>
 
               <button
@@ -2173,6 +2198,26 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
             </div>
           </div>
         </div>
+      )}
+
+      {/* 📅 MODAL MATRIZ DE RENDIMIENTO DIARIO POR FECHAS Y ESTADOS */}
+      {isDailyMatrixModalOpen && (
+        <TechnicianDailyMatrixModal
+          isOpen={isDailyMatrixModalOpen}
+          onClose={() => setIsDailyMatrixModalOpen(false)}
+          initialDesde={fechas.desde}
+          initialHasta={fechas.hasta}
+          initialPeriodo={periodoActivo}
+        />
+      )}
+
+      {/* ☕ MODAL TABLA MENSUAL DE PROGRAMACIÓN DE DESCANSOS */}
+      {isMonthlyDescansosModalOpen && (
+        <TechnicianMonthlyDescansosModal
+          isOpen={isMonthlyDescansosModalOpen}
+          onClose={() => setIsMonthlyDescansosModalOpen(false)}
+          initialDate={new Date(fechas.desde + "T00:00:00")}
+        />
       )}
     </div>
   );
