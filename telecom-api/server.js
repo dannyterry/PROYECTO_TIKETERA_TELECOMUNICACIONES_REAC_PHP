@@ -1927,11 +1927,145 @@ app.delete('/api/pagos/adelantos/:id', async (req, res) => {
 
 // --- ⏱️ ASISTENCIAS & DESCANSOS (RRHH) ---
 
-// 1. Obtener pase de asistencia por fecha (con lista completa de trabajadores y su estado)
+// Función auxiliar para sincronizar automáticamente asistencias de técnicos según su 1ra orden del día (en cualquier tramo)
+async function syncAsistenciasFromOrders(fechaDesde, fechaHasta) {
+  try {
+    const fDesde = fechaDesde || new Date().toISOString().slice(0, 10);
+    const fHasta = fechaHasta || fDesde;
+    
+    // 1. Obtener órdenes con fecha en el rango consultado
+    const [ordenRows] = await pool.query(`
+      SELECT 
+        o.id_orden,
+        o.numero AS numero_orden,
+        o.id_tecnico,
+        o.tecnico_asignado,
+        DATE(COALESCE(o.fecha_visita, o.fecha_solicitud)) AS fecha_orden,
+        TIME(COALESCE(o.inicio_visita, o.hora_en_camino, o.hora_asignacion, o.fecha_visita, o.fecha_solicitud)) AS hora_inicio,
+        t.id_trabajador,
+        COALESCE(h.hora_entrada, '07:45:00') AS horario_entrada,
+        COALESCE(h.tolerancia_min, 1) AS tolerancia_min,
+        (
+          SELECT COUNT(*) FROM trabajador_descansos td
+          WHERE td.id_trabajador = t.id_trabajador
+            AND DATE(COALESCE(o.fecha_visita, o.fecha_solicitud)) BETWEEN td.fecha_inicio AND td.fecha_fin
+            AND td.estado != 'Cancelado'
+        ) AS tiene_descanso,
+        a.id_asistencia,
+        a.tipo AS asistencia_tipo,
+        a.estado AS asistencia_estado,
+        a.observacion AS asistencia_observacion
+      FROM ordenes o
+      INNER JOIN trabajadores t ON (
+        o.id_tecnico = t.id_usuario 
+        OR o.id_tecnico = t.id_trabajador
+      )
+      LEFT JOIN horarios h ON t.id_horario = h.id_horario
+      LEFT JOIN asistencias a ON (t.id_trabajador = a.id_trabajador AND a.fecha = DATE(COALESCE(o.fecha_visita, o.fecha_solicitud)))
+      WHERE (
+        (DATE(o.fecha_visita) BETWEEN ? AND ?)
+        OR (o.fecha_visita IS NULL AND DATE(o.fecha_solicitud) BETWEEN ? AND ?)
+      )
+      ORDER BY DATE(COALESCE(o.fecha_visita, o.fecha_solicitud)) ASC, hora_inicio ASC
+    `, [fDesde, fHasta, fDesde, fHasta]);
+
+    if (!ordenRows || ordenRows.length === 0) return 0;
+
+    // Agrupar por (id_trabajador + fecha) tomando su primera orden más temprana del día
+    const techMap = new Map();
+    for (const r of ordenRows) {
+      if (!r.fecha_orden || !r.hora_inicio) continue;
+      const fStr = typeof r.fecha_orden === 'string' ? r.fecha_orden.slice(0, 10) : (r.fecha_orden instanceof Date ? r.fecha_orden.toISOString().slice(0, 10) : String(r.fecha_orden).slice(0, 10));
+      const key = `${r.id_trabajador}_${fStr}`;
+      if (!techMap.has(key)) {
+        techMap.set(key, { ...r, fechaStr: fStr });
+      }
+    }
+
+    let syncedCount = 0;
+    for (const [key, data] of techMap.entries()) {
+      // Si el trabajador tiene descanso programado o el estado ya fue marcado manualmente como Descanso / Permiso, respetarlo
+      if (data.tiene_descanso > 0 || ['Descanso', 'Permiso'].includes(data.asistencia_estado)) {
+        continue;
+      }
+
+      const horaInicioStr = String(data.hora_inicio);
+      const horarioEntradaStr = String(data.horario_entrada);
+      const toleranciaMin = parseInt(data.tolerancia_min || 1, 10);
+
+      // Calcular diferencia en segundos respecto a la entrada oficial (07:45 AM)
+      const [hI, mI, sI] = horaInicioStr.split(':').map(n => parseInt(n || 0, 10));
+      const [hH, mH, sH] = horarioEntradaStr.split(':').map(n => parseInt(n || 0, 10));
+      const secInicio = (hI * 3600) + (mI * 60) + (sI || 0);
+      const secHorario = (hH * 3600) + (mH * 60) + (sH || 0);
+      const secLimite = secHorario + (toleranciaMin * 60);
+
+      let estadoCalculado = 'Asistio';
+      let minutosTarde = 0;
+
+      if (secInicio > secLimite) {
+        estadoCalculado = 'Tardanza';
+        minutosTarde = Math.max(0, Math.ceil((secInicio - secHorario) / 60));
+      }
+
+      const obsAuto = `Auto (OT #${data.numero_orden || data.id_orden})`;
+
+      const [exist] = await pool.query("SELECT id_asistencia, estado, observacion FROM asistencias WHERE id_trabajador = ? AND fecha = ?", [data.id_trabajador, data.fechaStr]);
+
+      if (exist.length > 0) {
+        if (!['Descanso', 'Permiso'].includes(exist[0].estado)) {
+          await pool.query(`
+            UPDATE asistencias SET
+              hora_entrada = ?,
+              estado = ?,
+              minutos_tarde = ?,
+              id_orden = ?,
+              tipo = 'Automatico',
+              observacion = IF(observacion IS NULL OR observacion = '' OR observacion LIKE 'Auto%', ?, observacion)
+            WHERE id_asistencia = ?
+          `, [horaInicioStr, estadoCalculado, minutosTarde, data.id_orden, obsAuto, exist[0].id_asistencia]);
+          syncedCount++;
+        }
+      } else {
+        try {
+          await pool.query(`
+            INSERT INTO asistencias (id_trabajador, id_orden, fecha, hora_entrada, estado, minutos_tarde, tipo, observacion)
+            VALUES (?, ?, ?, ?, ?, ?, 'Automatico', ?)
+          `, [data.id_trabajador, data.id_orden, data.fechaStr, horaInicioStr, estadoCalculado, minutosTarde, obsAuto]);
+          syncedCount++;
+        } catch (e) {
+          await pool.query(`
+            INSERT INTO asistencias (id_trabajador, fecha, hora_entrada, estado, minutos_tarde, tipo, observacion)
+            VALUES (?, ?, ?, ?, ?, 'Automatico', ?)
+            ON DUPLICATE KEY UPDATE
+              hora_entrada = VALUES(hora_entrada),
+              estado = IF(estado IN ('Descanso','Permiso'), estado, VALUES(estado)),
+              minutos_tarde = IF(estado IN ('Descanso','Permiso'), 0, VALUES(minutos_tarde))
+          `, [data.id_trabajador, data.fechaStr, horaInicioStr, estadoCalculado, minutosTarde, obsAuto]);
+          syncedCount++;
+        }
+      }
+    }
+
+    return syncedCount;
+  } catch (err) {
+    console.error("Error al sincronizar asistencias desde órdenes:", err);
+    return 0;
+  }
+}
+
+// 1. Obtener pase de asistencia por fecha (con auto-sincronización desde órdenes)
 app.get('/api/asistencias/diaria', async (req, res) => {
   try {
     const fecha = req.query.fecha || new Date().toISOString().slice(0, 10);
     const idRol = req.query.id_rol;
+
+    // Sincronizar automáticamente en segundo plano con las órdenes del día
+    try {
+      await syncAsistenciasFromOrders(fecha, fecha);
+    } catch (e) {
+      console.warn("Advertencia en syncAsistenciasFromOrders:", e.message);
+    }
 
     let rolFilter = "";
     const params = [fecha];
@@ -1947,6 +2081,9 @@ app.get('/api/asistencias/diaria', async (req, res) => {
         u.documento,
         u.id_rol,
         r.nombre AS rol_nombre,
+        u.area AS cargo,
+        COALESCE(u.tipo_servicio, '') AS tipo_trabajo,
+        COALESCE(u.opcion_personal, '') AS opcion_personal,
         TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))) AS nombre_completo,
         COALESCE(u.cuadrilla, '') AS cuadrilla,
         COALESCE(v.placa, '') AS vehiculo_placa,
@@ -1956,6 +2093,9 @@ app.get('/api/asistencias/diaria', async (req, res) => {
         COALESCE(a.hora_salida, '') AS hora_salida,
         a.estado,
         COALESCE(a.minutos_tarde, 0) AS minutos_tarde,
+        COALESCE(a.tipo, 'Manual') AS tipo,
+        a.id_orden,
+        o.numero AS orden_numero,
         COALESCE(a.observacion, '') AS observacion,
         (
           SELECT COUNT(*) FROM trabajador_descansos td
@@ -1968,6 +2108,7 @@ app.get('/api/asistencias/diaria', async (req, res) => {
       LEFT JOIN trabajadores t ON u.id_usuario = t.id_usuario
       LEFT JOIN vehiculos v ON t.id_vehiculo = v.id_vehiculo
       LEFT JOIN asistencias a ON t.id_trabajador = a.id_trabajador AND a.fecha = ?
+      LEFT JOIN ordenes o ON a.id_orden = o.id_orden
       WHERE (u.estado = 'Activo' OR u.estado IS NULL)
         ${rolFilter}
       ORDER BY u.cuadrilla ASC, nombre_completo ASC
@@ -1976,6 +2117,17 @@ app.get('/api/asistencias/diaria', async (req, res) => {
     res.json({ fecha, asistencias: rows });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// 1.1 Forzar sincronización bajo demanda de asistencias desde órdenes de campo
+app.post('/api/asistencias/sincronizar-ordenes', async (req, res) => {
+  try {
+    const fecha = req.body?.fecha || req.query?.fecha || new Date().toISOString().slice(0, 10);
+    const count = await syncAsistenciasFromOrders(fecha, fecha);
+    res.json({ success: true, count, message: `Se sincronizaron ${count} asistencias automáticas desde órdenes.` });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -2056,6 +2208,13 @@ app.get('/api/asistencias/matriz', async (req, res) => {
       return res.status(400).json({ error: "Fechas desde y hasta son requeridas." });
     }
 
+    // Auto-sincronizar todas las fechas del rango consultado con las órdenes de campo
+    try {
+      await syncAsistenciasFromOrders(desde, hasta);
+    } catch (e) {
+      console.warn("Advertencia en syncAsistenciasFromOrders para matriz:", e.message);
+    }
+
     let rolFilter = "";
     const params = [desde, hasta];
     if (id_rol && id_rol !== "Todos") {
@@ -2068,7 +2227,11 @@ app.get('/api/asistencias/matriz', async (req, res) => {
         u.id_usuario,
         t.id_trabajador,
         u.documento,
+        u.id_rol,
         r.nombre AS rol_nombre,
+        u.area AS cargo,
+        COALESCE(u.tipo_servicio, '') AS tipo_trabajo,
+        COALESCE(u.opcion_personal, '') AS opcion_personal,
         TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))) AS nombre_completo,
         COALESCE(u.cuadrilla, '') AS cuadrilla
       FROM usuarios u
@@ -9682,7 +9845,8 @@ app.get(['/api/dashboard/rendimiento-tecnicos-fechas', '/dashboard/rendimiento-t
       SELECT 
         u.id_usuario AS id_tecnico,
         TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre,
-        COALESCE(NULLIF(TRIM(u.cuadrilla), ''), 'Sin Cuadrilla') AS cuadrilla
+        COALESCE(NULLIF(TRIM(u.cuadrilla), ''), 'Sin Cuadrilla') AS cuadrilla,
+        COALESCE(u.estado, 'Activo') AS estado_usuario
       FROM usuarios u
       WHERE u.id_rol = 2 OR u.cargo LIKE '%TECNICO%' OR u.area LIKE '%CAMPO%' OR u.area LIKE '%MOTO%'
       ORDER BY u.nombres ASC
@@ -9692,7 +9856,7 @@ app.get(['/api/dashboard/rendimiento-tecnicos-fechas', '/dashboard/rendimiento-t
     const techMap = new Map();
     const estadosCatalogo = new Set(['Finalizada', 'Asignada', 'Iniciada', 'Cancelada', 'Regestión']);
 
-    // Inicializar con técnicos activos
+    // Inicializar con técnicos del sistema
     for (const ut of usuariosTecnicos) {
       let tName = ut.tecnico_nombre;
       if (tName.includes('CESPEDES SGA')) {
@@ -9712,6 +9876,7 @@ app.get(['/api/dashboard/rendimiento-tecnicos-fechas', '/dashboard/rendimiento-t
           id_tecnico: ut.id_tecnico,
           tecnico: tName,
           cuadrilla: ut.cuadrilla,
+          estado_usuario: ut.estado_usuario || 'Activo',
           fechas: initFechas,
           totales: {
             total_ordenes: 0,
@@ -9752,6 +9917,7 @@ app.get(['/api/dashboard/rendimiento-tecnicos-fechas', '/dashboard/rendimiento-t
           id_tecnico: r.id_tecnico,
           tecnico: tName,
           cuadrilla: r.cuadrilla,
+          estado_usuario: 'Activo',
           fechas: initFechas,
           totales: {
             total_ordenes: 0,
@@ -11354,6 +11520,440 @@ app.post(['/api/correos/enviar-prueba', '/correos/enviar-prueba'], async (req, r
   } catch (error) {
     console.error('Error enviando correo SMTP:', error);
     res.status(500).json({ success: false, mensaje: error.message });
+  }
+});
+
+// ============================================================================
+// 🛡️ MÓDULO DE SUPERVISIÓN & CALIDAD (FICHAS DE CAMPO & AUDITORÍAS DE CLIENTE)
+// ============================================================================
+
+// 1. Obtener lista de técnicos para selector rápido (con DNI y Cuadrilla)
+app.get(['/api/supervision/tecnicos-combo', '/supervision/tecnicos-combo'], async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        COALESCE(t.id_trabajador, u.id_usuario) as id_tecnico,
+        CONCAT(TRIM(COALESCE(u.nombres, '')), ' ', TRIM(COALESCE(u.apellidos, ''))) as tecnico,
+        COALESCE(u.nombres, '') as nombres,
+        COALESCE(u.apellidos, '') as apellidos,
+        COALESCE(u.documento, '') as dni,
+        COALESCE(u.cuadrilla, '') as cuadrilla,
+        COALESCE(u.telefono, '') as celular,
+        COALESCE(u.cargo, '') as cargo,
+        COALESCE(u.tipo_servicio, '') as tipo_servicio
+      FROM usuarios u
+      LEFT JOIN trabajadores t ON t.id_usuario = u.id_usuario
+      WHERE u.estado = 'Activo'
+        AND (u.id_rol = 2 OR UPPER(COALESCE(u.cargo, '')) LIKE '%TECNIC%' OR UPPER(COALESCE(u.tipo_servicio, '')) LIKE '%CAMPO%' OR t.id_trabajador IS NOT NULL)
+      ORDER BY u.nombres ASC, u.apellidos ASC
+    `);
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Error en /api/supervision/tecnicos-combo:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 1.1 Obtener lista de supervisores y coordinadores
+app.get(['/api/supervision/supervisores-combo', '/supervision/supervisores-combo'], async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        id_usuario,
+        CONCAT(TRIM(COALESCE(nombres, '')), ' ', TRIM(COALESCE(apellidos, ''))) as supervisor,
+        usuario,
+        COALESCE(cargo, '') as cargo,
+        COALESCE(telefono, '') as telefono
+      FROM usuarios
+      WHERE estado = 'Activo'
+        AND (
+          id_rol IN (1, 3, 4, 5)
+          OR UPPER(COALESCE(cargo, '')) LIKE '%SUPERVISOR%'
+          OR UPPER(COALESCE(cargo, '')) LIKE '%COORDINADOR%'
+          OR UPPER(COALESCE(cargo, '')) LIKE '%CALIDAD%'
+          OR UPPER(COALESCE(cargo, '')) LIKE '%ADMIN%'
+        )
+      ORDER BY nombres ASC, apellidos ASC
+    `);
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Error en /api/supervision/supervisores-combo:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 1.2 Buscar orden por OT, Ticket, Código de Pedido o Nombre de Cliente
+app.get(['/api/supervision/buscar-orden', '/supervision/buscar-orden'], async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q || !q.trim()) {
+      return res.json({ success: true, data: [] });
+    }
+
+    const term = `%${q.trim()}%`;
+    const [rows] = await pool.query(`
+      SELECT 
+        o.id_orden,
+        o.numero as ot,
+        COALESCE(o.cod_seguimiento_cliente, '') as codigo_pedido,
+        COALESCE(o.codigo_seguimiento, '') as ticket,
+        COALESCE(o.cliente, '') as cliente,
+        COALESCE(o.movil, o.fijo, '') as telefono,
+        COALESCE(o.localidad, o.region_zona, '') as distrito,
+        COALESCE(u.nombre_completo, o.tecnico_asignado, '') as tecnico,
+        COALESCE(o.id_tecnico, u.id_usuario, 0) as id_tecnico,
+        COALESCE(u.documento, '') as dni_tecnico,
+        COALESCE(o.cuadrilla, u.cuadrilla, '') as cuadrilla,
+        COALESCE(DATE_FORMAT(o.fecha_visita, '%Y-%m-%d'), DATE_FORMAT(o.fecha_solicitud, '%Y-%m-%d'), DATE_FORMAT(o.fecha_estado, '%Y-%m-%d'), '') as fecha_atencion,
+        COALESCE(o.motivo_trabajo, o.tipo_trabajo, o.motivo, '') as tipo_trabajo,
+        COALESCE(o.direccion, o.ubicacion, '') as direccion
+      FROM ordenes o
+      LEFT JOIN (
+        SELECT id_usuario, CONCAT(TRIM(COALESCE(nombres, '')), ' ', TRIM(COALESCE(apellidos, ''))) as nombre_completo, documento, cuadrilla 
+        FROM usuarios
+      ) u ON u.id_usuario = o.id_tecnico
+      WHERE (
+        o.numero LIKE ? 
+        OR o.codigo_seguimiento LIKE ? 
+        OR o.cod_seguimiento_cliente LIKE ? 
+        OR o.cliente LIKE ?
+      )
+      ORDER BY o.id_orden DESC
+      LIMIT 15
+    `, [term, term, term, term]);
+
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Error en /api/supervision/buscar-orden:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 2. Listar fichas de supervisión en campo
+app.get(['/api/supervision/campo', '/supervision/campo'], async (req, res) => {
+  try {
+    const { desde, hasta, tecnico, tipo_inspeccion, supervisor } = req.query;
+    let whereClauses = [];
+    let params = [];
+
+    if (desde && hasta) {
+      whereClauses.push('fecha BETWEEN ? AND ?');
+      params.push(desde, hasta);
+    } else if (desde) {
+      whereClauses.push('fecha >= ?');
+      params.push(desde);
+    } else if (hasta) {
+      whereClauses.push('fecha <= ?');
+      params.push(hasta);
+    }
+
+    if (tecnico) {
+      whereClauses.push('tecnico LIKE ?');
+      params.push(`%${tecnico.trim()}%`);
+    }
+
+    if (tipo_inspeccion && tipo_inspeccion !== 'TODOS') {
+      whereClauses.push('tipo_inspeccion = ?');
+      params.push(tipo_inspeccion);
+    }
+
+    if (supervisor) {
+      whereClauses.push('supervisor LIKE ?');
+      params.push(`%${supervisor.trim()}%`);
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    const [rows] = await pool.query(
+      `SELECT * FROM supervisiones_campo ${whereSql} ORDER BY fecha DESC, hora DESC, id DESC`,
+      params
+    );
+
+    res.json({ success: true, total: rows.length, data: rows });
+  } catch (error) {
+    console.error('Error en GET /api/supervision/campo:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 3. Obtener una ficha de supervisión por ID
+app.get(['/api/supervision/campo/:id', '/supervision/campo/:id'], async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM supervisiones_campo WHERE id = ?', [req.params.id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Ficha de supervisión no encontrada' });
+    }
+    res.json({ success: true, data: rows[0] });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 4. Guardar / Actualizar ficha de supervisión en campo
+app.post(['/api/supervision/campo', '/supervision/campo'], async (req, res) => {
+  try {
+    const {
+      id,
+      id_tecnico,
+      tecnico,
+      dni,
+      cuadrilla,
+      tipo_inspeccion,
+      fecha,
+      hora,
+      lugar_inspeccion,
+      supervisor,
+      cumplimiento_porcentaje,
+      semaforo,
+      items_json,
+      observaciones,
+      firma_supervisor
+    } = req.body;
+
+    if (!tecnico || !fecha) {
+      return res.status(400).json({ success: false, error: 'Técnico y fecha son campos obligatorios' });
+    }
+
+    const itemsStr = typeof items_json === 'object' ? JSON.stringify(items_json) : (items_json || null);
+
+    if (id) {
+      // Actualizar
+      await pool.query(
+        `UPDATE supervisiones_campo SET
+          id_tecnico = ?, tecnico = ?, dni = ?, cuadrilla = ?, tipo_inspeccion = ?,
+          fecha = ?, hora = ?, lugar_inspeccion = ?, supervisor = ?,
+          cumplimiento_porcentaje = ?, semaforo = ?, items_json = ?,
+          observaciones = ?, firma_supervisor = ?
+        WHERE id = ?`,
+        [
+          id_tecnico || null, tecnico, dni || null, cuadrilla || null, tipo_inspeccion || 'CAMPO_GENERAL',
+          fecha, hora || null, lugar_inspeccion || null, supervisor || null,
+          cumplimiento_porcentaje || 100, semaforo || 'verde', itemsStr,
+          observaciones || null, firma_supervisor || null,
+          id
+        ]
+      );
+      return res.json({ success: true, id, message: 'Supervisión actualizada correctamente' });
+    } else {
+      // Insertar
+      const [result] = await pool.query(
+        `INSERT INTO supervisiones_campo (
+          id_tecnico, tecnico, dni, cuadrilla, tipo_inspeccion,
+          fecha, hora, lugar_inspeccion, supervisor,
+          cumplimiento_porcentaje, semaforo, items_json,
+          observaciones, firma_supervisor
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id_tecnico || null, tecnico, dni || null, cuadrilla || null, tipo_inspeccion || 'CAMPO_GENERAL',
+          fecha, hora || null, lugar_inspeccion || null, supervisor || null,
+          cumplimiento_porcentaje || 100, semaforo || 'verde', itemsStr,
+          observaciones || null, firma_supervisor || null
+        ]
+      );
+      return res.json({ success: true, id: result.insertId, message: 'Supervisión guardada exitosamente' });
+    }
+  } catch (error) {
+    console.error('Error en POST /api/supervision/campo:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 5. Eliminar ficha de supervisión
+app.delete(['/api/supervision/campo/:id', '/supervision/campo/:id'], async (req, res) => {
+  try {
+    await pool.query('DELETE FROM supervisiones_campo WHERE id = ?', [req.params.id]);
+    res.json({ success: true, message: 'Ficha de supervisión eliminada' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 6. Listar auditorías de calidad al cliente
+app.get(['/api/supervision/calidad-cliente', '/supervision/calidad-cliente'], async (req, res) => {
+  try {
+    const { desde, hasta, tecnico, estado_conformidad, auditor } = req.query;
+    let whereClauses = [];
+    let params = [];
+
+    if (desde && hasta) {
+      whereClauses.push('fecha_auditoria BETWEEN ? AND ?');
+      params.push(desde, hasta);
+    } else if (desde) {
+      whereClauses.push('fecha_auditoria >= ?');
+      params.push(desde);
+    } else if (hasta) {
+      whereClauses.push('fecha_auditoria <= ?');
+      params.push(hasta);
+    }
+
+    if (tecnico) {
+      whereClauses.push('tecnico LIKE ?');
+      params.push(`%${tecnico.trim()}%`);
+    }
+
+    if (estado_conformidad && estado_conformidad !== 'TODOS') {
+      whereClauses.push('estado_conformidad = ?');
+      params.push(estado_conformidad);
+    }
+
+    if (auditor) {
+      whereClauses.push('auditor LIKE ?');
+      params.push(`%${auditor.trim()}%`);
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    const [rows] = await pool.query(
+      `SELECT * FROM auditorias_calidad_cliente ${whereSql} ORDER BY fecha_auditoria DESC, id DESC`,
+      params
+    );
+
+    res.json({ success: true, total: rows.length, data: rows });
+  } catch (error) {
+    console.error('Error en GET /api/supervision/calidad-cliente:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 7. Guardar / Actualizar auditoría de calidad al cliente
+app.post(['/api/supervision/calidad-cliente', '/supervision/calidad-cliente'], async (req, res) => {
+  try {
+    const {
+      id,
+      id_orden,
+      numero_ticket,
+      id_tecnico,
+      tecnico,
+      cuadrilla,
+      cliente,
+      telefono,
+      distrito,
+      fecha_atencion,
+      fecha_auditoria,
+      auditor,
+      preguntas_json,
+      puntaje_porcentaje,
+      calificacion_estrellas,
+      comentario_cliente,
+      estado_conformidad
+    } = req.body;
+
+    if (!tecnico || !cliente || !fecha_auditoria) {
+      return res.status(400).json({ success: false, error: 'Técnico, cliente y fecha son obligatorios' });
+    }
+
+    const preguntasStr = typeof preguntas_json === 'object' ? JSON.stringify(preguntas_json) : (preguntas_json || null);
+
+    if (id) {
+      await pool.query(
+        `UPDATE auditorias_calidad_cliente SET
+          id_orden = ?, numero_ticket = ?, id_tecnico = ?, tecnico = ?, cuadrilla = ?,
+          cliente = ?, telefono = ?, distrito = ?, fecha_atencion = ?, fecha_auditoria = ?,
+          auditor = ?, preguntas_json = ?, puntaje_porcentaje = ?, calificacion_estrellas = ?,
+          comentario_cliente = ?, estado_conformidad = ?
+        WHERE id = ?`,
+        [
+          id_orden || null, numero_ticket || null, id_tecnico || null, tecnico, cuadrilla || null,
+          cliente, telefono || null, distrito || null, fecha_atencion || null, fecha_auditoria,
+          auditor || null, preguntasStr, puntaje_porcentaje || 100, calificacion_estrellas || 5,
+          comentario_cliente || null, estado_conformidad || 'CONFORME',
+          id
+        ]
+      );
+      return res.json({ success: true, id, message: 'Auditoría de calidad actualizada' });
+    } else {
+      const [result] = await pool.query(
+        `INSERT INTO auditorias_calidad_cliente (
+          id_orden, numero_ticket, id_tecnico, tecnico, cuadrilla,
+          cliente, telefono, distrito, fecha_atencion, fecha_auditoria,
+          auditor, preguntas_json, puntaje_porcentaje, calificacion_estrellas,
+          comentario_cliente, estado_conformidad
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id_orden || null, numero_ticket || null, id_tecnico || null, tecnico, cuadrilla || null,
+          cliente, telefono || null, distrito || null, fecha_atencion || null, fecha_auditoria,
+          auditor || null, preguntasStr, puntaje_porcentaje || 100, calificacion_estrellas || 5,
+          comentario_cliente || null, estado_conformidad || 'CONFORME'
+        ]
+      );
+      return res.json({ success: true, id: result.insertId, message: 'Auditoría de calidad guardada' });
+    }
+  } catch (error) {
+    console.error('Error en POST /api/supervision/calidad-cliente:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 8. Eliminar auditoría de calidad al cliente
+app.delete(['/api/supervision/calidad-cliente/:id', '/supervision/calidad-cliente/:id'], async (req, res) => {
+  try {
+    await pool.query('DELETE FROM auditorias_calidad_cliente WHERE id = ?', [req.params.id]);
+    res.json({ success: true, message: 'Auditoría eliminada con éxito' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 9. Estadísticas y KPIs Globales de Supervisión & Calidad
+app.get(['/api/supervision/stats', '/supervision/stats'], async (req, res) => {
+  try {
+    const { desde, hasta } = req.query;
+    let filterCampo = '';
+    let filterCalidad = '';
+    let paramsCampo = [];
+    let paramsCalidad = [];
+
+    if (desde && hasta) {
+      filterCampo = 'WHERE fecha BETWEEN ? AND ?';
+      paramsCampo = [desde, hasta];
+      filterCalidad = 'WHERE fecha_auditoria BETWEEN ? AND ?';
+      paramsCalidad = [desde, hasta];
+    }
+
+    const [campoStats] = await pool.query(`
+      SELECT 
+        COUNT(*) as total_inspecciones,
+        COALESCE(AVG(cumplimiento_porcentaje), 100) as promedio_cumplimiento,
+        SUM(CASE WHEN semaforo = 'verde' THEN 1 ELSE 0 END) as total_verdes,
+        SUM(CASE WHEN semaforo = 'amarillo' THEN 1 ELSE 0 END) as total_amarillos,
+        SUM(CASE WHEN semaforo = 'rojo' THEN 1 ELSE 0 END) as total_rojos
+      FROM supervisiones_campo ${filterCampo}
+    `, paramsCampo);
+
+    const [clienteStats] = await pool.query(`
+      SELECT 
+        COUNT(*) as total_auditorias,
+        COALESCE(AVG(puntaje_porcentaje), 100) as promedio_puntaje,
+        COALESCE(AVG(calificacion_estrellas), 5) as promedio_estrellas,
+        SUM(CASE WHEN estado_conformidad = 'CONFORME' THEN 1 ELSE 0 END) as total_conformes,
+        SUM(CASE WHEN estado_conformidad = 'CON_OBSERVACIONES' THEN 1 ELSE 0 END) as total_observaciones,
+        SUM(CASE WHEN estado_conformidad = 'NO_CONFORME' THEN 1 ELSE 0 END) as total_no_conformes
+      FROM auditorias_calidad_cliente ${filterCalidad}
+    `, paramsCalidad);
+
+    const [rankingTecnicos] = await pool.query(`
+      SELECT 
+        c.tecnico,
+        c.cuadrilla,
+        COUNT(c.id) as total_supervisiones,
+        ROUND(AVG(c.cumplimiento_porcentaje), 1) as score_campo,
+        COALESCE(ROUND(AVG(a.puntaje_porcentaje), 1), 100) as score_cliente,
+        ROUND((AVG(c.cumplimiento_porcentaje) * 0.5 + COALESCE(AVG(a.puntaje_porcentaje), 100) * 0.5), 1) as score_global
+      FROM supervisiones_campo c
+      LEFT JOIN auditorias_calidad_cliente a ON a.tecnico = c.tecnico
+      ${filterCampo}
+      GROUP BY c.tecnico, c.cuadrilla
+      ORDER BY score_global DESC
+      LIMIT 20
+    `, paramsCampo);
+
+    res.json({
+      success: true,
+      campo: campoStats[0] || {},
+      cliente: clienteStats[0] || {},
+      ranking: rankingTecnicos || []
+    });
+  } catch (error) {
+    console.error('Error en GET /api/supervision/stats:', error.message);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

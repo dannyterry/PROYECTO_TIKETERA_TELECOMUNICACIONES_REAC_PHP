@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Employee } from "./Employee";
 import { API_URL } from "../../config/api";
 import {
@@ -40,6 +40,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
   // Estados para nuestros filtros
   const [searchTerm, setSearchTerm] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("Activo"); // Por defecto, es mejor ver a los activos
+  const [filtroOpcionPersonal, setFiltroOpcionPersonal] = useState("Todos");
   const [filtroSCTR, setFiltroSCTR] = useState("Todos");
   const [mesVencimiento, setMesVencimiento] = useState(""); // Filtro por Mes
   const [copiadoId, setCopiadoId] = useState<number | null>(null);
@@ -275,6 +276,12 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
       matchRol = rolesSeleccionados.includes(rolActual);
     }
 
+    // Filtro por Opción de Personal
+    let matchOpcionPersonal = true;
+    if (filtroOpcionPersonal !== "Todos") {
+      matchOpcionPersonal = (emp.opcionPersonal || "").trim().toLowerCase() === filtroOpcionPersonal.trim().toLowerCase();
+    }
+
     // D) Filtro por Estado SCTR
     let matchSCTR = true;
     if (filtroSCTR === "Sin SCTR") matchSCTR = !emp.sctrVencimiento;
@@ -287,8 +294,17 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
       matchMes = !!emp.sctrVencimiento && emp.sctrVencimiento.startsWith(mesVencimiento);
     }
 
-    return matchSearch && matchEstado && matchRol && matchSCTR && matchMes;
+    return matchSearch && matchEstado && matchRol && matchOpcionPersonal && matchSCTR && matchMes;
   });
+
+  // Lista dinámica para filtro de Opción de Personal
+  const opcionesPersonalDisponibles = useMemo(() => {
+    const set = new Set<string>();
+    listaLocal.forEach((e) => {
+      if (e.opcionPersonal && e.opcionPersonal.trim()) set.add(e.opcionPersonal.trim());
+    });
+    return Array.from(set).sort();
+  }, [listaLocal]);
 
   // Lista de roles filtrada para el buscador interno del dropdown
   const rolesFiltrados = rolesDisponibles.filter(r => 
@@ -583,6 +599,25 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
               className="w-full bg-white border-gray-300 focus:ring-sky-500" 
             />
           </div>
+
+          {/* 6. Filtro por Opción de Personal */}
+          {opcionesPersonalDisponibles.length > 0 && (
+            <div className="w-full">
+              <label className="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-1 block">Opción Personal</label>
+              <select 
+                value={filtroOpcionPersonal} 
+                onChange={(e) => setFiltroOpcionPersonal(e.target.value)}
+                className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
+              >
+                <option value="Todos">📋 Toda opción</option>
+                {opcionesPersonalDisponibles.map((op: string) => (
+                  <option key={op} value={op}>
+                    {op}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
         </div>
 

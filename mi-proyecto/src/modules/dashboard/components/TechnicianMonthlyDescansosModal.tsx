@@ -29,6 +29,10 @@ export interface DescansoTecnicoRow {
   id_usuario: number;
   id_trabajador?: number;
   tecnico: string;
+  rol_nombre?: string;
+  cargo?: string;
+  tipo_trabajo?: string;
+  opcion_personal?: string;
   cuadrilla: string;
   estado: string;
   descSem1: string | number;
@@ -139,7 +143,7 @@ export const TechnicianMonthlyDescansosModal: React.FC<Props> = ({
       }
     }
 
-    // Construir filas
+    // Construir filas (Solo Técnicos y Supervisores)
     const list: DescansoTecnicoRow[] = [];
     let totalDescansosGlobal = 0;
     let totalDomingosGlobal = 0;
@@ -147,6 +151,17 @@ export const TechnicianMonthlyDescansosModal: React.FC<Props> = ({
     let tecnicosConDescanso = 0;
 
     for (const trab of matrizRaw.trabajadores) {
+      // 🛡️ Filtro estricto: Solo roles TÉCNICO y SUPERVISOR
+      const rolUpper = String(trab.rol_nombre || "").toUpperCase();
+      const idRol = Number(trab.id_rol || 0);
+      const esTecnicoOSupervisor =
+        idRol === 2 ||
+        idRol === 6 ||
+        rolUpper.includes("TECNIC") ||
+        rolUpper.includes("SUPERVI");
+
+      if (!esTecnicoOSupervisor) continue;
+
       const uKey = `u_${trab.id_usuario}`;
       const tKey = `t_${trab.id_trabajador}`;
       const setU = mapDescansos.get(uKey);
@@ -180,6 +195,10 @@ export const TechnicianMonthlyDescansosModal: React.FC<Props> = ({
         id_usuario: trab.id_usuario,
         id_trabajador: trab.id_trabajador,
         tecnico: cleanNom,
+        rol_nombre: trab.rol_nombre,
+        cargo: trab.cargo,
+        tipo_trabajo: trab.tipo_trabajo,
+        opcion_personal: trab.opcion_personal,
         cuadrilla: trab.cuadrilla || "",
         estado: trab.estado || "Activo",
         descSem1: semanales[0] !== undefined ? semanales[0] : "-",
@@ -225,10 +244,16 @@ export const TechnicianMonthlyDescansosModal: React.FC<Props> = ({
       res = res.filter(
         (f) =>
           f.tecnico.toLowerCase().includes(q) ||
-          f.cuadrilla.toLowerCase().includes(q)
+          f.cuadrilla.toLowerCase().includes(q) ||
+          (f.rol_nombre || "").toLowerCase().includes(q) ||
+          (f.cargo || "").toLowerCase().includes(q)
       );
     }
-    if (filtroEstado === "con_descanso") {
+    if (filtroEstado === "solo_tecnicos") {
+      res = res.filter((f) => (f.rol_nombre || "").toUpperCase().includes("TECNIC"));
+    } else if (filtroEstado === "solo_supervisores") {
+      res = res.filter((f) => (f.rol_nombre || "").toUpperCase().includes("SUPERVI"));
+    } else if (filtroEstado === "con_descanso") {
       res = res.filter((f) => f.totalD > 0);
     } else if (filtroEstado === "sin_descanso") {
       res = res.filter((f) => f.totalD === 0);
@@ -340,7 +365,7 @@ export const TechnicianMonthlyDescansosModal: React.FC<Props> = ({
           {/* Mini Cards KPI */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             <div className="bg-white p-2.5 rounded-2xl border border-slate-200/80 shadow-2xs">
-              <span className="text-[10px] font-bold text-slate-500 block uppercase">Total Personal</span>
+              <span className="text-[10px] font-bold text-slate-500 block uppercase">Técnicos & Supervisores</span>
               <div className="flex items-baseline justify-between mt-0.5">
                 <span className="text-lg font-black text-slate-900 font-mono">{kpis.totalTecnicos}</span>
                 <span className="text-[10px] font-bold text-slate-400">100%</span>
@@ -409,6 +434,8 @@ export const TechnicianMonthlyDescansosModal: React.FC<Props> = ({
                   className="bg-transparent font-bold text-slate-800 text-xs focus:outline-none cursor-pointer"
                 >
                   <option value="todos">Todos ({filas.length})</option>
+                  <option value="solo_tecnicos">Solo Técnicos</option>
+                  <option value="solo_supervisores">Solo Supervisores</option>
                   <option value="con_descanso">Con Descanso</option>
                   <option value="sin_descanso">Sin Descanso</option>
                 </select>
@@ -482,11 +509,11 @@ export const TechnicianMonthlyDescansosModal: React.FC<Props> = ({
                           key={`row-desc-${f.id_usuario}-${idx}`}
                           className={`${rowBg} hover:bg-sky-50/40 transition-colors`}
                         >
-                          {/* Columna Técnico (Solo nombre) */}
-                          <td className="py-2 px-4 border-r border-slate-300">
-                            <div className="font-black text-slate-900 text-[11px] truncate max-w-[260px]" title={f.tecnico}>
+                          {/* Columna Técnico / Supervisor */}
+                          <td className="py-2.5 px-4 border-r border-slate-300">
+                            <span className="font-bold text-slate-900 text-xs truncate max-w-[260px] block" title={f.tecnico}>
                               {f.tecnico}
-                            </div>
+                            </span>
                           </td>
 
                           {/* Descanso Sem. 1 */}
@@ -582,7 +609,7 @@ export const TechnicianMonthlyDescansosModal: React.FC<Props> = ({
                     <tfoot className="sticky bottom-0 z-20 bg-[#d9e1f2] text-[#1f3864] font-black border-t-2 border-slate-400">
                       <tr>
                         <td className="py-2 px-4 border-r border-slate-400 uppercase text-[10px] font-black">
-                          SUMA TOTAL ({filasFiltradas.length} Técnicos)
+                          SUMA TOTAL ({filasFiltradas.length} Técnicos / Supervisores)
                         </td>
                         <td className="py-1.5 px-2 text-center border-r border-slate-400 font-mono text-[11px] font-black">
                           -

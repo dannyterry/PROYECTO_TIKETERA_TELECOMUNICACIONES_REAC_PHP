@@ -36,6 +36,7 @@ import { SettingsPage } from "./modules/settings/SettingsPage";
 import { PaymentsPage } from "./modules/payments/PaymentsPage";
 import { RolesTab } from "./modules/employee/components/RolesTab";
 import { AttendanceTab } from "./modules/employee/components/AttendanceTab";
+import { SupervisionPage } from "./modules/supervision/SupervisionPage";
 import { TeamChat } from "./components/chat/TeamChat";
 import { authService, AuthUser } from "./services/authService";
 import { LoginPage } from "./pages/LoginPage";
@@ -267,12 +268,18 @@ export default function App() {
     currentView === "finanzas" ||
     currentView === "liquidaciones-tecnicos";
 
+  const isSupervisionView =
+    currentView === "supervision" ||
+    currentView === "calidad" ||
+    currentView === "auditoria-calidad";
+
   const isOrdersView =
     !isPersonalView &&
     !isMobilityView &&
     !isInventoryView &&
     !isSettingsView &&
     !isPaymentsView &&
+    !isSupervisionView &&
     !isExecutiveDashboard &&
     !isTechnicianPortal;
 
@@ -286,7 +293,8 @@ export default function App() {
     isInventoryView ||
     isMobilityView ||
     isSettingsView ||
-    isPaymentsView
+    isPaymentsView ||
+    isSupervisionView
   );
 
   const canUseGroupChat =
@@ -351,6 +359,7 @@ export default function App() {
   const todosLosModulos = [
     { id: "dashboard", label: "Análisis & Visualización", icon: LayoutDashboard, activo: isExecutiveDashboard },
     { id: "ordenes", label: "Órdenes", icon: ClipboardList, activo: isOrdersView },
+    { id: "supervision", label: "Supervisión & Calidad", icon: ShieldCheck, activo: isSupervisionView },
     { id: "portal-tecnico", label: "Portal Técnico", icon: Car, activo: isTechnicianPortal },
     { id: "personal", label: "Personal", icon: Users, activo: isPersonalView },
     { id: "inventario", label: "Inventario", icon: Package, activo: isInventoryView },
@@ -371,6 +380,7 @@ export default function App() {
     if (isMobilityView) return authService.canAccessModule("movilidad");
     if (isInventoryView) return authService.canAccessModule("inventario");
     if (isExecutiveDashboard) return authService.canAccessModule("dashboard");
+    if (isSupervisionView) return authService.canAccessModule("supervision");
     if (isSettingsView) return authService.canAccessModule("configuracion");
     if (isPaymentsView) return authService.canAccessModule("pagos");
     if (isPersonalView) return authService.canAccessModule("personal");
@@ -662,6 +672,13 @@ export default function App() {
               {isPaymentsView && !isTechnicianPortal && (
                 <div className="flex-1 w-full overflow-hidden min-h-0 flex flex-col">
                   <PaymentsPage currentUserId={currentUser?.id_usuario} />
+                </div>
+              )}
+
+              {/* 5.1 Supervisión y Calidad */}
+              {isSupervisionView && !isTechnicianPortal && (
+                <div className="flex-1 w-full overflow-y-auto min-h-0">
+                  <SupervisionPage />
                 </div>
               )}
 

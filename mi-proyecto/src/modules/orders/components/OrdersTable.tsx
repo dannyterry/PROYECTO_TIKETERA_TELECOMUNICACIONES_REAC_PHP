@@ -96,6 +96,95 @@ const InconcertToggleButton: React.FC<{
   );
 });
 
+/**
+ * 🚨 Función para calcular alertas de vencimiento de Tramo Horario
+ * Solo alerta (rojo / ámbar) si la orden aún NO está en camino, iniciada, finalizada o liquidada.
+ */
+interface TramoAlertInfo {
+  status: "vencido" | "por_vencer" | "normal";
+  minutesDiff?: number;
+  label?: string;
+}
+
+const getTramoAlertInfo = (order: Order): TramoAlertInfo => {
+  if (!order.tramo || order.tramo === "-" || order.tramo.trim() === "") {
+    return { status: "normal" };
+  }
+
+  // Si la orden ya está atendida o en curso (En Camino, Iniciada, Finalizada, Liquidada, Cancelada, Anulada, Regestión, etc.)
+  const rawStatus = (order.status || order.estado || "").toLowerCase().trim();
+  if (
+    rawStatus.includes("camino") ||
+    rawStatus.includes("inici") ||
+    rawStatus.includes("fin") ||
+    rawStatus.includes("liquid") ||
+    rawStatus.includes("cancel") ||
+    rawStatus.includes("anul") ||
+    rawStatus.includes("regest") ||
+    rawStatus.includes("complet")
+  ) {
+    return { status: "normal" };
+  }
+
+  // Si ya tiene horaEnCamino o horaInicio registrada
+  if ((order.horaEnCamino && order.horaEnCamino !== "-") || (order.horaInicio && order.horaInicio !== "-")) {
+    return { status: "normal" };
+  }
+
+  // Parsear el rango horario del tramo: ej. "08:00 - 12:00", "12:00 - 16:00", "16:00 - 20:00"
+  let tramoEndMin: number | null = null;
+  const rangeMatch = order.tramo.match(/(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/);
+  if (rangeMatch) {
+    tramoEndMin = parseInt(rangeMatch[3], 10) * 60 + parseInt(rangeMatch[4], 10);
+  } else {
+    const singleMatch = order.tramo.match(/(\d{1,2}):(\d{2})/);
+    if (singleMatch) {
+      const startMin = parseInt(singleMatch[1], 10) * 60 + parseInt(singleMatch[2], 10);
+      tramoEndMin = startMin + 240; // +4 horas
+    }
+  }
+
+  if (tramoEndMin === null) {
+    return { status: "normal" };
+  }
+
+  // Validar si la orden es de una fecha anterior
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const orderFecha = (order.fecha || "").slice(0, 10);
+  const isPastDay = orderFecha && orderFecha < todayStr;
+
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+  if (isPastDay) {
+    return {
+      status: "vencido",
+      label: "⚠️ Vencido (Día ant.)",
+    };
+  }
+
+  const diff = currentMinutes - tramoEndMin;
+
+  if (diff > 0) {
+    // Ya venció
+    return {
+      status: "vencido",
+      minutesDiff: diff,
+      label: `⚠️ Vencido (+${diff}m)`,
+    };
+  } else if (currentMinutes >= tramoEndMin - 45) {
+    // Falta 45 minutos o menos para vencer
+    const minsLeft = Math.abs(diff);
+    return {
+      status: "por_vencer",
+      minutesDiff: minsLeft,
+      label: `⏳ Por vencer (${minsLeft}m)`,
+    };
+  }
+
+  return { status: "normal" };
+};
+
 export const OrdersTable: React.FC<OrdersTableProps> = ({
   orders,
   isSearching = false,
@@ -267,10 +356,6 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950">
                 DNI
               </th>
-              {/* 8. NÚMERO DE TICKET */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 min-w-[140px] max-w-[170px]">
-                Número de Ticket
-              </th>
               {/* 9. CLIENTE (Fijo solo en pantallas de escritorio >= lg) */}
               <th className="sticky top-0 lg:left-[119px] z-30 lg:z-40 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2.5 text-left border-b border-slate-950 border-r border-blue-900 shadow-none lg:shadow-[3px_0_6px_-2px_rgba(0,0,0,0.3)] min-w-[170px] lg:min-w-[210px] lg:max-w-[210px] lg:w-[210px]">
                 Cliente
@@ -294,6 +379,10 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
               {/* 14 */}
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                 OT
+              </th>
+              {/* NÚMERO DE TICKET (Entre OT y Técnico) */}
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 min-w-[140px] max-w-[170px]">
+                Número de Ticket
               </th>
               {/* 16 */}
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
@@ -368,6 +457,7 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
               sortedOrders.map((order, idx) => {
                 const rowColorClass = getRowColorByStatus(order.status);
                 const badgeColorClass = getBadgeColorByStatus(order.status);
+                const tramoAlert = getTramoAlertInfo(order);
 
                 return (
                   <tr
@@ -413,7 +503,8 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                             const datosLlamada = [
                               order.celular,
                               order.cliente,
-                              order.direccion
+                              order.direccion,
+                              order.tramo && order.tramo !== "-" ? order.tramo : null
                             ].filter(Boolean).join(" - ");
                             copyToClipboard(`llamada-${order.id}`, datosLlamada, e);
                           }}
@@ -421,7 +512,7 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                             ? "bg-slate-900 text-emerald-400 shadow-sm scale-105"
                             : "hover:bg-black/10 text-slate-500 hover:text-slate-800"
                             }`}
-                          title={`Copiar datos para llamada:\n• Celular: ${order.celular || "-"}\n• Cliente: ${order.cliente || "-"}\n• Dirección: ${order.direccion || "-"}`}
+                          title={`Copiar datos para llamada:\n• Celular: ${order.celular || "-"}\n• Cliente: ${order.cliente || "-"}\n• Dirección: ${order.direccion || "-"}\n• Tramo: ${order.tramo || "-"}`}
                         >
                           {copiedKey === `llamada-${order.id}` ? (
                             <Check size={11} className="text-emerald-400 stroke-[3]" />
@@ -461,30 +552,6 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                     {/* 5. DNI */}
                     <td className="py-1 px-2 font-mono text-[11px] font-medium border-b border-slate-950">
                       {order.dni || "-"}
-                    </td>
-
-                    {/* 9. Número de Ticket con botón de copiar */}
-                    <td className="py-1 px-2 font-mono font-bold border-b border-slate-950 min-w-[140px] max-w-[170px]" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center justify-between gap-1 w-full overflow-hidden">
-                        <span className="text-slate-900 font-bold truncate flex-1 min-w-0" title={order.ticket || "-"}>
-                          {order.ticket || "-"}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={(e) => copyToClipboard(`ticket-${order.id}`, order.ticket || "", e)}
-                          className={`p-0.5 rounded transition-all shrink-0 cursor-pointer ${copiedKey === `ticket-${order.id}`
-                            ? "bg-slate-900 text-emerald-400 shadow-sm scale-105"
-                            : "hover:bg-black/10 text-slate-600"
-                            }`}
-                          title={`Copiar Ticket:\n${order.ticket || "-"}`}
-                        >
-                          {copiedKey === `ticket-${order.id}` ? (
-                            <Check size={11} className="text-emerald-400 stroke-[3]" />
-                          ) : (
-                            <Copy size={11} />
-                          )}
-                        </button>
-                      </div>
                     </td>
 
                     {/* 9. Cliente (Fijo en la fecha solo en escritorio >= lg) */}
@@ -639,6 +706,30 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                             )}
                           </button>
                         )}
+                      </div>
+                    </td>
+
+                    {/* Número de Ticket con botón de copiar (Entre OT y Técnico) */}
+                    <td className="py-1 px-2 font-mono font-bold border-b border-slate-950 min-w-[140px] max-w-[170px]" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-between gap-1 w-full overflow-hidden">
+                        <span className="text-slate-900 font-bold truncate flex-1 min-w-0" title={order.ticket || "-"}>
+                          {order.ticket || "-"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => copyToClipboard(`ticket-${order.id}`, order.ticket || "", e)}
+                          className={`p-0.5 rounded transition-all shrink-0 cursor-pointer ${copiedKey === `ticket-${order.id}`
+                            ? "bg-slate-900 text-emerald-400 shadow-sm scale-105"
+                            : "hover:bg-black/10 text-slate-600"
+                            }`}
+                          title={`Copiar Ticket:\n${order.ticket || "-"}`}
+                        >
+                          {copiedKey === `ticket-${order.id}` ? (
+                            <Check size={11} className="text-emerald-400 stroke-[3]" />
+                          ) : (
+                            <Copy size={11} />
+                          )}
+                        </button>
                       </div>
                     </td>
 
@@ -927,15 +1018,35 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
 
                     {/* 21. Tramo */}
                     <td
-                      className="py-1 px-1.5 text-center font-mono text-[11px] font-bold cursor-pointer group border-b border-slate-950"
+                      className={`py-1 px-1.5 text-center font-mono text-[11px] font-bold cursor-pointer group border-b border-slate-950 transition-colors ${
+                        tramoAlert.status === "vencido"
+                          ? "bg-rose-500 text-white font-black"
+                          : tramoAlert.status === "por_vencer"
+                          ? "bg-amber-400 text-slate-950 font-black"
+                          : ""
+                      }`}
                       onClick={(e) => {
                         e.stopPropagation();
                         if (onViewStats) onViewStats(order);
                       }}
-                      title="Clic para ver control de tiempos, demoras y gestión de cuadrilla"
+                      title={
+                        tramoAlert.status === "vencido"
+                          ? `⚠️ Tramo Vencido (+${tramoAlert.minutesDiff || 0}m): No está en camino ni iniciada.`
+                          : tramoAlert.status === "por_vencer"
+                          ? `⏳ Tramo por vencer (${tramoAlert.minutesDiff || 0}m restantes): No está en camino.`
+                          : "Clic para ver control de tiempos, demoras y gestión de cuadrilla"
+                      }
                     >
-                      <span className="inline-block px-1 py-0.2 rounded group-hover:bg-indigo-600 group-hover:text-white transition-all font-bold">
-                        {order.tramo || "-"}
+                      <span className={`inline-block px-1 py-0.2 rounded font-bold whitespace-nowrap transition-all ${
+                        tramoAlert.status === "vencido"
+                          ? "animate-pulse"
+                          : "group-hover:bg-indigo-600 group-hover:text-white"
+                      }`}>
+                        {tramoAlert.status === "vencido"
+                          ? `⚠️ ${order.tramo || "-"}`
+                          : tramoAlert.status === "por_vencer"
+                          ? `⏳ ${order.tramo || "-"}`
+                          : (order.tramo || "-")}
                       </span>
                     </td>
 

@@ -967,17 +967,17 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
           </div>
         </div>
 
-        {/* 🛠️ 3. REVISIÓN TÉCNICA (2 Caras) */}
+        {/* 🛠️ 3. REVISIÓN TÉCNICA Y SOAT */}
         <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/50 flex flex-col gap-2.5">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-bold text-gray-800 uppercase tracking-tight">🛠️ Revisión Técnica Vehicular</span>
+            <span className="text-xs font-bold text-gray-800 uppercase tracking-tight">🛠️ Revisión Técnica Vehicular y SOAT</span>
             <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-800 border border-blue-200">
-              2 Caras (JPG/PNG)
+              Rev. Técnica y SOAT (JPG/PNG)
             </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            {renderDocSlot({ label: "Cara Frontal", name: "revision_tecnica_frontal", accept: "image/*", isImg: true })}
-            {renderDocSlot({ label: "Cara Posterior", name: "revision_tecnica_posterior", accept: "image/*", isImg: true })}
+            {renderDocSlot({ label: "Revisión Técnica", name: "revision_tecnica_frontal", accept: "image/*", isImg: true })}
+            {renderDocSlot({ label: "SOAT", name: "revision_tecnica_posterior", accept: "image/*", isImg: true })}
           </div>
         </div>
 

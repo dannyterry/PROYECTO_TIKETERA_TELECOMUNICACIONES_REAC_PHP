@@ -20,11 +20,13 @@ import {
   Trash2,
   AlertCircle,
   FileSpreadsheet,
+  Zap,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
   AsistenciaDiariaItem,
   getAsistenciaDiaria,
+  sincronizarAsistenciasDesdeOrdenes,
   marcarAsistencia,
   getMatrizAsistencias,
   getDescansos,
@@ -63,6 +65,7 @@ export const AttendanceTab: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [roles, setRoles] = useState<RolItem[]>([]);
   const [filtroRol, setFiltroRol] = useState<string>("Todos");
+  const [filtroOpcionPersonal, setFiltroOpcionPersonal] = useState<string>("Todos");
 
   // Obtener ID del rol técnico para los perfiles restringidos
   const rolTecnico = roles.find(
@@ -82,8 +85,10 @@ export const AttendanceTab: React.FC = () => {
     new Date().toISOString().slice(0, 10)
   );
   const [filtroTexto, setFiltroTexto] = useState("");
+  const [filtroEstado, setFiltroEstado] = useState<string | null>(null);
   const [asistencias, setAsistencias] = useState<AsistenciaDiariaItem[]>([]);
   const [guardandoId, setGuardandoId] = useState<number | null>(null);
+  const [sincronizandoOrdenes, setSincronizandoOrdenes] = useState(false);
 
   // --- SubTab 2: Matriz Semanal / Mensual ---
   const [rangoTipo, setRangoTipo] = useState<"semana" | "mes">("semana");
@@ -165,6 +170,19 @@ export const AttendanceTab: React.FC = () => {
       console.error("Error al cargar pase diario:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Forzar sincronización desde órdenes bajo demanda
+  const handleSincronizarOrdenes = async () => {
+    try {
+      setSincronizandoOrdenes(true);
+      await sincronizarAsistenciasDesdeOrdenes(fechaSeleccionada);
+      await cargarPaseDiario();
+    } catch (err: any) {
+      alert("Error al sincronizar con órdenes: " + err.message);
+    } finally {
+      setSincronizandoOrdenes(false);
     }
   };
 
@@ -642,21 +660,84 @@ export const AttendanceTab: React.FC = () => {
     }
   };
 
-  // Filtro de texto para pase diario
-  const asistenciasFiltradas = asistencias.filter((a) => {
-    const txt = filtroTexto.toLowerCase();
-    return (
-      !txt ||
-      a.nombre_completo.toLowerCase().includes(txt) ||
-      a.cuadrilla.toLowerCase().includes(txt) ||
-      (a.documento && a.documento.includes(txt)) ||
-      (a.vehiculo_placa && a.vehiculo_placa.toLowerCase().includes(txt))
-    );
-  });
+  // Lista dinámica de valores para el filtro de Opción de Personal
+  const opcionesPersonalDisponibles = useMemo(() => {
+    const set = new Set<string>();
+    asistencias.forEach((a) => {
+      if (a.opcion_personal && a.opcion_personal.trim()) set.add(a.opcion_personal.trim());
+    });
+    if (matrizData.trabajadores) {
+      matrizData.trabajadores.forEach((t) => {
+        if (t.opcion_personal && t.opcion_personal.trim()) set.add(t.opcion_personal.trim());
+      });
+    }
+    return Array.from(set).sort();
+  }, [asistencias, matrizData.trabajadores]);
+
+  // Filtro de texto, opción de personal y estado para pase diario
+  const asistenciasFiltradas = useMemo(() => {
+    return asistencias.filter((a) => {
+      // Filtro por Opción de Personal
+      if (filtroOpcionPersonal !== "Todos" && (a.opcion_personal || "").trim().toLowerCase() !== filtroOpcionPersonal.trim().toLowerCase()) {
+        return false;
+      }
+
+      // 1. Filtro por Tarjeta de Métrica seleccionada (1-Clic)
+      if (filtroEstado === "totalAsistieron") {
+        if (a.estado !== "Asistio" && a.estado !== "Tardanza") return false;
+      } else if (filtroEstado === "Asistio") {
+        if (a.estado !== "Asistio") return false;
+      } else if (filtroEstado === "Tardanza") {
+        if (a.estado !== "Tardanza") return false;
+      } else if (filtroEstado === "Falta") {
+        if (a.estado !== "Falta") return false;
+      } else if (filtroEstado === "Descanso") {
+        if (a.estado !== "Descanso" && !a.tiene_descanso_programado) return false;
+      } else if (filtroEstado === "Permiso") {
+        if (a.estado !== "Permiso") return false;
+      } else if (filtroEstado === "SinMarcar") {
+        if (a.estado) return false;
+      }
+
+      // 2. Filtro de búsqueda por texto
+      const txt = filtroTexto.toLowerCase();
+      return (
+        !txt ||
+        a.nombre_completo.toLowerCase().includes(txt) ||
+        a.cuadrilla.toLowerCase().includes(txt) ||
+        (a.documento && a.documento.includes(txt)) ||
+        (a.vehiculo_placa && a.vehiculo_placa.toLowerCase().includes(txt)) ||
+        (a.opcion_personal && a.opcion_personal.toLowerCase().includes(txt))
+      );
+    });
+  }, [asistencias, filtroOpcionPersonal, filtroEstado, filtroTexto]);
+
+  // Trabajadores filtrados para la Matriz Mensual / Semanal
+  const trabajadoresMatrizFiltrados = useMemo(() => {
+    if (!matrizData.trabajadores) return [];
+    return matrizData.trabajadores.filter((t: any) => {
+      // Filtro Opción de Personal
+      if (filtroOpcionPersonal !== "Todos" && (t.opcion_personal || "").trim().toLowerCase() !== filtroOpcionPersonal.trim().toLowerCase()) {
+        return false;
+      }
+      // Filtro de texto
+      if (filtroTexto.trim()) {
+        const txt = filtroTexto.toLowerCase();
+        const match =
+          (t.nombre_completo || "").toLowerCase().includes(txt) ||
+          (t.cuadrilla || "").toLowerCase().includes(txt) ||
+          (t.documento && t.documento.includes(txt)) ||
+          (t.opcion_personal && t.opcion_personal.toLowerCase().includes(txt));
+        if (!match) return false;
+      }
+      return true;
+    });
+  }, [matrizData.trabajadores, filtroOpcionPersonal, filtroTexto]);
 
   // Métricas del Día
   const metricas = {
-    presentes: asistencias.filter((a) => a.estado === "Asistio").length,
+    totalAsistieron: asistencias.filter((a) => a.estado === "Asistio" || a.estado === "Tardanza").length,
+    puntuales: asistencias.filter((a) => a.estado === "Asistio").length,
     tardanzas: asistencias.filter((a) => a.estado === "Tardanza").length,
     faltas: asistencias.filter((a) => a.estado === "Falta").length,
     descansos: asistencias.filter((a) => a.estado === "Descanso" || a.tiene_descanso_programado).length,
@@ -760,141 +841,291 @@ export const AttendanceTab: React.FC = () => {
           2. VISTA 1: PASE DIARIO RÁPIDO
       ───────────────────────────────────────────────────────────── */}
       {subTab === "diario" && (
-        <div className="space-y-5">
-          {/* Métricas del Día */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-600 block">
-                Asistieron
-              </span>
-              <span className="text-2xl font-black text-slate-900 font-mono">
-                {metricas.presentes}
-              </span>
-            </div>
+        <div className="space-y-4">
+          {/* Barra Unificada y Compacta de Filtros + Métricas para Ganar Espacio */}
+          <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/80 shadow-xs space-y-3.5">
+            {/* Fila 1: Filtros y Acciones */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2.5">
+                {/* Fecha */}
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 shadow-2xs">
+                  <Calendar size={14} className="text-teal-600" />
+                  <input
+                    type="date"
+                    value={fechaSeleccionada}
+                    onChange={(e) => setFechaSeleccionada(e.target.value)}
+                    className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+                  />
+                </div>
 
-            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-600 block">
-                Tardanzas
-              </span>
-              <span className="text-2xl font-black text-slate-900 font-mono">
-                {metricas.tardanzas}
-              </span>
-            </div>
+                {/* Botón Hoy */}
+                <button
+                  type="button"
+                  onClick={() => setFechaSeleccionada(new Date().toISOString().slice(0, 10))}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                >
+                  Hoy
+                </button>
 
-            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-red-600 block">
-                Faltas
-              </span>
-              <span className="text-2xl font-black text-slate-900 font-mono">
-                {metricas.faltas}
-              </span>
-            </div>
+                {/* Filtro Rol */}
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 shadow-2xs">
+                  <Filter size={14} className="text-teal-600" />
+                  {canVerTodosRoles ? (
+                    <select
+                      value={filtroRol}
+                      onChange={(e) => setFiltroRol(e.target.value)}
+                      className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+                    >
+                      <option value="Todos">Todos los Roles</option>
+                      {roles.map((r) => (
+                        <option key={r.id_rol} value={r.id_rol}>
+                          {r.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <select
+                      value={rolTecnicoId}
+                      disabled
+                      className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-not-allowed"
+                      title="Filtro de rol restringido a Personal Técnico"
+                    >
+                      <option value={rolTecnicoId}>TECNICO</option>
+                    </select>
+                  )}
+                </div>
 
-            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-600 block">
-                Descansos
-              </span>
-              <span className="text-2xl font-black text-slate-900 font-mono">
-                {metricas.descansos}
-              </span>
-            </div>
-
-            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-purple-600 block">
-                Permisos
-              </span>
-              <span className="text-2xl font-black text-slate-900 font-mono">
-                {metricas.permisos}
-              </span>
-            </div>
-
-            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block">
-                Sin Marcar
-              </span>
-              <span className="text-2xl font-black text-slate-500 font-mono">
-                {metricas.pendientes}
-              </span>
-            </div>
-          </div>
-
-          {/* Filtros de Pase Diario */}
-          <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-4">
-            <div className="flex flex-wrap items-center gap-3">
-              {/* Fecha */}
-              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
-                <Calendar size={15} className="text-teal-600" />
-                <input
-                  type="date"
-                  value={fechaSeleccionada}
-                  onChange={(e) => setFechaSeleccionada(e.target.value)}
-                  className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
-                />
+                {/* Filtro Opción de Personal */}
+                {opcionesPersonalDisponibles.length > 0 && (
+                  <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs">
+                    <span className="text-[10px] font-bold text-amber-700 uppercase">Personal:</span>
+                    <select
+                      value={filtroOpcionPersonal}
+                      onChange={(e) => setFiltroOpcionPersonal(e.target.value)}
+                      className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer max-w-[130px] truncate"
+                    >
+                      <option value="Todos">Todos</option>
+                      {opcionesPersonalDisponibles.map((op) => (
+                        <option key={op} value={op}>
+                          {op}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
-              {/* Botón Hoy */}
-              <button
-                type="button"
-                onClick={() => setFechaSeleccionada(new Date().toISOString().slice(0, 10))}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
-              >
-                Hoy
-              </button>
+              <div className="flex items-center gap-2.5 flex-1 sm:flex-initial justify-end">
+                {/* Buscador */}
+                <div className="relative min-w-[200px] flex-1 sm:flex-initial">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                  <input
+                    type="text"
+                    value={filtroTexto}
+                    onChange={(e) => setFiltroTexto(e.target.value)}
+                    placeholder="Buscar por nombre o cuadrilla..."
+                    className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:border-teal-500 transition-all shadow-2xs"
+                  />
+                </div>
 
-              {/* Filtro Rol */}
-              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
-                <Filter size={15} className="text-teal-600" />
-                {canVerTodosRoles ? (
-                  <select
-                    value={filtroRol}
-                    onChange={(e) => setFiltroRol(e.target.value)}
-                    className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+                {/* Botón Sincronizar desde Órdenes */}
+                {canModificarAsistencia && (
+                  <button
+                    type="button"
+                    onClick={handleSincronizarOrdenes}
+                    disabled={sincronizandoOrdenes}
+                    className="px-3.5 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer disabled:opacity-60"
+                    title="Sincronizar automáticamente horas de entrada desde el 1er tramo de órdenes (8am - 12pm)"
                   >
-                    <option value="Todos">Todos los Roles</option>
-                    {roles.map((r) => (
-                      <option key={r.id_rol} value={r.id_rol}>
-                        {r.nombre}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <select
-                    value={rolTecnicoId}
-                    disabled
-                    className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-not-allowed"
-                    title="Filtro de rol restringido a Personal Técnico"
+                    <Zap size={14} className={sincronizandoOrdenes ? "animate-spin text-amber-300" : "text-amber-300"} />
+                    <span className="hidden sm:inline">{sincronizandoOrdenes ? "Sincronizando..." : "Sincronizar Órdenes"}</span>
+                  </button>
+                )}
+
+                {/* Exportar Excel */}
+                {canExportarAsistencia && (
+                  <button
+                    type="button"
+                    onClick={handleExportarExcel}
+                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                    title="Exportar pase a Excel"
                   >
-                    <option value={rolTecnicoId}>TECNICO</option>
-                  </select>
+                    <FileSpreadsheet size={14} />
+                    <span className="hidden sm:inline">Excel</span>
+                  </button>
                 )}
               </div>
             </div>
 
-            <div className="flex items-center gap-3 flex-1 sm:flex-initial justify-end">
-              {/* Buscador */}
-              <div className="relative min-w-[200px] flex-1 sm:flex-initial">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
-                <input
-                  type="text"
-                  value={filtroTexto}
-                  onChange={(e) => setFiltroTexto(e.target.value)}
-                  placeholder="Buscar por nombre o cuadrilla..."
-                  className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:border-teal-500 transition-all"
-                />
-              </div>
+            {/* Fila 2: Tarjetas Interactivas de Métricas con Filtro al Clic */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 pt-3 border-t border-slate-100">
+              {/* 1. ASISTIERON (Total presentes: Puntuales + Tardanzas) */}
+              <button
+                type="button"
+                onClick={() => setFiltroEstado((prev) => (prev === "totalAsistieron" ? null : "totalAsistieron"))}
+                className={`border rounded-2xl px-3 py-2 flex items-center justify-between transition-all cursor-pointer text-left select-none ${
+                  filtroEstado === "totalAsistieron"
+                    ? "bg-emerald-100/95 border-emerald-500 ring-2 ring-emerald-500 ring-offset-1 shadow-md scale-[1.02]"
+                    : "bg-emerald-50/70 border-emerald-200/70 hover:bg-emerald-100/60 shadow-2xs hover:scale-[1.01]"
+                }`}
+                title={filtroEstado === "totalAsistieron" ? "Filtro activo (clic para ver todos)" : "Clic para filtrar todos los que Asistieron"}
+              >
+                <div>
+                  <span className="text-[9.5px] font-black uppercase tracking-wider text-emerald-800 block">
+                    Asistieron
+                  </span>
+                  <span className="text-[8.5px] text-emerald-600 font-bold block -mt-0.5">
+                    Total Campo
+                  </span>
+                </div>
+                <span className="text-lg font-black text-emerald-900 font-mono">
+                  {metricas.totalAsistieron}
+                </span>
+              </button>
 
-              {/* Exportar Excel */}
-              {canExportarAsistencia && (
-                <button
-                  type="button"
-                  onClick={handleExportarExcel}
-                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
-                  title="Exportar pase a Excel"
-                >
-                  <FileSpreadsheet size={15} />
-                  <span className="hidden sm:inline">Excel</span>
-                </button>
-              )}
+              {/* 2. PUNTUAL (A la hora / sin tardanza) */}
+              <button
+                type="button"
+                onClick={() => setFiltroEstado((prev) => (prev === "Asistio" ? null : "Asistio"))}
+                className={`border rounded-2xl px-3 py-2 flex items-center justify-between transition-all cursor-pointer text-left select-none ${
+                  filtroEstado === "Asistio"
+                    ? "bg-teal-100/95 border-teal-500 ring-2 ring-teal-500 ring-offset-1 shadow-md scale-[1.02]"
+                    : "bg-teal-50/70 border-teal-200/70 hover:bg-teal-100/60 shadow-2xs hover:scale-[1.01]"
+                }`}
+                title={filtroEstado === "Asistio" ? "Filtro activo (clic para ver todos)" : "Clic para filtrar solo Puntuales"}
+              >
+                <div>
+                  <span className="text-[9.5px] font-black uppercase tracking-wider text-teal-800 block">
+                    Puntual
+                  </span>
+                  <span className="text-[8.5px] text-teal-600 font-bold block -mt-0.5">
+                    A la hora
+                  </span>
+                </div>
+                <span className="text-lg font-black text-teal-900 font-mono">
+                  {metricas.puntuales}
+                </span>
+              </button>
+
+              {/* 3. TARDANZAS */}
+              <button
+                type="button"
+                onClick={() => setFiltroEstado((prev) => (prev === "Tardanza" ? null : "Tardanza"))}
+                className={`border rounded-2xl px-3 py-2 flex items-center justify-between transition-all cursor-pointer text-left select-none ${
+                  filtroEstado === "Tardanza"
+                    ? "bg-amber-100/95 border-amber-500 ring-2 ring-amber-500 ring-offset-1 shadow-md scale-[1.02]"
+                    : "bg-amber-50/70 border-amber-200/70 hover:bg-amber-100/60 shadow-2xs hover:scale-[1.01]"
+                }`}
+                title={filtroEstado === "Tardanza" ? "Filtro activo (clic para ver todos)" : "Clic para filtrar solo Tardanzas"}
+              >
+                <div>
+                  <span className="text-[9.5px] font-black uppercase tracking-wider text-amber-800 block">
+                    Tardanzas
+                  </span>
+                  <span className="text-[8.5px] text-amber-600 font-bold block -mt-0.5">
+                    Demorados
+                  </span>
+                </div>
+                <span className="text-lg font-black text-amber-900 font-mono">
+                  {metricas.tardanzas}
+                </span>
+              </button>
+
+              {/* 4. FALTAS */}
+              <button
+                type="button"
+                onClick={() => setFiltroEstado((prev) => (prev === "Falta" ? null : "Falta"))}
+                className={`border rounded-2xl px-3 py-2 flex items-center justify-between transition-all cursor-pointer text-left select-none ${
+                  filtroEstado === "Falta"
+                    ? "bg-rose-100/95 border-rose-500 ring-2 ring-rose-500 ring-offset-1 shadow-md scale-[1.02]"
+                    : "bg-rose-50/70 border-rose-200/70 hover:bg-rose-100/60 shadow-2xs hover:scale-[1.01]"
+                }`}
+                title={filtroEstado === "Falta" ? "Filtro activo (clic para ver todos)" : "Clic para filtrar solo Faltas"}
+              >
+                <div>
+                  <span className="text-[9.5px] font-black uppercase tracking-wider text-rose-800 block">
+                    Faltas
+                  </span>
+                  <span className="text-[8.5px] text-rose-600 font-bold block -mt-0.5">
+                    Ausentes
+                  </span>
+                </div>
+                <span className="text-lg font-black text-rose-900 font-mono">
+                  {metricas.faltas}
+                </span>
+              </button>
+
+              {/* 5. DESCANSOS */}
+              <button
+                type="button"
+                onClick={() => setFiltroEstado((prev) => (prev === "Descanso" ? null : "Descanso"))}
+                className={`border rounded-2xl px-3 py-2 flex items-center justify-between transition-all cursor-pointer text-left select-none ${
+                  filtroEstado === "Descanso"
+                    ? "bg-blue-100/95 border-blue-500 ring-2 ring-blue-500 ring-offset-1 shadow-md scale-[1.02]"
+                    : "bg-blue-50/70 border-blue-200/70 hover:bg-blue-100/60 shadow-2xs hover:scale-[1.01]"
+                }`}
+                title={filtroEstado === "Descanso" ? "Filtro activo (clic para ver todos)" : "Clic para filtrar solo Descansos"}
+              >
+                <div>
+                  <span className="text-[9.5px] font-black uppercase tracking-wider text-blue-800 block">
+                    Descansos
+                  </span>
+                  <span className="text-[8.5px] text-blue-600 font-bold block -mt-0.5">
+                    Programados
+                  </span>
+                </div>
+                <span className="text-lg font-black text-blue-900 font-mono">
+                  {metricas.descansos}
+                </span>
+              </button>
+
+              {/* 6. PERMISOS */}
+              <button
+                type="button"
+                onClick={() => setFiltroEstado((prev) => (prev === "Permiso" ? null : "Permiso"))}
+                className={`border rounded-2xl px-3 py-2 flex items-center justify-between transition-all cursor-pointer text-left select-none ${
+                  filtroEstado === "Permiso"
+                    ? "bg-purple-100/95 border-purple-500 ring-2 ring-purple-500 ring-offset-1 shadow-md scale-[1.02]"
+                    : "bg-purple-50/70 border-purple-200/70 hover:bg-purple-100/60 shadow-2xs hover:scale-[1.01]"
+                }`}
+                title={filtroEstado === "Permiso" ? "Filtro activo (clic para ver todos)" : "Clic para filtrar solo Permisos"}
+              >
+                <div>
+                  <span className="text-[9.5px] font-black uppercase tracking-wider text-purple-800 block">
+                    Permisos
+                  </span>
+                  <span className="text-[8.5px] text-purple-600 font-bold block -mt-0.5">
+                    Justificados
+                  </span>
+                </div>
+                <span className="text-lg font-black text-purple-900 font-mono">
+                  {metricas.permisos}
+                </span>
+              </button>
+
+              {/* 7. SIN MARCAR */}
+              <button
+                type="button"
+                onClick={() => setFiltroEstado((prev) => (prev === "SinMarcar" ? null : "SinMarcar"))}
+                className={`border rounded-2xl px-3 py-2 flex items-center justify-between transition-all cursor-pointer text-left select-none col-span-2 sm:col-span-1 ${
+                  filtroEstado === "SinMarcar"
+                    ? "bg-slate-200 border-slate-500 ring-2 ring-slate-500 ring-offset-1 shadow-md scale-[1.02]"
+                    : "bg-slate-50 border-slate-200 hover:bg-slate-100 shadow-2xs hover:scale-[1.01]"
+                }`}
+                title={filtroEstado === "SinMarcar" ? "Filtro activo (clic para ver todos)" : "Clic para filtrar solo Sin Marcar"}
+              >
+                <div>
+                  <span className="text-[9.5px] font-black uppercase tracking-wider text-slate-600 block">
+                    Sin Marcar
+                  </span>
+                  <span className="text-[8.5px] text-slate-400 font-bold block -mt-0.5">
+                    Pendientes
+                  </span>
+                </div>
+                <span className="text-lg font-black text-slate-700 font-mono">
+                  {metricas.pendientes}
+                </span>
+              </button>
             </div>
           </div>
 
@@ -928,15 +1159,36 @@ export const AttendanceTab: React.FC = () => {
                       return (
                         <tr key={item.id_usuario ? `asist-u-${item.id_usuario}` : `asist-t-${item.id_trabajador}`} className="hover:bg-slate-50/60 transition-colors">
                           {/* Personal */}
-                          <td className="py-3.5 px-5">
-                            <div>
+                          <td className="py-3 px-4">
+                            <div className="flex flex-col gap-1">
                               <span className="font-extrabold text-slate-900 block text-xs">
                                 {item.nombre_completo}
                               </span>
                               {canVerDetallesPersonal && (
-                                <div className="flex items-center gap-2 text-[10px] text-slate-400 font-medium">
-                                  <span>{item.rol_nombre || "Personal"}</span>
-                                  {item.documento && <span>• DNI: {item.documento}</span>}
+                                <div className="flex items-center flex-wrap gap-1 text-[9.5px]">
+                                  {item.rol_nombre && (
+                                    <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-bold border border-slate-200 uppercase">
+                                      {item.rol_nombre}
+                                    </span>
+                                  )}
+                                  {item.cargo && (
+                                    <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold border border-blue-200">
+                                      {item.cargo}
+                                    </span>
+                                  )}
+                                  {item.tipo_trabajo && (
+                                    <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200">
+                                      {item.tipo_trabajo}
+                                    </span>
+                                  )}
+                                  {item.opcion_personal && (
+                                    <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 font-semibold border border-amber-200">
+                                      {item.opcion_personal}
+                                    </span>
+                                  )}
+                                  {item.documento && (
+                                    <span className="text-slate-400 font-mono text-[9.5px] ml-0.5">DNI: {item.documento}</span>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -1060,6 +1312,7 @@ export const AttendanceTab: React.FC = () => {
                           <td className="py-3.5 px-5 text-center">
                             <div className="inline-flex items-center gap-1">
                               <input
+                                key={`h-in-${item.id_usuario ?? item.id_trabajador}-${item.hora_entrada || ''}`}
                                 type="time"
                                 disabled={!canModificarAsistencia}
                                 defaultValue={item.hora_entrada ? item.hora_entrada.slice(0, 5) : ""}
@@ -1070,6 +1323,14 @@ export const AttendanceTab: React.FC = () => {
                               />
                               {isSaving && <RotateCw size={12} className="animate-spin text-teal-600" />}
                             </div>
+                            {item.tipo === "Automatico" && (
+                              <span
+                                className="text-[9px] text-cyan-800 bg-cyan-50 border border-cyan-200/80 rounded px-1.5 py-0.5 font-bold block mt-1 tracking-tight"
+                                title={item.orden_numero ? `Orden vinculada: #${item.orden_numero}` : "Detectado desde inicio de orden"}
+                              >
+                                ⚡ Auto {item.orden_numero ? `#${item.orden_numero}` : ""}
+                              </span>
+                            )}
                             {item.minutos_tarde && item.minutos_tarde > 0 ? (
                               <span className="text-[10px] text-amber-600 font-bold block mt-0.5 font-mono">
                                 +{item.minutos_tarde}m tarde
@@ -1113,118 +1374,185 @@ export const AttendanceTab: React.FC = () => {
       ───────────────────────────────────────────────────────────── */}
       {subTab === "matriz" && (
         <div className="space-y-4">
-          <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-4">
-            <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
-              {/* Botones de Selección Semana / Mes Completo */}
-              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => setRangoTipo("semana")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    rangoTipo === "semana" ? "bg-white text-slate-900 shadow-2xs font-extrabold" : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  Semana
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRangoTipo("mes")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    rangoTipo === "mes" ? "bg-white text-slate-900 shadow-2xs font-extrabold" : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  Mes Completo
-                </button>
-              </div>
+          <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/80 shadow-xs space-y-3.5">
+            {/* Fila 1: Selector de Rango, Fechas y Leyenda */}
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+                {/* Botones de Selección Semana / Mes Completo */}
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setRangoTipo("semana")}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      rangoTipo === "semana" ? "bg-white text-slate-900 shadow-2xs font-extrabold" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    Semana
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRangoTipo("mes")}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      rangoTipo === "mes" ? "bg-white text-slate-900 shadow-2xs font-extrabold" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    Mes Completo
+                  </button>
+                </div>
 
-              {/* Controles de Navegación Anterior / Siguiente y Fecha */}
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const ref = parseLocalDate(fechaInicioMatriz);
-                    if (rangoTipo === "semana") {
-                      ref.setDate(ref.getDate() - 7);
-                    } else {
-                      ref.setMonth(ref.getMonth() - 1);
+                {/* Controles de Navegación Anterior / Siguiente y Fecha */}
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const ref = parseLocalDate(fechaInicioMatriz);
+                      if (rangoTipo === "semana") {
+                        ref.setDate(ref.getDate() - 7);
+                      } else {
+                        ref.setMonth(ref.getMonth() - 1);
+                      }
+                      setFechaInicioMatriz(formatLocalDate(ref));
+                    }}
+                    className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                    title="Anterior"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+
+                  <input
+                    type={rangoTipo === "mes" ? "month" : "date"}
+                    value={
+                      rangoTipo === "mes"
+                        ? fechaInicioMatriz.slice(0, 7)
+                        : fechaInicioMatriz
                     }
-                    setFechaInicioMatriz(formatLocalDate(ref));
-                  }}
-                  className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
-                  title="Anterior"
-                >
-                  <ChevronLeft size={16} />
-                </button>
+                    onChange={(e) => {
+                      if (rangoTipo === "mes") {
+                        setFechaInicioMatriz(`${e.target.value}-01`);
+                      } else {
+                        setFechaInicioMatriz(e.target.value);
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+                  />
 
-                <input
-                  type={rangoTipo === "mes" ? "month" : "date"}
-                  value={
-                    rangoTipo === "mes"
-                      ? fechaInicioMatriz.slice(0, 7)
-                      : fechaInicioMatriz
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const ref = parseLocalDate(fechaInicioMatriz);
+                      if (rangoTipo === "semana") {
+                        ref.setDate(ref.getDate() + 7);
+                      } else {
+                        ref.setMonth(ref.getMonth() + 1);
+                      }
+                      setFechaInicioMatriz(formatLocalDate(ref));
+                    }}
+                    className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                    title="Siguiente"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setFechaInicioMatriz(formatLocalDate(new Date()))}
+                    className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-[11px] font-bold text-slate-700 transition-colors cursor-pointer ml-1"
+                  >
+                    {rangoTipo === "mes" ? "Mes Actual" : "Esta Semana"}
+                  </button>
+                </div>
+
+                {/* Etiqueta Informativa del Rango */}
+                <span className="text-xs font-black text-slate-800 bg-slate-100 px-2.5 py-1 rounded-xl capitalize">
+                  {rangoTipo === "mes"
+                    ? `${parseLocalDate(fechaInicioMatriz).toLocaleDateString("es-ES", { month: "long", year: "numeric" })} (${diasMatriz.length} días)`
+                    : `Semana: ${diasMatriz[0]?.fechaStr || ""} al ${diasMatriz[diasMatriz.length - 1]?.fechaStr || ""}`
                   }
-                  onChange={(e) => {
-                    if (rangoTipo === "mes") {
-                      setFechaInicioMatriz(`${e.target.value}-01`);
-                    } else {
-                      setFechaInicioMatriz(e.target.value);
-                    }
-                  }}
-                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
-                />
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    const ref = parseLocalDate(fechaInicioMatriz);
-                    if (rangoTipo === "semana") {
-                      ref.setDate(ref.getDate() + 7);
-                    } else {
-                      ref.setMonth(ref.getMonth() + 1);
-                    }
-                    setFechaInicioMatriz(formatLocalDate(ref));
-                  }}
-                  className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
-                  title="Siguiente"
-                >
-                  <ChevronRight size={16} />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setFechaInicioMatriz(formatLocalDate(new Date()))}
-                  className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-[11px] font-bold text-slate-700 transition-colors cursor-pointer ml-1"
-                >
-                  {rangoTipo === "mes" ? "Mes Actual" : "Esta Semana"}
-                </button>
+                </span>
               </div>
 
-              {/* Etiqueta Informativa del Rango */}
-              <span className="text-xs font-black text-slate-800 bg-slate-100 px-2.5 py-1 rounded-xl capitalize">
-                {rangoTipo === "mes"
-                  ? `${parseLocalDate(fechaInicioMatriz).toLocaleDateString("es-ES", { month: "long", year: "numeric" })} (${diasMatriz.length} días)`
-                  : `Semana: ${diasMatriz[0]?.fechaStr || ""} al ${diasMatriz[diasMatriz.length - 1]?.fechaStr || ""}`
-                }
-              </span>
+              {/* Leyenda de Estados */}
+              <div className="flex items-center gap-3 text-xs font-medium text-slate-500">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Presente (P)
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Tardanza (T)
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Falta (F)
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Descanso (D)
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-purple-500" /> Permiso (J)
+                </span>
+              </div>
             </div>
 
-            {/* Leyenda de Estados */}
-            <div className="flex items-center gap-3 text-xs font-medium text-slate-500">
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Presente (P)
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Tardanza (T)
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Falta (F)
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Descanso (D)
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-purple-500" /> Permiso (J)
-              </span>
+            {/* Fila 2: Filtros de Cargo, Tipo de Servicio, Opción de Personal y Buscador */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-slate-100">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Filtro Rol */}
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs">
+                  <Filter size={13} className="text-teal-600" />
+                  <span className="text-[10px] font-bold text-slate-600 uppercase">Rol:</span>
+                  {canVerTodosRoles ? (
+                    <select
+                      value={filtroRol}
+                      onChange={(e) => setFiltroRol(e.target.value)}
+                      className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer max-w-[130px] truncate"
+                    >
+                      <option value="Todos">Todos</option>
+                      {roles.map((r) => (
+                        <option key={r.id_rol} value={r.id_rol}>
+                          {r.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <select
+                      value={rolTecnicoId}
+                      disabled
+                      className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-not-allowed"
+                    >
+                      <option value={rolTecnicoId}>TECNICO</option>
+                    </select>
+                  )}
+                </div>
+
+                {/* Filtro Opción de Personal */}
+                {opcionesPersonalDisponibles.length > 0 && (
+                  <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs">
+                    <span className="text-[10px] font-bold text-amber-700 uppercase">Personal:</span>
+                    <select
+                      value={filtroOpcionPersonal}
+                      onChange={(e) => setFiltroOpcionPersonal(e.target.value)}
+                      className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer max-w-[130px] truncate"
+                    >
+                      <option value="Todos">Todos</option>
+                      {opcionesPersonalDisponibles.map((op) => (
+                        <option key={op} value={op}>
+                          {op}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {/* Buscador de Personal en la Matriz */}
+              <div className="relative min-w-[220px]">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                <input
+                  type="text"
+                  value={filtroTexto}
+                  onChange={(e) => setFiltroTexto(e.target.value)}
+                  placeholder="Buscar en la matriz..."
+                  className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:border-teal-500 transition-all shadow-2xs"
+                />
+              </div>
             </div>
           </div>
 
@@ -1240,8 +1568,8 @@ export const AttendanceTab: React.FC = () => {
                 <table className="w-full text-left text-xs text-slate-700 border-collapse">
                   <thead className="sticky top-0 z-20 bg-slate-100/95 backdrop-blur-xs border-b border-slate-200 text-[11px] font-bold text-slate-600 uppercase shadow-xs">
                     <tr>
-                      <th className="py-3 px-4 min-w-[200px] sticky left-0 z-30 bg-slate-100 border-r border-slate-200/80 shadow-2xs">
-                        Personal ({matrizData.trabajadores.length})
+                      <th className="py-3 px-3 min-w-[240px] max-w-[280px] sticky left-0 z-30 bg-slate-100 border-r border-slate-200/80 shadow-2xs">
+                        Personal ({trabajadoresMatrizFiltrados.length})
                       </th>
                       {diasMatriz.map((dia) => (
                         <th
@@ -1265,15 +1593,39 @@ export const AttendanceTab: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-mono">
-                    {matrizData.trabajadores.map((t, idx) => (
+                    {trabajadoresMatrizFiltrados.map((t, idx) => (
                       <tr key={t.id_usuario ? `matriz-u-${t.id_usuario}` : (t.id_trabajador ? `matriz-t-${t.id_trabajador}` : `matriz-idx-${idx}`)} className="hover:bg-slate-50/70">
-                        <td className="py-2 px-4 font-sans font-bold text-slate-800 text-xs truncate max-w-[220px] sticky left-0 z-10 bg-white border-r border-slate-200/80 shadow-2xs">
-                          <div className="flex flex-col">
-                            <span className="truncate">{t.nombre_completo}</span>
+                        <td className="py-2.5 px-3 font-sans font-bold text-slate-800 text-xs min-w-[240px] max-w-[280px] sticky left-0 z-10 bg-white border-r border-slate-200/80 shadow-2xs">
+                          <div className="flex flex-col gap-1">
+                            <span className="truncate font-extrabold text-slate-900">{t.nombre_completo}</span>
                             {canVerDetallesPersonal && (
-                              <span className="text-[10px] text-slate-400 font-mono font-normal">
-                                {t.cuadrilla || t.rol_nombre || ""}
-                              </span>
+                              <div className="flex items-center flex-wrap gap-1 text-[9px] font-sans">
+                                {t.rol_nombre && (
+                                  <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-bold border border-slate-200 uppercase">
+                                    {t.rol_nombre}
+                                  </span>
+                                )}
+                                {t.cargo && (
+                                  <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold border border-blue-200">
+                                    {t.cargo}
+                                  </span>
+                                )}
+                                {t.tipo_trabajo && (
+                                  <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200">
+                                    {t.tipo_trabajo}
+                                  </span>
+                                )}
+                                {t.opcion_personal && (
+                                  <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 font-semibold border border-amber-200">
+                                    {t.opcion_personal}
+                                  </span>
+                                )}
+                                {t.cuadrilla && (
+                                  <span className="px-1.5 py-0.5 rounded bg-teal-50 text-teal-800 font-mono font-bold border border-teal-200">
+                                    {t.cuadrilla}
+                                  </span>
+                                )}
+                              </div>
                             )}
                           </div>
                         </td>

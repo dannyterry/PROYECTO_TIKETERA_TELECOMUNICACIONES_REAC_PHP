@@ -35,81 +35,82 @@
       var x = xm ? xm[1] : "";
       var o = [];
 
-      // 1. Extraer todas las filas de tablas y contenedores de datos en Looker Studio
-      var rows = Array.from(document.querySelectorAll('tr, [role="row"], div.table-row, div.grid-row, div[data-row-index]'));
-      var currentCard = "AVERIAS PREFERENTE";
-      var prefix = "PREF-";
-      var tipo = "AVERIAS";
+      var fullText = document.body.innerText || "";
+      var o = [];
+      var secDefs = [
+        { name: "AVERIAS PREFERENTE", tipo: "AVERIAS", prefix: "PREF-", key: "AVERIAS PREFERENTE" },
+        { name: "AVERIAS ALTO VALOR", tipo: "AVERIAS ALTO VALOR", prefix: "ALTO-", key: "AVERIAS ALTO VALOR" },
+        { name: "MOTOWIN ZONAS", tipo: "MOTOWIN", prefix: "MOTO-", key: "MOTOWIN ZONAS" }
+      ];
 
-      // Si no hay filas de tabla clásicas, buscar en todos los divs con texto estructurado
-      if (rows.length === 0) {
-        rows = Array.from(document.querySelectorAll('div, p, span')).filter(function(el) {
-          return el.children.length === 0 && /\b(SUR\s*\d+|NORTE\s*\d+|ESTE\s*\d+|CENTRO\s*\d+|OESTE\s*\d+)\b/i.test(el.innerText || '');
-        });
+      var foundSecs = [];
+      for (var sIdx = 0; sIdx < secDefs.length; sIdx++) {
+        var pos = fullText.indexOf(secDefs[sIdx].name);
+        if (pos !== -1) foundSecs.push({ def: secDefs[sIdx], start: pos });
       }
+      foundSecs.sort(function(a, b) { return a.start - b.start; });
 
-      rows.forEach(function(row) {
-        var text = (row.innerText || "").trim();
-        var textUp = text.toUpperCase();
+      for (var i = 0; i < foundSecs.length; i++) {
+        var cur = foundSecs[i];
+        var startIdx = cur.start;
+        var endIdx = (i + 1 < foundSecs.length) ? foundSecs[i + 1].start : fullText.length;
+        var secText = fullText.substring(startIdx, endIdx);
+        var lines = secText.split(/\r?\n/).map(function(l) { return l.trim(); }).filter(Boolean);
+        var processedZones = {};
 
-        if (textUp.includes("AVERIAS PREFERENTE")) { currentCard = "AVERIAS PREFERENTE"; prefix = "PREF-"; tipo = "AVERIAS"; return; }
-        if (textUp.includes("AVERIAS ALTO VALOR") || textUp.includes("ALTO VALOR")) { currentCard = "AVERIAS ALTO VALOR"; prefix = "ALTO-"; tipo = "AVERIAS ALTO VALOR"; return; }
-        if (textUp.includes("MOTOWIN ZONAS") || textUp.includes("MOTOWIN")) { currentCard = "MOTOWIN ZONAS"; prefix = "MOTO-"; tipo = "MOTOWIN"; return; }
+        for (var j = 0; j < lines.length; j++) {
+          var line = lines[j];
+          var lU = line.toUpperCase();
+          if (lU.startsWith("SUBTOTAL") || lU.includes("TRAMO HORARIO") || lU.includes("RECORD COUNT") || (lU.includes("ZONA") && lU.includes("DISTRITO")) || lU === cur.def.name) continue;
 
-        if (textUp.includes("SUBTOTAL") || textUp.includes("DISTRITO") || textUp.includes("TRAMO HORARIO") || textUp.includes("TOTAL GENERAL")) return;
+          var zMatch = line.match(/\b(SUR\s*\d+|NORTE\s*\d+|ESTE\s*\d+|CENTRO\s*\d+|OESTE\s*\d+)\b/i);
+          if (!zMatch) continue;
 
-        var zMatch = text.match(/\b(SUR\s*\d+|NORTE\s*\d+|ESTE\s*\d+|CENTRO\s*\d+|OESTE\s*\d+)\b/i);
-        if (!zMatch) return;
-        var z = zMatch[1].toUpperCase().replace(/\s+/g, " ");
+          var z = zMatch[1].toUpperCase().replace(/\s+/g, " ");
+          if (processedZones[z]) continue;
+          processedZones[z] = true;
 
-        var cells = Array.from(row.querySelectorAll('td, [role="gridcell"], div.cell, div.grid-cell'));
-        var rawDist = "";
-        var numbers = [];
+          var afterZ = line.substring(line.indexOf(zMatch[0]) + zMatch[0].length).trim();
+          var numMatch = afterZ.match(/(\d[\d\s]*)$/);
+          var rawDist = afterZ;
+          var cnt = 1;
+          if (numMatch) {
+            rawDist = afterZ.substring(0, afterZ.length - numMatch[0].length).trim();
+            var nums = numMatch[0].trim().split(/\s+/).map(function(n) { return parseInt(n, 10); }).filter(function(n) { return !isNaN(n); });
+            cnt = nums.length > 0 ? nums[nums.length - 1] : 1;
+          }
+          if (cnt <= 0 || isNaN(cnt)) cnt = 1;
 
-        if (cells.length >= 2) {
-          rawDist = cells[1] ? cells[1].innerText : "";
-          for (var k = 2; k < cells.length; k++) {
-            var val = parseInt((cells[k].innerText || "").trim(), 10);
-            if (!isNaN(val) && val > 0) numbers.push(val);
+          var dist = cleanDist(rawDist);
+          var fj = "16:00-20:00";
+          if (secText.includes("16:00")) fj = "16:00-20:00";
+          else if (secText.includes("12:00")) fj = "12:00-15:59";
+          else if (secText.includes("08:00")) fj = "08:00-11:59";
+
+          for (var k = 0; k < cnt; k++) {
+            o.push({
+              ticket: cur.def.prefix + z.replace(/\s+/g, "") + (cnt > 1 ? ("-" + (k + 1)) : ""),
+              distrito: dist,
+              direccion: dist + " (" + z + ")",
+              zona_nodo: z,
+              franja_horaria: fj,
+              motivo: cur.def.tipo + " CRM",
+              vehiculo_tipo: cur.def.tipo,
+              tarjeta: cur.def.key
+            });
           }
         }
+      }
 
-        if (!rawDist || rawDist.toUpperCase().includes(z)) {
-          var parts = text.split(zMatch[0]);
-          rawDist = parts[0] ? parts[0].trim() : (parts[1] ? parts[1].trim() : "");
-        }
-
-        var dist = cleanDist(rawDist);
-        var cnt = numbers.length > 0 ? numbers[numbers.length - 1] : 1;
-        if (cnt <= 0 || isNaN(cnt)) cnt = 1;
-
-        var fj = "12:00-15:59";
-        if (textUp.includes("16:00")) fj = "16:00-20:00";
-        else if (textUp.includes("08:00")) fj = "08:00-11:59";
-
-        for (var k = 0; k < cnt; k++) {
-          o.push({
-            ticket: prefix + z.replace(/\s+/g, "") + (cnt > 1 ? ("-" + (k + 1)) : ""),
-            distrito: dist,
-            direccion: dist + " (" + z + ")",
-            zona_nodo: z,
-            franja_horaria: fj,
-            motivo: tipo + " CRM",
-            vehiculo_tipo: tipo,
-            tarjeta: currentCard
-          });
-        }
-      });
-
-      var prefCount = o.filter(function(ord) { return ord.vehiculo_tipo === "AVERIAS" && !ord.tarjeta.includes("ALTO"); }).length;
-      var altoCount = o.filter(function(ord) { return ord.tarjeta.includes("ALTO"); }).length;
-      var motoCount = o.filter(function(ord) { return ord.vehiculo_tipo === "MOTOWIN"; }).length;
+      var prefCount = o.filter(function(ord) { return ord.tarjeta === "AVERIAS PREFERENTE"; }).length;
+      var altoCount = o.filter(function(ord) { return ord.tarjeta === "AVERIAS ALTO VALOR"; }).length;
+      var motoCount = o.filter(function(ord) { return ord.tarjeta === "MOTOWIN ZONAS"; }).length;
       var totCount = o.length;
 
       var surOrders = o.filter(function(ord) {
         var zU = (ord.zona_nodo || "").toUpperCase();
         var dU = (ord.distrito || "").toUpperCase();
-        return zU.includes("SUR") || dU.includes("CHORRILLOS") || dU.includes("VILLA MARIA") || dU.includes("SURCO") || dU.includes("MIRAFLORES") || dU.includes("SALVADOR") || dU.includes("LURIN") || dU.includes("PACHACAMAC") || dU.includes("SURQUILLO");
+        return zU.includes("SUR") || dU.includes("CHORRILLOS") || dU.includes("VILLA MARIA") || dU.includes("SURCO") || dU.includes("MIRAFLORES") || dU.includes("SALVADOR") || dU.includes("LURIN") || dU.includes("PACHACAMAC");
       });
       var sur = surOrders.length;
 

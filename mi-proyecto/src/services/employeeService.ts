@@ -249,6 +249,9 @@ export interface AsistenciaDiariaItem {
   id_rol: number;
   rol_nombre: string;
   nombre_completo: string;
+  cargo?: string;
+  tipo_trabajo?: string;
+  opcion_personal?: string;
   cuadrilla: string;
   vehiculo_placa: string;
   id_asistencia?: number | null;
@@ -257,6 +260,9 @@ export interface AsistenciaDiariaItem {
   hora_salida?: string;
   estado?: 'Asistio' | 'Tardanza' | 'Falta' | 'Descanso' | 'Permiso' | null;
   minutos_tarde?: number;
+  tipo?: 'Manual' | 'Automatico';
+  id_orden?: number | null;
+  orden_numero?: string | null;
   observacion?: string;
   tiene_descanso_programado?: number;
 }
@@ -268,6 +274,16 @@ export const getAsistenciaDiaria = async (fecha?: string, id_rol?: string | numb
 
   const res = await fetch(`${API_URL}/api/asistencias/diaria?${params.toString()}`);
   if (!res.ok) throw new Error("Error al obtener asistencia diaria");
+  return res.json();
+};
+
+export const sincronizarAsistenciasDesdeOrdenes = async (fecha?: string): Promise<{ success: boolean; message: string; count: number }> => {
+  const res = await fetch(`${API_URL}/api/asistencias/sincronizar-ordenes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fecha }),
+  });
+  if (!res.ok) throw new Error("Error al sincronizar asistencias desde órdenes");
   return res.json();
 };
 

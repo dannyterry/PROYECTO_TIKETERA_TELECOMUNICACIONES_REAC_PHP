@@ -26,6 +26,7 @@ export interface DailyTechData {
   id_tecnico: number;
   tecnico: string;
   cuadrilla: string;
+  estado_usuario?: string;
   fechas: Record<
     string,
     {
@@ -113,8 +114,7 @@ export const TechnicianDailyMatrixModal: React.FC<TechnicianDailyMatrixModalProp
 
   const [fechas, setFechas] = useState(getInitialDates);
   const [periodoActivo, setPeriodoActivo] = useState<string>(initialPeriodo);
-  const [filtroInactividad, setFiltroInactividad] = useState<"todos" | "solo_activos" | "con_dias_sin_orden">("todos");
-  const [ocultarDiasVacios, setOcultarDiasVacios] = useState<boolean>(false);
+  const [filtroInactividad, setFiltroInactividad] = useState<"todos" | "solo_activos" | "solo_inactivos" | "solo_con_ordenes" | "con_dias_sin_orden">("todos");
   const [busqueda, setBusqueda] = useState<string>("");
   const [ordenarPor, setOrdenarPor] = useState<"tecnico" | "total" | "finalizadas" | "dias_trabajados" | "dias_sin_ordenes" | "dias_descanso" | "efectividad">("finalizadas");
   const [ordenAsc, setOrdenAsc] = useState<boolean>(false);
@@ -226,11 +226,8 @@ export const TechnicianDailyMatrixModal: React.FC<TechnicianDailyMatrixModalProp
     });
   }, [data]);
 
-  // Columnas visibles según filtro "ocultar días vacíos"
-  const columnasFechasVisibles = useMemo(() => {
-    if (!ocultarDiasVacios) return fechasProcesadas;
-    return fechasProcesadas.filter((f) => f.tieneActividad);
-  }, [fechasProcesadas, ocultarDiasVacios]);
+  // Columnas visibles (todas las fechas procesadas del rango)
+  const columnasFechasVisibles = fechasProcesadas;
 
   // Filtrar y ordenar técnicos
   const tecnicosFiltrados = useMemo(() => {
@@ -247,8 +244,12 @@ export const TechnicianDailyMatrixModal: React.FC<TechnicianDailyMatrixModalProp
       );
     }
 
-    // Filtro de inactividad
+    // Filtro de técnicos: Activos / Inactivos / Con Órdenes / Con Días sin Órdenes
     if (filtroInactividad === "solo_activos") {
+      list = list.filter((t) => (t.estado_usuario || "activo").toLowerCase() === "activo");
+    } else if (filtroInactividad === "solo_inactivos") {
+      list = list.filter((t) => (t.estado_usuario || "").toLowerCase() === "inactivo");
+    } else if (filtroInactividad === "solo_con_ordenes") {
       list = list.filter((t) => t.totales.total_ordenes > 0);
     } else if (filtroInactividad === "con_dias_sin_orden") {
       list = list.filter((t) => t.totales.dias_sin_ordenes > 0);
@@ -577,14 +578,14 @@ export const TechnicianDailyMatrixModal: React.FC<TechnicianDailyMatrixModalProp
             </button>
           </div>
 
-          {/* Fila 2 de Filtros: Días sin Orden, Switch Ocultar Vacíos, Buscador */}
+          {/* Fila 2 de Filtros: Filtro de Estado / Órdenes y Buscador */}
           <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1 border-t border-slate-200/60">
             <div className="flex flex-wrap items-center gap-2">
-              {/* Filtro de Técnicos con/sin días de orden */}
+              {/* Filtro de Técnicos: Activos / Inactivos / Con Órdenes */}
               <div className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-xl border border-slate-200 shadow-2xs text-xs">
                 <span className="text-slate-500 font-bold text-[11px] flex items-center gap-1">
                   <Filter size={11} className="text-indigo-600" />
-                  Técnicos:
+                  Estado / Filtro:
                 </span>
                 <select
                   value={filtroInactividad}
@@ -592,21 +593,12 @@ export const TechnicianDailyMatrixModal: React.FC<TechnicianDailyMatrixModalProp
                   className="font-bold text-slate-800 bg-transparent border-none focus:outline-none cursor-pointer text-xs"
                 >
                   <option value="todos">Todos ({data?.tecnicos?.length || 0})</option>
-                  <option value="solo_activos">Solo con Órdenes</option>
+                  <option value="solo_activos">Solo Técnicos Activos</option>
+                  <option value="solo_inactivos">Solo Técnicos Inactivos</option>
+                  <option value="solo_con_ordenes">Solo con Órdenes</option>
                   <option value="con_dias_sin_orden">⚠️ Con Días Sin Órdenes</option>
                 </select>
               </div>
-
-              {/* Switch Ocultar Días Vacíos */}
-              <label className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-xl border border-slate-200 shadow-2xs text-xs font-bold text-slate-700 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={ocultarDiasVacios}
-                  onChange={(e) => setOcultarDiasVacios(e.target.checked)}
-                  className="rounded text-indigo-600 focus:ring-0 cursor-pointer"
-                />
-                <span>Ocultar Días sin Órdenes</span>
-              </label>
             </div>
 
             {/* Buscador de Técnico */}

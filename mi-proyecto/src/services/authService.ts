@@ -193,6 +193,15 @@ export const authService = {
           "combustibles.crear",
         ]);
 
+      case "supervision":
+        return this.hasAnyPermission([
+          "supervision.ver",
+          "supervision.crear",
+          "calidad.ver",
+          "auditoria.ver",
+          "ordenes.ver",
+        ]);
+
       case "pagos":
         return (
           !esTecnico &&

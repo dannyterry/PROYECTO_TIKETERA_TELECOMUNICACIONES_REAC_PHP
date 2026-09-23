@@ -68,10 +68,8 @@ export const LatencyFirstLegModal: React.FC<LatencyFirstLegModalProps> = ({
   const [filtroSemaforo, setFiltroSemaforo] = useState<"todos" | "verde" | "amarillo" | "rojo">("todos");
   const [ordenAsc, setOrdenAsc] = useState<boolean>(true);
 
-  if (!isOpen || !tecnico) return null;
-
   const ordenesTecnico = useMemo(() => {
-    if (!Array.isArray(ordenes)) return [];
+    if (!isOpen || !tecnico || !Array.isArray(ordenes)) return [];
     const tecNombre = (tecnico?.tecnico || "").trim().toLowerCase();
     return ordenes.filter((o) => {
       if (!o) return false;
@@ -80,9 +78,10 @@ export const LatencyFirstLegModal: React.FC<LatencyFirstLegModalProps> = ({
       if (tecnico?.id_tecnico && Number(tecnico.id_tecnico) > 0 && Number(o.id_tecnico) === Number(tecnico.id_tecnico)) return true;
       return false;
     });
-  }, [ordenes, tecnico]);
+  }, [isOpen, ordenes, tecnico]);
 
   const ordenesFiltradas = useMemo(() => {
+    if (!isOpen || !tecnico) return [];
     let list = [...ordenesTecnico];
 
     if (filtroSemaforo !== "todos") {
@@ -108,9 +107,10 @@ export const LatencyFirstLegModal: React.FC<LatencyFirstLegModalProps> = ({
     });
 
     return list;
-  }, [ordenesTecnico, filtroSemaforo, busqueda, ordenAsc]);
+  }, [isOpen, tecnico, ordenesTecnico, filtroSemaforo, busqueda, ordenAsc]);
 
   const exportarExcel = () => {
+    if (!tecnico) return;
     const dataParaExportar = ordenesFiltradas.map((o) => ({
       Fecha: o.fecha,
       "N° Orden": o.numero,
@@ -141,6 +141,8 @@ export const LatencyFirstLegModal: React.FC<LatencyFirstLegModalProps> = ({
       `Latencia_1er_Tramo_${tecClean}_${new Date().toISOString().slice(0, 10)}.xlsx`
     );
   };
+
+  if (!isOpen || !tecnico) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150">
