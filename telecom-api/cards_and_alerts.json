@@ -1,10 +1,8 @@
 {
-  "timestamp": "2026-09-23T20:40:23.679Z",
-  "totalGeneral": 1,
+  "timestamp": "2026-09-24T21:29:48.542Z",
+  "totalGeneral": 0,
   "totalAlertasSur": 0,
-  "resumenZonas": {
-    "NORTE 3": 1
-  },
+  "resumenZonas": {},
   "cards": {
     "AVERIAS PREFERENTE": {
       "total": 0,
@@ -17,47 +15,9 @@
       "ordenes": []
     },
     "MOTOWIN ZONAS": {
-      "total": 1,
-      "zonas": {
-        "NORTE 3": {
-          "zona": "NORTE 3",
-          "total": 1,
-          "esSur": false,
-          "franjas": {
-            "08:00-11:59": 0,
-            "12:00-15:59": 0,
-            "16:00-20:00": 1,
-            "otros": 0
-          },
-          "distritos": {
-            "Zona Sur": 1
-          },
-          "ordenes": [
-            {
-              "ticket": "MOTO-NORTE3",
-              "distrito": "Zona Sur",
-              "direccion": "Zona Sur (NORTE 3)",
-              "zona_nodo": "NORTE 3",
-              "franja_horaria": "16:00-20:00",
-              "motivo": "MOTOWIN CRM",
-              "vehiculo_tipo": "MOTOWIN",
-              "tarjeta": "MOTOWIN ZONAS"
-            }
-          ]
-        }
-      },
-      "ordenes": [
-        {
-          "ticket": "MOTO-NORTE3",
-          "distrito": "Zona Sur",
-          "direccion": "Zona Sur (NORTE 3)",
-          "zona_nodo": "NORTE 3",
-          "franja_horaria": "16:00-20:00",
-          "motivo": "MOTOWIN CRM",
-          "vehiculo_tipo": "MOTOWIN",
-          "tarjeta": "MOTOWIN ZONAS"
-        }
-      ]
+      "total": 0,
+      "zonas": {},
+      "ordenes": []
     }
   },
   "alertasSur": []

@@ -66,7 +66,12 @@ async function syncAllDatabase() {
       try {
         // Obtener estructura exacta DDL de la tabla remota
         const [createTableResult] = await remotePool.query(`SHOW CREATE TABLE \`${tableName}\``);
-        const createTableSql = createTableResult[0]['Create Table'];
+        let createTableSql = createTableResult[0]['Create Table'];
+
+        // Normalizar colaciones incompatibles con MariaDB/MySQL local
+        createTableSql = createTableSql
+          .replace(/utf8mb4_0900_[a-z0-9_]+/gi, 'utf8mb4_general_ci')
+          .replace(/utf8mb4_uca1400_[a-z0-9_]+/gi, 'utf8mb4_general_ci');
 
         // Recrear tabla en local usando la misma conexión local con FK=0
         await localConn.query(`DROP TABLE IF EXISTS \`${tableName}\``);
@@ -146,7 +151,10 @@ async function syncAllDatabase() {
           const viewName = v[viewKey];
           try {
             const [createViewRes] = await remotePool.query(`SHOW CREATE VIEW \`${viewName}\``);
-            const createViewSql = createViewRes[0]['Create View'];
+            let createViewSql = createViewRes[0]['Create View'];
+            createViewSql = createViewSql
+              .replace(/DEFINER=`[^`]+`@`[^`]+`/gi, 'DEFINER=CURRENT_USER')
+              .replace(/utf8mb4_0900_ai_ci/gi, 'utf8mb4_general_ci');
             await localConn.query(`DROP VIEW IF EXISTS \`${viewName}\``);
             await localConn.query(createViewSql);
             console.log(`   ✅ Vista \`${viewName}\` recreada.`);

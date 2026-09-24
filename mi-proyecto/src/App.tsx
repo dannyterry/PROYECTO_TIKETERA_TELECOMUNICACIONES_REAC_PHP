@@ -236,6 +236,11 @@ export default function App() {
     currentView === "almacen" ||
     currentView === "inventario" ||
     currentView === "stock" ||
+    currentView === "kardex" ||
+    currentView === "movimientos" ||
+    currentView === "kardex-movimientos" ||
+    currentView === "kardex_movimientos" ||
+    currentView === "kardex-general" ||
     currentView === "compras" ||
     currentView === "despacho" ||
     currentView === "historial_despachos" ||

@@ -328,9 +328,11 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
     let totalD = 0;
     let semD = 0;
     let domD = 0;
-    let totalTA = 0;
-    let totalF = 0;
+    let totalP = 0;
     let totalT = 0;
+    let totalF = 0;
+    let totalJ = 0;
+    let totalAsistidos = 0;
 
     for (let d = 1; d <= totalDias; d++) {
       const curDate = new Date(y, m, d);
@@ -339,16 +341,17 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
       const esDomingo = dayOfWeek === 6;
       const esSabado = dayOfWeek === 5;
       const esHoy = fStr === hoyStr;
+      const esPasadoOHoy = fStr <= hoyStr;
 
       const estadoAsist = mapAsistencias.get(fStr);
       const tieneDescanso = setDescansos.has(fStr) || estadoAsist === "Descanso";
+      const tienePermiso = estadoAsist === "Permiso";
       const tieneTardanza = estadoAsist === "Tardanza";
       const tieneAsistencia = estadoAsist === "Asistio" || setDiasConOrdenes.has(fStr);
       const tieneFalta = estadoAsist === "Falta";
-      const tienePermiso = estadoAsist === "Permiso";
 
-      let codigo = "";
-      let tipo: "descanso" | "tardanza" | "falta" | "trabajo" | "permiso" | "vacio" = "vacio";
+      let codigo = "-";
+      let tipo: "descanso" | "tardanza" | "falta" | "puntual" | "permiso" | "vacio" = "vacio";
 
       if (tieneDescanso) {
         codigo = "D";
@@ -356,21 +359,32 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
         totalD++;
         if (esDomingo) domD++;
         else semD++;
-      } else if (tieneTardanza) {
-        codigo = "TA";
-        tipo = "tardanza";
-        totalTA++;
-      } else if (tieneAsistencia) {
-        codigo = "T";
-        tipo = "trabajo";
-        totalT++;
       } else if (tienePermiso) {
-        codigo = "P";
+        codigo = "J";
         tipo = "permiso";
+        totalJ++;
+      } else if (tieneTardanza) {
+        codigo = "T";
+        tipo = "tardanza";
+        totalT++;
+        totalAsistidos++; // Asistió pero tarde
+      } else if (tieneAsistencia) {
+        codigo = "P";
+        tipo = "puntual";
+        totalP++;
+        totalAsistidos++; // Asistió puntual
       } else if (tieneFalta) {
         codigo = "F";
         tipo = "falta";
         totalF++;
+      } else if (esPasadoOHoy && !esDomingo) {
+        // Días pasados laborales sin órdenes ni asistencia ni descanso = Falta
+        codigo = "F";
+        tipo = "falta";
+        totalF++;
+      } else {
+        codigo = "-";
+        tipo = "vacio";
       }
 
       celdas.push({
@@ -394,9 +408,11 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
         totalD,
         semD,
         domD,
-        totalTA,
-        totalF,
+        totalP,
         totalT,
+        totalF,
+        totalJ,
+        totalAsistidos,
       },
     };
   }, [fechaCalendario, calendarioData, orders, trabajador]);
@@ -441,16 +457,16 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
                 {diasMesGrid.totales.totalD} Descansos
               </span>
               <span className="px-2 py-1 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10.5px] font-black">
-                {diasMesGrid.totales.totalT} Días Trab.
+                {diasMesGrid.totales.totalAsistidos} Días Trab.
               </span>
-              {diasMesGrid.totales.totalTA > 0 && (
+              {diasMesGrid.totales.totalT > 0 && (
                 <span className="px-2 py-1 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 text-[10.5px] font-black">
-                  {diasMesGrid.totales.totalTA} Tardanzas
+                  {diasMesGrid.totales.totalT} Tardanzas (T)
                 </span>
               )}
               {diasMesGrid.totales.totalF > 0 && (
                 <span className="px-2 py-1 rounded-xl bg-rose-50 text-rose-800 border border-rose-200 text-[10.5px] font-black">
-                  {diasMesGrid.totales.totalF} Faltas
+                  {diasMesGrid.totales.totalF} Faltas (F)
                 </span>
               )}
             </div>
@@ -471,13 +487,11 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
 
         {/* CONTENIDO DESPLEGABLE CUANDO ESTÁ VISIBLE */}
         {mostrarCalendario && (
-          <div className="space-y-3.5 pt-2 border-t border-slate-100 animate-in fade-in slide-in-from-top-2 duration-200">
-            {/* Navegación de Mes */}
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-black text-slate-700 uppercase tracking-wider">
-                Vista de {diasMesGrid.nombreMes}
-              </span>
-              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-2xl border border-slate-200 shadow-2xs">
+          <div className="space-y-3 pt-2 border-t border-slate-100 animate-in fade-in slide-in-from-top-2 duration-200">
+            {/* Navegación de Mes y Leyenda Compacta para Móvil */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              {/* Selector de Mes */}
+              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-2xl border border-slate-200 shadow-2xs self-center sm:self-auto">
                 <button
                   type="button"
                   onClick={() =>
@@ -485,12 +499,12 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
                       (prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1)
                     )
                   }
-                  className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded-xl transition-all cursor-pointer"
+                  className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-white rounded-xl transition-all cursor-pointer"
                   title="Mes anterior"
                 >
                   <ChevronLeft size={16} />
                 </button>
-                <span className="font-black text-xs text-slate-800 px-2 min-w-[120px] text-center capitalize">
+                <span className="font-black text-xs md:text-sm text-slate-800 px-3 min-w-[130px] text-center capitalize">
                   {diasMesGrid.nombreMes}
                 </span>
                 <button
@@ -500,11 +514,35 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
                       (prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1)
                     )
                   }
-                  className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded-xl transition-all cursor-pointer"
+                  className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-white rounded-xl transition-all cursor-pointer"
                   title="Mes siguiente"
                 >
                   <ChevronRight size={16} />
                 </button>
+              </div>
+
+              {/* Leyenda en píldoras (Optimizado para móvil con scroll horizontal táctil si es necesario) */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none text-[10px] sm:text-[10.5px] font-bold text-slate-600 bg-slate-50/80 p-1.5 rounded-2xl border border-slate-200">
+                <span className="inline-flex items-center gap-1 bg-white px-2 py-0.5 rounded-lg border border-slate-100 shrink-0">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <span>Presente (P)</span>
+                </span>
+                <span className="inline-flex items-center gap-1 bg-white px-2 py-0.5 rounded-lg border border-slate-100 shrink-0">
+                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                  <span>Tardanza (T)</span>
+                </span>
+                <span className="inline-flex items-center gap-1 bg-white px-2 py-0.5 rounded-lg border border-slate-100 shrink-0">
+                  <span className="w-2 h-2 rounded-full bg-rose-500" />
+                  <span>Falta (F)</span>
+                </span>
+                <span className="inline-flex items-center gap-1 bg-white px-2 py-0.5 rounded-lg border border-slate-100 shrink-0">
+                  <span className="w-2 h-2 rounded-full bg-sky-500" />
+                  <span>Descanso (D)</span>
+                </span>
+                <span className="inline-flex items-center gap-1 bg-white px-2 py-0.5 rounded-lg border border-slate-100 shrink-0">
+                  <span className="w-2 h-2 rounded-full bg-purple-500" />
+                  <span>Permiso (J)</span>
+                </span>
               </div>
             </div>
 
@@ -560,38 +598,38 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
                       <div className="flex items-center justify-center my-0.5">
                         {dia.tipo === "descanso" ? (
                           <span
-                            className="inline-flex items-center justify-center min-w-[28px] h-7 px-1 rounded-lg text-xs font-black bg-sky-100 text-sky-800 border border-sky-300 shadow-2xs"
-                            title="Día de Descanso"
+                            className="inline-flex items-center justify-center min-w-[28px] h-7 px-1 rounded-lg text-xs font-black bg-blue-100 text-blue-800 border border-blue-300 shadow-2xs"
+                            title="Día de Descanso (D)"
                           >
                             D
                           </span>
                         ) : dia.tipo === "tardanza" ? (
                           <span
-                            className="inline-flex items-center justify-center min-w-[28px] h-7 px-1 rounded-lg text-[11px] font-black bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs font-bold"
-                            title="Tardanza registrada"
-                          >
-                            TA
-                          </span>
-                        ) : dia.tipo === "falta" ? (
-                          <span
-                            className="inline-flex items-center justify-center min-w-[28px] h-7 px-1 rounded-lg text-xs font-black bg-rose-500 text-white shadow-2xs font-bold"
-                            title="Falta / Inasistencia"
-                          >
-                            F
-                          </span>
-                        ) : dia.tipo === "trabajo" ? (
-                          <span
-                            className="inline-flex items-center justify-center min-w-[28px] h-7 px-1 rounded-lg text-xs font-black bg-emerald-50 text-emerald-800 border border-emerald-300"
-                            title="Día Trabajado"
+                            className="inline-flex items-center justify-center min-w-[28px] h-7 px-1 rounded-lg text-xs font-black bg-amber-100 text-amber-800 border border-amber-300 shadow-2xs"
+                            title="Tardanza (T) - Asistió"
                           >
                             T
                           </span>
-                        ) : dia.tipo === "permiso" ? (
+                        ) : dia.tipo === "puntual" ? (
                           <span
-                            className="inline-flex items-center justify-center min-w-[28px] h-7 px-1 rounded-lg text-xs font-black bg-indigo-50 text-indigo-800 border border-indigo-200"
-                            title="Permiso"
+                            className="inline-flex items-center justify-center min-w-[28px] h-7 px-1 rounded-lg text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs"
+                            title="Presente / Puntual (P)"
                           >
                             P
+                          </span>
+                        ) : dia.tipo === "falta" ? (
+                          <span
+                            className="inline-flex items-center justify-center min-w-[28px] h-7 px-1 rounded-lg text-xs font-black bg-rose-100 text-rose-800 border border-rose-300 shadow-2xs"
+                            title="Falta / Inasistencia (F)"
+                          >
+                            F
+                          </span>
+                        ) : dia.tipo === "permiso" ? (
+                          <span
+                            className="inline-flex items-center justify-center min-w-[28px] h-7 px-1 rounded-lg text-xs font-black bg-purple-100 text-purple-800 border border-purple-300 shadow-2xs"
+                            title="Permiso / Justificado (J)"
+                          >
+                            J
                           </span>
                         ) : (
                           <span className="text-slate-300 font-mono text-xs">-</span>
@@ -603,7 +641,7 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
               )}
             </div>
 
-            {/* Cuadro Resumen Inferior (Estilo Hoja Técnica) */}
+            {/* Cuadro Resumen Inferior (Exactamente como en Asistencia) */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-1">
               <div className="bg-sky-50 border border-sky-200 rounded-2xl p-2.5 text-center">
                 <span className="text-[10px] font-bold text-sky-700 block uppercase">Total Descansos</span>
@@ -627,9 +665,9 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
               </div>
 
               <div className="bg-amber-50 border border-amber-200 rounded-2xl p-2.5 text-center">
-                <span className="text-[10px] font-bold text-amber-700 block uppercase">Tardanzas (TA)</span>
+                <span className="text-[10px] font-bold text-amber-700 block uppercase">Tardanzas (T)</span>
                 <span className="text-base font-black text-amber-950 font-mono">
-                  {diasMesGrid.totales.totalTA}
+                  {diasMesGrid.totales.totalT}
                 </span>
               </div>
 
@@ -641,9 +679,12 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
               </div>
 
               <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-2.5 text-center">
-                <span className="text-[10px] font-bold text-emerald-700 block uppercase">Días Trab. (T)</span>
+                <span className="text-[10px] font-bold text-emerald-700 block uppercase">Días Trab. (P+T)</span>
                 <span className="text-base font-black text-emerald-950 font-mono">
-                  {diasMesGrid.totales.totalT}
+                  {diasMesGrid.totales.totalAsistidos}
+                </span>
+                <span className="text-[9px] text-emerald-700/80 block mt-0.5">
+                  {diasMesGrid.totales.totalP} punt. + {diasMesGrid.totales.totalT} tarde
                 </span>
               </div>
             </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Star,
   CheckCircle2,
@@ -18,6 +18,9 @@ import {
   HelpCircle,
   Search,
   Check,
+  ChevronDown,
+  ChevronUp,
+  X,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -44,12 +47,34 @@ export const CustomerQualitySurveyTab: React.FC<CustomerQualitySurveyTabProps> =
   // Search Technicians
   const [searchTermTecnico, setSearchTermTecnico] = useState("");
   const [showTecnicoDropdown, setShowTecnicoDropdown] = useState(false);
+  const tecnicoContainerRef = useRef<HTMLDivElement>(null);
 
   // Search Orders by OT / Ticket / Codigo de Pedido
   const [searchOtTerm, setSearchOtTerm] = useState("");
   const [ordenesResultados, setOrdenesResultados] = useState<OrdenBusqueda[]>([]);
   const [showOtDropdown, setShowOtDropdown] = useState(false);
   const [isSearchingOt, setIsSearchingOt] = useState(false);
+  const otContainerRef = useRef<HTMLDivElement>(null);
+
+  // Click outside to close dropdowns
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        tecnicoContainerRef.current &&
+        !tecnicoContainerRef.current.contains(e.target as Node)
+      ) {
+        setShowTecnicoDropdown(false);
+      }
+      if (
+        otContainerRef.current &&
+        !otContainerRef.current.contains(e.target as Node)
+      ) {
+        setShowOtDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Form State
   const [idOrden, setIdOrden] = useState<string>("");
@@ -66,7 +91,7 @@ export const CustomerQualitySurveyTab: React.FC<CustomerQualitySurveyTabProps> =
   const [fechaAuditoria, setFechaAuditoria] = useState<string>(
     new Date().toISOString().split("T")[0]
   );
-  const [auditor, setAuditor] = useState<string>("Control de Calidad");
+  const [auditor, setAuditor] = useState<string>("");
 
   // Questions
   const [preguntas, setPreguntas] = useState<PreguntaCalidad[]>(
@@ -96,7 +121,7 @@ export const CustomerQualitySurveyTab: React.FC<CustomerQualitySurveyTabProps> =
         ]);
         setTecnicosCombo(tecnicos);
         setSupervisoresCombo(supervisores);
-        if (supervisores.length > 0 && auditor === "Control de Calidad") {
+        if (supervisores.length > 0) {
           setAuditor(supervisores[0].supervisor);
         }
       } catch (e) {
@@ -398,7 +423,7 @@ export const CustomerQualitySurveyTab: React.FC<CustomerQualitySurveyTabProps> =
         {/* Left Column: Fast OT Search & Client Data */}
         <div className="space-y-6">
           {/* Fast Order Search Assistant */}
-          <div className="bg-white rounded-3xl p-5 shadow-sm border border-teal-200/80 space-y-3">
+          <div ref={otContainerRef} className="bg-white rounded-3xl p-5 shadow-sm border border-teal-200/80 space-y-3 relative">
             <div className="flex items-center gap-2 pb-2 border-b border-teal-100">
               <Search className="w-4 h-4 text-teal-600" />
               <h3 className="font-extrabold text-slate-800 text-xs md:text-sm">
@@ -410,27 +435,49 @@ export const CustomerQualitySurveyTab: React.FC<CustomerQualitySurveyTabProps> =
               <input
                 type="text"
                 value={searchOtTerm}
-                onChange={(e) => setSearchOtTerm(e.target.value)}
+                onChange={(e) => {
+                  setSearchOtTerm(e.target.value);
+                  setShowOtDropdown(true);
+                }}
                 onFocus={() => {
                   if (ordenesResultados.length > 0) setShowOtDropdown(true);
                 }}
                 placeholder="Escribe N° OT (ej. 3463541), Ticket o Cliente..."
-                className="w-full pl-9 pr-8 py-2 text-xs md:text-sm bg-teal-50/40 border border-teal-300 rounded-xl focus:ring-2 focus:ring-teal-500 font-medium text-slate-900"
+                className="w-full pl-9 pr-14 py-2 text-xs md:text-sm bg-teal-50/40 border border-teal-300 rounded-xl focus:ring-2 focus:ring-teal-500 font-medium text-slate-900"
               />
               <Search className="w-4 h-4 text-teal-500 absolute left-3 top-2.5" />
-              {isSearchingOt && (
-                <div className="w-4 h-4 border-2 border-teal-600 border-t-transparent rounded-full animate-spin absolute right-3 top-2.5" />
-              )}
+              <div className="absolute right-2.5 top-2 flex items-center gap-1">
+                {isSearchingOt && (
+                  <div className="w-4 h-4 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
+                )}
+                {searchOtTerm && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchOtTerm("");
+                      setOrdenesResultados([]);
+                      setShowOtDropdown(false);
+                    }}
+                    className="p-1 text-slate-400 hover:text-slate-600 rounded-md cursor-pointer"
+                    title="Limpiar búsqueda"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Orders Autocomplete Dropdown */}
             {showOtDropdown && ordenesResultados.length > 0 && (
-              <div className="bg-white border border-teal-200 rounded-xl shadow-xl max-h-56 overflow-y-auto z-30 divide-y divide-slate-100">
+              <div className="absolute left-5 right-5 top-full mt-1 bg-white border border-teal-200 rounded-xl shadow-2xl max-h-56 overflow-y-auto z-50 divide-y divide-slate-100">
                 {ordenesResultados.map((ord) => (
                   <button
                     key={ord.id_orden}
                     type="button"
-                    onClick={() => handleSelectOrden(ord)}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      handleSelectOrden(ord);
+                    }}
                     className="w-full text-left p-2.5 hover:bg-teal-50 transition-colors flex flex-col justify-between gap-1 text-xs cursor-pointer"
                   >
                     <div className="flex items-center justify-between">
@@ -457,7 +504,7 @@ export const CustomerQualitySurveyTab: React.FC<CustomerQualitySurveyTabProps> =
             </div>
 
             {/* Technician Autocomplete */}
-            <div className="relative">
+            <div ref={tecnicoContainerRef} className="relative">
               <label className="block text-xs font-bold text-slate-700 mb-1">
                 Técnico Evaluado *
               </label>
@@ -472,32 +519,72 @@ export const CustomerQualitySurveyTab: React.FC<CustomerQualitySurveyTabProps> =
                   }}
                   onFocus={() => setShowTecnicoDropdown(true)}
                   placeholder="Buscar por Nombre o DNI..."
-                  className="w-full pl-8 pr-3 py-2 text-xs md:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 font-medium text-slate-800"
+                  className="w-full pl-8 pr-16 py-2 text-xs md:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 font-medium text-slate-800"
                 />
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-3" />
+
+                <div className="absolute right-2 top-2 flex items-center gap-0.5">
+                  {(searchTermTecnico || tecnicoName) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchTermTecnico("");
+                        setTecnicoName("");
+                        setSelectedTecnico(null);
+                        setCuadrilla("");
+                        setShowTecnicoDropdown(false);
+                      }}
+                      className="p-1 text-slate-400 hover:text-slate-600 rounded-md cursor-pointer"
+                      title="Limpiar técnico"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowTecnicoDropdown((prev) => !prev)}
+                    className="p-1 text-slate-400 hover:text-teal-600 rounded-md cursor-pointer"
+                    title="Mostrar/Ocultar lista"
+                  >
+                    {showTecnicoDropdown ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
               </div>
 
               {/* Autocomplete dropdown */}
-              {showTecnicoDropdown && filteredTecnicos.length > 0 && (
-                <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-52 overflow-y-auto divide-y divide-slate-50">
-                  {filteredTecnicos.map((t) => (
-                    <button
-                      key={t.id_tecnico}
-                      type="button"
-                      onClick={() => handleSelectTecnico(t)}
-                      className="w-full text-left px-3 py-2 hover:bg-teal-50 flex items-center justify-between text-xs transition-colors cursor-pointer"
-                    >
-                      <div>
-                        <div className="font-bold text-slate-800">{t.tecnico}</div>
-                        <div className="text-[10px] text-slate-400">
-                          DNI: {t.dni || "—"} · Cel: {t.celular || "—"}
+              {showTecnicoDropdown && (
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-2xl max-h-56 overflow-y-auto divide-y divide-slate-50">
+                  {filteredTecnicos.length > 0 ? (
+                    filteredTecnicos.map((t) => (
+                      <button
+                        key={t.id_tecnico}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          handleSelectTecnico(t);
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-teal-50 flex items-center justify-between text-xs transition-colors cursor-pointer"
+                      >
+                        <div>
+                          <div className="font-bold text-slate-800">{t.tecnico}</div>
+                          <div className="text-[10px] text-slate-400">
+                            DNI: {t.dni || "—"} · Cel: {t.celular || "—"}
+                          </div>
                         </div>
-                      </div>
-                      <span className="bg-teal-100 text-teal-800 font-bold px-1.5 py-0.5 rounded text-[10px]">
-                        {t.cuadrilla || "S/C"}
-                      </span>
-                    </button>
-                  ))}
+                        <span className="bg-teal-100 text-teal-800 font-bold px-1.5 py-0.5 rounded text-[10px]">
+                          {t.cuadrilla || "S/C"}
+                        </span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="p-3 text-center text-xs text-slate-400 italic">
+                      No se encontraron técnicos
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -582,10 +669,9 @@ export const CustomerQualitySurveyTab: React.FC<CustomerQualitySurveyTabProps> =
                   >
                     {supervisoresCombo.map((sup) => (
                       <option key={sup.id_usuario} value={sup.supervisor}>
-                        {sup.supervisor} ({sup.cargo || "Auditor"})
+                        {sup.supervisor} ({sup.cargo || "SUPERVISOR"})
                       </option>
                     ))}
-                    <option value="Control de Calidad">Control de Calidad (General)</option>
                   </select>
                 </div>
               </div>

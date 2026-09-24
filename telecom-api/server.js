@@ -5205,7 +5205,16 @@ app.get('/api/almacen/stock-general', async (req, res) => {
           FROM orden_liquidacion_detalle old
           JOIN orden_liquidaciones ol ON old.id_liquidacion = ol.id_liquidacion
           WHERE ol.id_trabajador = tp.id_trabajador AND old.id_producto = tp.id_producto
-        ), 0) AS total_gastado_ordenes
+        ), 0) AS total_gastado_ordenes,
+        COALESCE((
+          SELECT SUM(m.cantidad)
+          FROM movimientos m
+          WHERE (m.referencia LIKE CONCAT('%Técnico #', tp.id_trabajador, '%') 
+                 OR m.referencia LIKE CONCAT('%', u.nombres, '%'))
+            AND m.id_producto = tp.id_producto
+            AND m.tipo = 'ENTRADA'
+            AND (m.referencia LIKE '%Devolución%' OR m.referencia LIKE '%devolucion%' OR m.referencia LIKE '%Retorno%')
+        ), 0) AS total_devuelto_almacen
       FROM trabajador_productos tp
       JOIN trabajadores t ON tp.id_trabajador = t.id_trabajador
       JOIN usuarios u ON t.id_usuario = u.id_usuario
@@ -5282,6 +5291,7 @@ app.get('/api/almacen/stock-general', async (req, res) => {
           fecha_entrega: s.fecha_asignacion,
           total_despachado_historial: 0,
           total_gastado_ordenes: 0,
+          total_devuelto_almacen: 0,
         });
       }
     }
@@ -7614,6 +7624,189 @@ app.get('/api/almacen/liquidacion/:id', async (req, res) => {
   }
 });
 
+// --- 📊 4.0.5 KARDEX GENERAL DE MOVIMIENTOS & TRAZABILIDAD COMPLETA ---
+app.get('/api/almacen/kardex-movimientos', async (req, res) => {
+  try {
+    const {
+      fechaDesde,
+      fechaHasta,
+      tipo,
+      subtipo,
+      idProducto,
+      idCategoria,
+      idTrabajador,
+      search
+    } = req.query;
+
+    // 1. Movimientos Generales de Kardex (Compras, Despachos, Devoluciones, Ajustes)
+    let whereMov = "1=1";
+    const paramsMov = [];
+
+    if (fechaDesde) {
+      whereMov += " AND DATE(m.fecha_creacion) >= ?";
+      paramsMov.push(fechaDesde);
+    }
+    if (fechaHasta) {
+      whereMov += " AND DATE(m.fecha_creacion) <= ?";
+      paramsMov.push(fechaHasta);
+    }
+    if (idProducto) {
+      whereMov += " AND m.id_producto = ?";
+      paramsMov.push(Number(idProducto));
+    }
+    if (idCategoria) {
+      whereMov += " AND p.id_categoria = ?";
+      paramsMov.push(Number(idCategoria));
+    }
+
+    const [movs] = await pool.query(`
+      SELECT 
+        CONCAT('MOV-', m.id_movimiento) AS id_unico,
+        'KARDEX' AS origen,
+        m.id_movimiento,
+        m.id_producto,
+        p.codigo AS producto_codigo,
+        p.nombre AS producto_nombre,
+        p.es_drop,
+        p.maneja_serie,
+        COALESCE(c.nombre, 'MATERIALES') AS categoria,
+        m.tipo,
+        CASE 
+          WHEN m.referencia LIKE '%Devolución%' OR m.referencia LIKE '%devolucion%' OR m.referencia LIKE '%Retorno%' THEN 'DEVOLUCION_TECNICO'
+          WHEN m.referencia LIKE '%Compra%' OR m.referencia LIKE '%Factura%' OR m.referencia LIKE '%Ingreso%' THEN 'COMPRA_INGRESO'
+          WHEN m.referencia LIKE '%Despacho%' OR m.referencia LIKE '%Dotación%' THEN 'DESPACHO_TECNICO'
+          WHEN m.referencia LIKE '%Ajuste%' THEN 'AJUSTE_INVENTARIO'
+          ELSE m.tipo
+        END AS subtipo,
+        m.cantidad,
+        COALESCE(ps.numero_serie, '') AS numero_serie,
+        COALESCE(ps.codigo_serie, '') AS codigo_serie,
+        m.referencia,
+        m.fecha_creacion AS fecha
+      FROM movimientos m
+      JOIN productos p ON m.id_producto = p.id_producto
+      LEFT JOIN categorias c ON p.id_categoria = c.id_categoria
+      LEFT JOIN producto_series ps ON m.id_producto_serie = ps.id_producto_serie
+      WHERE ${whereMov}
+      ORDER BY m.fecha_creacion DESC, m.id_movimiento DESC
+    `, paramsMov);
+
+    // 2. Consumos y Descargos en Órdenes de Trabajo de Campo
+    let whereOrd = "1=1";
+    const paramsOrd = [];
+
+    if (fechaDesde) {
+      whereOrd += " AND DATE(ol.fecha_liquidacion) >= ?";
+      paramsOrd.push(fechaDesde);
+    }
+    if (fechaHasta) {
+      whereOrd += " AND DATE(ol.fecha_liquidacion) <= ?";
+      paramsOrd.push(fechaHasta);
+    }
+    if (idProducto) {
+      whereOrd += " AND old.id_producto = ?";
+      paramsOrd.push(Number(idProducto));
+    }
+    if (idCategoria) {
+      whereOrd += " AND p.id_categoria = ?";
+      paramsOrd.push(Number(idCategoria));
+    }
+    if (idTrabajador) {
+      whereOrd += " AND ol.id_trabajador = ?";
+      paramsOrd.push(Number(idTrabajador));
+    }
+
+    const [ordenLiquidaciones] = await pool.query(`
+      SELECT 
+        CONCAT('ORD-', old.id_detalle_liq) AS id_unico,
+        'ORDEN_CAMPO' AS origen,
+        old.id_detalle_liq AS id_movimiento,
+        old.id_producto,
+        p.codigo AS producto_codigo,
+        p.nombre AS producto_nombre,
+        p.es_drop,
+        p.maneja_serie,
+        COALESCE(c.nombre, 'MATERIALES') AS categoria,
+        'SALIDA' AS tipo,
+        'LIQUIDACION_ORDEN' AS subtipo,
+        old.cantidad,
+        COALESCE(old.numero_serie, '') AS numero_serie,
+        '' AS codigo_serie,
+        CONCAT('Descargo en Orden #', COALESCE(o.numero, old.id_liquidacion), ' - Técnico: ', TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, '')))) AS referencia,
+        ol.fecha_liquidacion AS fecha
+      FROM orden_liquidacion_detalle old
+      JOIN orden_liquidaciones ol ON old.id_liquidacion = ol.id_liquidacion
+      JOIN productos p ON old.id_producto = p.id_producto
+      LEFT JOIN categorias c ON p.id_categoria = c.id_categoria
+      LEFT JOIN trabajadores t ON ol.id_trabajador = t.id_trabajador
+      LEFT JOIN usuarios u ON t.id_usuario = u.id_usuario
+      LEFT JOIN ordenes o ON ol.id_orden = o.id_orden
+      WHERE ${whereOrd}
+      ORDER BY ol.fecha_liquidacion DESC
+    `, paramsOrd);
+
+    // 3. Unificar todos los movimientos
+    let unificados = [...movs, ...ordenLiquidaciones];
+
+    // Filtros en memoria para búsqueda textual y filtros específicos
+    if (idTrabajador) {
+      const [tUser] = await pool.query(`
+        SELECT t.id_trabajador, TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS nombre
+        FROM trabajadores t JOIN usuarios u ON t.id_usuario = u.id_usuario WHERE t.id_trabajador = ?
+      `, [idTrabajador]);
+      const nomTec = tUser[0]?.nombre ? tUser[0].nombre.toUpperCase() : '';
+      unificados = unificados.filter(m => {
+        const refUpper = (m.referencia || '').toUpperCase();
+        return refUpper.includes(`TÉCNICO #${idTrabajador}`) || refUpper.includes(`TECNICO #${idTrabajador}`) || (nomTec && refUpper.includes(nomTec));
+      });
+    }
+
+    if (tipo && tipo !== 'TODOS') {
+      unificados = unificados.filter(m => m.tipo === tipo);
+    }
+
+    if (subtipo && subtipo !== 'TODOS') {
+      unificados = unificados.filter(m => m.subtipo === subtipo);
+    }
+
+    if (search && String(search).trim() !== '') {
+      const q = String(search).trim().toUpperCase();
+      unificados = unificados.filter(m => 
+        (m.producto_nombre || '').toUpperCase().includes(q) ||
+        (m.producto_codigo || '').toUpperCase().includes(q) ||
+        (m.numero_serie || '').toUpperCase().includes(q) ||
+        (m.codigo_serie || '').toUpperCase().includes(q) ||
+        (m.referencia || '').toUpperCase().includes(q) ||
+        (m.categoria || '').toUpperCase().includes(q)
+      );
+    }
+
+    // Ordenar por fecha descendente
+    unificados.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+
+    // KPIs en tiempo real del conjunto filtrado / general
+    const totalEntradas = unificados.filter(m => m.tipo === 'ENTRADA').reduce((acc, m) => acc + Number(m.cantidad || 0), 0);
+    const totalDespachos = unificados.filter(m => m.subtipo === 'DESPACHO_TECNICO').reduce((acc, m) => acc + Number(m.cantidad || 0), 0);
+    const totalDevoluciones = unificados.filter(m => m.subtipo === 'DEVOLUCION_TECNICO').reduce((acc, m) => acc + Number(m.cantidad || 0), 0);
+    const totalConsumidoOrdenes = unificados.filter(m => m.subtipo === 'LIQUIDACION_ORDEN').reduce((acc, m) => acc + Number(m.cantidad || 0), 0);
+
+    res.json({
+      success: true,
+      kpis: {
+        totalMovimientos: unificados.length,
+        totalEntradas,
+        totalDespachos,
+        totalDevoluciones,
+        totalConsumidoOrdenes
+      },
+      movimientos: unificados
+    });
+  } catch (error) {
+    console.error("Error en kardex-movimientos:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // --- 📋 4.1 AUDITORÍA Y CONTROL DE ACTAS / GUÍAS ASIGNADAS A TÉCNICOS ---
 app.get('/api/almacen/actas-tecnicos', async (req, res) => {
   try {
@@ -8325,12 +8518,12 @@ app.get('/api/almacen/orden-liquidaciones', async (req, res) => {
         if (nom.includes('CONECTORIZADO') || /DROP.*(50|100|150|200)/i.test(nom)) {
           itemConectorizado = m;
           let rollMts = 0;
-          if (nom.includes('50')) rollMts = 50;
-          else if (nom.includes('100')) rollMts = 100;
-          else if (nom.includes('150')) rollMts = 150;
-          else if (nom.includes('200')) rollMts = 200;
+          if (/200\s*(M|MT)?\b|\*200/i.test(nom)) rollMts = 200;
+          else if (/150\s*(M|MT)?\b|\*150/i.test(nom)) rollMts = 150;
+          else if (/100\s*(M|MT)?\b|\*100/i.test(nom)) rollMts = 100;
+          else if (/(?:^|[^\d])50\s*(M|MT)?\b|\*50/i.test(nom)) rollMts = 50;
           else {
-            const match = nom.match(/(\d+)/);
+            const match = nom.match(/(\d+)\s*(?:M|MT)?/i);
             if (match) rollMts = parseInt(match[1], 10);
           }
           metrosConectorizado += rollMts * (Number(m.cantidad) || 1);
@@ -8346,14 +8539,20 @@ app.get('/api/almacen/orden-liquidaciones', async (req, res) => {
       const totalEquipos = mats.filter(m => (m.categoria_liquidar || '').toUpperCase() === 'EQUIPO' || (m.nombre_producto || '').toUpperCase().includes('ONT')).reduce((acc, m) => acc + (Number(m.cantidad) || 0), 0);
 
       const motivosAlerta = [];
-      if (totalDrop > maxDropPermitido) {
-        motivosAlerta.push(`Drop declarado (${totalDrop}m${metrosConectorizado > 0 ? ' rollo conectorizado' : ''}) supera el límite permitido (${maxDropPermitido}m) para ${esRecableado ? 'recableado' : 'avería'}.`);
+      // ⚠️ DROP SUELTO DE BOBINA: Solo evaluar límite de metraje si se usó drop continuo de bobina
+      if (dropBobina > maxDropPermitido) {
+        motivosAlerta.push(`Drop bobina declarado (${dropBobina}m) supera el límite permitido (${maxDropPermitido}m) para ${esRecableado ? 'recableado/traslado' : 'avería'}.`);
+      }
+      // Si usó más de 1 rollo pre-conectorizado en una sola orden
+      if (itemConectorizado && Number(itemConectorizado.cantidad) > 1) {
+        motivosAlerta.push(`Se liquidaron ${itemConectorizado.cantidad} rollos de drop pre-conectorizado en una sola orden.`);
       }
       if (totalEquipos > 1) {
         motivosAlerta.push(`Se liquidaron ${totalEquipos} equipos ONT en una sola orden.`);
       }
-      if (liq.metraje_fenix && Math.abs(totalDrop - liq.metraje_fenix) > 25) {
-        motivosAlerta.push(`Discrepancia con Fénix: Declaró ${totalDrop}m${metrosConectorizado > 0 ? ' (conectorizado)' : ''} pero tarea Fénix reporta ${liq.metraje_fenix}m.`);
+      // Discrepancia con Fénix solo aplicable a bobina continua
+      if (dropBobina > 0 && liq.metraje_fenix && Math.abs(dropBobina - liq.metraje_fenix) > 25) {
+        motivosAlerta.push(`Discrepancia con Fénix: Declaró ${dropBobina}m de bobina pero tarea Fénix reporta ${liq.metraje_fenix}m.`);
       }
 
       liq.es_alerta = motivosAlerta.length > 0;
@@ -8396,6 +8595,90 @@ app.post('/api/almacen/orden-liquidaciones/:id/rechazar', async (req, res) => {
     await pool.query("UPDATE orden_liquidaciones SET estado = 'Rechazada', motivo_rechazo = ? WHERE id_liquidacion = ?", [motivo.trim(), idLiquidacion]);
     res.json({ success: true, message: 'Liquidación rechazada.' });
   } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// --- 📋 5.3.1 AJUSTAR / CORREGIR CANTIDAD DE MATERIAL EN LIQUIDACIÓN CON RETORNO DE STOCK ---
+app.put('/api/almacen/orden-liquidaciones/:id/ajustar-material', async (req, res) => {
+  try {
+    const idLiquidacion = req.params.id;
+    const { id_detalle_liq, nueva_cantidad, motivo } = req.body || {};
+
+    if (!id_detalle_liq || nueva_cantidad === undefined || nueva_cantidad === null) {
+      return res.status(400).json({ success: false, error: 'Faltan parámetros requeridos (id_detalle_liq, nueva_cantidad).' });
+    }
+
+    const nCant = parseInt(nueva_cantidad, 10);
+    if (isNaN(nCant) || nCant < 0) {
+      return res.status(400).json({ success: false, error: 'La cantidad debe ser un número entero mayor o igual a 0.' });
+    }
+
+    // 1. Obtener detalle actual y liquidación
+    const [detRows] = await pool.query(`
+      SELECT d.*, p.nombre as nombre_producto, ol.id_trabajador, ol.id_orden, ol.numero_acta
+      FROM orden_liquidacion_detalle d
+      JOIN orden_liquidaciones ol ON d.id_liquidacion = ol.id_liquidacion
+      JOIN productos p ON d.id_producto = p.id_producto
+      WHERE d.id_detalle_liq = ? AND d.id_liquidacion = ?
+    `, [id_detalle_liq, idLiquidacion]);
+
+    if (detRows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Detalle de liquidación no encontrado.' });
+    }
+
+    const det = detRows[0];
+    const cantAnterior = Number(det.cantidad) || 0;
+    const idTrabajador = det.id_trabajador;
+    const idProducto = det.id_producto;
+    const diff = cantAnterior - nCant; // Si es positivo, se declaró de más y se devuelve stock al técnico
+
+    // 2. Si nueva cantidad es 0, eliminar o poner 0
+    if (nCant === 0) {
+      await pool.query("DELETE FROM orden_liquidacion_detalle WHERE id_detalle_liq = ?", [id_detalle_liq]);
+    } else {
+      await pool.query("UPDATE orden_liquidacion_detalle SET cantidad = ? WHERE id_detalle_liq = ?", [nCant, id_detalle_liq]);
+    }
+
+    // 3. Ajustar el stock móvil del técnico (devolver excedente o descontar faltante)
+    if (idTrabajador && diff !== 0) {
+      if (diff > 0) {
+        // Técnico declaró de más (ej. 101 en vez de 10). Se le retornan diff (+91) unidades a su camioneta
+        await pool.query(`
+          UPDATE trabajador_productos 
+          SET stock = stock + ? 
+          WHERE id_trabajador = ? AND id_producto = ?
+        `, [diff, idTrabajador, idProducto]);
+      } else {
+        // Técnico declaró de menos (ej. 10 en vez de 15). Se le descuenta el faltante (|diff|) de su camioneta
+        const cantRestar = Math.abs(diff);
+        await pool.query(`
+          UPDATE trabajador_productos 
+          SET stock = GREATEST(0, stock - ?) 
+          WHERE id_trabajador = ? AND id_producto = ?
+        `, [cantRestar, idTrabajador, idProducto]);
+      }
+    }
+
+    // 4. Registrar en log de auditoría
+    try {
+      const desc = `[Auditoría Liquidación #${idLiquidacion} / Acta ${det.numero_acta}] Ajuste de material "${det.nombre_producto}": de ${cantAnterior} a ${nCant} UND. Diferencia de stock aplicada al técnico: ${diff > 0 ? '+' + diff : diff} UND. Motivo: ${motivo || 'Corrección por auditoría de almacén'}.`;
+      await pool.query(`
+        INSERT INTO auditoria_actividad (id_usuario, usuario_nombre, id_rol, rol_nombre, area, modulo, accion, id_referencia, descripcion, fecha_creacion)
+        VALUES (1, 'Auditoría Almacén', 1, 'ADMINISTRACION', 'ALMACEN', 'LIQUIDACIONES', 'AJUSTE_MATERIAL', ?, ?, NOW())
+      `, [idLiquidacion, desc]);
+    } catch (e) {}
+
+    res.json({
+      success: true,
+      message: `Cantidad de "${det.nombre_producto}" actualizada a ${nCant} UND. ${diff > 0 ? `Se retornaron ${diff} UND al stock móvil del técnico.` : diff < 0 ? `Se descontaron ${Math.abs(diff)} UND del stock móvil del técnico.` : ''}`,
+      id_detalle_liq,
+      cantidad_anterior: cantAnterior,
+      nueva_cantidad: nCant,
+      diferencia_retornada: diff
+    });
+  } catch (error) {
+    console.error("Error al ajustar material de liquidación:", error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -10316,6 +10599,225 @@ app.get('/api/dashboard/latencia-primer-tramo', async (req, res) => {
 });
 
 // ============================================================
+// 🧵 ENDPOINT: MATRIZ DE RECABLEADOS Y CONSUMO DE CABLE DROP
+// ============================================================
+app.get(['/api/dashboard/matriz-recableados-drop', '/dashboard/matriz-recableados-drop'], async (req, res) => {
+  try {
+    const { desde, hasta, tecnico } = req.query;
+
+    const whereClauses = ["o.estado NOT IN ('Cancelada', 'Anulada')"];
+    const params = [];
+
+    if (desde && hasta) {
+      whereClauses.push("DATE(o.fecha_visita) BETWEEN ? AND ?");
+      params.push(desde, hasta);
+    } else if (desde) {
+      whereClauses.push("DATE(o.fecha_visita) >= ?");
+      params.push(desde);
+    } else if (hasta) {
+      whereClauses.push("DATE(o.fecha_visita) <= ?");
+      params.push(hasta);
+    }
+
+    if (tecnico && tecnico !== 'todos' && tecnico !== 'Todos') {
+      whereClauses.push("(o.id_tecnico = ? OR u.id_usuario = ? OR o.tecnico_asignado LIKE ?)");
+      params.push(tecnico, tecnico, `%${tecnico}%`);
+    }
+
+    const whereSql = whereClauses.length > 0 ? "WHERE " + whereClauses.join(" AND ") : "";
+
+    // 1. Obtener listado de técnicos con desglose de órdenes y tipos
+    const [rows] = await pool.query(`
+      SELECT 
+        COALESCE(u.id_usuario, o.id_tecnico, 0) AS id_tecnico,
+        COALESCE(CONCAT(u.nombres, ' ', u.apellidos), o.tecnico_asignado, o.cuadrilla, 'Sin Asignar') AS tecnico_nombre,
+        u.foto_personal,
+        COALESCE(u.cuadrilla, o.cuadrilla, '-') AS cuadrilla,
+        COUNT(o.id_orden) AS total_ordenes,
+        SUM(CASE WHEN UPPER(o.tipo_trabajo) LIKE '%RECABLE%' OR UPPER(COALESCE(ol.tipo_trabajo_acta,'')) LIKE '%RECABLE%' THEN 1 ELSE 0 END) AS cant_recableados,
+        SUM(CASE WHEN UPPER(o.tipo_trabajo) LIKE '%TRASLAD%' OR UPPER(COALESCE(ol.tipo_trabajo_acta,'')) LIKE '%TRASLAD%' THEN 1 ELSE 0 END) AS cant_traslados,
+        SUM(CASE WHEN UPPER(o.tipo_trabajo) LIKE '%ALTA%' OR UPPER(o.tipo_trabajo) LIKE '%INSTALAC%' OR UPPER(COALESCE(ol.tipo_trabajo_acta,'')) LIKE '%ALTA%' THEN 1 ELSE 0 END) AS cant_altas,
+        SUM(CASE WHEN (UPPER(o.tipo_trabajo) NOT LIKE '%RECABLE%' AND UPPER(COALESCE(ol.tipo_trabajo_acta,'')) NOT LIKE '%RECABLE%' AND UPPER(o.tipo_trabajo) NOT LIKE '%TRASLAD%' AND UPPER(COALESCE(ol.tipo_trabajo_acta,'')) NOT LIKE '%TRASLAD%' AND UPPER(o.tipo_trabajo) NOT LIKE '%ALTA%' AND UPPER(o.tipo_trabajo) NOT LIKE '%INSTALAC%') THEN 1 ELSE 0 END) AS cant_otras,
+        SUM(COALESCE(ol.drop_total_metros, 0)) AS metros_bobina,
+        COUNT(DISTINCT ol.id_liquidacion) AS liquidaciones_con_acta
+      FROM ordenes o
+      LEFT JOIN usuarios u ON (o.id_tecnico = u.id_usuario OR (o.tecnico_asignado IS NOT NULL AND CONCAT(u.nombres, ' ', u.apellidos) = o.tecnico_asignado))
+      LEFT JOIN orden_liquidaciones ol ON o.id_orden = ol.id_orden
+      ${whereSql}
+      GROUP BY id_tecnico, tecnico_nombre, u.foto_personal, cuadrilla
+      HAVING total_ordenes > 0
+      ORDER BY cant_recableados DESC, metros_bobina DESC, total_ordenes DESC
+    `, params);
+
+    // 2. Obtener los rollos conectorizados usados en el período
+    const [conecRows] = await pool.query(`
+      SELECT 
+        ol.id_trabajador,
+        t.id_usuario,
+        p.nombre AS producto,
+        d.cantidad,
+        ol.id_orden
+      FROM orden_liquidacion_detalle d
+      JOIN orden_liquidaciones ol ON d.id_liquidacion = ol.id_liquidacion
+      JOIN ordenes o ON ol.id_orden = o.id_orden
+      JOIN productos p ON d.id_producto = p.id_producto
+      LEFT JOIN trabajadores t ON ol.id_trabajador = t.id_trabajador
+      ${whereSql} AND (p.nombre LIKE '%CONECTORIZADO%' OR p.nombre LIKE '%DROP%50%' OR p.nombre LIKE '%DROP%100%' OR p.nombre LIKE '%DROP%150%' OR p.nombre LIKE '%DROP%200%')
+    `, params);
+
+    // Mapear conectorizados por técnico
+    const conecMap = {};
+    for (const c of conecRows) {
+      const key = c.id_usuario || c.id_trabajador || 'otro';
+      if (!conecMap[key]) {
+        conecMap[key] = {
+          total_rollos: 0,
+          metros_conectorizado: 0,
+          rollos_50: 0,
+          rollos_100: 0,
+          rollos_150: 0,
+          rollos_200: 0
+        };
+      }
+      const nom = (c.producto || '').toUpperCase();
+      const cant = Number(c.cantidad) || 1;
+      conecMap[key].total_rollos += cant;
+
+      let rollMts = 0;
+      if (/200\s*(M|MT)?\b|\*200/i.test(nom)) { rollMts = 200; conecMap[key].rollos_200 += cant; }
+      else if (/150\s*(M|MT)?\b|\*150/i.test(nom)) { rollMts = 150; conecMap[key].rollos_150 += cant; }
+      else if (/100\s*(M|MT)?\b|\*100/i.test(nom)) { rollMts = 100; conecMap[key].rollos_100 += cant; }
+      else if (/(?:^|[^\d])50\s*(M|MT)?\b|\*50/i.test(nom)) { rollMts = 50; conecMap[key].rollos_50 += cant; }
+      else { rollMts = 100; }
+
+      conecMap[key].metros_conectorizado += rollMts * cant;
+    }
+
+    // 3. Fusionar datos y calcular métricas por técnico
+    let totalRecableados = 0;
+    let totalTraslados = 0;
+    let totalAltas = 0;
+    let totalOtras = 0;
+    let totalMetrosBobina = 0;
+    let totalMetrosConectorizado = 0;
+    let totalRollosConectorizados = 0;
+
+    const tecnicosMatrix = rows.map(r => {
+      const cData = conecMap[r.id_tecnico] || { total_rollos: 0, metros_conectorizado: 0, rollos_50: 0, rollos_100: 0, rollos_150: 0, rollos_200: 0 };
+      const recabs = Number(r.cant_recableados) || 0;
+      const trasls = Number(r.cant_traslados) || 0;
+      const altas = Number(r.cant_altas) || 0;
+      const otras = Number(r.cant_otras) || 0;
+      const totOrds = Number(r.total_ordenes) || 0;
+      const mtsBobina = Number(r.metros_bobina) || 0;
+      const mtsConec = cData.metros_conectorizado || 0;
+      const totalFibraEfectiva = mtsBobina + mtsConec;
+
+      const ordsConDrop = recabs + trasls + altas;
+      const pctRecableado = totOrds > 0 ? ((recabs / totOrds) * 100).toFixed(1) : '0';
+      const promDropPorRecableado = recabs > 0 ? (totalFibraEfectiva / recabs).toFixed(1) : (ordsConDrop > 0 ? (totalFibraEfectiva / ordsConDrop).toFixed(1) : '0');
+
+      totalRecableados += recabs;
+      totalTraslados += trasls;
+      totalAltas += altas;
+      totalOtras += otras;
+      totalMetrosBobina += mtsBobina;
+      totalMetrosConectorizado += mtsConec;
+      totalRollosConectorizados += cData.total_rollos;
+
+      const recabsMasTrasls = recabs + trasls;
+      const pctRecableadosMasTraslados = totOrds > 0 ? parseFloat(((recabsMasTrasls / totOrds) * 100).toFixed(1)) : 0;
+
+      return {
+        id_tecnico: r.id_tecnico,
+        tecnico: r.tecnico_nombre,
+        foto_personal: r.foto_personal,
+        cuadrilla: r.cuadrilla,
+        total_ordenes: totOrds,
+        recableados: recabs,
+        traslados: trasls,
+        recableados_mas_traslados: recabsMasTrasls,
+        pct_recableados_mas_traslados: pctRecableadosMasTraslados,
+        altas: altas,
+        otras: otras,
+        ordenes_con_drop: ordsConDrop,
+        pct_recableado: parseFloat(pctRecableado),
+        metros_bobina: mtsBobina,
+        metros_conectorizado: mtsConec,
+        rollos_conectorizados: cData.total_rollos,
+        rollos_50: cData.rollos_50,
+        rollos_100: cData.rollos_100,
+        rollos_150: cData.rollos_150,
+        rollos_200: cData.rollos_200,
+        total_fibra_efectiva: totalFibraEfectiva,
+        prom_drop_por_recableado: parseFloat(promDropPorRecableado),
+        nivel_recableado: recabs >= 100 ? 'Alto 🔥' : recabs >= 35 ? 'Medio ⚡' : 'Normal 🟢'
+      };
+    });
+
+    // 4. Serie temporal para gráficos (Evolución diaria)
+    const [timeline] = await pool.query(`
+      SELECT 
+        DATE_FORMAT(o.fecha_visita, '%Y-%m-%d') AS fecha,
+        DATE_FORMAT(o.fecha_visita, '%d/%m') AS fecha_corta,
+        COUNT(o.id_orden) AS total_ordenes,
+        SUM(CASE WHEN UPPER(o.tipo_trabajo) LIKE '%RECABLE%' OR UPPER(COALESCE(ol.tipo_trabajo_acta,'')) LIKE '%RECABLE%' THEN 1 ELSE 0 END) AS recableados,
+        SUM(CASE WHEN UPPER(o.tipo_trabajo) LIKE '%TRASLAD%' OR UPPER(COALESCE(ol.tipo_trabajo_acta,'')) LIKE '%TRASLAD%' THEN 1 ELSE 0 END) AS traslados,
+        SUM(COALESCE(ol.drop_total_metros, 0)) AS metros_drop
+      FROM ordenes o
+      LEFT JOIN orden_liquidaciones ol ON o.id_orden = ol.id_orden
+      ${whereSql} AND o.fecha_visita IS NOT NULL
+      GROUP BY fecha, fecha_corta
+      ORDER BY fecha ASC
+      LIMIT 60
+    `, params);
+
+    const totalGeneralOrds = totalRecableados + totalTraslados + totalAltas + totalOtras;
+    const totalGeneralFibra = totalMetrosBobina + totalMetrosConectorizado;
+    const totalRecMasTraslados = totalRecableados + totalTraslados;
+
+    res.json({
+      success: true,
+      resumen: {
+        total_ordenes: totalGeneralOrds,
+        total_recableados: totalRecableados,
+        total_traslados: totalTraslados,
+        total_recableados_mas_traslados: totalRecMasTraslados,
+        pct_rec_mas_tras_general: totalGeneralOrds > 0 ? parseFloat(((totalRecMasTraslados / totalGeneralOrds) * 100).toFixed(1)) : 0,
+        total_altas: totalAltas,
+        total_otras: totalOtras,
+        pct_recableados_general: totalGeneralOrds > 0 ? parseFloat(((totalRecableados / totalGeneralOrds) * 100).toFixed(1)) : 0,
+        total_metros_bobina: totalMetrosBobina,
+        total_metros_conectorizado: totalMetrosConectorizado,
+        total_rollos_conectorizados: totalRollosConectorizados,
+        total_fibra_efectiva: totalGeneralFibra,
+        prom_metros_por_recableado: totalRecableados > 0 ? parseFloat((totalGeneralFibra / totalRecableados).toFixed(1)) : 0,
+        tecnico_lider_recableado: tecnicosMatrix[0] || null
+      },
+      ranking_tecnicos: tecnicosMatrix,
+      top_10_grafico: tecnicosMatrix.slice(0, 10).map(t => ({
+        tecnico: t.tecnico.split(' ')[0] + ' ' + (t.tecnico.split(' ')[1] || ''),
+        tecnico_completo: t.tecnico,
+        recableados: t.recableados,
+        traslados: t.traslados,
+        total_ordenes: t.total_ordenes,
+        metros_fibra: t.total_fibra_efectiva
+      })),
+      distribucion_tipos: [
+        { name: 'Recableados', value: totalRecableados, color: '#f97316' },
+        { name: 'Traslados', value: totalTraslados, color: '#3b82f6' },
+        { name: 'Altas / Inst.', value: totalAltas, color: '#10b981' },
+        { name: 'Otras Averías', value: totalOtras, color: '#94a3b8' }
+      ],
+      timeline: timeline
+    });
+  } catch (error) {
+    console.error("Error en /api/dashboard/matriz-recableados-drop:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ============================================================
 // 📊 ENDPOINT: EFECTIVIDAD MENSUAL AVERIAS VS POSTVENTA
 // ============================================================
 app.get('/api/dashboard/efectividad-mensual-averias-postventa', async (req, res) => {
@@ -11527,15 +12029,15 @@ app.post(['/api/correos/enviar-prueba', '/correos/enviar-prueba'], async (req, r
 // 🛡️ MÓDULO DE SUPERVISIÓN & CALIDAD (FICHAS DE CAMPO & AUDITORÍAS DE CLIENTE)
 // ============================================================================
 
-// 1. Obtener lista de técnicos para selector rápido (con DNI y Cuadrilla)
+// 1. Obtener lista de técnicos para selector rápido (con DNI y Cuadrilla) - SOLO ROL TÉCNICO
 app.get(['/api/supervision/tecnicos-combo', '/supervision/tecnicos-combo'], async (req, res) => {
   try {
     const [rows] = await pool.query(`
       SELECT 
         COALESCE(t.id_trabajador, u.id_usuario) as id_tecnico,
-        CONCAT(TRIM(COALESCE(u.nombres, '')), ' ', TRIM(COALESCE(u.apellidos, ''))) as tecnico,
+        CONCAT(TRIM(COALESCE(u.nombres, '')), ' ', TRIM(COALESCE(u.primer_apellido, u.apellidos, ''))) as tecnico,
         COALESCE(u.nombres, '') as nombres,
-        COALESCE(u.apellidos, '') as apellidos,
+        COALESCE(u.primer_apellido, u.apellidos, '') as apellidos,
         COALESCE(u.documento, '') as dni,
         COALESCE(u.cuadrilla, '') as cuadrilla,
         COALESCE(u.telefono, '') as celular,
@@ -11543,9 +12045,13 @@ app.get(['/api/supervision/tecnicos-combo', '/supervision/tecnicos-combo'], asyn
         COALESCE(u.tipo_servicio, '') as tipo_servicio
       FROM usuarios u
       LEFT JOIN trabajadores t ON t.id_usuario = u.id_usuario
+      LEFT JOIN roles r ON u.id_rol = r.id_rol
       WHERE u.estado = 'Activo'
-        AND (u.id_rol = 2 OR UPPER(COALESCE(u.cargo, '')) LIKE '%TECNIC%' OR UPPER(COALESCE(u.tipo_servicio, '')) LIKE '%CAMPO%' OR t.id_trabajador IS NOT NULL)
-      ORDER BY u.nombres ASC, u.apellidos ASC
+        AND (
+          u.id_rol = 2 
+          OR (UPPER(COALESCE(r.nombre, '')) LIKE '%TECNIC%' AND UPPER(COALESCE(r.nombre, '')) NOT LIKE '%ADMIN%')
+        )
+      ORDER BY u.nombres ASC, u.primer_apellido ASC
     `);
     res.json({ success: true, data: rows });
   } catch (error) {
@@ -11554,26 +12060,25 @@ app.get(['/api/supervision/tecnicos-combo', '/supervision/tecnicos-combo'], asyn
   }
 });
 
-// 1.1 Obtener lista de supervisores y coordinadores
+// 1.1 Obtener lista de supervisores y coordinadores - SOLO ROL SUPERVISIÓN
 app.get(['/api/supervision/supervisores-combo', '/supervision/supervisores-combo'], async (req, res) => {
   try {
     const [rows] = await pool.query(`
       SELECT 
-        id_usuario,
-        CONCAT(TRIM(COALESCE(nombres, '')), ' ', TRIM(COALESCE(apellidos, ''))) as supervisor,
-        usuario,
-        COALESCE(cargo, '') as cargo,
-        COALESCE(telefono, '') as telefono
-      FROM usuarios
-      WHERE estado = 'Activo'
+        u.id_usuario,
+        CONCAT(TRIM(COALESCE(u.nombres, '')), ' ', TRIM(COALESCE(u.primer_apellido, u.apellidos, ''))) as supervisor,
+        u.usuario,
+        COALESCE(r.nombre, u.cargo, 'SUPERVISOR') as cargo,
+        COALESCE(u.telefono, '') as telefono
+      FROM usuarios u
+      LEFT JOIN roles r ON u.id_rol = r.id_rol
+      WHERE u.estado = 'Activo'
         AND (
-          id_rol IN (1, 3, 4, 5)
-          OR UPPER(COALESCE(cargo, '')) LIKE '%SUPERVISOR%'
-          OR UPPER(COALESCE(cargo, '')) LIKE '%COORDINADOR%'
-          OR UPPER(COALESCE(cargo, '')) LIKE '%CALIDAD%'
-          OR UPPER(COALESCE(cargo, '')) LIKE '%ADMIN%'
+          u.id_rol = 6 
+          OR UPPER(COALESCE(r.nombre, '')) LIKE '%SUPERVIC%' 
+          OR UPPER(COALESCE(r.nombre, '')) LIKE '%SUPERVIS%'
         )
-      ORDER BY nombres ASC, apellidos ASC
+      ORDER BY u.nombres ASC, u.primer_apellido ASC
     `);
     res.json({ success: true, data: rows });
   } catch (error) {
@@ -11688,7 +12193,7 @@ app.get(['/api/supervision/campo/:id', '/supervision/campo/:id'], async (req, re
   }
 });
 
-// 4. Guardar / Actualizar ficha de supervisión en campo
+// 4. Guardar / Actualizar ficha de supervisión en campo (con soporte de fotos)
 app.post(['/api/supervision/campo', '/supervision/campo'], async (req, res) => {
   try {
     const {
@@ -11706,7 +12211,10 @@ app.post(['/api/supervision/campo', '/supervision/campo'], async (req, res) => {
       semaforo,
       items_json,
       observaciones,
-      firma_supervisor
+      firma_supervisor,
+      foto_epp_uniforme,
+      foto_herramientas,
+      foto_carro_limpio
     } = req.body;
 
     if (!tecnico || !fecha) {
@@ -11722,13 +12230,15 @@ app.post(['/api/supervision/campo', '/supervision/campo'], async (req, res) => {
           id_tecnico = ?, tecnico = ?, dni = ?, cuadrilla = ?, tipo_inspeccion = ?,
           fecha = ?, hora = ?, lugar_inspeccion = ?, supervisor = ?,
           cumplimiento_porcentaje = ?, semaforo = ?, items_json = ?,
-          observaciones = ?, firma_supervisor = ?
+          observaciones = ?, firma_supervisor = ?,
+          foto_epp_uniforme = ?, foto_herramientas = ?, foto_carro_limpio = ?
         WHERE id = ?`,
         [
           id_tecnico || null, tecnico, dni || null, cuadrilla || null, tipo_inspeccion || 'CAMPO_GENERAL',
           fecha, hora || null, lugar_inspeccion || null, supervisor || null,
           cumplimiento_porcentaje || 100, semaforo || 'verde', itemsStr,
           observaciones || null, firma_supervisor || null,
+          foto_epp_uniforme || null, foto_herramientas || null, foto_carro_limpio || null,
           id
         ]
       );
@@ -11740,13 +12250,15 @@ app.post(['/api/supervision/campo', '/supervision/campo'], async (req, res) => {
           id_tecnico, tecnico, dni, cuadrilla, tipo_inspeccion,
           fecha, hora, lugar_inspeccion, supervisor,
           cumplimiento_porcentaje, semaforo, items_json,
-          observaciones, firma_supervisor
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          observaciones, firma_supervisor,
+          foto_epp_uniforme, foto_herramientas, foto_carro_limpio
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id_tecnico || null, tecnico, dni || null, cuadrilla || null, tipo_inspeccion || 'CAMPO_GENERAL',
           fecha, hora || null, lugar_inspeccion || null, supervisor || null,
           cumplimiento_porcentaje || 100, semaforo || 'verde', itemsStr,
-          observaciones || null, firma_supervisor || null
+          observaciones || null, firma_supervisor || null,
+          foto_epp_uniforme || null, foto_herramientas || null, foto_carro_limpio || null
         ]
       );
       return res.json({ success: true, id: result.insertId, message: 'Supervisión guardada exitosamente' });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   ClipboardCheck,
   CheckCircle2,
@@ -20,7 +20,17 @@ import {
   Clock,
   MapPin,
   ChevronDown,
+  ChevronUp,
   FileText,
+  Camera,
+  UploadCloud,
+  Image as ImageIcon,
+  Trash2,
+  Eye,
+  Maximize2,
+  ShieldCheck,
+  Check,
+  X,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -47,11 +57,33 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
   // Search & autocomplete states
   const [searchTermTecnico, setSearchTermTecnico] = useState("");
   const [showTecnicoDropdown, setShowTecnicoDropdown] = useState(false);
+  const tecnicoContainerRef = useRef<HTMLDivElement>(null);
 
   const [searchOtTerm, setSearchOtTerm] = useState("");
   const [ordenesResultados, setOrdenesResultados] = useState<OrdenBusqueda[]>([]);
   const [showOtDropdown, setShowOtDropdown] = useState(false);
   const [isSearchingOt, setIsSearchingOt] = useState(false);
+  const otContainerRef = useRef<HTMLDivElement>(null);
+
+  // Click outside to close dropdowns
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        tecnicoContainerRef.current &&
+        !tecnicoContainerRef.current.contains(e.target as Node)
+      ) {
+        setShowTecnicoDropdown(false);
+      }
+      if (
+        otContainerRef.current &&
+        !otContainerRef.current.contains(e.target as Node)
+      ) {
+        setShowOtDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Form State
   const [selectedTipo, setSelectedTipo] = useState<TipoInspeccion>("CAMPO_GENERAL");
@@ -64,8 +96,18 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
     new Date().toTimeString().split(" ")[0].slice(0, 5)
   );
   const [lugarInspeccion, setLugarInspeccion] = useState("");
-  const [supervisor, setSupervisor] = useState("Supervisor de Calidad");
+  const [supervisor, setSupervisor] = useState("");
   const [observaciones, setObservaciones] = useState("");
+
+  // Fotos de Validación en Terreno
+  const [fotoEppUniforme, setFotoEppUniforme] = useState<string | null>(null);
+  const [fotoHerramientas, setFotoHerramientas] = useState<string | null>(null);
+  const [fotoCarroLimpio, setFotoCarroLimpio] = useState<string | null>(null);
+  const [modalFotoPreview, setModalFotoPreview] = useState<{ isOpen: boolean; url: string; titulo: string }>({
+    isOpen: false,
+    url: "",
+    titulo: "",
+  });
 
   // Items State (dynamically initialized by template)
   const [items, setItems] = useState<ItemChecklist[]>(() =>
@@ -91,7 +133,7 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
         ]);
         setTecnicosCombo(tecnicos);
         setSupervisoresCombo(supervisores);
-        if (supervisores.length > 0 && supervisor === "Supervisor de Calidad") {
+        if (supervisores.length > 0) {
           setSupervisor(supervisores[0].supervisor);
         }
       } catch (e) {
@@ -227,11 +269,55 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
     setItems((prev) => prev.map((it) => ({ ...it, cumple })));
   };
 
+  // Procesar y comprimir fotos cargadas
+  const procesarFoto = (file: File, callback: (base64: string) => void) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX_WIDTH = 1200;
+        const MAX_HEIGHT = 1200;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.78);
+          callback(compressedDataUrl);
+        }
+      };
+      if (typeof e.target?.result === "string") {
+        img.src = e.target.result;
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   // Reset Form
   const handleReset = () => {
     if (window.confirm("¿Deseas restablecer todos los ítems de esta ficha?")) {
       setItems(getItemsForTipo(selectedTipo));
       setObservaciones("");
+      setFotoEppUniforme(null);
+      setFotoHerramientas(null);
+      setFotoCarroLimpio(null);
       setSaveSuccess(false);
       setSaveError(null);
     }
@@ -262,6 +348,9 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
       semaforo: scoreStats.semaforo,
       items_json: items,
       observaciones: observaciones.trim() || undefined,
+      foto_epp_uniforme: fotoEppUniforme || undefined,
+      foto_herramientas: fotoHerramientas || undefined,
+      foto_carro_limpio: fotoCarroLimpio || undefined,
     };
 
     const res = await supervisionService.saveSupervisionCampo(payload);
@@ -445,7 +534,7 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
         </div>
 
         {/* OT / Orden Fast Search Assistant */}
-        <div className="bg-blue-50/70 border border-blue-200/80 rounded-2xl p-3.5 space-y-2">
+        <div ref={otContainerRef} className="bg-blue-50/70 border border-blue-200/80 rounded-2xl p-3.5 space-y-2 relative">
           <label className="block text-xs font-extrabold text-blue-900 flex items-center gap-1.5">
             <Search className="w-3.5 h-3.5 text-blue-600" />
             Vincular con Orden de Trabajo (Jalar datos de OT / Cliente / Técnico automáticamente)
@@ -454,27 +543,49 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
             <input
               type="text"
               value={searchOtTerm}
-              onChange={(e) => setSearchOtTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchOtTerm(e.target.value);
+                setShowOtDropdown(true);
+              }}
               onFocus={() => {
                 if (ordenesResultados.length > 0) setShowOtDropdown(true);
               }}
               placeholder="Ingresa N° de OT (ej. 3463541), Ticket (ej. VTEXT-...), Pedido o Cliente..."
-              className="w-full pl-9 pr-8 py-2 text-xs md:text-sm bg-white border border-blue-300 rounded-xl focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
+              className="w-full pl-9 pr-14 py-2 text-xs md:text-sm bg-white border border-blue-300 rounded-xl focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
             />
             <Search className="w-4 h-4 text-blue-400 absolute left-3 top-2.5" />
-            {isSearchingOt && (
-              <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin absolute right-3 top-2.5" />
-            )}
+            <div className="absolute right-2.5 top-2 flex items-center gap-1">
+              {isSearchingOt && (
+                <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+              )}
+              {searchOtTerm && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchOtTerm("");
+                    setOrdenesResultados([]);
+                    setShowOtDropdown(false);
+                  }}
+                  className="p-1 text-slate-400 hover:text-slate-600 rounded-md cursor-pointer"
+                  title="Limpiar búsqueda"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Orders Autocomplete Dropdown */}
           {showOtDropdown && ordenesResultados.length > 0 && (
-            <div className="bg-white border border-blue-200 rounded-xl shadow-xl max-h-56 overflow-y-auto z-30 divide-y divide-slate-100">
+            <div className="absolute left-3.5 right-3.5 top-full mt-1 bg-white border border-blue-200 rounded-xl shadow-2xl max-h-56 overflow-y-auto z-50 divide-y divide-slate-100">
               {ordenesResultados.map((ord) => (
                 <button
                   key={ord.id_orden}
                   type="button"
-                  onClick={() => handleSelectOrden(ord)}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    handleSelectOrden(ord);
+                  }}
                   className="w-full text-left p-2.5 hover:bg-blue-50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs cursor-pointer"
                 >
                   <div>
@@ -504,7 +615,7 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
         {/* Technician, Cuadrilla, DNI Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {/* Autocomplete Technician */}
-          <div className="relative">
+          <div ref={tecnicoContainerRef} className="relative">
             <label className="block text-xs font-bold text-slate-700 mb-1">
               Técnico Evaluado *
             </label>
@@ -519,31 +630,72 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
                 }}
                 onFocus={() => setShowTecnicoDropdown(true)}
                 placeholder="Buscar por Nombre o DNI..."
-                className="w-full pl-8 pr-3 py-2 text-xs md:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 font-medium"
+                className="w-full pl-8 pr-16 py-2 text-xs md:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 font-medium"
               />
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-3" />
+
+              <div className="absolute right-2 top-2 flex items-center gap-0.5">
+                {(searchTermTecnico || tecnicoName) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchTermTecnico("");
+                      setTecnicoName("");
+                      setSelectedTecnico(null);
+                      setDni("");
+                      setCuadrilla("");
+                      setShowTecnicoDropdown(false);
+                    }}
+                    className="p-1 text-slate-400 hover:text-slate-600 rounded-md cursor-pointer"
+                    title="Limpiar técnico"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowTecnicoDropdown((prev) => !prev)}
+                  className="p-1 text-slate-400 hover:text-blue-600 rounded-md cursor-pointer"
+                  title="Mostrar/Ocultar lista"
+                >
+                  {showTecnicoDropdown ? (
+                    <ChevronUp className="w-4 h-4" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
             </div>
 
-            {showTecnicoDropdown && filteredTecnicos.length > 0 && (
-              <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-52 overflow-y-auto divide-y divide-slate-50">
-                {filteredTecnicos.map((t) => (
-                  <button
-                    key={t.id_tecnico}
-                    type="button"
-                    onClick={() => handleSelectTecnico(t)}
-                    className="w-full text-left px-3 py-2 hover:bg-blue-50 flex items-center justify-between text-xs transition-colors cursor-pointer"
-                  >
-                    <div>
-                      <div className="font-bold text-slate-800">{t.tecnico}</div>
-                      <div className="text-[10px] text-slate-400">
-                        DNI: {t.dni || "—"} · Cel: {t.celular || "—"}
+            {showTecnicoDropdown && (
+              <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-2xl max-h-56 overflow-y-auto divide-y divide-slate-50">
+                {filteredTecnicos.length > 0 ? (
+                  filteredTecnicos.map((t) => (
+                    <button
+                      key={t.id_tecnico}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleSelectTecnico(t);
+                      }}
+                      className="w-full text-left px-3 py-2 hover:bg-blue-50 flex items-center justify-between text-xs transition-colors cursor-pointer"
+                    >
+                      <div>
+                        <div className="font-bold text-slate-800">{t.tecnico}</div>
+                        <div className="text-[10px] text-slate-400">
+                          DNI: {t.dni || "—"} · Cel: {t.celular || "—"}
+                        </div>
                       </div>
-                    </div>
-                    <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded">
-                      {t.cuadrilla || "S/C"}
-                    </span>
-                  </button>
-                ))}
+                      <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded">
+                        {t.cuadrilla || "S/C"}
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <div className="p-3 text-center text-xs text-slate-400 italic">
+                    No se encontraron técnicos
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -633,10 +785,9 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
             >
               {supervisoresCombo.map((sup) => (
                 <option key={sup.id_usuario} value={sup.supervisor}>
-                  {sup.supervisor} ({sup.cargo || "Supervisor"})
+                  {sup.supervisor} ({sup.cargo || "SUPERVISOR"})
                 </option>
               ))}
-              <option value="Supervisor de Calidad">Supervisor de Calidad (General)</option>
             </select>
             <input
               type="text"
@@ -799,7 +950,278 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
         })}
       </div>
 
-      {/* 4. General Observations & Action Bar */}
+      {/* 4. Evidencias Fotográficas de Validación */}
+      <div className="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-slate-200 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <Camera className="w-5 h-5 text-indigo-600" />
+            <h3 className="font-extrabold text-slate-800 text-sm md:text-base">
+              4. Evidencias Fotográficas de Validación en Terreno
+            </h3>
+          </div>
+          <span className="text-[11px] text-slate-500 font-medium bg-slate-100 px-2.5 py-1 rounded-full">
+            Registro visual del supervisor
+          </span>
+        </div>
+
+        <p className="text-xs text-slate-500">
+          El supervisor debe registrar las evidencias fotográficas de validación para certificar que el técnico cumple con los implementos, herramientas en regla y vehículo en condiciones óptimas.
+        </p>
+
+        {/* 3 Photo Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+          {/* Card 1: EPP e Implementos */}
+          <div className="border border-slate-200 rounded-2xl p-4 bg-gradient-to-b from-slate-50/50 to-white flex flex-col justify-between relative group hover:border-indigo-300 transition-all">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
+                    <HardHat className="w-4 h-4" />
+                  </div>
+                  <span className="font-extrabold text-xs text-slate-800">
+                    Técnico con Implementos
+                  </span>
+                </div>
+                {fotoEppUniforme ? (
+                  <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <Check className="w-3 h-3" /> Subida
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                    Pendiente
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500 leading-tight">
+                Foto de cuerpo completo con uniforme, EPP, chaleco, casco, guantes y calzado reglamentario.
+              </p>
+            </div>
+
+            <div className="mt-3">
+              {fotoEppUniforme ? (
+                <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-black/5 aspect-4/3 flex items-center justify-center group/img">
+                  <img
+                    src={fotoEppUniforme}
+                    alt="Técnico con Implementos"
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setModalFotoPreview({
+                          isOpen: true,
+                          url: fotoEppUniforme,
+                          titulo: "Foto del Técnico con Implementos y EPP",
+                        })
+                      }
+                      className="p-2 bg-white/90 hover:bg-white text-slate-800 rounded-lg shadow text-xs font-bold flex items-center gap-1 cursor-pointer"
+                      title="Ver en grande"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFotoEppUniforme(null)}
+                      className="p-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow text-xs font-bold flex items-center gap-1 cursor-pointer"
+                      title="Eliminar foto"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <label className="border-2 border-dashed border-slate-300 hover:border-blue-500 bg-white hover:bg-blue-50/50 rounded-xl p-4 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors aspect-4/3">
+                  <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
+                    <Camera className="w-5 h-5" />
+                  </div>
+                  <span className="text-xs font-bold text-blue-700 text-center">
+                    Tomar / Subir Foto EPP
+                  </span>
+                  <span className="text-[10px] text-slate-400">JPG, PNG (Auto comprimido)</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) procesarFoto(file, setFotoEppUniforme);
+                    }}
+                  />
+                </label>
+              )}
+            </div>
+          </div>
+
+          {/* Card 2: Herramientas y Equipos */}
+          <div className="border border-slate-200 rounded-2xl p-4 bg-gradient-to-b from-slate-50/50 to-white flex flex-col justify-between relative group hover:border-indigo-300 transition-all">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
+                    <Wrench className="w-4 h-4" />
+                  </div>
+                  <span className="font-extrabold text-xs text-slate-800">
+                    Herramientas y Equipos
+                  </span>
+                </div>
+                {fotoHerramientas ? (
+                  <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <Check className="w-3 h-3" /> Subida
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                    Pendiente
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500 leading-tight">
+                Foto de maleta/caja de herramientas ordenadas, fusionadora, OTDR, peladoras y escaleras.
+              </p>
+            </div>
+
+            <div className="mt-3">
+              {fotoHerramientas ? (
+                <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-black/5 aspect-4/3 flex items-center justify-center group/img">
+                  <img
+                    src={fotoHerramientas}
+                    alt="Herramientas y Equipos"
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setModalFotoPreview({
+                          isOpen: true,
+                          url: fotoHerramientas,
+                          titulo: "Foto de Herramientas y Equipos",
+                        })
+                      }
+                      className="p-2 bg-white/90 hover:bg-white text-slate-800 rounded-lg shadow text-xs font-bold flex items-center gap-1 cursor-pointer"
+                      title="Ver en grande"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFotoHerramientas(null)}
+                      className="p-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow text-xs font-bold flex items-center gap-1 cursor-pointer"
+                      title="Eliminar foto"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <label className="border-2 border-dashed border-slate-300 hover:border-amber-500 bg-white hover:bg-amber-50/50 rounded-xl p-4 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors aspect-4/3">
+                  <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center text-amber-600">
+                    <Camera className="w-5 h-5" />
+                  </div>
+                  <span className="text-xs font-bold text-amber-700 text-center">
+                    Tomar / Subir Herramientas
+                  </span>
+                  <span className="text-[10px] text-slate-400">JPG, PNG (Auto comprimido)</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) procesarFoto(file, setFotoHerramientas);
+                    }}
+                  />
+                </label>
+              )}
+            </div>
+          </div>
+
+          {/* Card 3: Carro Limpio y Ordenado */}
+          <div className="border border-slate-200 rounded-2xl p-4 bg-gradient-to-b from-slate-50/50 to-white flex flex-col justify-between relative group hover:border-indigo-300 transition-all">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                    <Truck className="w-4 h-4" />
+                  </div>
+                  <span className="font-extrabold text-xs text-slate-800">
+                    Carro Limpio y Ordenado
+                  </span>
+                </div>
+                {fotoCarroLimpio ? (
+                  <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <Check className="w-3 h-3" /> Subida
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                    Pendiente
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500 leading-tight">
+                Foto del vehículo de la cuadrilla limpio interior/exterior, stock ordenado, conos y extintor.
+              </p>
+            </div>
+
+            <div className="mt-3">
+              {fotoCarroLimpio ? (
+                <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-black/5 aspect-4/3 flex items-center justify-center group/img">
+                  <img
+                    src={fotoCarroLimpio}
+                    alt="Carro Limpio y Ordenado"
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setModalFotoPreview({
+                          isOpen: true,
+                          url: fotoCarroLimpio,
+                          titulo: "Foto del Carro Limpio y Ordenado",
+                        })
+                      }
+                      className="p-2 bg-white/90 hover:bg-white text-slate-800 rounded-lg shadow text-xs font-bold flex items-center gap-1 cursor-pointer"
+                      title="Ver en grande"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFotoCarroLimpio(null)}
+                      className="p-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow text-xs font-bold flex items-center gap-1 cursor-pointer"
+                      title="Eliminar foto"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <label className="border-2 border-dashed border-slate-300 hover:border-emerald-500 bg-white hover:bg-emerald-50/50 rounded-xl p-4 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors aspect-4/3">
+                  <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600">
+                    <Camera className="w-5 h-5" />
+                  </div>
+                  <span className="text-xs font-bold text-emerald-700 text-center">
+                    Tomar / Subir Carro Limpio
+                  </span>
+                  <span className="text-[10px] text-slate-400">JPG, PNG (Auto comprimido)</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) procesarFoto(file, setFotoCarroLimpio);
+                    }}
+                  />
+                </label>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 5. General Observations & Action Bar */}
       <div className="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-slate-200 space-y-4">
         <div>
           <label className="block text-xs font-bold text-slate-800 mb-1.5">
@@ -877,6 +1299,50 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
           </button>
         </div>
       </div>
+
+      {/* Modal Preview Photo Full Size */}
+      {modalFotoPreview.isOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setModalFotoPreview({ isOpen: false, url: "", titulo: "" })}
+        >
+          <div
+            className="bg-white rounded-3xl overflow-hidden max-w-3xl w-full shadow-2xl flex flex-col max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
+              <span className="font-extrabold text-sm flex items-center gap-2">
+                <Camera className="w-4 h-4 text-blue-400" />
+                {modalFotoPreview.titulo}
+              </span>
+              <button
+                type="button"
+                onClick={() => setModalFotoPreview({ isOpen: false, url: "", titulo: "" })}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-4 bg-slate-950 flex items-center justify-center overflow-auto flex-1">
+              <img
+                src={modalFotoPreview.url}
+                alt={modalFotoPreview.titulo}
+                className="max-h-[70vh] w-auto rounded-xl object-contain shadow-lg"
+              />
+            </div>
+            <div className="p-3 bg-slate-100 flex items-center justify-between text-xs text-slate-600">
+              <span>Fotografía de verificación en campo</span>
+              <button
+                type="button"
+                onClick={() => setModalFotoPreview({ isOpen: false, url: "", titulo: "" })}
+                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl cursor-pointer"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -369,3 +369,26 @@ export const actualizarPreciosCompra = async (
   const res = await api.put(`/almacen/compras/${idCompra}/precios`, { items });
   return res.data;
 };
+
+// --- 📊 KARDEX & MOVIMIENTOS GENERALES ---
+export const getKardexMovimientos = async (params?: {
+  fechaDesde?: string;
+  fechaHasta?: string;
+  tipo?: string;
+  subtipo?: string;
+  idProducto?: number;
+  idCategoria?: number;
+  idTrabajador?: number;
+  search?: string;
+}) => {
+  const res = await api.get("/almacen/kardex-movimientos", { params });
+  return res.data;
+};
+
+export const ajustarMaterialLiquidacion = async (
+  idLiquidacion: number | string,
+  payload: { id_detalle_liq: number; nueva_cantidad: number; motivo?: string }
+) => {
+  const res = await api.put(`/almacen/orden-liquidaciones/${idLiquidacion}/ajustar-material`, payload);
+  return res.data;
+};

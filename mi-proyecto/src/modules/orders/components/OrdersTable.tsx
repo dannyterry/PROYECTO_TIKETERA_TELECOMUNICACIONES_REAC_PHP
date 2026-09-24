@@ -3,7 +3,7 @@ import { Order } from "../types/Order";
 import { getRowColorByStatus, getBadgeColorByStatus } from "../utils/statusColors";
 import { extractCuadrillaKey, extractCuadrillaMemberName } from "../utils/cuadrillaUtils";
 import { mapTipificacionWinToTipoTrabajo, matchWithCatalog, TIPOS_TRABAJO_CATALOGO } from "../utils/tipoTrabajoMapper";
-import { Phone, Copy, Check, Activity, Eye, ExternalLink, FileText, UserPlus, Users, Edit2, X, User, CheckCircle2, RotateCcw, ShieldCheck } from "lucide-react";
+import { Phone, Copy, Check, Activity, Eye, ExternalLink, FileText, UserPlus, Users, Edit2, X, User, CheckCircle2, RotateCcw, ShieldCheck, ChevronDown, Sparkles } from "lucide-react";
 import { LookerCardsAlertBanner } from "./LookerCardsAlertBanner";
 
 interface OrdersTableProps {
@@ -93,6 +93,192 @@ const InconcertToggleButton: React.FC<{
       <span className="w-1.5 h-1.5 bg-white rounded-full shrink-0"></span>
       <span>{localVal ? "Sí" : "No"}</span>
     </button>
+  );
+});
+
+/**
+ * 📋 Plantillas de Observaciones de Llamada Más Frecuentes y Bien Redactadas
+ */
+export const OBSERVACIONES_LLAMADA_PRESETS = [
+  {
+    categoria: "Sin Contacto / No Contesta",
+    icono: "🔴",
+    opciones: [
+      "Cliente no contesta (se llamó 3 veces)",
+      "Cliente no contesta / llamada envía a buzón",
+      "Cliente corta la llamada / número ocupado",
+      "Número equivocado / fuera de servicio"
+    ]
+  },
+  {
+    categoria: "A la Espera en Domicilio",
+    icono: "⏳",
+    opciones: [
+      "Cliente a la espera del técnico en el domicilio",
+      "Cliente a la espera en el rango horario pactado",
+      "Cliente se encontrará en su domicilio en el rango"
+    ]
+  },
+  {
+    categoria: "Coordinación con Técnico",
+    icono: "👷",
+    opciones: [
+      "Cliente indica que técnico ya se comunicó con él",
+      "Cliente indica que técnico ya está en camino",
+      "Cliente indica que técnico ya se encuentra en domicilio",
+      "Cliente ya se encuentra con el técnico realizando servicio"
+    ]
+  },
+  {
+    categoria: "Reprogramación / Horarios",
+    icono: "🗓️",
+    opciones: [
+      "Cliente solicita reprogramar la visita",
+      "Cliente indica que atenderá en el 1er tramo (8am - 1pm)",
+      "Cliente indica que atenderá en el 2do tramo (1pm - 6pm)",
+      "Cliente contesta y cancela la visita"
+    ]
+  },
+  {
+    categoria: "Conformidad / Solucionado",
+    icono: "✅",
+    opciones: [
+      "Cliente conforme con el servicio",
+      "Cliente indica que avería ya fue solucionada",
+      "Cliente valida que técnico dejó el servicio operativo"
+    ]
+  }
+];
+
+/**
+ * 💡 Componente de Entrada de Observación de Llamada con Autocompletado + Desplegable
+ */
+const ObservacionLlamadaCell: React.FC<{
+  orderId: number;
+  initialValue?: string;
+  onUpdate?: (orderId: number, value: string) => void;
+}> = React.memo(({ orderId, initialValue = "", onUpdate }) => {
+  const [val, setVal] = useState(initialValue);
+  const [open, setOpen] = useState(false);
+  const dropdownRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    setVal(initialValue || "");
+  }, [initialValue]);
+
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    if (open) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [open]);
+
+  const handleSelect = (text: string) => {
+    setVal(text);
+    setOpen(false);
+    if (onUpdate) {
+      onUpdate(orderId, text);
+    }
+  };
+
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    const newVal = e.target.value;
+    if (newVal !== initialValue && onUpdate) {
+      onUpdate(orderId, newVal);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      (e.target as HTMLInputElement).blur();
+    }
+  };
+
+  return (
+    <div className="relative inline-block w-46" ref={dropdownRef} onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center bg-white/95 border border-slate-300 rounded shadow-2xs focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500 h-5">
+        <input
+          type="text"
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          onBlur={handleBlur}
+          onKeyDown={handleKeyDown}
+          list="datalist-observaciones-llamada"
+          placeholder="Escribir observación..."
+          className="w-full text-[10px] font-medium text-slate-800 bg-transparent px-1.5 py-0 focus:outline-hidden truncate"
+          title={val}
+        />
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen((prev) => !prev);
+          }}
+          className="px-1 text-slate-400 hover:text-indigo-600 cursor-pointer transition-colors shrink-0 h-full flex items-center justify-center border-l border-slate-200/80"
+          title="Ver observaciones sugeridas"
+        >
+          <ChevronDown size={10} className={`transition-transform duration-200 ${open ? "rotate-180 text-indigo-600" : ""}`} />
+        </button>
+      </div>
+
+      {open && (
+        <div
+          className="fixed z-9999 bg-white rounded-xl shadow-2xl border border-slate-200 p-2 text-left w-72 max-h-72 overflow-y-auto space-y-2 animate-in fade-in zoom-in-95 duration-100"
+          style={{
+            top: dropdownRef.current ? dropdownRef.current.getBoundingClientRect().bottom + 4 : 0,
+            left: dropdownRef.current ? Math.min(dropdownRef.current.getBoundingClientRect().left, window.innerWidth - 300) : 0
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between pb-1 border-b border-slate-100 text-[11px] font-bold text-slate-700">
+            <span className="flex items-center gap-1 text-indigo-600">
+              <Sparkles size={12} /> Observaciones Frecuentes
+            </span>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+            >
+              <X size={12} />
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            {OBSERVACIONES_LLAMADA_PRESETS.map((cat, idx) => (
+              <div key={idx} className="space-y-1">
+                <span className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block">
+                  {cat.icono} {cat.categoria}
+                </span>
+                <div className="space-y-0.5">
+                  {cat.opciones.map((op, oIdx) => (
+                    <button
+                      key={oIdx}
+                      type="button"
+                      onClick={() => handleSelect(op)}
+                      className={`w-full text-left px-2 py-1 rounded-md text-[10px] font-medium transition-colors flex items-center justify-between gap-1 cursor-pointer ${
+                        val === op
+                          ? "bg-indigo-50 text-indigo-900 font-bold border border-indigo-200"
+                          : "text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      <span className="truncate">{op}</span>
+                      {val === op && <Check size={11} className="text-indigo-600 shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 });
 
@@ -327,6 +513,13 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
       {/* 🚨 TARJETA / BANNER DE ALERTAS LOOKER STUDIO (3 TARJETAS + ZONAS SUR) */}
       <LookerCardsAlertBanner />
 
+      {/* 📋 DATALIST GLOBAL PARA AUTOCOMPLETADO DE OBSERVACIONES DE LLAMADA */}
+      <datalist id="datalist-observaciones-llamada">
+        {OBSERVACIONES_LLAMADA_PRESETS.flatMap((c) => c.opciones).map((op, i) => (
+          <option key={i} value={op} />
+        ))}
+      </datalist>
+
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto custom-scrollbar">
         <table className="w-full text-[11px] border-separate border-spacing-0 whitespace-nowrap">
           {/* CABECERA DE LA TABLA COMPACTA ESTILO EXCEL */}
@@ -445,7 +638,7 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                 Total Drop
               </th>
               {/* 29 */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
+              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950 w-[110px] min-w-[100px] max-w-[120px] whitespace-nowrap">
                 Ancho de Banda
               </th>
             </tr>
@@ -532,20 +725,12 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                       />
                     </td>
 
-                    {/* 4. Observación de Llamada (Caja para llenar) */}
-                    <td className="py-0.5 px-1.5 border-b border-slate-950" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="text"
-                        defaultValue={order.observacionLlamada || ""}
-                        placeholder="Escribir observación..."
-                        onBlur={(e) => onUpdateObservacionLlamada && onUpdateObservacionLlamada(order.id, e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            (e.target as HTMLInputElement).blur();
-                          }
-                        }}
-                        className="w-44 h-5 text-[10.5px] font-medium bg-white/95 border border-slate-300 rounded px-1.5 py-0 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 shadow-2xs truncate"
-                        title={order.observacionLlamada}
+                    {/* 4. Observación de Llamada (Autocompletado + Desplegable de Plantillas Frecuentes) */}
+                    <td className="py-0.5 px-1 border-b border-slate-950" onClick={(e) => e.stopPropagation()}>
+                      <ObservacionLlamadaCell
+                        orderId={order.id}
+                        initialValue={order.observacionLlamada}
+                        onUpdate={onUpdateObservacionLlamada}
                       />
                     </td>
 
@@ -1238,8 +1423,13 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                     </td>
 
                     {/* 29. Suscripción Ancho de Banda */}
-                    <td className="py-1 px-1.5 text-center font-mono border-b border-slate-950">
-                      {order.anchoBanda || "-"}
+                    <td
+                      className="py-1 px-1.5 text-center font-mono border-b border-slate-950 w-[110px] min-w-[100px] max-w-[120px] truncate"
+                      title={order.anchoBanda || ""}
+                    >
+                      <span className="block truncate max-w-[110px]">
+                        {order.anchoBanda || "-"}
+                      </span>
                     </td>
 
                   </tr>

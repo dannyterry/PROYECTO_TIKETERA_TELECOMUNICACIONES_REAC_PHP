@@ -50,6 +50,10 @@ const CATALOGO_AREAS: Record<
         nombre: "Portal Móvil del Técnico (Campo)",
         acciones: ["ver", "ver_stock"],
       },
+      supervision: {
+        nombre: "Supervisión & Control de Calidad",
+        acciones: ["ver", "crear", "editar", "eliminar", "exportar"],
+      },
     },
   },
   rrhh: {

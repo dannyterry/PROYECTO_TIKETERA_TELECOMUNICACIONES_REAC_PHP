@@ -25,7 +25,8 @@ import {
   FileText,
   User,
   Info,
-  XCircle
+  XCircle,
+  Edit2
 } from "lucide-react";
 import {
   LiquidacionOrdenAudit,
@@ -36,7 +37,8 @@ import {
   getLiquidacionesOrdenesAudit,
   aprobarLiquidacionOrden,
   rechazarLiquidacionOrden,
-  aprobarMasivoLiquidaciones
+  aprobarMasivoLiquidaciones,
+  ajustarMaterialLiquidacion
 } from "../services/inventoryService";
 
 export const getDropConectorizadoInfo = (materiales?: any[]) => {
@@ -52,12 +54,12 @@ export const getDropConectorizadoInfo = (materiales?: any[]) => {
   if (!match) return null;
   const nom = String(match.nombre_producto || match.nombre || "").toUpperCase();
   let metrosRollo = 0;
-  if (nom.includes("50")) metrosRollo = 50;
-  else if (nom.includes("100")) metrosRollo = 100;
-  else if (nom.includes("150")) metrosRollo = 150;
-  else if (nom.includes("200")) metrosRollo = 200;
+  if (/200\s*(M|MT)?\b|\*200/i.test(nom)) metrosRollo = 200;
+  else if (/150\s*(M|MT)?\b|\*150/i.test(nom)) metrosRollo = 150;
+  else if (/100\s*(M|MT)?\b|\*100/i.test(nom)) metrosRollo = 100;
+  else if (/(?:^|[^\d])50\s*(M|MT)?\b|\*50/i.test(nom)) metrosRollo = 50;
   else {
-    const numMatch = nom.match(/(\d+)/);
+    const numMatch = nom.match(/(\d+)\s*(?:M|MT)?/i);
     if (numMatch) metrosRollo = parseInt(numMatch[1], 10);
   }
   const cantidad = Number(match.cantidad) || 1;
@@ -96,8 +98,77 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
   const [motivoRechazo, setMotivoRechazo] = useState<string>("");
   const [mostrandoRechazoInput, setMostrandoRechazoInput] = useState<boolean>(false);
 
+  // Estados para corrección rápida de cantidad de materiales en auditoría
+  const [editingMatId, setEditingMatId] = useState<number | null>(null);
+  const [editingMatCant, setEditingMatCant] = useState<string>("");
+  const [ajusteFeedback, setAjusteFeedback] = useState<{ msg: string; tipo: "success" | "error" } | null>(null);
+
   // Modal de confirmación para aprobación masiva
   const [modalMasivoAbierto, setModalMasivoAbierto] = useState<boolean>(false);
+
+  const handleGuardarAjusteMaterial = async (mat: MaterialLiquidadoAudit) => {
+    if (!modalLiq) return;
+    const nCant = parseInt(editingMatCant, 10);
+    if (isNaN(nCant) || nCant < 0) {
+      alert("Por favor ingrese una cantidad válida (número entero >= 0).");
+      return;
+    }
+    if (nCant === mat.cantidad) {
+      setEditingMatId(null);
+      return;
+    }
+
+    const conf = window.confirm(
+      `¿Deseas cambiar la cantidad de "${mat.nombre_producto}" de ${mat.cantidad} a ${nCant} UND?\n\nEl sistema ajustará y recalibrará automáticamente el stock en la camioneta del técnico.`
+    );
+    if (!conf) return;
+
+    setProcesandoAccion(true);
+    try {
+      const res = await ajustarMaterialLiquidacion(modalLiq.id_liquidacion, {
+        id_detalle_liq: mat.id_detalle_liq,
+        nueva_cantidad: nCant,
+        motivo: `Corrección de cantidad de ${mat.cantidad} a ${nCant} UND por Auditoría de Almacén`
+      });
+
+      if (res && res.success) {
+        setAjusteFeedback({ msg: res.message || "Material y stock actualizados correctamente.", tipo: "success" });
+        setTimeout(() => setAjusteFeedback(null), 6000);
+
+        // Actualizar localmente el material en modalLiq
+        const nuevosMats = modalLiq.materiales
+          .map((m) => {
+            if (m.id_detalle_liq === mat.id_detalle_liq) {
+              return {
+                ...m,
+                cantidad: nCant,
+                costo: nCant * Number(m.precio_compra || 0)
+              };
+            }
+            return m;
+          })
+          .filter((m) => m.cantidad > 0);
+
+        const nuevoTotalCosto = nuevosMats.reduce((acc, m) => acc + (Number(m.costo) || 0), 0);
+        setModalLiq({
+          ...modalLiq,
+          materiales: nuevosMats,
+          total_costo: nuevoTotalCosto,
+          total_items: nuevosMats.length
+        });
+
+        setEditingMatId(null);
+        await cargarDatos();
+      } else {
+        alert(res?.error || "No se pudo actualizar el material.");
+      }
+    } catch (err: any) {
+      console.error("Error al ajustar material:", err);
+      alert(err.response?.data?.error || err.message || "Error al actualizar material.");
+    } finally {
+      setProcesandoAccion(false);
+    }
+  };
 
   // Cargar datos
   const cargarDatos = async () => {
@@ -764,14 +835,19 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
             
             {/* Header Modal */}
             <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-5 flex items-center justify-between shrink-0">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="px-2.5 py-0.5 rounded-md bg-indigo-500/30 border border-indigo-400/40 text-[11px] font-bold font-mono">
                     Orden #{modalLiq.numero_orden}
                   </span>
                   <span className="px-2.5 py-0.5 rounded-md bg-white/10 text-[11px] font-semibold">
                     Acta: {modalLiq.numero_acta || "Sin Acta"}
                   </span>
+                  {(modalLiq.tipo_trabajo_acta || modalLiq.tipo_trabajo) && (
+                    <span className="px-2.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 text-[11px] font-bold uppercase tracking-wider">
+                      {modalLiq.tipo_trabajo_acta || modalLiq.tipo_trabajo}
+                    </span>
+                  )}
                 </div>
                 <h3 className="text-base font-black tracking-tight text-white">
                   Auditoría de Liquidación Técnica WIN
@@ -821,6 +897,22 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                     DNI: {modalLiq.tecnico_dni || "No registrado"}
                   </span>
                 </div>
+
+                {/* Tipo de Trabajo / Liquidación */}
+                <div className="sm:col-span-2 pt-2 border-t border-slate-200/60 flex items-center justify-between flex-wrap gap-2 text-[11px]">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-500 font-bold uppercase text-[10px]">Tipo de Liquidación:</span>
+                    <span className="font-extrabold text-indigo-900 bg-indigo-50 border border-indigo-200/80 px-2 py-0.5 rounded-md uppercase">
+                      {modalLiq.tipo_trabajo_acta || modalLiq.tipo_trabajo || "Liquidación Técnica"}
+                    </span>
+                  </div>
+                  {modalLiq.tipo_conexion && (
+                    <span className="text-slate-500">
+                      Conexión: <strong className="text-slate-800 font-semibold">{modalLiq.tipo_conexion}</strong>
+                    </span>
+                  )}
+                </div>
+
                 {/* Fechas de Orden y Liquidación */}
                 <div className="sm:col-span-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-600 font-mono">
                   <span>
@@ -834,6 +926,12 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                   <div className="sm:col-span-2 pt-1 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
                     <span>CTO: <strong className="text-slate-800 font-mono">{modalLiq.cto}</strong></span>
                     <span>Puerto: <strong className="text-slate-800 font-mono">{modalLiq.puerto || "-"}</strong></span>
+                  </div>
+                )}
+                {modalLiq.observaciones_tecnico && (
+                  <div className="sm:col-span-2 pt-1.5 border-t border-slate-200/60 text-[11px] bg-slate-100/70 p-2.5 rounded-xl">
+                    <span className="text-slate-500 font-bold text-[10px] uppercase block mb-0.5">Observación del Técnico:</span>
+                    <span className="italic text-slate-800 font-medium leading-relaxed">"{modalLiq.observaciones_tecnico}"</span>
                   </div>
                 )}
               </div>
@@ -868,9 +966,15 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                             ✓ Bobina Continua ({modalLiq.drop_total_metros}m)
                           </span>
                         )}
-                        <span className="px-2 py-0.5 rounded-md bg-white/10 text-slate-300 text-[10px] font-mono font-bold">
-                          Límite: {modalLiq.max_drop_permitido || 120}m
-                        </span>
+                        {hasBobinaDrop ? (
+                          <span className="px-2 py-0.5 rounded-md bg-white/10 text-slate-300 text-[10px] font-mono font-bold">
+                            Límite Bobina: {modalLiq.max_drop_permitido || 120}m
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 text-[10px] font-mono font-bold">
+                            Despacho por Unidad
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -935,6 +1039,25 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                   </span>
                 </div>
 
+                {ajusteFeedback && (
+                  <div
+                    className={`p-3 rounded-xl text-xs font-semibold flex items-center justify-between animate-fade-in ${
+                      ajusteFeedback.tipo === "success"
+                        ? "bg-emerald-50 text-emerald-900 border border-emerald-300"
+                        : "bg-rose-50 text-rose-900 border border-rose-300"
+                    }`}
+                  >
+                    <span>{ajusteFeedback.msg}</span>
+                    <button
+                      type="button"
+                      onClick={() => setAjusteFeedback(null)}
+                      className="text-slate-400 hover:text-slate-600 p-0.5"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                )}
+
                 <div className="overflow-x-auto rounded-2xl border border-slate-200">
                   <table className="w-full text-xs text-left">
                     <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-[10px]">
@@ -944,36 +1067,87 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                         <th className="py-2 px-3 text-center">Cant.</th>
                         <th className="py-2 px-3 text-right">P. Unit</th>
                         <th className="py-2 px-3 text-right">Subtotal</th>
+                        <th className="py-2 px-3 text-center">Ajustar</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {modalLiq.materiales?.map((mat, mIdx) => (
-                        <tr key={mIdx} className="hover:bg-slate-50/50">
-                          <td className="py-2.5 px-3 font-semibold text-slate-900">
-                            {mat.nombre_producto}
-                          </td>
-                          <td className="py-2.5 px-3 font-mono text-slate-600 text-[11px]">
-                            {mat.numero_serie ? (
-                              <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-bold">
-                                {mat.numero_serie}
-                              </span>
-                            ) : mat.drop_inicio ? (
-                              <span>{mat.drop_inicio} → {mat.drop_fin}</span>
-                            ) : (
-                              "—"
-                            )}
-                          </td>
-                          <td className="py-2.5 px-3 text-center font-bold text-slate-900">
-                            {mat.cantidad}
-                          </td>
-                          <td className="py-2.5 px-3 text-right text-slate-500 font-mono">
-                            S/ {parseFloat(String(mat.precio_compra)).toFixed(2)}
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-bold text-slate-900 font-mono">
-                            S/ {parseFloat(String(mat.costo)).toFixed(2)}
-                          </td>
-                        </tr>
-                      ))}
+                      {modalLiq.materiales?.map((mat, mIdx) => {
+                        const isEditing = editingMatId === mat.id_detalle_liq;
+                        return (
+                          <tr key={mat.id_detalle_liq || mIdx} className={isEditing ? "bg-indigo-50/70" : "hover:bg-slate-50/50"}>
+                            <td className="py-2.5 px-3 font-semibold text-slate-900">
+                              {mat.nombre_producto}
+                            </td>
+                            <td className="py-2.5 px-3 font-mono text-slate-600 text-[11px]">
+                              {mat.numero_serie ? (
+                                <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-bold">
+                                  {mat.numero_serie}
+                                </span>
+                              ) : mat.drop_inicio ? (
+                                <span>{mat.drop_inicio} → {mat.drop_fin}</span>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-center font-bold text-slate-900">
+                              {isEditing ? (
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={editingMatCant}
+                                  onChange={(e) => setEditingMatCant(e.target.value)}
+                                  className="w-16 px-1.5 py-0.5 border-2 border-indigo-500 rounded-md font-black text-center text-xs bg-white text-indigo-950 focus:outline-hidden"
+                                  autoFocus
+                                />
+                              ) : (
+                                mat.cantidad
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-right text-slate-500 font-mono">
+                              S/ {parseFloat(String(mat.precio_compra)).toFixed(2)}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-bold text-slate-900 font-mono">
+                              S/ {parseFloat(String(mat.costo)).toFixed(2)}
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              {isEditing ? (
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    type="button"
+                                    title="Guardar y recalibrar stock del técnico"
+                                    disabled={procesandoAccion}
+                                    onClick={() => handleGuardarAjusteMaterial(mat)}
+                                    className="p-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-xs transition-colors"
+                                  >
+                                    <Check size={12} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    title="Cancelar"
+                                    onClick={() => setEditingMatId(null)}
+                                    className="p-1 rounded-md bg-slate-200 hover:bg-slate-300 text-slate-700 cursor-pointer transition-colors"
+                                  >
+                                    <X size={12} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  title="Corregir cantidad (recalibra automáticamente el stock del técnico)"
+                                  onClick={() => {
+                                    setEditingMatId(mat.id_detalle_liq);
+                                    setEditingMatCant(String(mat.cantidad));
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold text-indigo-700 hover:bg-indigo-100/70 border border-indigo-200/80 transition-colors cursor-pointer"
+                                >
+                                  <Edit2 size={11} />
+                                  <span>Editar</span>
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

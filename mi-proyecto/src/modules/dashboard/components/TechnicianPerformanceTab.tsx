@@ -33,6 +33,7 @@ import {
   LogOut,
   User,
   Coffee,
+  Cable
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -46,7 +47,7 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip as RechartsTooltip,
-  Legend
+  Legend,
 } from "recharts";
 import { TechnicianDailyMatrixModal } from "./TechnicianDailyMatrixModal";
 import { TechnicianMonthlyDescansosModal } from "./TechnicianMonthlyDescansosModal";
@@ -85,8 +86,8 @@ export interface PerformanceData {
 }
 
 interface TechnicianPerformanceTabProps {
-  activeMainTab?: "resumen" | "tecnicos" | "latencia" | "auditoria";
-  setActiveMainTab?: (tab: "resumen" | "tecnicos" | "latencia" | "auditoria") => void;
+  activeMainTab?: "resumen" | "tecnicos" | "latencia" | "recableados_drop" | "auditoria";
+  setActiveMainTab?: (tab: "resumen" | "tecnicos" | "latencia" | "recableados_drop" | "auditoria") => void;
   totalGestoresOnline?: number;
 }
 
@@ -622,6 +623,22 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
                     <span>Latencia 1er Tramo</span>
                     <span className="px-1 py-0.2 rounded-full text-[8px] font-black uppercase tracking-wider bg-indigo-600 text-white shadow-2xs">
                       8:00 AM
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveMainTab("recableados_drop")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      activeMainTab === "recableados_drop"
+                        ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+                    }`}
+                  >
+                    <Cable size={13} className={activeMainTab === "recableados_drop" ? "text-amber-600" : "text-slate-400"} />
+                    <span>Matriz Drop & Recableados</span>
+                    <span className="px-1 py-0.2 rounded-full text-[8px] font-bold bg-amber-100 text-amber-800">
+                      Fibra
                     </span>
                   </button>
 

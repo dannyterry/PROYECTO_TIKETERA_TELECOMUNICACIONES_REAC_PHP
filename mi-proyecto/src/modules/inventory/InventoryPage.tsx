@@ -12,6 +12,7 @@ import {
   FileCheck,
   Tag,
   LogOut,
+  ArrowLeftRight,
 } from "lucide-react";
 import { ProductoStock, StockTecnicoDetalle, SerieTecnicoDetalle } from "./types/inventoryTypes";
 import { getStockGeneral } from "./services/inventoryService";
@@ -21,6 +22,7 @@ import { TechnicianDispatchTab } from "./components/TechnicianDispatchTab";
 import { RetrievedEquipmentTab } from "./components/RetrievedEquipmentTab";
 import { TechnicianLiquidationTab } from "./components/TechnicianLiquidationTab";
 import { OrderLiquidationsAuditTab } from "./components/OrderLiquidationsAuditTab";
+import { KardexOverviewTab } from "./components/KardexOverviewTab";
 import { CategoriesTab } from "./components/CategoriesTab";
 import { SuppliersTab } from "./components/SuppliersTab";
 import { authService } from "../../services/authService";
@@ -35,11 +37,13 @@ export const InventoryPage: React.FC = () => {
   const canRecogidos = authService.hasAnyPermission(["almacenes.ver", "movimientos.ver", "stock.ver"]);
   const canDevoluciones = authService.hasAnyPermission(["almacenes.ver", "movimientos.ver", "stock.ver"]);
   const canLiquidaciones = authService.hasAnyPermission(["liquidaciones.ver"]);
+  const canKardex = authService.hasAnyPermission(["stock.ver", "movimientos.ver", "almacenes.ver"]);
   const canCategorias = authService.hasAnyPermission(["categorias.ver", "productos.ver"]);
   const canProveedores = authService.hasAnyPermission(["proveedores.ver"]);
 
   type InventoryTabType =
     | "stock"
+    | "kardex"
     | "compras"
     | "despacho"
     | "recogidos"
@@ -50,6 +54,7 @@ export const InventoryPage: React.FC = () => {
 
   const tabsConfig = useMemo(() => [
     { id: "stock" as InventoryTabType, label: "Control de Stock & Almacenes", icon: Layers, allowed: canStock },
+    { id: "kardex" as InventoryTabType, label: "Kardex & Movimientos", badge: "General", icon: ArrowLeftRight, allowed: canKardex },
     { id: "compras" as InventoryTabType, label: "Compras & Entrada (Series)", icon: ShoppingCart, allowed: canCompras },
     { id: "despacho" as InventoryTabType, label: "Despacho a Técnicos", icon: Truck, allowed: canDespacho },
     { id: "recogidos" as InventoryTabType, label: "Equipos Recogidos", icon: RotateCcw, allowed: canRecogidos },
@@ -57,12 +62,13 @@ export const InventoryPage: React.FC = () => {
     { id: "liquidaciones_ordenes" as InventoryTabType, label: "Liquidaciones de Técnicos", badge: "Actas", icon: FileCheck, allowed: canLiquidaciones },
     { id: "categorias" as InventoryTabType, label: "Categorías", icon: Tag, allowed: canCategorias },
     { id: "proveedores" as InventoryTabType, label: "Proveedores", icon: Building2, allowed: canProveedores },
-  ], [canStock, canCompras, canDespacho, canRecogidos, canDevoluciones, canLiquidaciones, canCategorias, canProveedores]);
+  ], [canStock, canKardex, canCompras, canDespacho, canRecogidos, canDevoluciones, canLiquidaciones, canCategorias, canProveedores]);
 
   const tabsDisponibles = useMemo(() => tabsConfig.filter((t) => t.allowed), [tabsConfig]);
 
   const getInitialTab = (): InventoryTabType => {
     const hash = window.location.hash.toLowerCase().replace("#", "");
+    if ((hash.includes("kardex") || hash.includes("movimiento")) && canKardex) return "kardex";
     if (hash.includes("categoria") && canCategorias) return "categorias";
     if (hash.includes("proveedor") && canProveedores) return "proveedores";
     if (hash.includes("compra") && canCompras) return "compras";
@@ -107,7 +113,8 @@ export const InventoryPage: React.FC = () => {
   useEffect(() => {
     const sincronizarHash = () => {
       const hash = window.location.hash.toLowerCase().replace("#", "");
-      if (hash.includes("categoria") && canCategorias) setTabActiva("categorias");
+      if ((hash.includes("kardex") || hash.includes("movimiento")) && canKardex) setTabActiva("kardex");
+      else if (hash.includes("categoria") && canCategorias) setTabActiva("categorias");
       else if (hash.includes("proveedor") && canProveedores) setTabActiva("proveedores");
       else if (hash.includes("compra") && canCompras) setTabActiva("compras");
       else if ((hash.includes("historial") || hash.includes("despacho")) && canDespacho) setTabActiva("despacho");
@@ -120,7 +127,7 @@ export const InventoryPage: React.FC = () => {
     sincronizarHash();
     window.addEventListener("hashchange", sincronizarHash);
     return () => window.removeEventListener("hashchange", sincronizarHash);
-  }, [canCategorias, canProveedores, canCompras, canDespacho, canRecogidos, canDevoluciones, canLiquidaciones, canStock]);
+  }, [canCategorias, canProveedores, canCompras, canDespacho, canRecogidos, canDevoluciones, canLiquidaciones, canStock, canKardex]);
 
   // Fallback si la pestaña activa deja de ser permitida
   useEffect(() => {
@@ -235,6 +242,10 @@ export const InventoryPage: React.FC = () => {
           onRefresh={cargarDatos}
           onNavigateToTab={handleTabChange}
         />
+      )}
+
+      {tabActiva === "kardex" && canKardex && (
+        <KardexOverviewTab productos={productos} />
       )}
 
       {tabActiva === "compras" && canCompras && (

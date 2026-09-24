@@ -42,6 +42,8 @@ import { TechnicianPerformanceTab } from "./components/TechnicianPerformanceTab"
 import { MonthlyEffectivenessSection } from "./components/MonthlyEffectivenessSection";
 import { ClassificationOrdersModal } from "./components/ClassificationOrdersModal";
 import { LatencyFirstLegTab } from "./components/LatencyFirstLegTab";
+import { RecableadosDropMatrixTab } from "./components/RecableadosDropMatrixTab";
+import { Cable } from "lucide-react";
 interface OnlineUser {
   id_usuario: number;
   documento: string;
@@ -220,8 +222,8 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export const ExecutiveDashboardPage: React.FC = () => {
-  // Pestaña principal activa: Resumen Ejecutivo | Rendimiento Técnicos | Latencia 1er Tramo | Auditoría & Personal
-  const [activeMainTab, setActiveMainTab] = useState<"resumen" | "tecnicos" | "latencia" | "auditoria">("resumen");
+  // Pestaña principal activa: Resumen Ejecutivo | Rendimiento Técnicos | Latencia 1er Tramo | Matriz Drop & Recableados | Auditoría & Personal
+  const [activeMainTab, setActiveMainTab] = useState<"resumen" | "tecnicos" | "latencia" | "recableados_drop" | "auditoria">("resumen");
 
   // 1. Selector inteligente de período (Días, Semanas, Meses, Año)
   const [periodMode, setPeriodMode] = useState<"dia" | "semana" | "mes" | "anio">("mes");
@@ -646,6 +648,23 @@ export const ExecutiveDashboardPage: React.FC = () => {
 
                 <button
                   type="button"
+                  onClick={() => setActiveMainTab("recableados_drop")}
+                  className={
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap " +
+                    (activeMainTab === "recableados_drop"
+                      ? "bg-white text-orange-950 shadow-xs border border-orange-300"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50")
+                  }
+                >
+                  <Cable size={13} className={activeMainTab === "recableados_drop" ? "text-orange-600" : "text-slate-400"} />
+                  <span>Matriz Drop & Recableados</span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[8.5px] font-black uppercase tracking-wider bg-orange-500 text-white shadow-2xs">
+                    Fibra
+                  </span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setActiveMainTab("auditoria")}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${activeMainTab === "auditoria"
                     ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
@@ -1050,6 +1069,16 @@ export const ExecutiveDashboardPage: React.FC = () => {
           setActiveMainTab={setActiveMainTab}
           totalGestoresOnline={totalGestoresOnline}
         />
+      )}
+
+      {/* ⏱️ PESTAÑA: LATENCIA 1ER TRAMO */}
+      {activeMainTab === "latencia" && (
+        <LatencyFirstLegTab />
+      )}
+
+      {/* 🧵 PESTAÑA: MATRIZ DE RECABLEADOS Y CONSUMO DE CABLE DROP */}
+      {activeMainTab === "recableados_drop" && (
+        <RecableadosDropMatrixTab />
       )}
 
       {/* 📊 PESTAÑA: RESUMEN EJECUTIVO */}

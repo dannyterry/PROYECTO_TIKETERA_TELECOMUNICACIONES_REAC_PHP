@@ -1,12 +1,1 @@
-[
-  {
-    "ticket": "MOTO-NORTE3",
-    "distrito": "Zona Sur",
-    "direccion": "Zona Sur (NORTE 3)",
-    "zona_nodo": "NORTE 3",
-    "franja_horaria": "16:00-20:00",
-    "motivo": "MOTOWIN CRM",
-    "vehiculo_tipo": "MOTOWIN",
-    "tarjeta": "MOTOWIN ZONAS"
-  }
-]
+[]

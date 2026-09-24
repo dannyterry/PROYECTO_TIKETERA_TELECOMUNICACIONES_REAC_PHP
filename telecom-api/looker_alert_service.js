@@ -284,15 +284,16 @@ function processCardsAndAlerts(orders) {
   const alertasSur = [];
   const resumenZonas = {};
 
-  orders.forEach(o => {
-    const tipo = (o.vehiculo_tipo || '').toUpperCase().trim();
+  (orders || []).forEach(o => {
+    // 1. Identificar Tarjeta (compatible con Tampermonkey y API)
+    const rawCard = (o.tarjeta || o.vehiculo_tipo || '').toUpperCase().trim();
     let targetCard = 'AVERIAS PREFERENTE';
 
-    if (tipo.includes('ALTO VALOR')) {
+    if (rawCard.includes('ALTO VALOR')) {
       targetCard = 'AVERIAS ALTO VALOR';
-    } else if (tipo.includes('MOTOWIN')) {
+    } else if (rawCard.includes('MOTOWIN')) {
       targetCard = 'MOTOWIN ZONAS';
-    } else if (tipo.includes('AVERIA')) {
+    } else {
       targetCard = 'AVERIAS PREFERENTE';
     }
 
@@ -300,35 +301,32 @@ function processCardsAndAlerts(orders) {
     card.total++;
     card.ordenes.push(o);
 
-    // Resolución inteligente de zona geográfica
-    const rawZona = (o.zona_nodo || '').trim();
+    // 2. Identificar Zona y verificar si es Zona Sur
+    const rawZona = (o.zona_nodo || o.zona || '').trim();
     const rawDist = (o.distrito || '').trim();
     const zUpper = rawZona.toUpperCase();
     const dUpper = rawDist.toUpperCase();
 
-    let zona = 'ZONA GENERAL';
+    let zona = rawZona || rawDist || 'ZONA GENERAL';
     let esSur = false;
 
     if (zUpper.includes('SUR') || DISTRITOS_SUR.some(d => dUpper.includes(d) || zUpper.includes(d))) {
-      zona = zUpper.includes('SUR') ? rawZona : (rawDist ? `SUR (${rawDist})` : 'ZONA SUR');
+      zona = rawZona || (rawDist ? `SUR (${rawDist})` : 'ZONA SUR');
       esSur = true;
     } else if (zUpper.includes('CENTRO') || DISTRITOS_CENTRO.some(d => dUpper.includes(d) || zUpper.includes(d))) {
-      zona = zUpper.includes('CENTRO') ? rawZona : (rawDist ? `CENTRO (${rawDist})` : 'ZONA CENTRO');
+      zona = rawZona || (rawDist ? `CENTRO (${rawDist})` : 'ZONA CENTRO');
     } else if (zUpper.includes('NORTE') || DISTRITOS_NORTE.some(d => dUpper.includes(d) || zUpper.includes(d))) {
-      zona = zUpper.includes('NORTE') ? rawZona : (rawDist ? `NORTE (${rawDist})` : 'ZONA NORTE');
+      zona = rawZona || (rawDist ? `NORTE (${rawDist})` : 'ZONA NORTE');
     } else if (zUpper.includes('CALLAO') || DISTRITOS_CALLAO.some(d => dUpper.includes(d) || zUpper.includes(d))) {
-      zona = zUpper.includes('CALLAO') ? rawZona : (rawDist ? `CALLAO (${rawDist})` : 'CALLAO');
+      zona = rawZona || (rawDist ? `CALLAO (${rawDist})` : 'CALLAO');
     } else if (zUpper.includes('ESTE') || DISTRITOS_ESTE.some(d => dUpper.includes(d) || zUpper.includes(d))) {
-      zona = zUpper.includes('ESTE') ? rawZona : (rawDist ? `ESTE (${rawDist})` : 'ZONA ESTE');
-    } else if (rawZona) {
-      zona = rawZona;
-    } else if (rawDist) {
-      zona = rawDist;
+      zona = rawZona || (rawDist ? `ESTE (${rawDist})` : 'ZONA ESTE');
     }
 
     // Registrar en resumen general de zonas
     resumenZonas[zona] = (resumenZonas[zona] || 0) + 1;
 
+    // 3. Estructurar zona dentro de la tarjeta
     if (!card.zonas[zona]) {
       card.zonas[zona] = {
         zona: zona,
@@ -344,38 +342,43 @@ function processCardsAndAlerts(orders) {
     zObj.total++;
     zObj.ordenes.push(o);
 
-    // Franja horaria
-    const franja = o.franja_horaria || '';
-    if (franja.includes('08:00')) zObj.franjas['08:00-11:59']++;
-    else if (franja.includes('12:00')) zObj.franjas['12:00-15:59']++;
-    else if (franja.includes('16:00')) zObj.franjas['16:00-20:00']++;
-    else zObj.franjas['otros']++;
+    // 4. Franja horaria
+    const franja = (o.franja_horaria || o.franja || '').trim();
+    if (franja.includes('08:00') || franja.includes('08:00-11:59') || franja.includes('8:00')) {
+      zObj.franjas['08:00-11:59']++;
+    } else if (franja.includes('12:00') || franja.includes('12:00-15:59')) {
+      zObj.franjas['12:00-15:59']++;
+    } else if (franja.includes('16:00') || franja.includes('16:00-20:00')) {
+      zObj.franjas['16:00-20:00']++;
+    } else {
+      zObj.franjas['otros']++;
+    }
 
-    // Distritos
+    // 5. Distritos
     if (o.distrito) {
       zObj.distritos[o.distrito] = (zObj.distritos[o.distrito] || 0) + 1;
     }
 
-    // ALERTA ZONA SUR
+    // 6. Alerta Zona Sur para la tabla principal
     if (esSur) {
       alertasSur.push({
         alerta: `🚨 NUEVA ORDEN EN ${zona}`,
         tarjeta: targetCard,
         zona: zona,
-        distrito: o.distrito,
-        ticket: o.ticket,
-        orden_wn: o.orden_wn,
-        direccion: o.direccion,
-        franja_horaria: o.franja_horaria,
-        motivo: o.motivo,
-        sla: o.sla
+        distrito: o.distrito || '',
+        ticket: o.ticket || '',
+        orden_wn: o.orden_wn || '',
+        direccion: o.direccion || '',
+        franja_horaria: o.franja_horaria || o.franja || '',
+        motivo: o.motivo || '',
+        sla: o.sla || ''
       });
     }
   });
 
   return {
     timestamp: new Date().toISOString(),
-    totalGeneral: orders.length,
+    totalGeneral: (orders || []).length,
     totalAlertasSur: alertasSur.length,
     resumenZonas: resumenZonas,
     cards: cards,

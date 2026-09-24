@@ -1029,7 +1029,7 @@ export const TechnicianLiquidationTab: React.FC<Props> = ({
                   <tbody className="divide-y divide-slate-100">
                     {itemsVerificacion.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="py-8 text-center text-slate-400 font-medium">
+                        <td colSpan={10} className="py-8 text-center text-slate-400 font-medium">
                           Este técnico no tiene materiales registrados en su vehículo.
                         </td>
                       </tr>

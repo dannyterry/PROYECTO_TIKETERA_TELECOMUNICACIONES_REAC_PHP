@@ -46,6 +46,9 @@ export interface StockTecnicoDetalle {
   total_liquidadas?: number;
   cantidad_asignada?: number;
   cantidad_gastada?: number;
+  total_despachado_historial?: number;
+  total_gastado_ordenes?: number;
+  total_devuelto_almacen?: number;
   rangos?: string[];
 }
 
@@ -388,4 +391,31 @@ export interface CompraHistorialItem {
   proveedor_telefono?: string;
   items: CompraDetalleItem[];
   total_items: number;
+}
+
+export interface KardexMovimientoItem {
+  id_unico: string;
+  origen: 'KARDEX' | 'ORDEN_CAMPO' | 'LIQUIDACION_MESA';
+  id_movimiento: number;
+  id_producto: number;
+  producto_codigo: string;
+  producto_nombre: string;
+  es_drop: boolean | number;
+  maneja_serie: boolean | number;
+  categoria: string;
+  tipo: 'ENTRADA' | 'SALIDA';
+  subtipo: 'COMPRA_INGRESO' | 'DESPACHO_TECNICO' | 'DEVOLUCION_TECNICO' | 'LIQUIDACION_ORDEN' | 'LIQUIDACION_MESA' | 'AJUSTE_INVENTARIO' | string;
+  cantidad: number;
+  numero_serie?: string;
+  codigo_serie?: string;
+  referencia: string;
+  fecha: string;
+}
+
+export interface KardexKPIs {
+  totalMovimientos: number;
+  totalEntradas: number;
+  totalDespachos: number;
+  totalDevoluciones: number;
+  totalConsumidoOrdenes: number;
 }

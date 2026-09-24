@@ -20,6 +20,10 @@ import {
   User,
   Users,
   Building,
+  Camera,
+  HardHat,
+  Wrench,
+  Truck,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -37,6 +41,11 @@ export const SupervisionHistoryTab: React.FC = () => {
   const [clienteList, setClienteList] = useState<AuditoriaCalidadCliente[]>([]);
   const [stats, setStats] = useState<SupervisionStats | null>(null);
   const [loading, setLoading] = useState(false);
+  const [photoPreview, setPhotoPreview] = useState<{ isOpen: boolean; url: string; titulo: string }>({
+    isOpen: false,
+    url: "",
+    titulo: "",
+  });
 
   // Filters
   const [searchTerm, setSearchTerm] = useState("");
@@ -775,6 +784,120 @@ export const SupervisionHistoryTab: React.FC = () => {
                 </div>
               </div>
 
+              {/* Photographic Evidence Gallery */}
+              {(selectedCampo.foto_epp_uniforme ||
+                selectedCampo.foto_herramientas ||
+                selectedCampo.foto_carro_limpio) && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Camera className="w-4 h-4 text-indigo-600" />
+                    <h4 className="font-bold text-slate-800 text-sm">
+                      Evidencias Fotográficas de Validación en Terreno
+                    </h4>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* Foto 1: EPP */}
+                    <div className="border border-slate-200 rounded-xl p-3 bg-slate-50 flex flex-col justify-between">
+                      <div className="flex items-center gap-2 mb-2">
+                        <HardHat className="w-4 h-4 text-blue-600" />
+                        <span className="font-bold text-xs text-slate-700">Técnico con Implementos</span>
+                      </div>
+                      {selectedCampo.foto_epp_uniforme ? (
+                        <div
+                          className="relative rounded-lg overflow-hidden aspect-4/3 cursor-pointer group bg-black/5"
+                          onClick={() =>
+                            setPhotoPreview({
+                              isOpen: true,
+                              url: selectedCampo.foto_epp_uniforme || "",
+                              titulo: `Técnico con Implementos · ${selectedCampo.tecnico}`,
+                            })
+                          }
+                        >
+                          <img
+                            src={selectedCampo.foto_epp_uniforme}
+                            alt="EPP e Implementos"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                          />
+                          <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1">
+                            <Eye className="w-4 h-4" /> Ver foto
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="aspect-4/3 rounded-lg border border-dashed border-slate-300 flex items-center justify-center text-[11px] text-slate-400 bg-white">
+                          No registrada
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Foto 2: Herramientas */}
+                    <div className="border border-slate-200 rounded-xl p-3 bg-slate-50 flex flex-col justify-between">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Wrench className="w-4 h-4 text-amber-600" />
+                        <span className="font-bold text-xs text-slate-700">Herramientas y Equipos</span>
+                      </div>
+                      {selectedCampo.foto_herramientas ? (
+                        <div
+                          className="relative rounded-lg overflow-hidden aspect-4/3 cursor-pointer group bg-black/5"
+                          onClick={() =>
+                            setPhotoPreview({
+                              isOpen: true,
+                              url: selectedCampo.foto_herramientas || "",
+                              titulo: `Herramientas y Equipos · ${selectedCampo.tecnico}`,
+                            })
+                          }
+                        >
+                          <img
+                            src={selectedCampo.foto_herramientas}
+                            alt="Herramientas y Equipos"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                          />
+                          <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1">
+                            <Eye className="w-4 h-4" /> Ver foto
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="aspect-4/3 rounded-lg border border-dashed border-slate-300 flex items-center justify-center text-[11px] text-slate-400 bg-white">
+                          No registrada
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Foto 3: Carro Limpio */}
+                    <div className="border border-slate-200 rounded-xl p-3 bg-slate-50 flex flex-col justify-between">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Truck className="w-4 h-4 text-emerald-600" />
+                        <span className="font-bold text-xs text-slate-700">Carro Limpio y Ordenado</span>
+                      </div>
+                      {selectedCampo.foto_carro_limpio ? (
+                        <div
+                          className="relative rounded-lg overflow-hidden aspect-4/3 cursor-pointer group bg-black/5"
+                          onClick={() =>
+                            setPhotoPreview({
+                              isOpen: true,
+                              url: selectedCampo.foto_carro_limpio || "",
+                              titulo: `Carro Limpio y Ordenado · ${selectedCampo.tecnico}`,
+                            })
+                          }
+                        >
+                          <img
+                            src={selectedCampo.foto_carro_limpio}
+                            alt="Carro Limpio"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                          />
+                          <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1">
+                            <Eye className="w-4 h-4" /> Ver foto
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="aspect-4/3 rounded-lg border border-dashed border-slate-300 flex items-center justify-center text-[11px] text-slate-400 bg-white">
+                          No registrada
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Observations */}
               {selectedCampo.observaciones && (
                 <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs">
@@ -791,7 +914,7 @@ export const SupervisionHistoryTab: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setSelectedCampo(null)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold"
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold cursor-pointer"
               >
                 Cerrar Detalle
               </button>
@@ -924,6 +1047,49 @@ export const SupervisionHistoryTab: React.FC = () => {
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold"
               >
                 Cerrar Detalle
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal Preview Photo Full Size */}
+      {photoPreview.isOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setPhotoPreview({ isOpen: false, url: "", titulo: "" })}
+        >
+          <div
+            className="bg-white rounded-3xl overflow-hidden max-w-3xl w-full shadow-2xl flex flex-col max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
+              <span className="font-extrabold text-sm flex items-center gap-2">
+                <Camera className="w-4 h-4 text-blue-400" />
+                {photoPreview.titulo}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPhotoPreview({ isOpen: false, url: "", titulo: "" })}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-4 bg-slate-950 flex items-center justify-center overflow-auto flex-1">
+              <img
+                src={photoPreview.url}
+                alt={photoPreview.titulo}
+                className="max-h-[70vh] w-auto rounded-xl object-contain shadow-lg"
+              />
+            </div>
+            <div className="p-3 bg-slate-100 flex items-center justify-between text-xs text-slate-600">
+              <span>Evidencia fotográfica de auditoría</span>
+              <button
+                type="button"
+                onClick={() => setPhotoPreview({ isOpen: false, url: "", titulo: "" })}
+                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl cursor-pointer"
+              >
+                Cerrar
               </button>
             </div>
           </div>

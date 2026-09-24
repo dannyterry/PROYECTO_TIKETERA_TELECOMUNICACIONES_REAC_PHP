@@ -29,6 +29,9 @@ export interface FichaSupervisionCampo {
   items_json: ItemChecklist[];
   observaciones?: string;
   firma_supervisor?: string;
+  foto_epp_uniforme?: string;
+  foto_herramientas?: string;
+  foto_carro_limpio?: string;
   created_at?: string;
   updated_at?: string;
 }
