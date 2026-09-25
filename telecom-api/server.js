@@ -331,7 +331,7 @@ function calculateRuc10(dni) {
 }
 
 // --- CONSULTA SUNAT / DNI ULTRA RÁPIDA Y 100% COMPATIBLE CON CPANEL / HOSTING ---
-app.get("/sunat/:dni", async (req, res) => {
+app.get(["/sunat/:dni", "/api/sunat/:dni"], async (req, res) => {
   const dni = req.params.dni;
 
   if (!dni || !/^\d{8}$/.test(dni)) {
@@ -545,7 +545,7 @@ app.get("/sbs/comisiones", async (req, res) => {
 let cacheEmpleados = { data: null, timestamp: 0 };
 
 // --- OBTENER USUARIOS ---
-app.get('/empleados', async (req, res) => {
+app.get(['/empleados', '/api/empleados'], async (req, res) => {
   try {
     if (cacheEmpleados.data && Date.now() - cacheEmpleados.timestamp < 10000) {
       return res.json(cacheEmpleados.data);
@@ -578,7 +578,7 @@ app.get('/empleados', async (req, res) => {
 
 
 // --- CREAR USUARIO ---
-app.post('/empleados', upload, async (req, res) => {
+app.post(['/empleados', '/api/empleados'], upload, async (req, res) => {
   const connection = await pool.getConnection(); 
   try {
     await connection.beginTransaction(); 
@@ -700,7 +700,7 @@ app.post('/empleados', upload, async (req, res) => {
 
 
 // --- ACTUALIZAR USUARIO ---
-app.put('/empleados/:id', upload, async (req, res) => {
+app.put(['/empleados/:id', '/api/empleados/:id'], upload, async (req, res) => {
   const { id } = req.params; const d = req.body;
   const connection = await pool.getConnection(); 
   
@@ -8338,13 +8338,13 @@ app.get('/api/almacen/orden-liquidaciones', async (req, res) => {
     if (desde) {
       dateCondLiq += " AND ol.fecha_liquidacion >= ?";
       paramsLiq.push(`${desde} 00:00:00`);
-      dateCondOrd += " AND o2.fecha_visita >= ?";
+      dateCondOrd += " AND COALESCE(o2.fecha_solicitud, o2.fecha_visita, o2.fecha_creacion) >= ?";
       paramsTec.push(`${desde} 00:00:00`);
     }
     if (hasta) {
       dateCondLiq += " AND ol.fecha_liquidacion <= ?";
       paramsLiq.push(`${hasta} 23:59:59`);
-      dateCondOrd += " AND o2.fecha_visita <= ?";
+      dateCondOrd += " AND COALESCE(o2.fecha_solicitud, o2.fecha_visita, o2.fecha_creacion) <= ?";
       paramsTec.push(`${hasta} 23:59:59`);
     }
 
@@ -8360,7 +8360,7 @@ app.get('/api/almacen/orden-liquidaciones', async (req, res) => {
       paramsLiq.push(estado);
     }
 
-    const paramsResumen = [...paramsTec];
+    const paramsResumen = [...paramsTec, ...paramsTec];
     let dateCondLiqJoin = "";
     if (desde) {
       dateCondLiqJoin += " AND ol.fecha_liquidacion >= ?";
@@ -8372,7 +8372,7 @@ app.get('/api/almacen/orden-liquidaciones', async (req, res) => {
     }
 
     // 1. Resumen por técnico (con id_usuario real correspondiente a id_tecnico de ordenes)
-    const [tecnicos] = await pool.query(`
+    const [tecnicosRows] = await pool.query(`
       SELECT
         u.id_usuario AS id_trabajador,
         CONCAT(u.nombres, ' ', u.apellidos) AS tecnico,
@@ -8395,26 +8395,52 @@ app.get('/api/almacen/orden-liquidaciones', async (req, res) => {
           )
         ) AS cuadrilla,
         (SELECT COUNT(*) FROM ordenes o2 WHERE o2.id_tecnico = u.id_usuario ${dateCondOrd}) AS total_ordenes,
-        COUNT(DISTINCT CASE WHEN ol.estado <> 'Rechazada' THEN ol.id_liquidacion END) AS total_liquidaciones,
-        COUNT(DISTINCT CASE WHEN ol.estado = 'Pendiente' THEN ol.id_liquidacion END) AS total_pendientes,
-        COUNT(DISTINCT CASE WHEN ol.estado = 'Aprobada' THEN ol.id_liquidacion END) AS total_aprobadas,
-        COUNT(DISTINCT CASE WHEN ol.estado = 'Rechazada' THEN ol.id_liquidacion END) AS total_rechazadas,
+        (SELECT COUNT(*) FROM ordenes o2 WHERE o2.id_tecnico = u.id_usuario AND (LOWER(o2.estado) LIKE '%finaliz%' OR LOWER(o2.estado) LIKE '%liquid%') ${dateCondOrd}) AS total_finalizadas,
+        COUNT(DISTINCT CASE WHEN lq.estado <> 'Rechazada' THEN lq.id_liquidacion END) AS total_liquidaciones,
+        COUNT(DISTINCT CASE WHEN lq.estado = 'Pendiente' THEN lq.id_liquidacion END) AS total_pendientes,
+        COUNT(DISTINCT CASE WHEN lq.estado = 'Aprobada' THEN lq.id_liquidacion END) AS total_aprobadas,
+        COUNT(DISTINCT CASE WHEN lq.estado = 'Rechazada' THEN lq.id_liquidacion END) AS total_rechazadas,
         COALESCE(SUM(
-          CASE WHEN ol.estado = 'Rechazada' THEN 0
-               ELSE d.cantidad * COALESCE(p.precio_compra, 0)
+          CASE WHEN lq.estado = 'Rechazada' THEN 0
+               ELSE lq.costo_liquidacion
           END
         ), 0) AS total_costo,
-        MAX(ol.fecha_liquidacion) AS ultima_liquidacion
+        MAX(lq.fecha_liquidacion) AS ultima_liquidacion
       FROM usuarios u
       LEFT JOIN trabajadores t ON t.id_usuario = u.id_usuario
-      LEFT JOIN ordenes o ON o.id_tecnico = u.id_usuario
-      LEFT JOIN orden_liquidaciones ol ON (ol.id_trabajador = t.id_trabajador OR ol.id_orden = o.id_orden) ${dateCondLiqJoin}
-      LEFT JOIN orden_liquidacion_detalle d ON d.id_liquidacion = ol.id_liquidacion
-      LEFT JOIN productos p ON p.id_producto = d.id_producto
+      LEFT JOIN (
+        SELECT 
+          ol.id_liquidacion,
+          ol.estado,
+          ol.fecha_liquidacion,
+          COALESCE(ol.id_trabajador, t2.id_trabajador) AS id_trabajador,
+          COALESCE(t2.id_usuario, o2.id_tecnico) AS id_usuario,
+          COALESCE(SUM(d.cantidad * COALESCE(p.precio_compra, 0)), 0) AS costo_liquidacion
+        FROM orden_liquidaciones ol
+        LEFT JOIN trabajadores t2 ON t2.id_trabajador = ol.id_trabajador
+        LEFT JOIN ordenes o2 ON o2.id_orden = ol.id_orden
+        LEFT JOIN orden_liquidacion_detalle d ON d.id_liquidacion = ol.id_liquidacion
+        LEFT JOIN productos p ON p.id_producto = d.id_producto
+        WHERE 1=1 ${dateCondLiqJoin}
+        GROUP BY ol.id_liquidacion
+      ) lq ON (lq.id_usuario = u.id_usuario OR (t.id_trabajador IS NOT NULL AND lq.id_trabajador = t.id_trabajador))
       GROUP BY u.id_usuario
       HAVING total_ordenes > 0 OR total_liquidaciones > 0
       ORDER BY tecnico ASC
     `, paramsResumen);
+
+    const tecnicos = tecnicosRows.map((t) => {
+      const finalizadas = Number(t.total_finalizadas) || 0;
+      const liquidaciones = Number(t.total_liquidaciones) || 0;
+      const pendientes = Math.max(0, finalizadas - liquidaciones);
+      const ratio = finalizadas > 0 ? Math.round((liquidaciones / finalizadas) * 1000) / 10 : 0;
+      return {
+        ...t,
+        total_finalizadas: finalizadas,
+        total_pendientes_liquidacion: pendientes,
+        ratio_liquidacion: ratio
+      };
+    });
 
     // 2. Detalle de liquidaciones individuales
     const [liquidaciones] = await pool.query(`
@@ -8536,7 +8562,29 @@ app.get('/api/almacen/orden-liquidaciones', async (req, res) => {
       const totalDrop = dropBobina + metrosConectorizado;
       liq.drop_consumo_total_efectivo = totalDrop;
 
-      const totalEquipos = mats.filter(m => (m.categoria_liquidar || '').toUpperCase() === 'EQUIPO' || (m.nombre_producto || '').toUpperCase().includes('ONT')).reduce((acc, m) => acc + (Number(m.cantidad) || 0), 0);
+      // 🛡️ Detección precisa de Equipos Reales (ONT / Mesh / Router) sin falsos positivos por substrings (ej: CONTACTO)
+      const esEquipoReal = (m) => {
+        const nom = (m.nombre_producto || '').toUpperCase();
+        // Descartar explícitamente insumos, cables, ferretería y cintas
+        if (
+          nom.includes('CONTACTO') || 
+          nom.includes('CONECTOR') || 
+          nom.includes('DROP') || 
+          nom.includes('CABLE') || 
+          nom.includes('CINTILLO') || 
+          nom.includes('TEMPLADOR') || 
+          nom.includes('AMARRE') || 
+          nom.includes('ROTULADOR')
+        ) {
+          return false;
+        }
+        const esOntOMesh = /\b(ONT|MESH|ROUTER|MODEM|DECODIFICADOR)\b/i.test(nom);
+        const tieneSerie = Boolean(m.numero_serie || m.serie);
+        const esCatEquipo = (m.categoria_liquidar || m.categoria || '').toUpperCase() === 'EQUIPO';
+        return (esOntOMesh || esCatEquipo) && (tieneSerie || esOntOMesh);
+      };
+
+      const totalEquipos = mats.filter(esEquipoReal).reduce((acc, m) => acc + (Number(m.cantidad) || 0), 0);
 
       const motivosAlerta = [];
       // ⚠️ DROP SUELTO DE BOBINA: Solo evaluar límite de metraje si se usó drop continuo de bobina
@@ -9885,9 +9933,13 @@ app.get(['/api/dashboard/rendimiento-tecnicos', '/dashboard/rendimiento-tecnicos
         COALESCE(NULLIF(TRIM(o.motivo_trabajo), ''), '') AS motivo_trabajo,
         COALESCE(NULLIF(TRIM(o.tipo_trabajo), ''), 'SIN TIPO') AS tipo_trabajo,
         COALESCE(NULLIF(TRIM(o.estado), ''), 'Sin Estado') AS estado,
-        COUNT(*) AS cantidad
+        COUNT(DISTINCT o.id_orden) AS cantidad,
+        COUNT(DISTINCT CASE WHEN ol.id_liquidacion IS NOT NULL THEN o.id_orden END) AS liquidadas,
+        COUNT(DISTINCT CASE WHEN ol.id_liquidacion IS NOT NULL AND (ol.estado = 'Aprobada' OR ol.estado = 'Liquidada') THEN o.id_orden END) AS actas_aprobadas,
+        COUNT(DISTINCT CASE WHEN ol.id_liquidacion IS NOT NULL AND ol.estado = 'Pendiente' THEN o.id_orden END) AS actas_pendientes
       FROM ordenes o
       LEFT JOIN usuarios u ON o.id_tecnico = u.id_usuario
+      LEFT JOIN orden_liquidaciones ol ON o.id_orden = ol.id_orden
       ${whereClause}
       GROUP BY o.id_tecnico, tecnico_nombre, cuadrilla, motivo_finalizacion, motivo_trabajo, tipo_trabajo, estado
     `, queryParams);
@@ -9923,6 +9975,7 @@ app.get(['/api/dashboard/rendimiento-tecnicos', '/dashboard/rendimiento-tecnicos
 
     let grandTotal = 0;
     let grandFinalizadas = 0;
+    let grandLiquidadas = 0;
     let grandCanceladas = 0;
     let grandReagendadas = 0;
     let grandIniciadas = 0;
@@ -9941,6 +9994,9 @@ app.get(['/api/dashboard/rendimiento-tecnicos', '/dashboard/rendimiento-tecnicos
       const tipo = resolverTipoTrabajoConCatalogo(r.motivo_finalizacion, r.tipo_trabajo || r.motivo_trabajo, r.estado, catalogoMotivos);
       const estado = (r.estado || 'Sin Estado').trim();
       const cant = Number(r.cantidad) || 0;
+      const liq = Number(r.liquidadas) || 0;
+      const actAprobadas = Number(r.actas_aprobadas) || 0;
+      const actPendientes = Number(r.actas_pendientes) || 0;
 
       grandTotal += cant;
       estadoCountsGlobal[estado] = (estadoCountsGlobal[estado] || 0) + cant;
@@ -9955,6 +10011,11 @@ app.get(['/api/dashboard/rendimiento-tecnicos', '/dashboard/rendimiento-tecnicos
           cuadrilla: r.cuadrilla,
           total: 0,
           finalizadas: 0,
+          liquidadas: 0,
+          actas_aprobadas: 0,
+          actas_pendientes: 0,
+          pendientes_liquidacion: 0,
+          ratio_liquidacion: 0,
           canceladas: 0,
           reagendadas: 0,
           iniciadas: 0,
@@ -9967,7 +10028,11 @@ app.get(['/api/dashboard/rendimiento-tecnicos', '/dashboard/rendimiento-tecnicos
 
       const t = techMap.get(techName);
       t.total += cant;
+      t.liquidadas += liq;
+      t.actas_aprobadas += actAprobadas;
+      t.actas_pendientes += actPendientes;
       t.estados[estado] = (t.estados[estado] || 0) + cant;
+      grandLiquidadas += liq;
 
       const estLower = estado.toLowerCase();
       const esFinalizada = estLower.includes('finaliz') || estLower.includes('liquid');
@@ -9998,10 +10063,18 @@ app.get(['/api/dashboard/rendimiento-tecnicos', '/dashboard/rendimiento-tecnicos
 
     const tecnicos = Array.from(techMap.values()).map(t => {
       const ef = t.total > 0 ? Math.round((t.finalizadas / t.total) * 1000) / 10 : 0;
-      return { ...t, efectividad: ef };
+      const pendientesLiq = Math.max(0, t.finalizadas - t.liquidadas);
+      const ratioLiq = t.finalizadas > 0 ? Math.round((t.liquidadas / t.finalizadas) * 1000) / 10 : 0;
+      return { 
+        ...t, 
+        efectividad: ef,
+        pendientes_liquidacion: pendientesLiq,
+        ratio_liquidacion: ratioLiq
+      };
     }).sort((a, b) => b.total - a.total);
 
     const globalEfectividad = grandTotal > 0 ? Math.round((grandFinalizadas / grandTotal) * 1000) / 10 : 0;
+    const globalRatioLiquidacion = grandFinalizadas > 0 ? Math.round((grandLiquidadas / grandFinalizadas) * 1000) / 10 : 0;
 
     res.json({
       success: true,
@@ -10010,10 +10083,13 @@ app.get(['/api/dashboard/rendimiento-tecnicos', '/dashboard/rendimiento-tecnicos
         total_tecnicos: tecnicos.length,
         total_ordenes: grandTotal,
         total_finalizadas: grandFinalizadas,
+        total_liquidadas: grandLiquidadas,
+        total_pendientes_liquidacion: Math.max(0, grandFinalizadas - grandLiquidadas),
         total_canceladas: grandCanceladas,
         total_reagendadas: grandReagendadas,
         total_iniciadas: grandIniciadas,
         tasa_efectividad_global: globalEfectividad,
+        tasa_liquidacion_global: globalRatioLiquidacion,
         tecnico_top: tecnicos[0] ? {
           nombre: tecnicos[0].tecnico,
           total: tecnicos[0].total,
@@ -11532,6 +11608,14 @@ app.get(['/api/looker/resumen', '/looker/resumen'], async (req, res) => {
   if (!live && fs.existsSync(cachePath)) {
     try {
       const cached = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+      if (cached && cached.timestamp) {
+        const diffMinutes = (Date.now() - new Date(cached.timestamp).getTime()) / (1000 * 60);
+        if (diffMinutes > 5) {
+          cached.totalAlertasSur = 0;
+          cached.alertasSur = [];
+          cached.stale = true;
+        }
+      }
       return res.json({ success: true, fromCache: true, ...cached });
     } catch {}
   }
@@ -11822,6 +11906,113 @@ app.post(['/api/looker/sync-browser', '/looker/sync-browser'], async (req, res) 
   } catch (error) {
     console.error('Error en /api/looker/sync-browser:', error);
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 🛰️ SINCRONIZACIÓN DIRECTA DESDE TAMPERMONKEY (CON X-API-KEY)
+app.post(['/api/looker/sincronizar-directo', '/looker/sincronizar-directo'], async (req, res) => {
+  try {
+    // 1. Validar Cabecera de Seguridad x-api-key
+    const apiKey = req.headers['x-api-key'] || req.headers['X-API-KEY'] || req.headers['x-api_key'];
+    const API_KEY_VALIDA = 'CESPEDES_SEC_2026_KEY';
+
+    if (!apiKey || apiKey !== API_KEY_VALIDA) {
+      return res.status(403).json({
+        success: false,
+        message: 'Acceso denegado: API Key inválida o no proporcionada.'
+      });
+    }
+
+    let body = req.body || {};
+    if (typeof body.payload === 'string') {
+      try { body = JSON.parse(body.payload); } catch {}
+    }
+
+    const { domOrders = [], cardsSummary = {} } = body;
+
+    if (!Array.isArray(domOrders) && !cardsSummary) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payload inválido: se requiere domOrders o cardsSummary.'
+      });
+    }
+
+    const DISTRITOS_SUR = [
+      'CHORRILLOS', 'VILLA EL SALVADOR', 'VILLA MARIA DEL TRIUNFO', 'LURIN',
+      'SAN JUAN DE MIRAFLORES', 'SANTIAGO DE SURCO', 'SURCO', 'PACHACAMAC',
+      'SAN BARTOLO', 'PUNTA HERMOSA', 'PUNTA NEGRA', 'PUCUSANA', 'SANTA MARIA DEL MAR'
+    ];
+
+    const ordenesProcesadas = (domOrders || []).map(o => {
+      const zonaRaw = (o.zona_nodo || o.zona || '').toUpperCase().trim();
+      const distRaw = (o.distrito || '').toUpperCase().trim();
+      const esSur = zonaRaw.includes('SUR') || DISTRITOS_SUR.some(d => distRaw.includes(d) || zonaRaw.includes(d));
+      const zonaGrupo = esSur ? 'ZONA SUR' : (zonaRaw || distRaw || 'ZONA GENERAL');
+
+      return {
+        ticket: String(o.ticket || '').trim(),
+        distrito: o.distrito || '',
+        direccion: o.direccion || '',
+        zona_nodo: o.zona_nodo || '',
+        zona_grupo: zonaGrupo,
+        es_sur: esSur ? 1 : 0,
+        franja_horaria: o.franja_horaria || '',
+        motivo: o.motivo || '',
+        vehiculo_tipo: o.vehiculo_tipo || '',
+        tarjeta: o.tarjeta || 'AVERIAS PREFERENTE'
+      };
+    });
+
+    let processedCount = ordenesProcesadas.length;
+
+    // Procesar con el motor de alertas y tarjetas
+    if (lookerService && ordenesProcesadas.length > 0) {
+      try {
+        const result = lookerService.processCardsAndAlerts(ordenesProcesadas);
+        if (cardsSummary && Object.keys(cardsSummary).length > 0) {
+          result.totalGeneral = Number(cardsSummary.total || ordenesProcesadas.length);
+          if (cardsSummary.preferente !== undefined && result.cards['AVERIAS PREFERENTE']) {
+            result.cards['AVERIAS PREFERENTE'].total = Number(cardsSummary.preferente);
+          }
+          if (cardsSummary.altoValor !== undefined && result.cards['AVERIAS ALTO VALOR']) {
+            result.cards['AVERIAS ALTO VALOR'].total = Number(cardsSummary.altoValor);
+          }
+          if (cardsSummary.motowin !== undefined && result.cards['MOTOWIN ZONAS']) {
+            result.cards['MOTOWIN ZONAS'].total = Number(cardsSummary.motowin);
+          }
+        }
+        const cachePath = path.join(__dirname, 'cards_and_alerts.json');
+        fs.writeFileSync(cachePath, JSON.stringify(result, null, 2));
+
+        const ordersPath = path.join(__dirname, 'looker_orders_parsed.json');
+        fs.writeFileSync(ordersPath, JSON.stringify(ordenesProcesadas, null, 2));
+      } catch (err) {
+        console.error('Error en lookerService.processCardsAndAlerts:', err.message);
+      }
+    } else if (ordenesProcesadas.length > 0) {
+      try {
+        const ordersPath = path.join(__dirname, 'looker_orders_parsed.json');
+        fs.writeFileSync(ordersPath, JSON.stringify(ordenesProcesadas, null, 2));
+      } catch (e) {}
+    }
+
+    return res.json({
+      success: true,
+      message: `Sincronización directa exitosa: ${processedCount} órdenes procesadas.`,
+      resumen: {
+        total_recibidas: processedCount,
+        alertas_sur: ordenesProcesadas.filter(o => o.es_sur === 1).length,
+        cardsSummary
+      }
+    });
+
+  } catch (error) {
+    console.error('Error en /api/looker/sincronizar-directo:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor al sincronizar órdenes.',
+      error: error.message
+    });
   }
 });
 
@@ -12205,6 +12396,9 @@ app.post(['/api/supervision/campo', '/supervision/campo'], async (req, res) => {
       tipo_inspeccion,
       fecha,
       hora,
+      hora_inicio,
+      hora_fin,
+      estado_operativo,
       lugar_inspeccion,
       supervisor,
       cumplimiento_porcentaje,
@@ -12228,14 +12422,16 @@ app.post(['/api/supervision/campo', '/supervision/campo'], async (req, res) => {
       await pool.query(
         `UPDATE supervisiones_campo SET
           id_tecnico = ?, tecnico = ?, dni = ?, cuadrilla = ?, tipo_inspeccion = ?,
-          fecha = ?, hora = ?, lugar_inspeccion = ?, supervisor = ?,
+          fecha = ?, hora = ?, hora_inicio = ?, hora_fin = ?, estado_operativo = ?,
+          lugar_inspeccion = ?, supervisor = ?,
           cumplimiento_porcentaje = ?, semaforo = ?, items_json = ?,
           observaciones = ?, firma_supervisor = ?,
           foto_epp_uniforme = ?, foto_herramientas = ?, foto_carro_limpio = ?
         WHERE id = ?`,
         [
           id_tecnico || null, tecnico, dni || null, cuadrilla || null, tipo_inspeccion || 'CAMPO_GENERAL',
-          fecha, hora || null, lugar_inspeccion || null, supervisor || null,
+          fecha, hora || null, hora_inicio || null, hora_fin || null, estado_operativo || 'FINALIZADA',
+          lugar_inspeccion || null, supervisor || null,
           cumplimiento_porcentaje || 100, semaforo || 'verde', itemsStr,
           observaciones || null, firma_supervisor || null,
           foto_epp_uniforme || null, foto_herramientas || null, foto_carro_limpio || null,
@@ -12248,14 +12444,15 @@ app.post(['/api/supervision/campo', '/supervision/campo'], async (req, res) => {
       const [result] = await pool.query(
         `INSERT INTO supervisiones_campo (
           id_tecnico, tecnico, dni, cuadrilla, tipo_inspeccion,
-          fecha, hora, lugar_inspeccion, supervisor,
+          fecha, hora, hora_inicio, hora_fin, estado_operativo, lugar_inspeccion, supervisor,
           cumplimiento_porcentaje, semaforo, items_json,
           observaciones, firma_supervisor,
           foto_epp_uniforme, foto_herramientas, foto_carro_limpio
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id_tecnico || null, tecnico, dni || null, cuadrilla || null, tipo_inspeccion || 'CAMPO_GENERAL',
-          fecha, hora || null, lugar_inspeccion || null, supervisor || null,
+          fecha, hora || null, hora_inicio || null, hora_fin || null, estado_operativo || 'FINALIZADA',
+          lugar_inspeccion || null, supervisor || null,
           cumplimiento_porcentaje || 100, semaforo || 'verde', itemsStr,
           observaciones || null, firma_supervisor || null,
           foto_epp_uniforme || null, foto_herramientas || null, foto_carro_limpio || null
@@ -12332,6 +12529,7 @@ app.post(['/api/supervision/calidad-cliente', '/supervision/calidad-cliente'], a
       id,
       id_orden,
       numero_ticket,
+      numero_acta,
       id_tecnico,
       tecnico,
       cuadrilla,
@@ -12357,13 +12555,13 @@ app.post(['/api/supervision/calidad-cliente', '/supervision/calidad-cliente'], a
     if (id) {
       await pool.query(
         `UPDATE auditorias_calidad_cliente SET
-          id_orden = ?, numero_ticket = ?, id_tecnico = ?, tecnico = ?, cuadrilla = ?,
+          id_orden = ?, numero_ticket = ?, numero_acta = ?, id_tecnico = ?, tecnico = ?, cuadrilla = ?,
           cliente = ?, telefono = ?, distrito = ?, fecha_atencion = ?, fecha_auditoria = ?,
           auditor = ?, preguntas_json = ?, puntaje_porcentaje = ?, calificacion_estrellas = ?,
           comentario_cliente = ?, estado_conformidad = ?
         WHERE id = ?`,
         [
-          id_orden || null, numero_ticket || null, id_tecnico || null, tecnico, cuadrilla || null,
+          id_orden || null, numero_ticket || null, numero_acta || null, id_tecnico || null, tecnico, cuadrilla || null,
           cliente, telefono || null, distrito || null, fecha_atencion || null, fecha_auditoria,
           auditor || null, preguntasStr, puntaje_porcentaje || 100, calificacion_estrellas || 5,
           comentario_cliente || null, estado_conformidad || 'CONFORME',
@@ -12374,13 +12572,13 @@ app.post(['/api/supervision/calidad-cliente', '/supervision/calidad-cliente'], a
     } else {
       const [result] = await pool.query(
         `INSERT INTO auditorias_calidad_cliente (
-          id_orden, numero_ticket, id_tecnico, tecnico, cuadrilla,
+          id_orden, numero_ticket, numero_acta, id_tecnico, tecnico, cuadrilla,
           cliente, telefono, distrito, fecha_atencion, fecha_auditoria,
           auditor, preguntas_json, puntaje_porcentaje, calificacion_estrellas,
           comentario_cliente, estado_conformidad
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          id_orden || null, numero_ticket || null, id_tecnico || null, tecnico, cuadrilla || null,
+          id_orden || null, numero_ticket || null, numero_acta || null, id_tecnico || null, tecnico, cuadrilla || null,
           cliente, telefono || null, distrito || null, fecha_atencion || null, fecha_auditoria,
           auditor || null, preguntasStr, puntaje_porcentaje || 100, calificacion_estrellas || 5,
           comentario_cliente || null, estado_conformidad || 'CONFORME'
@@ -12465,6 +12663,162 @@ app.get(['/api/supervision/stats', '/supervision/stats'], async (req, res) => {
     });
   } catch (error) {
     console.error('Error en GET /api/supervision/stats:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 10. Avance Diario del Supervisor (Meta 6 Técnicos + 2 Clientes) y Cruce en Vivo
+app.get(['/api/supervision/avance-diario', '/supervision/avance-diario'], async (req, res) => {
+  try {
+    const { fecha } = req.query;
+    const hoy = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const targetFecha = fecha || `${hoy.getFullYear()}-${pad(hoy.getMonth() + 1)}-${pad(hoy.getDate())}`;
+
+    // Obtener catálogo de supervisores
+    const [supervisores] = await pool.query(`
+      SELECT 
+        id_usuario as id_supervisor,
+        TRIM(CONCAT(COALESCE(nombres, ''), ' ', COALESCE(primer_apellido, apellidos, ''))) as supervisor,
+        usuario,
+        foto_personal as foto
+      FROM usuarios
+      WHERE (LOWER(rol) LIKE '%supervis%' OR LOWER(cargo) LIKE '%supervis%' OR LOWER(rol) LIKE '%admin%') AND estado = 'Activo'
+      ORDER BY supervisor ASC
+    `);
+
+    // Obtener supervisiones de campo del día
+    const [campoRows] = await pool.query(`
+      SELECT * FROM supervisiones_campo WHERE fecha = ? ORDER BY hora DESC, id DESC
+    `, [targetFecha]);
+
+    // Obtener auditorías de clientes del día
+    const [clienteRows] = await pool.query(`
+      SELECT * FROM auditorias_calidad_cliente WHERE fecha_auditoria = ? ORDER BY id DESC
+    `, [targetFecha]);
+
+    const META_TECNICOS = 6;
+    const META_CLIENTES = 2;
+
+    const avanceSupervisores = supervisores.map(sup => {
+      const supName = (sup.supervisor || '').toLowerCase();
+      const supUser = (sup.usuario || '').toLowerCase();
+
+      const campoDelSup = campoRows.filter(r => {
+        const s = (r.supervisor || '').toLowerCase();
+        return s.includes(supName) || (supUser && s.includes(supUser));
+      });
+
+      const clienteDelSup = clienteRows.filter(r => {
+        const a = (r.auditor || '').toLowerCase();
+        return a.includes(supName) || (supUser && a.includes(supUser));
+      });
+
+      const totalTec = campoDelSup.length;
+      const totalCli = clienteDelSup.length;
+      const totalPuntos = Math.min(totalTec, META_TECNICOS) + Math.min(totalCli, META_CLIENTES);
+      const pctAvance = Math.round((totalPuntos / (META_TECNICOS + META_CLIENTES)) * 100);
+
+      // Determinar estado actual
+      const ultimaCampo = campoDelSup[0];
+      let estadoActual = 'DISPONIBLE';
+      let supervisandoA = '';
+      let cuadrillaActual = '';
+      let horaInicioActual = '';
+
+      if (ultimaCampo) {
+        if (ultimaCampo.estado_operativo === 'EN_CAMINO') {
+          estadoActual = 'EN_CAMINO';
+          supervisandoA = ultimaCampo.tecnico;
+          cuadrillaActual = ultimaCampo.cuadrilla || '';
+          horaInicioActual = ultimaCampo.hora_inicio || ultimaCampo.hora || '';
+        } else if (ultimaCampo.estado_operativo === 'INICIADA') {
+          estadoActual = 'EN_SUPERVISION';
+          supervisandoA = ultimaCampo.tecnico;
+          cuadrillaActual = ultimaCampo.cuadrilla || '';
+          horaInicioActual = ultimaCampo.hora_inicio || ultimaCampo.hora || '';
+        } else {
+          estadoActual = totalTec >= META_TECNICOS && totalCli >= META_CLIENTES ? 'FINALIZADO' : 'DISPONIBLE';
+        }
+      }
+
+      const supervisionesHoy = [
+        ...campoDelSup.map(c => ({
+          id: c.id,
+          tipo: 'CAMPO',
+          tecnico: c.tecnico,
+          cuadrilla: c.cuadrilla,
+          cliente: '',
+          hora: c.hora || c.hora_inicio || '',
+          cumplimiento: c.cumplimiento_porcentaje || 100,
+          semaforo: c.semaforo || 'verde'
+        })),
+        ...clienteDelSup.map(cl => ({
+          id: cl.id,
+          tipo: 'CLIENTE',
+          tecnico: cl.tecnico,
+          cuadrilla: cl.cuadrilla,
+          cliente: cl.cliente,
+          hora: '',
+          cumplimiento: cl.puntaje_porcentaje || 100,
+          semaforo: cl.estado_conformidad === 'CONFORME' ? 'verde' : cl.estado_conformidad === 'CON_OBSERVACIONES' ? 'amarillo' : 'rojo'
+        }))
+      ];
+
+      return {
+        id_supervisor: sup.id_supervisor,
+        supervisor: sup.supervisor,
+        usuario: sup.usuario,
+        foto: sup.foto,
+        total_tecnicos_supervisados: totalTec,
+        meta_tecnicos: META_TECNICOS,
+        total_clientes_auditados: totalCli,
+        meta_clientes: META_CLIENTES,
+        porcentaje_avance: pctAvance,
+        estado_actual: estadoActual,
+        supervisando_a: supervisandoA,
+        cuadrilla_actual: cuadrillaActual,
+        hora_inicio_actual: horaInicioActual,
+        ultima_actividad: ultimaCampo ? (ultimaCampo.hora || ultimaCampo.created_at) : null,
+        supervisiones_hoy: supervisionesHoy
+      };
+    });
+
+    // Cruce de materiales auditados vs stock en almacén
+    const [stockAlmacen] = await pool.query(`
+      SELECT 
+        ts.id_trabajador,
+        CONCAT(u.nombres, ' ', u.apellidos) as tecnico,
+        u.cuadrilla,
+        p.nombre as producto,
+        ts.stock as stock_sistema
+      FROM trabajadores_stock ts
+      JOIN trabajadores t ON ts.id_trabajador = t.id_trabajador
+      JOIN usuarios u ON t.id_usuario = u.id_usuario
+      JOIN productos p ON ts.id_producto = p.id_producto
+      WHERE ts.stock > 0
+    `);
+
+    res.json({
+      success: true,
+      fecha: targetFecha,
+      kpis_globales: {
+        total_supervisores_activos: avanceSupervisores.length,
+        total_tecnicos_supervisados_hoy: campoRows.length,
+        total_clientes_auditados_hoy: clienteRows.length,
+        meta_global_tecnicos: avanceSupervisores.length * META_TECNICOS,
+        meta_global_clientes: avanceSupervisores.length * META_CLIENTES,
+        porcentaje_cumplimiento_global: avanceSupervisores.length > 0
+          ? Math.round(
+              avanceSupervisores.reduce((acc, s) => acc + s.porcentaje_avance, 0) / avanceSupervisores.length
+            )
+          : 0
+      },
+      supervisores: avanceSupervisores,
+      cruce_stock: stockAlmacen
+    });
+  } catch (error) {
+    console.error('Error en GET /api/supervision/avance-diario:', error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });

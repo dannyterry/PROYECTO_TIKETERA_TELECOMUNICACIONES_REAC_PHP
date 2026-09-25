@@ -41,6 +41,7 @@ import { TeamChat } from "./components/chat/TeamChat";
 import { authService, AuthUser } from "./services/authService";
 import { LoginPage } from "./pages/LoginPage";
 import { API_URL } from "./config/api";
+import { ErrorBoundary } from "./components/common/ErrorBoundary";
 
 export default function App() {
   // ── ESTADO DE AUTENTICACIÓN CENTRALIZADO ──
@@ -1002,21 +1003,23 @@ export default function App() {
 
                   {/* Área de Contenido Principal a Ancho Completo */}
                   <main className="flex-1 p-4 md:p-6 overflow-y-auto min-w-0">
-                    {rhTab === "directorio" && canDirectorio && (
-                      <EmployeeList
-                        empleados={empleados}
-                        onSelectEmployee={handleSeleccionarEmpleado}
-                        onEmployeeUpdated={cargarEmpleados}
-                      />
-                    )}
-                    {rhTab === "ficha" && canFicha && (
-                      <Dashboard
-                        selectedEmpProp={empleadoSeleccionado}
-                        onDataUpdated={cargarEmpleados}
-                      />
-                    )}
-                    {rhTab === "roles" && canRoles && <RolesTab />}
-                    {rhTab === "asistencias" && canAsistencias && <AttendanceTab />}
+                    <ErrorBoundary fallbackTitle="Error al cargar el módulo de Recursos Humanos">
+                      {rhTab === "directorio" && canDirectorio && (
+                        <EmployeeList
+                          empleados={empleados}
+                          onSelectEmployee={handleSeleccionarEmpleado}
+                          onEmployeeUpdated={cargarEmpleados}
+                        />
+                      )}
+                      {rhTab === "ficha" && canFicha && (
+                        <Dashboard
+                          selectedEmpProp={empleadoSeleccionado}
+                          onDataUpdated={cargarEmpleados}
+                        />
+                      )}
+                      {rhTab === "roles" && canRoles && <RolesTab />}
+                      {rhTab === "asistencias" && canAsistencias && <AttendanceTab />}
+                    </ErrorBoundary>
                   </main>
                 </div>
               )}

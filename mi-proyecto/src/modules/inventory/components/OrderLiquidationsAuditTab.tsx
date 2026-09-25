@@ -26,7 +26,9 @@ import {
   User,
   Info,
   XCircle,
-  Edit2
+  Edit2,
+  Table,
+  LayoutGrid
 } from "lucide-react";
 import {
   LiquidacionOrdenAudit,
@@ -91,6 +93,7 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
   const [tecnicoFiltro, setTecnicoFiltro] = useState<string>("todos");
   const [estadoFiltro, setEstadoFiltro] = useState<string>("todos");
   const [busqueda, setBusqueda] = useState<string>("");
+  const [vistaTecnicos, setVistaTecnicos] = useState<"tabla" | "tarjetas">("tabla");
 
   // Modal de Detalle / Auditoría
   const [modalLiq, setModalLiq] = useState<LiquidacionOrdenAudit | null>(null);
@@ -526,86 +529,277 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
       ───────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-        {/* COLUMNA IZQUIERDA: RESUMEN DE TÉCNICOS (4 cols) */}
-        <div className="lg:col-span-4 bg-white rounded-3xl border border-slate-200/90 shadow-xs p-4 space-y-3">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+        {/* COLUMNA IZQUIERDA: RESUMEN DE TÉCNICOS & CONCILIACIÓN (5 cols) */}
+        <div className="lg:col-span-5 bg-white rounded-3xl border border-slate-200/90 shadow-xs p-4 space-y-3 flex flex-col justify-between">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100 flex-wrap gap-2">
             <div className="flex items-center gap-2">
-              <User size={16} className="text-slate-500" />
+              <User size={16} className="text-indigo-600" />
               <h3 className="font-extrabold text-xs text-slate-900 uppercase tracking-wider">
                 Técnicos ({tecnicos.length})
               </h3>
             </div>
-            <span className="text-[11px] text-slate-400 font-medium">Consumo acumulado</span>
+
+            {/* Selector de Vista: Tabla Conciliación vs Tarjetas */}
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-[11px]">
+              <button
+                type="button"
+                onClick={() => setVistaTecnicos("tabla")}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                  vistaTecnicos === "tabla"
+                    ? "bg-white text-indigo-700 shadow-2xs"
+                    : "text-slate-500 hover:text-slate-900"
+                }`}
+                title="Vista Tabla de Conciliación (Finalizadas vs Liquidadas)"
+              >
+                <Table size={13} />
+                Tabla
+              </button>
+              <button
+                type="button"
+                onClick={() => setVistaTecnicos("tarjetas")}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                  vistaTecnicos === "tarjetas"
+                    ? "bg-white text-indigo-700 shadow-2xs"
+                    : "text-slate-500 hover:text-slate-900"
+                }`}
+                title="Vista Tarjetas Detalladas"
+              >
+                <LayoutGrid size={13} />
+                Tarjetas
+              </button>
+            </div>
           </div>
 
-          <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
+          <div className="max-h-[620px] overflow-auto border rounded-2xl border-slate-200 flex-1">
             {tecnicos.length === 0 ? (
-              <div className="text-center py-10 text-xs text-slate-400">
+              <div className="text-center py-12 text-xs text-slate-400 font-semibold">
                 No hay técnicos con órdenes registradas en este rango.
               </div>
-            ) : (
-              tecnicos.map((t) => {
-                const esActivo = tecnicoFiltro === String(t.id_trabajador);
-                const tienePendientes = t.total_pendientes > 0;
+            ) : vistaTecnicos === "tabla" ? (
+              /* ── VISTA TABLA DE CONCILIACIÓN PARA ALMACÉN ── */
+              <table className="w-full text-left text-xs border-separate border-spacing-0">
+                <thead className="sticky top-0 z-20 bg-slate-100 shadow-xs">
+                  <tr>
+                    <th className="sticky top-0 z-20 bg-slate-100 p-2.5 pl-3 text-slate-700 font-bold border-b border-slate-200 min-w-[120px]">
+                      Técnico
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-100 p-2 text-center text-[#1f4e78] font-black border-b border-slate-200">
+                      Finalizadas
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-100 p-2 text-center text-indigo-700 font-black border-b border-slate-200">
+                      Liquidadas
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-100 p-2 text-center text-amber-700 font-black border-b border-slate-200">
+                      Pendientes
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-100 p-2 text-center text-slate-700 font-bold min-w-[110px] border-b border-slate-200">
+                      % Conciliación
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white">
+                  {tecnicos.map((t) => {
+                    const esActivo = tecnicoFiltro === String(t.id_trabajador);
+                    const finalizadas = t.total_finalizadas !== undefined ? t.total_finalizadas : t.total_ordenes;
+                    const liquidadas = t.total_liquidaciones || 0;
+                    const pendientes = t.total_pendientes_liquidacion !== undefined
+                      ? t.total_pendientes_liquidacion
+                      : Math.max(0, finalizadas - liquidadas);
+                    const ratio = t.ratio_liquidacion !== undefined
+                      ? t.ratio_liquidacion
+                      : (finalizadas > 0 ? Math.round((liquidadas / finalizadas) * 1000) / 10 : 0);
 
-                return (
-                  <div
-                    key={t.id_trabajador}
-                    onClick={() => setTecnicoFiltro(esActivo ? "todos" : String(t.id_trabajador))}
-                    className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
-                      esActivo
-                        ? "bg-indigo-50/70 border-indigo-300 shadow-2xs"
-                        : "bg-slate-50/50 hover:bg-slate-50 border-slate-200/70"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-8 h-8 rounded-full bg-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center shrink-0">
-                        {t.tecnico.substring(0, 2).toUpperCase()}
-                      </div>
-                      <div className="min-w-0">
-                        <span className="font-extrabold text-xs text-slate-900 block truncate">
-                          {t.tecnico}
-                        </span>
-                        <div className="flex items-center gap-1.5 flex-wrap mt-0.5 text-[11px]">
-                          {t.cuadrilla && (
-                            <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 font-bold text-[10px] border border-indigo-200 truncate max-w-[130px]" title={t.cuadrilla}>
-                              {t.cuadrilla}
-                            </span>
-                          )}
-                          <span className="text-slate-500 font-medium font-mono">
-                            DNI: {t.tecnico_dni || "Sin DNI"}
+                    const colorBarra =
+                      ratio >= 90
+                        ? "bg-emerald-500"
+                        : ratio >= 50
+                        ? "bg-amber-500"
+                        : ratio > 0
+                        ? "bg-rose-500"
+                        : "bg-slate-300";
+
+                    const colorTexto =
+                      ratio >= 90
+                        ? "text-emerald-700"
+                        : ratio >= 50
+                        ? "text-amber-700"
+                        : ratio > 0
+                        ? "text-rose-700"
+                        : "text-slate-400";
+
+                    return (
+                      <tr
+                        key={t.id_trabajador}
+                        onClick={() => setTecnicoFiltro(esActivo ? "todos" : String(t.id_trabajador))}
+                        className={`cursor-pointer transition-colors ${
+                          esActivo
+                            ? "bg-indigo-50/80 font-bold border-l-4 border-indigo-600"
+                            : "hover:bg-slate-50"
+                        }`}
+                      >
+                        <td className="p-2.5 pl-3 border-b border-slate-100">
+                          <div className="font-bold text-slate-900 leading-tight truncate max-w-[130px]" title={t.tecnico}>
+                            {t.tecnico}
+                          </div>
+                          <div className="text-[10px] text-slate-400 truncate max-w-[130px]">
+                            {t.cuadrilla || "Sin Cuadrilla"}
+                          </div>
+                        </td>
+                        <td className="p-2 text-center font-black text-[#1f4e78] border-b border-slate-100">
+                          {finalizadas}
+                        </td>
+                        <td className="p-2 text-center border-b border-slate-100">
+                          <span className="inline-block px-2 py-0.5 rounded-lg bg-indigo-50 border border-indigo-200 font-black text-indigo-700 text-[11px]">
+                            {liquidadas}
                           </span>
-                          <span className="text-slate-400 font-medium">
-                            • {t.total_ordenes} ord
+                        </td>
+                        <td className="p-2 text-center border-b border-slate-100">
+                          {pendientes > 0 ? (
+                            <span className="inline-block px-2 py-0.5 rounded-lg bg-amber-50 border border-amber-200 font-black text-amber-700 text-[11px]">
+                              {pendientes}
+                            </span>
+                          ) : finalizadas > 0 ? (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-lg bg-emerald-50 border border-emerald-200 font-bold text-emerald-700 text-[10px]">
+                              <CheckCircle2 size={10} />
+                              Al día
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 text-xs">0</span>
+                          )}
+                        </td>
+                        <td className="p-2 border-b border-slate-100">
+                          <div className="flex items-center gap-1.5">
+                            <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden min-w-[36px]">
+                              <div
+                                className={`h-full rounded-full ${colorBarra} transition-all duration-500`}
+                                style={{ width: `${Math.min(ratio, 100)}%` }}
+                              />
+                            </div>
+                            <span className={`text-[10px] font-black min-w-[36px] text-right ${colorTexto}`}>
+                              {ratio}%
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+
+                {/* Pie de tabla con totales */}
+                {tecnicos.length > 0 && (
+                  <tfoot className="sticky bottom-0 z-20 bg-slate-100/95 font-bold border-t-2 border-slate-300 shadow-xs">
+                    <tr>
+                      <td className="p-2 pl-3 font-black text-slate-900 uppercase text-[10px]">
+                        Total ({tecnicos.length})
+                      </td>
+                      <td className="p-2 text-center font-black text-[#1f4e78]">
+                        {tecnicos.reduce((acc, t) => acc + (t.total_finalizadas !== undefined ? t.total_finalizadas : t.total_ordenes), 0)}
+                      </td>
+                      <td className="p-2 text-center font-black text-indigo-700">
+                        {tecnicos.reduce((acc, t) => acc + (t.total_liquidaciones || 0), 0)}
+                      </td>
+                      <td className="p-2 text-center font-black text-amber-700">
+                        {tecnicos.reduce((acc, t) => {
+                          const fin = t.total_finalizadas !== undefined ? t.total_finalizadas : t.total_ordenes;
+                          const liq = t.total_liquidaciones || 0;
+                          return acc + Math.max(0, fin - liq);
+                        }, 0)}
+                      </td>
+                      <td className="p-2 text-center font-black text-slate-900 text-[10px]">
+                        {(() => {
+                          const totFin = tecnicos.reduce((acc, t) => acc + (t.total_finalizadas !== undefined ? t.total_finalizadas : t.total_ordenes), 0);
+                          const totLiq = tecnicos.reduce((acc, t) => acc + (t.total_liquidaciones || 0), 0);
+                          return totFin > 0 ? `${((totLiq / totFin) * 100).toFixed(1)}%` : "0.0%";
+                        })()}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            ) : (
+              /* ── VISTA TARJETAS DETALLADAS ── */
+              <div className="p-2 space-y-2">
+                {tecnicos.map((t) => {
+                  const esActivo = tecnicoFiltro === String(t.id_trabajador);
+                  const finalizadas = t.total_finalizadas !== undefined ? t.total_finalizadas : t.total_ordenes;
+                  const liquidadas = t.total_liquidaciones || 0;
+                  const pendientes = t.total_pendientes_liquidacion !== undefined
+                    ? t.total_pendientes_liquidacion
+                    : Math.max(0, finalizadas - liquidadas);
+                  const ratio = t.ratio_liquidacion !== undefined
+                    ? t.ratio_liquidacion
+                    : (finalizadas > 0 ? Math.round((liquidadas / finalizadas) * 1000) / 10 : 0);
+
+                  return (
+                    <div
+                      key={t.id_trabajador}
+                      onClick={() => setTecnicoFiltro(esActivo ? "todos" : String(t.id_trabajador))}
+                      className={`p-3 rounded-2xl border transition-all cursor-pointer flex flex-col gap-2 ${
+                        esActivo
+                          ? "bg-indigo-50/70 border-indigo-300 shadow-2xs"
+                          : "bg-slate-50/50 hover:bg-slate-50 border-slate-200/70"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-7 h-7 rounded-full bg-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center shrink-0">
+                            {t.tecnico.substring(0, 2).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <span className="font-extrabold text-xs text-slate-900 block truncate">
+                              {t.tecnico}
+                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                              {t.cuadrilla && (
+                                <span className="px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 font-bold border border-indigo-200 truncate max-w-[150px]">
+                                  {t.cuadrilla}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <span className="font-mono font-bold text-xs text-slate-900 block">
+                            S/ {parseFloat(String(t.total_costo)).toFixed(2)}
                           </span>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="text-right shrink-0">
-                      <span className="font-mono font-bold text-xs text-slate-900 block">
-                        S/ {parseFloat(String(t.total_costo)).toFixed(2)}
-                      </span>
-                      <div className="flex items-center gap-1 justify-end mt-0.5">
-                        <span className="px-1.5 py-0.5 rounded-md bg-blue-100 text-blue-800 font-bold text-[10px]">
-                          {t.total_liquidaciones} liq
-                        </span>
-                        {tienePendientes && (
-                          <span className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 font-bold text-[10px]">
-                            {t.total_pendientes} pend
+                      {/* Fila de Métricas: Finalizadas | Liquidadas | Pendientes | % Conciliación */}
+                      <div className="flex items-center justify-between pt-1.5 border-t border-slate-200/60 text-[11px]">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="px-1.5 py-0.5 rounded-md bg-sky-50 text-[#1f4e78] font-bold border border-sky-200 text-[10px]">
+                            {finalizadas} fin
                           </span>
-                        )}
+                          <span className="px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-800 font-bold text-[10px]">
+                            {liquidadas} liq
+                          </span>
+                          {pendientes > 0 ? (
+                            <span className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 font-bold text-[10px]">
+                              {pendientes} pend
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                              ✓ Al día
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1 text-[11px] font-black text-indigo-800">
+                          <span>{ratio}%</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })
+                  );
+                })}
+              </div>
             )}
           </div>
         </div>
 
-        {/* COLUMNA DERECHA: TABLA DE ÓRDENES LIQUIDADAS (8 cols) */}
-        <div className="lg:col-span-8 bg-white rounded-3xl border border-slate-200/90 shadow-xs p-5 space-y-4">
+        {/* COLUMNA DERECHA: TABLA DE ÓRDENES LIQUIDADAS (7 cols) */}
+        <div className="lg:col-span-7 bg-white rounded-3xl border border-slate-200/90 shadow-xs p-5 space-y-4">
           
           <div className="flex items-center justify-between pb-2 border-b border-slate-100">
             <div>
@@ -893,8 +1087,8 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                 <div>
                   <span className="text-slate-400 font-bold block text-[10px] uppercase">Técnico Responsable</span>
                   <span className="font-bold text-indigo-700 text-xs block mt-0.5">{modalLiq.tecnico}</span>
-                  <span className="text-slate-600 font-mono text-[11px] block mt-0.5">
-                    DNI: {modalLiq.tecnico_dni || "No registrado"}
+                  <span className="text-slate-600 font-semibold text-[11px] block mt-0.5">
+                    {modalLiq.cuadrilla || "Sin Cuadrilla"}
                   </span>
                 </div>
 

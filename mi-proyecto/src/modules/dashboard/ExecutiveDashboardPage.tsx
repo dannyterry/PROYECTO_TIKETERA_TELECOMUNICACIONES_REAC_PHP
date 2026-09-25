@@ -43,6 +43,7 @@ import { MonthlyEffectivenessSection } from "./components/MonthlyEffectivenessSe
 import { ClassificationOrdersModal } from "./components/ClassificationOrdersModal";
 import { LatencyFirstLegTab } from "./components/LatencyFirstLegTab";
 import { RecableadosDropMatrixTab } from "./components/RecableadosDropMatrixTab";
+import { SupervisorDashboardTab } from "./components/SupervisorDashboardTab";
 import { Cable } from "lucide-react";
 interface OnlineUser {
   id_usuario: number;
@@ -222,8 +223,8 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export const ExecutiveDashboardPage: React.FC = () => {
-  // Pestaña principal activa: Resumen Ejecutivo | Rendimiento Técnicos | Latencia 1er Tramo | Matriz Drop & Recableados | Auditoría & Personal
-  const [activeMainTab, setActiveMainTab] = useState<"resumen" | "tecnicos" | "latencia" | "recableados_drop" | "auditoria">("resumen");
+  // Pestaña principal activa: Resumen Ejecutivo | Rendimiento Técnicos | Latencia 1er Tramo | Matriz Drop & Recableados | Supervisión & Calidad | Auditoría & Personal
+  const [activeMainTab, setActiveMainTab] = useState<"resumen" | "tecnicos" | "latencia" | "recableados_drop" | "supervision_calidad" | "auditoria">("resumen");
 
   // 1. Selector inteligente de período (Días, Semanas, Meses, Año)
   const [periodMode, setPeriodMode] = useState<"dia" | "semana" | "mes" | "anio">("mes");
@@ -660,6 +661,23 @@ export const ExecutiveDashboardPage: React.FC = () => {
                   <span>Matriz Drop & Recableados</span>
                   <span className="px-1.5 py-0.2 rounded-full text-[8.5px] font-black uppercase tracking-wider bg-orange-500 text-white shadow-2xs">
                     Fibra
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveMainTab("supervision_calidad")}
+                  className={
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap " +
+                    (activeMainTab === "supervision_calidad"
+                      ? "bg-white text-blue-950 shadow-xs border border-blue-300 font-black"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50")
+                  }
+                >
+                  <ShieldCheck size={13} className={activeMainTab === "supervision_calidad" ? "text-blue-600" : "text-slate-400"} />
+                  <span>Supervisión & Calidad</span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[8.5px] font-black uppercase tracking-wider bg-blue-600 text-white shadow-2xs">
+                    6+2
                   </span>
                 </button>
 
@@ -1401,6 +1419,9 @@ export const ExecutiveDashboardPage: React.FC = () => {
 
       {/* ⏱️ PESTAÑA: LATENCIA DE PRIMER TRAMO (08:00 AM) */}
       {activeMainTab === "latencia" && <LatencyFirstLegTab />}
+
+      {/* 📋 PESTAÑA: SUPERVISIÓN & CALIDAD (AVANCE 6+2, CRUCE STOCK, HISTORIAL & RANKING) */}
+      {activeMainTab === "supervision_calidad" && <SupervisorDashboardTab />}
 
       {/* 🛡️ PESTAÑA 3: AUDITORÍA & PERSONAL (EN VIVO 24/7) */}
       {activeMainTab === "auditoria" && (

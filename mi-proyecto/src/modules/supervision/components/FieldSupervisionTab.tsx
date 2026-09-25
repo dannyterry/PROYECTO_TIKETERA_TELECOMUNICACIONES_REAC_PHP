@@ -31,6 +31,12 @@ import {
   ShieldCheck,
   Check,
   X,
+  Play,
+  CheckCheck,
+  Navigation,
+  Barcode,
+  Plus,
+  Tag,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -43,6 +49,7 @@ import {
   getItemsForTipo,
 } from "../types/supervisionTypes";
 import { supervisionService } from "../services/supervisionService";
+import { CameraBarcodeScannerModal } from "../../../components/CameraBarcodeScannerModal";
 
 interface FieldSupervisionTabProps {
   onSaved?: () => void;
@@ -89,7 +96,6 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
   const [selectedTipo, setSelectedTipo] = useState<TipoInspeccion>("CAMPO_GENERAL");
   const [selectedTecnico, setSelectedTecnico] = useState<TecnicoCombo | null>(null);
   const [tecnicoName, setTecnicoName] = useState("");
-  const [dni, setDni] = useState("");
   const [cuadrilla, setCuadrilla] = useState("");
   const [fecha, setFecha] = useState(new Date().toISOString().split("T")[0]);
   const [hora, setHora] = useState(
@@ -98,6 +104,38 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
   const [lugarInspeccion, setLugarInspeccion] = useState("");
   const [supervisor, setSupervisor] = useState("");
   const [observaciones, setObservaciones] = useState("");
+
+  // Operative Workflow Status & Stopwatch Timer
+  const [estadoOperativo, setEstadoOperativo] = useState<"EN_CAMINO" | "INICIADA" | "FINALIZADA">("INICIADA");
+  const [horaInicio, setHoraInicio] = useState<string>(
+    new Date().toTimeString().split(" ")[0].slice(0, 5)
+  );
+  const [horaFin, setHoraFin] = useState<string>("");
+  const [segundosTranscurridos, setSegundosTranscurridos] = useState<number>(0);
+
+  // Live stopwatch when INICIADA
+  useEffect(() => {
+    let interval: any = null;
+    if (estadoOperativo === "INICIADA") {
+      interval = setInterval(() => {
+        setSegundosTranscurridos((prev) => prev + 1);
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [estadoOperativo]);
+
+  const formatoTiempo = (totalSeg: number) => {
+    const m = Math.floor(totalSeg / 60);
+    const s = totalSeg % 60;
+    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  };
+
+  // Barcode Scanner Modal State for Equipment
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [activeScanningItemId, setActiveScanningItemId] = useState<string | null>(null);
+  const [manualSerieInputs, setManualSerieInputs] = useState<{ [itemId: string]: string }>({});
 
   // Fotos de Validación en Terreno
   const [fotoEppUniforme, setFotoEppUniforme] = useState<string | null>(null);
@@ -176,30 +214,26 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
       setTecnicoName(ord.tecnico);
       setSearchTermTecnico(ord.tecnico);
     }
-    if (ord.dni_tecnico) setDni(ord.dni_tecnico);
     if (ord.cuadrilla) setCuadrilla(ord.cuadrilla);
-    if (ord.fecha_atencion) setFecha(ord.fecha_atencion);
     if (ord.distrito || ord.direccion) {
-      setLugarInspeccion(
-        `${ord.distrito ? ord.distrito + " - " : ""}${ord.direccion || ""}`
-      );
+      setLugarInspeccion(`${ord.distrito ? ord.distrito + " - " : ""}${ord.direccion || ""}`);
     }
     if (ord.id_tecnico) {
       const match = tecnicosCombo.find((t) => t.id_tecnico === ord.id_tecnico);
       if (match) setSelectedTecnico(match);
     }
-    setSearchOtTerm(`OT: ${ord.ot} | ${ord.cliente}`);
+
+    setSearchOtTerm(`OT: ${ord.ot} · ${ord.tecnico}`);
     setShowOtDropdown(false);
   };
 
-  // Filtered Technicians
+  // Filter combo without DNI in filter or display
   const filteredTecnicos = useMemo(() => {
     if (!searchTermTecnico.trim()) return tecnicosCombo;
     const q = searchTermTecnico.toLowerCase();
     return tecnicosCombo.filter(
       (t) =>
         t.tecnico.toLowerCase().includes(q) ||
-        t.dni.includes(q) ||
         t.cuadrilla.toLowerCase().includes(q)
     );
   }, [tecnicosCombo, searchTermTecnico]);
@@ -208,7 +242,6 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
   const handleSelectTecnico = (t: TecnicoCombo) => {
     setSelectedTecnico(t);
     setTecnicoName(t.tecnico);
-    setDni(t.dni || "");
     setCuadrilla(t.cuadrilla || "");
     setSearchTermTecnico(t.tecnico);
     setShowTecnicoDropdown(false);
@@ -246,10 +279,16 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
     return { total, cumplidos, noCumplidos, porcentaje, semaforo };
   }, [items]);
 
-  // Handle Item Toggle
+  // Handle Item Toggle (SÍ / NO)
   const handleToggleCumple = (id: string) => {
     setItems((prev) =>
       prev.map((it) => (it.id === id ? { ...it, cumple: !it.cumple } : it))
+    );
+  };
+
+  const handleSetCumple = (id: string, cumple: boolean) => {
+    setItems((prev) =>
+      prev.map((it) => (it.id === id ? { ...it, cumple } : it))
     );
   };
 
@@ -259,14 +298,105 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
     );
   };
 
+  const handleCantidadChange = (id: string, cantidad: string | number) => {
+    setItems((prev) =>
+      prev.map((it) => (it.id === id ? { ...it, cantidad } : it))
+    );
+  };
+
   const handleObservacionChange = (id: string, obs: string) => {
     setItems((prev) =>
       prev.map((it) => (it.id === id ? { ...it, observacion: obs } : it))
     );
   };
 
+  // Series management for Equipos
+  const handleOpenScanner = (itemId: string) => {
+    setActiveScanningItemId(itemId);
+    setIsScannerOpen(true);
+  };
+
+  const handleScanSerie = (decodedText: string) => {
+    if (!activeScanningItemId) return;
+    const cleanSerie = decodedText.trim().toUpperCase();
+    if (!cleanSerie) return;
+
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.id === activeScanningItemId) {
+          const currentSeries = it.series || [];
+          if (!currentSeries.includes(cleanSerie)) {
+            const nextSeries = [...currentSeries, cleanSerie];
+            return {
+              ...it,
+              series: nextSeries,
+              cantidad: nextSeries.length,
+              cumple: true,
+            };
+          }
+        }
+        return it;
+      })
+    );
+    setIsScannerOpen(false);
+  };
+
+  const handleAddManualSerie = (itemId: string) => {
+    const text = (manualSerieInputs[itemId] || "").trim().toUpperCase();
+    if (!text) return;
+
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.id === itemId) {
+          const currentSeries = it.series || [];
+          if (!currentSeries.includes(text)) {
+            const nextSeries = [...currentSeries, text];
+            return {
+              ...it,
+              series: nextSeries,
+              cantidad: nextSeries.length,
+              cumple: true,
+            };
+          }
+        }
+        return it;
+      })
+    );
+    setManualSerieInputs((prev) => ({ ...prev, [itemId]: "" }));
+  };
+
+  const handleRemoveSerie = (itemId: string, serieToRemove: string) => {
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.id === itemId) {
+          const nextSeries = (it.series || []).filter((s) => s !== serieToRemove);
+          return {
+            ...it,
+            series: nextSeries,
+            cantidad: nextSeries.length > 0 ? nextSeries.length : it.cantidad,
+          };
+        }
+        return it;
+      })
+    );
+  };
+
   const handleMarcarTodos = (cumple: boolean) => {
     setItems((prev) => prev.map((it) => ({ ...it, cumple })));
+  };
+
+  // Workflow transitions
+  const handleIniciarSupervision = () => {
+    const currentNow = new Date().toTimeString().split(" ")[0].slice(0, 5);
+    setEstadoOperativo("INICIADA");
+    setHoraInicio(currentNow);
+    setHoraFin("");
+  };
+
+  const handleFinalizarSupervision = () => {
+    const currentNow = new Date().toTimeString().split(" ")[0].slice(0, 5);
+    setEstadoOperativo("FINALIZADA");
+    setHoraFin(currentNow);
   };
 
   // Procesar y comprimir fotos cargadas
@@ -318,6 +448,10 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
       setFotoEppUniforme(null);
       setFotoHerramientas(null);
       setFotoCarroLimpio(null);
+      setEstadoOperativo("INICIADA");
+      setHoraInicio(new Date().toTimeString().split(" ")[0].slice(0, 5));
+      setHoraFin("");
+      setSegundosTranscurridos(0);
       setSaveSuccess(false);
       setSaveError(null);
     }
@@ -337,11 +471,13 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
     const payload: FichaSupervisionCampo = {
       id_tecnico: selectedTecnico?.id_tecnico,
       tecnico: tecnicoName.trim(),
-      dni: dni.trim() || undefined,
       cuadrilla: cuadrilla.trim() || undefined,
       tipo_inspeccion: selectedTipo,
       fecha,
       hora,
+      hora_inicio: horaInicio || undefined,
+      hora_fin: horaFin || undefined,
+      estado_operativo: estadoOperativo,
       lugar_inspeccion: lugarInspeccion.trim() || undefined,
       supervisor: supervisor.trim() || "Supervisor de Calidad",
       cumplimiento_porcentaje: scoreStats.porcentaje,
@@ -365,22 +501,25 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
     }
   };
 
-  // Export to Excel
+  // Export to Excel (Without DNI)
   const handleExportExcel = () => {
     const headerRows = [
       ["CORPORACIÓN CÉSPEDES - FICHA DE SUPERVISIÓN DE TRABAJO EN CAMPO"],
       ["Tipo de Inspección:", selectedTipo, "Fecha:", fecha, "Hora:", hora],
-      ["Técnico Evaluado:", tecnicoName, "DNI:", dni, "Cuadrilla:", cuadrilla],
+      ["Técnico Evaluado:", tecnicoName, "Cuadrilla:", cuadrilla, "Estado:", estadoOperativo],
+      ["Hora Inicio:", horaInicio || "—", "Hora Fin:", horaFin || "—"],
       ["Lugar / Ubicación:", lugarInspeccion, "Supervisor:", supervisor],
       ["Cumplimiento:", `${scoreStats.porcentaje}%`, "Semáforo:", scoreStats.semaforo.toUpperCase()],
       [],
-      ["CATEGORÍA", "ÍTEM", "CUMPLE (SÍ/NO)", "ESTADO", "OBSERVACIÓN"],
+      ["CATEGORÍA", "ÍTEM", "CUMPLE (SÍ/NO)", "CANTIDAD", "SERIES ESCANEADAS", "ESTADO", "OBSERVACIÓN"],
     ];
 
     const dataRows = items.map((it) => [
       it.categoria,
       it.nombre,
       it.cumple ? "SÍ" : "NO",
+      it.cantidad !== undefined ? it.cantidad : "—",
+      it.series && it.series.length > 0 ? it.series.join(", ") : "—",
       it.estado || "BUENO",
       it.observacion || "",
     ]);
@@ -405,7 +544,7 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
 
   return (
     <div className="space-y-6">
-      {/* Top Template Switcher & Banner */}
+      {/* 1. Top Operative Workflow & Banner */}
       <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 rounded-3xl p-5 md:p-7 text-white shadow-xl border border-blue-700/40 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
@@ -418,7 +557,7 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
               Ficha de Supervisión de Trabajo en Campo
             </h2>
             <p className="text-blue-200/80 text-xs md:text-sm max-w-2xl leading-relaxed">
-              Auditoría en terreno de EPP, uniformes, herramientas calibradas, materiales, seguridad vial y equipos.
+              Control en terreno con verificación de Uniformes, Herramientas, Materiales, Vehículo y Escaneo de Series para Equipos.
             </p>
           </div>
 
@@ -455,129 +594,148 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
               onClick={() => handleCambiarTipo("ORDENAMIENTO")}
               className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
                 selectedTipo === "ORDENAMIENTO"
-                  ? "bg-purple-600 text-white shadow-md shadow-purple-500/30 scale-102"
+                  ? "bg-teal-600 text-white shadow-md shadow-teal-500/30 scale-102"
                   : "text-slate-300 hover:text-white hover:bg-white/10"
               }`}
             >
-              <Sparkles className="w-3.5 h-3.5" />
+              <Truck className="w-3.5 h-3.5" />
               <span>Ordenamiento</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleCambiarTipo("ALTAS")}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                selectedTipo === "ALTAS"
+                  ? "bg-sky-600 text-white shadow-md shadow-sky-500/30 scale-102"
+                  : "text-slate-300 hover:text-white hover:bg-white/10"
+              }`}
+            >
+              <HardHat className="w-3.5 h-3.5" />
+              <span>Altas</span>
             </button>
           </div>
         </div>
 
-        {/* Live Score Bar on Mobile/Desktop */}
-        <div className="mt-5 pt-4 border-t border-white/10 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <span
-              className={`w-4 h-4 rounded-full ${
-                scoreStats.semaforo === "verde"
-                  ? "bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.8)] animate-pulse"
-                  : scoreStats.semaforo === "amarillo"
-                  ? "bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.8)] animate-pulse"
-                  : "bg-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.8)] animate-pulse"
+        {/* Real-Time Operative Status Bar */}
+        <div className="mt-5 pt-4 border-t border-white/15 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span className="text-xs font-black text-blue-200 uppercase tracking-wider">
+              Estado de la Supervisión:
+            </span>
+
+            {/* Operative Buttons */}
+            <button
+              type="button"
+              onClick={() => setEstadoOperativo("EN_CAMINO")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                estadoOperativo === "EN_CAMINO"
+                  ? "bg-amber-500 text-slate-950 font-black shadow-md scale-105"
+                  : "bg-white/10 text-slate-200 hover:bg-white/20"
               }`}
-            />
-            <div>
-              <span className="text-xs font-bold text-slate-200">
-                Resultado de Inspección:{" "}
-                <strong className="text-white text-sm">
-                  {scoreStats.porcentaje}% ({scoreStats.cumplidos}/{scoreStats.total} cumplidos)
-                </strong>
-              </span>
-              <span
-                className={`ml-2 text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
-                  scoreStats.semaforo === "verde"
-                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
-                    : scoreStats.semaforo === "amarillo"
-                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
-                    : "bg-rose-500/20 text-rose-300 border border-rose-500/40"
-                }`}
-              >
-                {scoreStats.semaforo === "verde" && "🟢 Conforme / En Regla"}
-                {scoreStats.semaforo === "amarillo" && "🟡 Observado"}
-                {scoreStats.semaforo === "rojo" && "🔴 No Conforme / Riesgo"}
-              </span>
-            </div>
+            >
+              <Navigation className="w-3.5 h-3.5" />
+              <span>🚗 En Camino</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleIniciarSupervision}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                estadoOperativo === "INICIADA"
+                  ? "bg-emerald-500 text-slate-950 font-black shadow-md scale-105"
+                  : "bg-white/10 text-slate-200 hover:bg-white/20"
+              }`}
+            >
+              <Play className="w-3.5 h-3.5" />
+              <span>⏱️ En Supervisión</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleFinalizarSupervision}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                estadoOperativo === "FINALIZADA"
+                  ? "bg-blue-400 text-slate-950 font-black shadow-md scale-105"
+                  : "bg-white/10 text-slate-200 hover:bg-white/20"
+              }`}
+            >
+              <CheckCheck className="w-3.5 h-3.5" />
+              <span>🏁 Finalizada</span>
+            </button>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => handleMarcarTodos(true)}
-              className="px-2.5 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 rounded-lg text-xs font-bold transition-colors cursor-pointer"
-            >
-              ✓ Marcar Todos SÍ
-            </button>
-            <button
-              type="button"
-              onClick={() => handleMarcarTodos(false)}
-              className="px-2.5 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 rounded-lg text-xs font-bold transition-colors cursor-pointer"
-            >
-              ✗ Marcar Todos NO
-            </button>
+          {/* Time & Duration Display */}
+          <div className="flex items-center gap-4 bg-black/40 px-3.5 py-1.5 rounded-xl border border-white/10 text-xs">
+            <div className="flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-blue-400" />
+              <span className="text-slate-300">Inicio:</span>
+              <span className="font-mono font-bold text-white">{horaInicio || hora}</span>
+            </div>
+            {horaFin && (
+              <div className="flex items-center gap-1.5 border-l border-white/20 pl-3">
+                <span className="text-slate-300">Fin:</span>
+                <span className="font-mono font-bold text-emerald-400">{horaFin}</span>
+              </div>
+            )}
+            {estadoOperativo === "INICIADA" && (
+              <div className="flex items-center gap-1.5 border-l border-white/20 pl-3">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                <span className="font-mono font-bold text-emerald-300">
+                  {formatoTiempo(segundosTranscurridos)}
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* 1. Header Information Box (Datos del Técnico & Orden) */}
+      {/* 2. Header Data & Technician Selector (NO DNI) */}
       <div className="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-slate-200 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <UserCheck className="w-5 h-5 text-blue-600" />
-            <h3 className="font-extrabold text-slate-800 text-sm md:text-base">
-              1. Datos del Técnico y de la Inspección
+            <h3 className="font-extrabold text-slate-800 text-xs md:text-sm">
+              1. Datos de la Inspección & Técnico Asignado
             </h3>
           </div>
-          <span className="text-[11px] text-slate-400 font-medium">
-            Plantilla Activa: <strong>{selectedTipo}</strong> ({items.length} ítems)
+          <span className="text-[11px] text-slate-500 font-medium bg-slate-100 px-2.5 py-1 rounded-full">
+            Plantilla: {selectedTipo.replace("_", " ")}
           </span>
         </div>
 
-        {/* OT / Orden Fast Search Assistant */}
-        <div ref={otContainerRef} className="bg-blue-50/70 border border-blue-200/80 rounded-2xl p-3.5 space-y-2 relative">
-          <label className="block text-xs font-extrabold text-blue-900 flex items-center gap-1.5">
-            <Search className="w-3.5 h-3.5 text-blue-600" />
-            Vincular con Orden de Trabajo (Jalar datos de OT / Cliente / Técnico automáticamente)
+        {/* Quick OT Autofill */}
+        <div ref={otContainerRef} className="relative">
+          <label className="block text-xs font-bold text-slate-700 mb-1">
+            ⚡ Autocompletar desde Orden de Trabajo / Ticket
           </label>
           <div className="relative">
             <input
               type="text"
               value={searchOtTerm}
-              onChange={(e) => {
-                setSearchOtTerm(e.target.value);
-                setShowOtDropdown(true);
-              }}
-              onFocus={() => {
-                if (ordenesResultados.length > 0) setShowOtDropdown(true);
-              }}
-              placeholder="Ingresa N° de OT (ej. 3463541), Ticket (ej. VTEXT-...), Pedido o Cliente..."
-              className="w-full pl-9 pr-14 py-2 text-xs md:text-sm bg-white border border-blue-300 rounded-xl focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
+              onChange={(e) => setSearchOtTerm(e.target.value)}
+              placeholder="Escribe OT, Ticket, o Nombre para autocompletar..."
+              className="w-full pl-9 pr-10 py-2 text-xs md:text-sm border border-blue-200 bg-blue-50/40 rounded-xl focus:ring-2 focus:ring-blue-500 font-medium text-slate-800 placeholder:text-slate-400"
             />
-            <Search className="w-4 h-4 text-blue-400 absolute left-3 top-2.5" />
-            <div className="absolute right-2.5 top-2 flex items-center gap-1">
-              {isSearchingOt && (
-                <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-              )}
-              {searchOtTerm && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchOtTerm("");
-                    setOrdenesResultados([]);
-                    setShowOtDropdown(false);
-                  }}
-                  className="p-1 text-slate-400 hover:text-slate-600 rounded-md cursor-pointer"
-                  title="Limpiar búsqueda"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
+            <Search className="w-4 h-4 text-blue-600 absolute left-3 top-2.5" />
+            {searchOtTerm && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchOtTerm("");
+                  setOrdenesResultados([]);
+                  setShowOtDropdown(false);
+                }}
+                className="absolute right-2.5 top-2.5 p-0.5 text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
-          {/* Orders Autocomplete Dropdown */}
+          {/* OT Dropdown */}
           {showOtDropdown && ordenesResultados.length > 0 && (
-            <div className="absolute left-3.5 right-3.5 top-full mt-1 bg-white border border-blue-200 rounded-xl shadow-2xl max-h-56 overflow-y-auto z-50 divide-y divide-slate-100">
+            <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-blue-200 rounded-xl shadow-2xl max-h-56 overflow-y-auto z-50 divide-y divide-slate-100">
               {ordenesResultados.map((ord) => (
                 <button
                   key={ord.id_orden}
@@ -586,25 +744,15 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
                     e.preventDefault();
                     handleSelectOrden(ord);
                   }}
-                  className="w-full text-left p-2.5 hover:bg-blue-50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs cursor-pointer"
+                  className="w-full text-left p-2.5 hover:bg-blue-50 transition-colors flex flex-col justify-between gap-1 text-xs cursor-pointer"
                 >
-                  <div>
-                    <div className="font-bold text-blue-900 flex items-center gap-2">
-                      <span>OT: {ord.ot}</span>
-                      {ord.ticket && (
-                        <span className="bg-blue-100 text-blue-800 text-[10px] px-1.5 py-0.2 rounded font-mono">
-                          {ord.ticket}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-slate-700 font-medium">{ord.cliente}</div>
-                    <div className="text-[11px] text-slate-400">
-                      {ord.distrito || ord.direccion || "Sin dirección"}
-                    </div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-blue-900">OT: {ord.ot}</span>
+                    <span className="text-slate-500 font-bold">{ord.tecnico}</span>
                   </div>
-                  <div className="text-right sm:text-right">
-                    <span className="text-slate-800 font-bold block">{ord.tecnico || "Sin Técnico"}</span>
-                    <span className="text-[10px] text-slate-500 font-mono">{ord.cuadrilla || ""}</span>
+                  <div className="text-slate-800 font-semibold">{ord.cliente}</div>
+                  <div className="text-[10px] text-slate-400">
+                    {ord.distrito} · {ord.direccion}
                   </div>
                 </button>
               ))}
@@ -612,9 +760,9 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
           )}
         </div>
 
-        {/* Technician, Cuadrilla, DNI Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {/* Autocomplete Technician */}
+        {/* Main Grid: Technician, Cuadrilla, Fecha, Hora, Lugar */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
+          {/* Technician Selector (NO DNI) */}
           <div ref={tecnicoContainerRef} className="relative">
             <label className="block text-xs font-bold text-slate-700 mb-1">
               Técnico Evaluado *
@@ -629,8 +777,8 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
                   setShowTecnicoDropdown(true);
                 }}
                 onFocus={() => setShowTecnicoDropdown(true)}
-                placeholder="Buscar por Nombre o DNI..."
-                className="w-full pl-8 pr-16 py-2 text-xs md:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 font-medium"
+                placeholder="Buscar técnico por nombre o cuadrilla..."
+                className="w-full pl-8 pr-16 py-2 text-xs md:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 font-medium text-slate-800"
               />
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-3" />
 
@@ -642,7 +790,6 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
                       setSearchTermTecnico("");
                       setTecnicoName("");
                       setSelectedTecnico(null);
-                      setDni("");
                       setCuadrilla("");
                       setShowTecnicoDropdown(false);
                     }}
@@ -667,6 +814,7 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
               </div>
             </div>
 
+            {/* Dropdown */}
             {showTecnicoDropdown && (
               <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-2xl max-h-56 overflow-y-auto divide-y divide-slate-50">
                 {filteredTecnicos.length > 0 ? (
@@ -683,7 +831,7 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
                       <div>
                         <div className="font-bold text-slate-800">{t.tecnico}</div>
                         <div className="text-[10px] text-slate-400">
-                          DNI: {t.dni || "—"} · Cel: {t.celular || "—"}
+                          Cel: {t.celular || "—"} · Cargo: {t.cargo || "Técnico"}
                         </div>
                       </div>
                       <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded">
@@ -698,20 +846,6 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
                 )}
               </div>
             )}
-          </div>
-
-          {/* DNI */}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              DNI del Técnico
-            </label>
-            <input
-              type="text"
-              value={dni}
-              onChange={(e) => setDni(e.target.value)}
-              placeholder="Número de documento"
-              className="w-full px-3 py-2 text-xs md:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 font-mono"
-            />
           </div>
 
           {/* Cuadrilla */}
@@ -757,7 +891,7 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
           </div>
 
           {/* Ubicación */}
-          <div>
+          <div className="md:col-span-2">
             <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
               <MapPin className="w-3.5 h-3.5 text-slate-400" />
               Ubicación / Lugar de Trabajo
@@ -766,7 +900,7 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
               type="text"
               value={lugarInspeccion}
               onChange={(e) => setLugarInspeccion(e.target.value)}
-              placeholder="ej. Base San Juan / CTO 14 Surco"
+              placeholder="ej. Base San Juan / CTO 14 Surco / Av. Los Próceres 120"
               className="w-full px-3 py-2 text-xs md:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -800,38 +934,94 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
         </div>
       </div>
 
-      {/* 2. Dynamic Categories Navigation Bar (Touch-friendly for Mobile) */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
-        {[
-          { id: "TODOS", label: `Todos (${items.length})`, icon: ClipboardCheck },
-          { id: "UNIFORME", label: `Uniforme & EPP (${groupedItems.UNIFORME.length})`, icon: HardHat },
-          { id: "HERRAMIENTAS", label: `Herramientas (${groupedItems.HERRAMIENTAS.length})`, icon: Wrench },
-          { id: "MATERIALES", label: `Materiales (${groupedItems.MATERIALES.length})`, icon: PackageCheck },
-          { id: "VEHICULOS", label: `Vehículo & Seguridad (${groupedItems.VEHICULOS.length})`, icon: Truck },
-          ...(groupedItems.EQUIPOS.length > 0
-            ? [{ id: "EQUIPOS", label: `Equipos (${groupedItems.EQUIPOS.length})`, icon: Cpu }]
-            : []),
-        ].map((tab) => {
-          const Icon = tab.icon;
+      {/* 3. Score & Category Filter Bar */}
+      <div className="bg-slate-900 rounded-3xl p-4 md:p-5 text-white flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div
+            className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-lg shadow-md ${
+              scoreStats.semaforo === "verde"
+                ? "bg-emerald-500 text-emerald-950"
+                : scoreStats.semaforo === "amarillo"
+                ? "bg-amber-400 text-amber-950"
+                : "bg-rose-500 text-white"
+            }`}
+          >
+            {scoreStats.porcentaje}%
+          </div>
+          <div>
+            <div className="text-xs text-slate-400 font-bold">Cumplimiento Global</div>
+            <div className="text-sm font-extrabold flex items-center gap-1.5">
+              <span>
+                {scoreStats.cumplidos} de {scoreStats.total} ítems conformes
+              </span>
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                  scoreStats.semaforo === "verde"
+                    ? "bg-emerald-500/20 text-emerald-400"
+                    : scoreStats.semaforo === "amarillo"
+                    ? "bg-amber-500/20 text-amber-300"
+                    : "bg-rose-500/20 text-rose-300"
+                }`}
+              >
+                {scoreStats.semaforo}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Global check buttons & Category Filter */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => handleMarcarTodos(true)}
+            className="px-3 py-1.5 rounded-xl bg-emerald-600/30 text-emerald-300 hover:bg-emerald-600/50 text-xs font-bold transition-all cursor-pointer"
+          >
+            Marcar Todos SÍ
+          </button>
+          <button
+            type="button"
+            onClick={() => handleMarcarTodos(false)}
+            className="px-3 py-1.5 rounded-xl bg-rose-600/30 text-rose-300 hover:bg-rose-600/50 text-xs font-bold transition-all cursor-pointer"
+          >
+            Marcar Todos NO
+          </button>
+        </div>
+      </div>
+
+      {/* Category Pills Navigation */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+        {["TODOS", "UNIFORME", "HERRAMIENTAS", "MATERIALES", "VEHICULOS", "EQUIPOS"].map((cat) => {
+          const isSelected = filtroCategoria === cat;
+          const count =
+            cat === "TODOS"
+              ? items.length
+              : items.filter((i) => i.categoria === cat).length;
+
           return (
             <button
-              key={tab.id}
+              key={cat}
               type="button"
-              onClick={() => setFiltroCategoria(tab.id)}
-              className={`px-3.5 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
-                filtroCategoria === tab.id
-                  ? "bg-slate-900 text-white shadow-md"
+              onClick={() => setFiltroCategoria(cat)}
+              className={`px-3.5 py-2 rounded-2xl text-xs font-extrabold whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                isSelected
+                  ? "bg-blue-600 text-white shadow-md shadow-blue-500/20 scale-102"
                   : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
               }`}
             >
-              <Icon className="w-3.5 h-3.5" />
-              <span>{tab.label}</span>
+              <span>{cat}</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                  isSelected ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"
+                }`}
+              >
+                {count}
+              </span>
             </button>
           );
         })}
       </div>
 
-      {/* 3. Items Checklist Sections */}
+      {/* 4. Category Checklists with Specialized Row Controls */}
       <div className="space-y-6">
         {Object.entries(groupedItems).map(([categoria, catItems]) => {
           if (catItems.length === 0) return null;
@@ -878,27 +1068,29 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
                 </div>
               </div>
 
-              {/* Items Grid (Optimized for Mobile Touch) */}
+              {/* Items List */}
               <div className="p-3 md:p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
                 {catItems.map((item) => (
                   <div
                     key={item.id}
-                    className={`p-3 rounded-2xl border transition-all ${
+                    className={`p-3.5 rounded-2xl border transition-all ${
                       item.cumple
-                        ? "bg-emerald-50/40 border-emerald-200/70 hover:bg-emerald-50"
-                        : "bg-rose-50/50 border-rose-200 hover:bg-rose-50"
+                        ? "bg-emerald-50/40 border-emerald-200/80 hover:bg-emerald-50/70"
+                        : "bg-rose-50/50 border-rose-200 hover:bg-rose-50/80"
                     }`}
                   >
+                    {/* Top Row: Title + SÍ/NO Toggle */}
                     <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
                         <button
                           type="button"
                           onClick={() => handleToggleCumple(item.id)}
-                          className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 transition-transform active:scale-90 cursor-pointer ${
+                          className={`w-7 h-7 rounded-xl flex items-center justify-center font-black text-xs shrink-0 transition-transform active:scale-90 cursor-pointer ${
                             item.cumple
                               ? "bg-emerald-600 text-white shadow-sm"
                               : "bg-rose-600 text-white shadow-sm"
                           }`}
+                          title="Alternar SÍ / NO"
                         >
                           {item.cumple ? "✓" : "✗"}
                         </button>
@@ -907,41 +1099,181 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
                         </span>
                       </div>
 
-                      {/* State Pills: Bueno / Regular / Malo */}
-                      <div className="flex items-center gap-1 shrink-0">
-                        {(["BUENO", "REGULAR", "MALO"] as const).map((est) => (
-                          <button
-                            key={est}
-                            type="button"
-                            onClick={() => handleEstadoChange(item.id, est)}
-                            className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
-                              item.estado === est
-                                ? est === "BUENO"
-                                  ? "bg-emerald-600 text-white"
-                                  : est === "REGULAR"
-                                  ? "bg-amber-500 text-white"
-                                  : "bg-rose-600 text-white"
-                                : "bg-white/80 text-slate-500 hover:bg-white"
-                            }`}
-                          >
-                            {est[0]}
-                          </button>
-                        ))}
+                      {/* SÍ / NO Quick Switch */}
+                      <div className="flex items-center bg-white/90 p-0.5 rounded-xl border border-slate-200 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleSetCumple(item.id, true)}
+                          className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                            item.cumple
+                              ? "bg-emerald-600 text-white shadow-xs"
+                              : "text-slate-500 hover:text-slate-800"
+                          }`}
+                        >
+                          SÍ
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSetCumple(item.id, false)}
+                          className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                            !item.cumple
+                              ? "bg-rose-600 text-white shadow-xs"
+                              : "text-slate-500 hover:text-slate-800"
+                          }`}
+                        >
+                          NO
+                        </button>
                       </div>
                     </div>
 
-                    {/* Observación input if not passing or noted */}
-                    {(!item.cumple || item.observacion) && (
-                      <div className="mt-2 pt-2 border-t border-slate-200/60">
+                    {/* CATEGORY SPECIFIC ROW CONTROLS */}
+
+                    {/* 1. MATERIALES: Cantidad Input */}
+                    {categoria === "MATERIALES" && (
+                      <div className="mt-2 flex items-center gap-2 pt-2 border-t border-slate-200/60">
+                        <label className="text-[11px] font-bold text-slate-600 shrink-0">
+                          Cantidad:
+                        </label>
                         <input
                           type="text"
-                          value={item.observacion || ""}
-                          onChange={(e) => handleObservacionChange(item.id, e.target.value)}
-                          placeholder="Observación específica de este ítem..."
-                          className="w-full px-2.5 py-1 text-xs bg-white border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500"
+                          value={item.cantidad !== undefined ? item.cantidad : ""}
+                          onChange={(e) => handleCantidadChange(item.id, e.target.value)}
+                          placeholder="ej. 50 PZ, 3 Rollos"
+                          className="w-full px-2 py-1 text-xs bg-white border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500 font-medium"
                         />
                       </div>
                     )}
+
+                    {/* 2. VEHICULOS: Estado (Bueno/Regular/Malo) + Cantidad */}
+                    {categoria === "VEHICULOS" && (
+                      <div className="mt-2 flex items-center justify-between gap-2 pt-2 border-t border-slate-200/60">
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] font-bold text-slate-500">Estado:</span>
+                          {(["BUENO", "REGULAR", "MALO"] as const).map((est) => (
+                            <button
+                              key={est}
+                              type="button"
+                              onClick={() => handleEstadoChange(item.id, est)}
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-black cursor-pointer transition-all ${
+                                item.estado === est
+                                  ? est === "BUENO"
+                                    ? "bg-emerald-600 text-white"
+                                    : est === "REGULAR"
+                                    ? "bg-amber-500 text-white"
+                                    : "bg-rose-600 text-white"
+                                  : "bg-white text-slate-500 hover:bg-slate-100"
+                              }`}
+                            >
+                              {est[0]}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] font-bold text-slate-500">Cant:</span>
+                          <input
+                            type="text"
+                            value={item.cantidad !== undefined ? item.cantidad : ""}
+                            onChange={(e) => handleCantidadChange(item.id, e.target.value)}
+                            placeholder="1"
+                            className="w-12 px-1.5 py-0.5 text-xs text-center bg-white border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 font-bold"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 3. EQUIPOS: Cantidad + Scanner de Código de Barras + Series Chips */}
+                    {categoria === "EQUIPOS" && (
+                      <div className="mt-2 space-y-2 pt-2 border-t border-slate-200/60">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[11px] font-bold text-slate-700">Cantidad:</span>
+                            <input
+                              type="number"
+                              min="0"
+                              value={item.cantidad !== undefined ? item.cantidad : (item.series?.length || 0)}
+                              onChange={(e) => handleCantidadChange(item.id, e.target.value)}
+                              className="w-14 px-2 py-0.5 text-xs text-center font-black bg-white border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500"
+                            />
+                          </div>
+
+                          {/* Scanner Trigger Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenScanner(item.id)}
+                            className="px-2.5 py-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm active:scale-95 transition-all cursor-pointer"
+                            title="Abrir lector de código de barras para este equipo"
+                          >
+                            <Barcode className="w-3.5 h-3.5" />
+                            <span>Escanear Serie</span>
+                          </button>
+                        </div>
+
+                        {/* Series Chips List */}
+                        {item.series && item.series.length > 0 && (
+                          <div className="flex flex-wrap gap-1 bg-white/70 p-2 rounded-xl border border-slate-200">
+                            {item.series.map((serie) => (
+                              <span
+                                key={serie}
+                                className="inline-flex items-center gap-1 bg-blue-100 text-blue-900 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold border border-blue-200"
+                              >
+                                <Tag className="w-2.5 h-2.5 text-blue-700" />
+                                {serie}
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveSerie(item.id, serie)}
+                                  className="text-blue-500 hover:text-rose-600 ml-0.5 cursor-pointer"
+                                  title="Eliminar serie"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Manual Serie Input Helper */}
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="text"
+                            value={manualSerieInputs[item.id] || ""}
+                            onChange={(e) =>
+                              setManualSerieInputs((prev) => ({
+                                ...prev,
+                                [item.id]: e.target.value,
+                              }))
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleAddManualSerie(item.id);
+                              }
+                            }}
+                            placeholder="O escribe serie manual..."
+                            className="w-full px-2 py-0.5 text-[11px] bg-white border border-slate-300 rounded-md focus:ring-1 focus:ring-blue-500 font-mono"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleAddManualSerie(item.id)}
+                            className="p-1 bg-slate-800 text-white rounded-md hover:bg-slate-700 text-xs cursor-pointer shrink-0"
+                            title="Agregar serie manual"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Observación input per item (Always readily accessible) */}
+                    <div className="mt-2 pt-2 border-t border-slate-200/60">
+                      <input
+                        type="text"
+                        value={item.observacion || ""}
+                        onChange={(e) => handleObservacionChange(item.id, e.target.value)}
+                        placeholder="Observación de este ítem (ej. desgastado, incompleto)..."
+                        className="w-full px-2.5 py-1 text-xs bg-white border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500 placeholder:text-slate-400"
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -950,13 +1282,13 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
         })}
       </div>
 
-      {/* 4. Evidencias Fotográficas de Validación */}
+      {/* 5. Evidencias Fotográficas de Validación */}
       <div className="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-slate-200 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <Camera className="w-5 h-5 text-indigo-600" />
             <h3 className="font-extrabold text-slate-800 text-sm md:text-base">
-              4. Evidencias Fotográficas de Validación en Terreno
+              5. Evidencias Fotográficas de Validación en Terreno
             </h3>
           </div>
           <span className="text-[11px] text-slate-500 font-medium bg-slate-100 px-2.5 py-1 rounded-full">
@@ -999,11 +1331,11 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
 
             <div className="mt-3">
               {fotoEppUniforme ? (
-                <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-black/5 aspect-4/3 flex items-center justify-center group/img">
+                <div className="relative rounded-xl overflow-hidden border border-slate-200 group/img bg-slate-900">
                   <img
                     src={fotoEppUniforme}
-                    alt="Técnico con Implementos"
-                    className="w-full h-full object-cover"
+                    alt="EPP e Implementos"
+                    className="w-full h-36 object-cover"
                   />
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-2">
                     <button
@@ -1012,36 +1344,33 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
                         setModalFotoPreview({
                           isOpen: true,
                           url: fotoEppUniforme,
-                          titulo: "Foto del Técnico con Implementos y EPP",
+                          titulo: "Foto: Técnico con Implementos y EPP",
                         })
                       }
-                      className="p-2 bg-white/90 hover:bg-white text-slate-800 rounded-lg shadow text-xs font-bold flex items-center gap-1 cursor-pointer"
+                      className="p-2 rounded-lg bg-white/90 text-slate-800 hover:bg-white transition-all cursor-pointer"
                       title="Ver en grande"
                     >
-                      <Eye className="w-3.5 h-3.5" />
+                      <Eye className="w-4 h-4" />
                     </button>
                     <button
                       type="button"
                       onClick={() => setFotoEppUniforme(null)}
-                      className="p-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow text-xs font-bold flex items-center gap-1 cursor-pointer"
+                      className="p-2 rounded-lg bg-rose-600/90 text-white hover:bg-rose-600 transition-all cursor-pointer"
                       title="Eliminar foto"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
               ) : (
-                <label className="border-2 border-dashed border-slate-300 hover:border-blue-500 bg-white hover:bg-blue-50/50 rounded-xl p-4 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors aspect-4/3">
-                  <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
-                    <Camera className="w-5 h-5" />
-                  </div>
-                  <span className="text-xs font-bold text-blue-700 text-center">
-                    Tomar / Subir Foto EPP
-                  </span>
-                  <span className="text-[10px] text-slate-400">JPG, PNG (Auto comprimido)</span>
+                <label className="border-2 border-dashed border-slate-200 hover:border-blue-400 hover:bg-blue-50/40 rounded-xl p-4 flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all">
+                  <UploadCloud className="w-6 h-6 text-slate-400 group-hover:text-blue-600 transition-colors" />
+                  <span className="text-xs font-bold text-slate-700">Tomar / Subir Foto</span>
+                  <span className="text-[10px] text-slate-400">JPG, PNG hasta 5MB</span>
                   <input
                     type="file"
                     accept="image/*"
+                    capture="environment"
                     className="hidden"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
@@ -1053,16 +1382,16 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
             </div>
           </div>
 
-          {/* Card 2: Herramientas y Equipos */}
+          {/* Card 2: Herramientas y Kit */}
           <div className="border border-slate-200 rounded-2xl p-4 bg-gradient-to-b from-slate-50/50 to-white flex flex-col justify-between relative group hover:border-indigo-300 transition-all">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
+                  <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center">
                     <Wrench className="w-4 h-4" />
                   </div>
                   <span className="font-extrabold text-xs text-slate-800">
-                    Herramientas y Equipos
+                    Herramientas & Kit de Fibra
                   </span>
                 </div>
                 {fotoHerramientas ? (
@@ -1076,17 +1405,17 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
                 )}
               </div>
               <p className="text-[11px] text-slate-500 leading-tight">
-                Foto de maleta/caja de herramientas ordenadas, fusionadora, OTDR, peladoras y escaleras.
+                Evidencia de maletín de herramientas, taladro, escalera, kit de fibra y medidores operativos.
               </p>
             </div>
 
             <div className="mt-3">
               {fotoHerramientas ? (
-                <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-black/5 aspect-4/3 flex items-center justify-center group/img">
+                <div className="relative rounded-xl overflow-hidden border border-slate-200 group/img bg-slate-900">
                   <img
                     src={fotoHerramientas}
-                    alt="Herramientas y Equipos"
-                    className="w-full h-full object-cover"
+                    alt="Herramientas y Kit"
+                    className="w-full h-36 object-cover"
                   />
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-2">
                     <button
@@ -1095,36 +1424,33 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
                         setModalFotoPreview({
                           isOpen: true,
                           url: fotoHerramientas,
-                          titulo: "Foto de Herramientas y Equipos",
+                          titulo: "Foto: Herramientas y Kit de Fibra",
                         })
                       }
-                      className="p-2 bg-white/90 hover:bg-white text-slate-800 rounded-lg shadow text-xs font-bold flex items-center gap-1 cursor-pointer"
+                      className="p-2 rounded-lg bg-white/90 text-slate-800 hover:bg-white transition-all cursor-pointer"
                       title="Ver en grande"
                     >
-                      <Eye className="w-3.5 h-3.5" />
+                      <Eye className="w-4 h-4" />
                     </button>
                     <button
                       type="button"
                       onClick={() => setFotoHerramientas(null)}
-                      className="p-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow text-xs font-bold flex items-center gap-1 cursor-pointer"
+                      className="p-2 rounded-lg bg-rose-600/90 text-white hover:bg-rose-600 transition-all cursor-pointer"
                       title="Eliminar foto"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
               ) : (
-                <label className="border-2 border-dashed border-slate-300 hover:border-amber-500 bg-white hover:bg-amber-50/50 rounded-xl p-4 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors aspect-4/3">
-                  <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center text-amber-600">
-                    <Camera className="w-5 h-5" />
-                  </div>
-                  <span className="text-xs font-bold text-amber-700 text-center">
-                    Tomar / Subir Herramientas
-                  </span>
-                  <span className="text-[10px] text-slate-400">JPG, PNG (Auto comprimido)</span>
+                <label className="border-2 border-dashed border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/40 rounded-xl p-4 flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all">
+                  <UploadCloud className="w-6 h-6 text-slate-400 group-hover:text-indigo-600 transition-colors" />
+                  <span className="text-xs font-bold text-slate-700">Tomar / Subir Foto</span>
+                  <span className="text-[10px] text-slate-400">JPG, PNG hasta 5MB</span>
                   <input
                     type="file"
                     accept="image/*"
+                    capture="environment"
                     className="hidden"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
@@ -1136,16 +1462,16 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
             </div>
           </div>
 
-          {/* Card 3: Carro Limpio y Ordenado */}
+          {/* Card 3: Carro Limpio & Rotulado */}
           <div className="border border-slate-200 rounded-2xl p-4 bg-gradient-to-b from-slate-50/50 to-white flex flex-col justify-between relative group hover:border-indigo-300 transition-all">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                  <div className="w-8 h-8 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center">
                     <Truck className="w-4 h-4" />
                   </div>
                   <span className="font-extrabold text-xs text-slate-800">
-                    Carro Limpio y Ordenado
+                    Vehículo Limpio y Ordenado
                   </span>
                 </div>
                 {fotoCarroLimpio ? (
@@ -1159,17 +1485,17 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
                 )}
               </div>
               <p className="text-[11px] text-slate-500 leading-tight">
-                Foto del vehículo de la cuadrilla limpio interior/exterior, stock ordenado, conos y extintor.
+                Vista de la camioneta o moto limpia, con logotipos reglamentarios, orden interior y conos visibles.
               </p>
             </div>
 
             <div className="mt-3">
               {fotoCarroLimpio ? (
-                <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-black/5 aspect-4/3 flex items-center justify-center group/img">
+                <div className="relative rounded-xl overflow-hidden border border-slate-200 group/img bg-slate-900">
                   <img
                     src={fotoCarroLimpio}
-                    alt="Carro Limpio y Ordenado"
-                    className="w-full h-full object-cover"
+                    alt="Vehículo Limpio"
+                    className="w-full h-36 object-cover"
                   />
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-2">
                     <button
@@ -1178,36 +1504,33 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
                         setModalFotoPreview({
                           isOpen: true,
                           url: fotoCarroLimpio,
-                          titulo: "Foto del Carro Limpio y Ordenado",
+                          titulo: "Foto: Vehículo Limpio y Rotulado",
                         })
                       }
-                      className="p-2 bg-white/90 hover:bg-white text-slate-800 rounded-lg shadow text-xs font-bold flex items-center gap-1 cursor-pointer"
+                      className="p-2 rounded-lg bg-white/90 text-slate-800 hover:bg-white transition-all cursor-pointer"
                       title="Ver en grande"
                     >
-                      <Eye className="w-3.5 h-3.5" />
+                      <Eye className="w-4 h-4" />
                     </button>
                     <button
                       type="button"
                       onClick={() => setFotoCarroLimpio(null)}
-                      className="p-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow text-xs font-bold flex items-center gap-1 cursor-pointer"
+                      className="p-2 rounded-lg bg-rose-600/90 text-white hover:bg-rose-600 transition-all cursor-pointer"
                       title="Eliminar foto"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
               ) : (
-                <label className="border-2 border-dashed border-slate-300 hover:border-emerald-500 bg-white hover:bg-emerald-50/50 rounded-xl p-4 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors aspect-4/3">
-                  <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600">
-                    <Camera className="w-5 h-5" />
-                  </div>
-                  <span className="text-xs font-bold text-emerald-700 text-center">
-                    Tomar / Subir Carro Limpio
-                  </span>
-                  <span className="text-[10px] text-slate-400">JPG, PNG (Auto comprimido)</span>
+                <label className="border-2 border-dashed border-slate-200 hover:border-teal-400 hover:bg-teal-50/40 rounded-xl p-4 flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all">
+                  <UploadCloud className="w-6 h-6 text-slate-400 group-hover:text-teal-600 transition-colors" />
+                  <span className="text-xs font-bold text-slate-700">Tomar / Subir Foto</span>
+                  <span className="text-[10px] text-slate-400">JPG, PNG hasta 5MB</span>
                   <input
                     type="file"
                     accept="image/*"
+                    capture="environment"
                     className="hidden"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
@@ -1221,124 +1544,112 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
         </div>
       </div>
 
-      {/* 5. General Observations & Action Bar */}
+      {/* 6. Observaciones Generales y Acciones */}
       <div className="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-slate-200 space-y-4">
-        <div>
-          <label className="block text-xs font-bold text-slate-800 mb-1.5">
-            Observaciones Generales y Acuerdos con el Técnico:
-          </label>
-          <textarea
-            rows={3}
-            value={observaciones}
-            onChange={(e) => setObservaciones(e.target.value)}
-            placeholder="Anotar compromisos de regularización de uniformes, reemplazo de herramientas dañadas o reposición de stock..."
-            className="w-full px-3 py-2 text-xs md:text-sm border border-slate-300 rounded-2xl focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
+        <label className="block text-xs font-bold text-slate-700">
+          6. Observaciones Generales del Supervisor
+        </label>
+        <textarea
+          rows={3}
+          value={observaciones}
+          onChange={(e) => setObservaciones(e.target.value)}
+          placeholder="Escribe comentarios adicionales sobre el desempeño, compromiso o aspectos a corregir..."
+          className="w-full px-3 py-2 text-xs md:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+        />
 
+        {/* Feedback Alerts */}
         {saveSuccess && (
-          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 text-xs font-bold flex items-center gap-2">
+          <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            ¡Ficha de Supervisión guardada con éxito en la base de datos!
+            ¡Ficha de supervisión guardada con éxito en la base de datos!
           </div>
         )}
 
         {saveError && (
-          <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-rose-800 text-xs font-bold flex items-center gap-2">
-            <XCircle className="w-4 h-4 text-rose-600 shrink-0" />
+          <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs font-bold flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
             {saveError}
           </div>
         )}
 
-        {/* Action Buttons */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+        {/* Bottom Actions Toolbar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={handleExportExcel}
-              className="flex-1 sm:flex-none py-2.5 px-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
             >
-              <FileSpreadsheet className="w-4 h-4" />
-              Exportar Excel
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+              <span>Exportar Excel</span>
             </button>
             <button
               type="button"
               onClick={handlePrint}
-              className="flex-1 sm:flex-none py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
             >
-              <Printer className="w-4 h-4" />
-              Imprimir Ficha
-            </button>
-            <button
-              type="button"
-              onClick={handleReset}
-              className="py-2.5 px-3 text-slate-400 hover:text-slate-600 text-xs font-medium flex items-center justify-center gap-1 transition-colors cursor-pointer"
-              title="Restablecer Ficha"
-            >
-              <RotateCcw className="w-4 h-4" />
+              <Printer className="w-4 h-4 text-slate-600" />
+              <span>Imprimir</span>
             </button>
           </div>
 
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving}
-            className="w-full sm:w-auto py-3 px-8 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold text-sm rounded-2xl shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
-          >
-            {saving ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Guardando Ficha...
-              </>
-            ) : (
-              <>
-                <Save className="w-4 h-4" />
-                Guardar Ficha en Sistema
-              </>
-            )}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleReset}
+              className="px-3.5 py-2 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>Restablecer</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={saving}
+              onClick={handleSave}
+              className="px-5 py-2.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-teal-500 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-extrabold shadow-lg shadow-blue-500/20 active:scale-95 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              <Save className="w-4 h-4" />
+              <span>{saving ? "Guardando..." : "Guardar Supervisión en Terreno"}</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Modal Preview Photo Full Size */}
+      {/* Barcode / QR Camera Scanner Modal */}
+      {isScannerOpen && (
+        <CameraBarcodeScannerModal
+          isOpen={isScannerOpen}
+          onClose={() => {
+            setIsScannerOpen(false);
+            setActiveScanningItemId(null);
+          }}
+          onScan={handleScanSerie}
+          title="Escanear Código / Serie de Equipo"
+          subtitle="Apunta la cámara al código de barras o número de serie de la ONT/Router"
+        />
+      )}
+
+      {/* Full Photo Modal Preview */}
       {modalFotoPreview.isOpen && (
-        <div
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setModalFotoPreview({ isOpen: false, url: "", titulo: "" })}
-        >
-          <div
-            className="bg-white rounded-3xl overflow-hidden max-w-3xl w-full shadow-2xl flex flex-col max-h-[90vh]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
-              <span className="font-extrabold text-sm flex items-center gap-2">
-                <Camera className="w-4 h-4 text-blue-400" />
-                {modalFotoPreview.titulo}
-              </span>
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-2xl w-full overflow-hidden shadow-2xl space-y-3 p-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h4 className="text-xs font-bold text-slate-800">{modalFotoPreview.titulo}</h4>
               <button
                 type="button"
                 onClick={() => setModalFotoPreview({ isOpen: false, url: "", titulo: "" })}
-                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer"
+                className="p-1 text-slate-400 hover:text-slate-700 rounded-lg"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="p-4 bg-slate-950 flex items-center justify-center overflow-auto flex-1">
+            <div className="max-h-[70vh] overflow-hidden rounded-2xl flex items-center justify-center bg-slate-900">
               <img
                 src={modalFotoPreview.url}
-                alt={modalFotoPreview.titulo}
-                className="max-h-[70vh] w-auto rounded-xl object-contain shadow-lg"
+                alt="Vista previa"
+                className="max-h-[70vh] w-auto object-contain"
               />
-            </div>
-            <div className="p-3 bg-slate-100 flex items-center justify-between text-xs text-slate-600">
-              <span>Fotografía de verificación en campo</span>
-              <button
-                type="button"
-                onClick={() => setModalFotoPreview({ isOpen: false, url: "", titulo: "" })}
-                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl cursor-pointer"
-              >
-                Cerrar
-              </button>
             </div>
           </div>
         </div>

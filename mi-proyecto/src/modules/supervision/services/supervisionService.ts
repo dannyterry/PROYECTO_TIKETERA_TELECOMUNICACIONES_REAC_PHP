@@ -3,6 +3,8 @@ import {
   FichaSupervisionCampo,
   AuditoriaCalidadCliente,
   TecnicoCombo,
+  SupervisorCombo,
+  OrdenBusqueda,
   SupervisionStats,
 } from "../types/supervisionTypes";
 
@@ -172,6 +174,20 @@ export const supervisionService = {
       return data.success ? data : null;
     } catch (e) {
       console.error("Error al obtener estadísticas de supervisión:", e);
+      return null;
+    }
+  },
+
+  // 5. Avance Diario en Tiempo Real (Meta 6 Técnicos + 2 Clientes)
+  async getAvanceDiario(fecha?: string): Promise<any> {
+    try {
+      const params = new URLSearchParams();
+      if (fecha) params.append("fecha", fecha);
+      const res = await fetch(`${API_URL}/api/supervision/avance-diario?${params.toString()}`);
+      const data = await res.json();
+      return data.success ? data : null;
+    } catch (e) {
+      console.error("Error al obtener avance diario de supervisores:", e);
       return null;
     }
   },

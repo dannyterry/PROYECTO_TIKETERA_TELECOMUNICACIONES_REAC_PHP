@@ -273,7 +273,7 @@ export const getOrders = async (filters?: {
         rawInconcert === "1" || 
         rawInconcert === "true";
 
-      const rawDate = raw.fecha_visita || raw.fecha_solicitud || raw.fechavisita || raw.fecha || raw.fecha_creacion || raw.created_at || raw.fecha_registro || "";
+      const rawDate = raw.fecha_solicitud || raw.fechasolicitud || raw.fecha_visita || raw.fechavisita || raw.fecha || raw.fecha_creacion || raw.created_at || raw.fecha_registro || "";
 
       // Detección de cliente reiterado / repetido en la base de datos
       const clientKey = normalizeClientName(raw.cliente);

@@ -73,10 +73,10 @@ export const LookerCardsAlertBanner: React.FC = () => {
       const json: LookerResponse = await res.json();
 
       if (json && json.success) {
-        // Si los datos son de hace más de 12 horas, descartar cache viejo
+        // Si los datos son de hace más de 5 minutos, descartar cache viejo (streaming pausado)
         if (json.timestamp) {
-          const diffHours = (Date.now() - new Date(json.timestamp).getTime()) / (1000 * 60 * 60);
-          if (diffHours > 12) {
+          const diffMinutes = (Date.now() - new Date(json.timestamp).getTime()) / (1000 * 60);
+          if (diffMinutes > 5) {
             setData(null);
             return;
           }

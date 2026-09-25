@@ -201,6 +201,22 @@ const ObservacionLlamadaCell: React.FC<{
     }
   };
 
+  const getDropdownPosition = (): React.CSSProperties => {
+    if (!dropdownRef.current) return {};
+    const rect = dropdownRef.current.getBoundingClientRect();
+    const estimatedHeight = 280;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUpwards = spaceBelow < estimatedHeight && rect.top > 160;
+
+    return {
+      top: openUpwards ? Math.max(10, rect.top - estimatedHeight - 4) : rect.bottom + 4,
+      left: Math.min(rect.left, window.innerWidth - 300),
+      maxHeight: openUpwards 
+        ? `${Math.min(288, Math.max(180, rect.top - 20))}px` 
+        : `${Math.min(288, Math.max(180, spaceBelow - 20))}px`
+    };
+  };
+
   return (
     <div className="relative inline-block w-46" ref={dropdownRef} onClick={(e) => e.stopPropagation()}>
       <div className="flex items-center bg-white/95 border border-slate-300 rounded shadow-2xs focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500 h-5">
@@ -230,11 +246,8 @@ const ObservacionLlamadaCell: React.FC<{
 
       {open && (
         <div
-          className="fixed z-9999 bg-white rounded-xl shadow-2xl border border-slate-200 p-2 text-left w-72 max-h-72 overflow-y-auto space-y-2 animate-in fade-in zoom-in-95 duration-100"
-          style={{
-            top: dropdownRef.current ? dropdownRef.current.getBoundingClientRect().bottom + 4 : 0,
-            left: dropdownRef.current ? Math.min(dropdownRef.current.getBoundingClientRect().left, window.innerWidth - 300) : 0
-          }}
+          className="fixed z-9999 bg-white rounded-xl shadow-2xl border border-slate-200 p-2 text-left w-72 overflow-y-auto space-y-2 animate-in fade-in zoom-in-95 duration-100"
+          style={getDropdownPosition()}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between pb-1 border-b border-slate-100 text-[11px] font-bold text-slate-700">
@@ -297,11 +310,9 @@ const getTramoAlertInfo = (order: Order): TramoAlertInfo => {
     return { status: "normal" };
   }
 
-  // Si la orden ya está atendida o en curso (En Camino, Iniciada, Finalizada, Liquidada, Cancelada, Anulada, Regestión, etc.)
+  // Si la orden ya está atendida o finalizada/liquidada/cancelada/anulada/regestión
   const rawStatus = (order.status || order.estado || "").toLowerCase().trim();
   if (
-    rawStatus.includes("camino") ||
-    rawStatus.includes("inici") ||
     rawStatus.includes("fin") ||
     rawStatus.includes("liquid") ||
     rawStatus.includes("cancel") ||
@@ -312,59 +323,88 @@ const getTramoAlertInfo = (order: Order): TramoAlertInfo => {
     return { status: "normal" };
   }
 
-  // Si ya tiene horaEnCamino o horaInicio registrada
-  if ((order.horaEnCamino && order.horaEnCamino !== "-") || (order.horaInicio && order.horaInicio !== "-")) {
+  // Si ya tiene horaInicio registrada (o estado Iniciada) -> Ya inició en campo
+  if ((order.horaInicio && order.horaInicio !== "-") || rawStatus.includes("inici")) {
     return { status: "normal" };
   }
 
-  // Parsear el rango horario del tramo: ej. "08:00 - 12:00", "12:00 - 16:00", "16:00 - 20:00"
-  let tramoEndMin: number | null = null;
-  const rangeMatch = order.tramo.match(/(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/);
-  if (rangeMatch) {
-    tramoEndMin = parseInt(rangeMatch[3], 10) * 60 + parseInt(rangeMatch[4], 10);
-  } else {
-    const singleMatch = order.tramo.match(/(\d{1,2}):(\d{2})/);
-    if (singleMatch) {
-      const startMin = parseInt(singleMatch[1], 10) * 60 + parseInt(singleMatch[2], 10);
-      tramoEndMin = startMin + 240; // +4 horas
-    }
-  }
-
-  if (tramoEndMin === null) {
-    return { status: "normal" };
-  }
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
   // Validar si la orden es de una fecha anterior
   const todayStr = new Date().toISOString().slice(0, 10);
   const orderFecha = (order.fecha || "").slice(0, 10);
   const isPastDay = orderFecha && orderFecha < todayStr;
-
-  const now = new Date();
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-
   if (isPastDay) {
     return {
       status: "vencido",
-      label: "⚠️ Vencido (Día ant.)",
+      label: "⚠️ Vencido (Día anterior sin inicio)",
     };
   }
 
-  const diff = currentMinutes - tramoEndMin;
+  // CASO 1: Puso "En Camino" pero aún NO le da "Inicio"
+  if (order.horaEnCamino && order.horaEnCamino !== "-") {
+    const matchCam = order.horaEnCamino.match(/(\d{1,2}):(\d{2})/);
+    if (matchCam) {
+      const camMin = parseInt(matchCam[1], 10) * 60 + parseInt(matchCam[2], 10);
+      const minsEnCamino = currentMinutes - camMin;
+      if (minsEnCamino > 20) {
+        return {
+          status: minsEnCamino > 45 ? "vencido" : "por_vencer",
+          minutesDiff: minsEnCamino,
+          label: `⏳ En camino (+${minsEnCamino}m sin dar inicio)`,
+        };
+      }
+    }
+  }
 
-  if (diff > 0) {
-    // Ya venció
+  // Parsear el rango horario del tramo: ej. "08:00 - 12:00", "12:00 - 16:00", "16:00 - 20:00"
+  let tramoStartMin: number | null = null;
+  let tramoEndMin: number | null = null;
+  const rangeMatch = order.tramo.match(/(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/);
+  if (rangeMatch) {
+    tramoStartMin = parseInt(rangeMatch[1], 10) * 60 + parseInt(rangeMatch[2], 10);
+    tramoEndMin = parseInt(rangeMatch[3], 10) * 60 + parseInt(rangeMatch[4], 10);
+  } else {
+    const singleMatch = order.tramo.match(/(\d{1,2}):(\d{2})/);
+    if (singleMatch) {
+      tramoStartMin = parseInt(singleMatch[1], 10) * 60 + parseInt(singleMatch[2], 10);
+      tramoEndMin = tramoStartMin + 240; // +4 horas
+    }
+  }
+
+  if (tramoEndMin === null || tramoStartMin === null) {
+    return { status: "normal" };
+  }
+
+  const diffEnd = currentMinutes - tramoEndMin;
+
+  // Si ya pasó la hora límite del tramo
+  if (diffEnd > 0) {
     return {
       status: "vencido",
-      minutesDiff: diff,
-      label: `⚠️ Vencido (+${diff}m)`,
+      minutesDiff: diffEnd,
+      label: `⚠️ Tramo Vencido (+${diffEnd}m sin inicio)`,
     };
-  } else if (currentMinutes >= tramoEndMin - 45) {
-    // Falta 45 minutos o menos para vencer
-    const minsLeft = Math.abs(diff);
+  }
+
+  // Si estamos a 45 minutos o menos de vencer el tramo
+  if (currentMinutes >= tramoEndMin - 45) {
+    const minsLeft = Math.abs(diffEnd);
     return {
       status: "por_vencer",
       minutesDiff: minsLeft,
-      label: `⏳ Por vencer (${minsLeft}m)`,
+      label: `⏳ Tramo por vencer (${minsLeft}m restantes sin inicio)`,
+    };
+  }
+
+  // Si ya estamos dentro del tramo (más de 45 min del inicio) y la orden no tiene camino ni inicio
+  if (currentMinutes >= tramoStartMin + 45) {
+    const minsPassed = currentMinutes - tramoStartMin;
+    return {
+      status: "por_vencer",
+      minutesDiff: minsPassed,
+      label: `⏳ En tramo (+${minsPassed}m sin inicio)`,
     };
   }
 
@@ -1215,11 +1255,12 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                         if (onViewStats) onViewStats(order);
                       }}
                       title={
-                        tramoAlert.status === "vencido"
-                          ? `⚠️ Tramo Vencido (+${tramoAlert.minutesDiff || 0}m): No está en camino ni iniciada.`
+                        tramoAlert.label ||
+                        (tramoAlert.status === "vencido"
+                          ? `⚠️ Tramo Vencido (+${tramoAlert.minutesDiff || 0}m): No tiene inicio en campo.`
                           : tramoAlert.status === "por_vencer"
-                          ? `⏳ Tramo por vencer (${tramoAlert.minutesDiff || 0}m restantes): No está en camino.`
-                          : "Clic para ver control de tiempos, demoras y gestión de cuadrilla"
+                          ? `⏳ Tramo en riesgo (${tramoAlert.minutesDiff || 0}m): No tiene inicio en campo.`
+                          : "Clic para ver control de tiempos, demoras y gestión de cuadrilla")
                       }
                     >
                       <span className={`inline-block px-1 py-0.2 rounded font-bold whitespace-nowrap transition-all ${

@@ -326,17 +326,19 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
   const exportarExcelRRHH = () => {
     if (filteredEmpleados.length === 0) return alert("No hay registros.");
     const headers = [
-      "DNI", "NOMBRES", "PRIMER APELLIDO", "SEGUNDO APELLIDO", 
+      "TIPO DOCUMENTO", "DOCUMENTO / DNI", "NOMBRES", "PRIMER APELLIDO", "SEGUNDO APELLIDO", "FECHA DE NACIMIENTO",
       "ESTADO", "ÁREA", "ROL", "CORREO ELECTRÓNICO", 
       "TELÉFONO", "SUELDO (S/)", "BANCO", "CUENTA", "CCI", 
       "FECHA INGRESO", "VENC. SCTR"
     ];
     
     const rows = filteredEmpleados.map((emp) => [
+      `"${emp.tipoDocumento || "DNI"}"`,
       `="${emp.dni || ""}"`,
       `"${emp.nombres || ""}"`,
       `"${emp.primerApellido || ""}"`,
       `"${emp.segundoApellido || ""}"`,
+      `"${formatoFechaExcel(emp.fechaNacimiento)}"`,
       `"${emp.estado || "Activo"}"`,
       `"${emp.area || "Sin área"}"`,
       `"${emp.rolNombre || emp.id_rol || "Sin rol"}"`,

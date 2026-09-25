@@ -310,6 +310,7 @@ export interface LiquidacionOrdenAudit {
   id_trabajador: number;
   tecnico: string;
   tecnico_dni?: string;
+  cuadrilla?: string;
   numero_acta: string;
   numero_guia?: string;
   tipo_trabajo_acta?: string;
@@ -353,10 +354,13 @@ export interface TecnicoLiqAuditResumen {
   foto_personal?: string;
   tecnico_dni?: string;
   total_ordenes: number;
+  total_finalizadas?: number;
   total_liquidaciones: number;
   total_pendientes: number;
   total_aprobadas: number;
   total_rechazadas: number;
+  total_pendientes_liquidacion?: number;
+  ratio_liquidacion?: number;
   total_costo: number | string;
   ultima_liquidacion?: string;
 }

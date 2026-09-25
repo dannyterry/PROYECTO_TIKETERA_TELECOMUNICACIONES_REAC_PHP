@@ -318,7 +318,7 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
     // Map órdenes finalizadas por fecha
     const setDiasConOrdenes = new Set<string>();
     for (const ord of orders) {
-      const fV = (ord as any).fechaVisita || (ord as any).fecha_visita || (ord as any).fecha_solicitud;
+      const fV = (ord as any).fechaSolicitud || (ord as any).fecha_solicitud || (ord as any).fechaVisita || (ord as any).fecha_visita;
       if (fV && (ord.status || "").toUpperCase().includes("FINALIZ")) {
         setDiasConOrdenes.add(String(fV).slice(0, 10));
       }

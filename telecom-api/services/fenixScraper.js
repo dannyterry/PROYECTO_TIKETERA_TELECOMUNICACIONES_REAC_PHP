@@ -311,7 +311,7 @@ function toDMY(dateInput) {
 /**
  * 2. Cargar grilla de órdenes para una página específica
  */
-async function cargarGrillaWin(pagina = 1, fechaDesdeStr = null, fechaHastaStr = null) {
+async function cargarGrillaWin(pagina = 1, fechaDesdeStr = null, fechaHastaStr = null, tipoFecha = 'VISI') {
   const hoy = new Date();
   const fHoy = formatDateToDMY(hoy);
 
@@ -333,10 +333,10 @@ async function cargarGrillaWin(pagina = 1, fechaDesdeStr = null, fechaHastaStr =
     estado: "0",
     fechaEstaDesde: "",
     fechaEstaHasta: "",
-    fechaSoliDesde: "",
-    fechaSoliHasta: "",
-    fechaVisiDesde: fDesde,
-    fechaVisiHasta: fHasta,
+    fechaSoliDesde: tipoFecha === 'SOLI' ? fDesde : "",
+    fechaSoliHasta: tipoFecha === 'SOLI' ? fHasta : "",
+    fechaVisiDesde: tipoFecha === 'VISI' ? fDesde : "",
+    fechaVisiHasta: tipoFecha === 'VISI' ? fHasta : "",
     idPage: 74,
     localidad: "0",
     pagiActu: pagina,
@@ -352,7 +352,7 @@ async function cargarGrillaWin(pagina = 1, fechaDesdeStr = null, fechaHastaStr =
     zona: "0"
   };
 
-  console.log(`📡 [Fénix Scraper] Consultando página ${pagina} (Rango: ${fDesde} a ${fHasta})...`);
+  console.log(`📡 [Fénix Scraper] Consultando página ${pagina} (Filtro: ${tipoFecha}, Rango: ${fDesde} a ${fHasta})...`);
   const res = await requestWin(TR_URL_GRILLA, payload, getCookieHeader());
   return res.data;
 }
@@ -753,7 +753,7 @@ async function guardarOrdenesEnBD(ordenes) {
           movil = COALESCE(?, movil),
           codigo_seguimiento = COALESCE(?, codigo_seguimiento),
           region_zona = COALESCE(?, region_zona),
-          fecha_visita = COALESCE(?, fecha_visita),
+          fecha_visita = COALESCE(?, ?, fecha_visita),
           cod_seguimiento_cliente = COALESCE(?, cod_seguimiento_cliente),
           direccion = COALESCE(?, direccion),
           estado = CASE 
@@ -792,7 +792,7 @@ async function guardarOrdenesEnBD(ordenes) {
           o.hora_en_camino, o.hora_asignacion,
           o.motivo_finalizacion, o.datos_tecnicos, autoTipoTrabajo || o.tipo_trabajo, autoTipoTrabajo, o.georeferencia,
           o.motivo_cancelacion, o.numero_documento, o.movil, o.codigo_seguimiento,
-          o.region_zona, o.fecha_visita, o.cod_seguimiento_cliente, o.direccion,
+          o.region_zona, o.fecha_visita, o.fecha_solicitud, o.cod_seguimiento_cliente, o.direccion,
           o.estado, o.cuadrilla, o.cuadrilla, autoIdTecnico, autoNombreTecnico, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
           o.motivo_anulacion, o.motivo_regestion, o.motivo_suspension, o.pais_empresa,
           o.email, o.tipo_ubicacion, o.codigo_postal, o.tipo_documento, o.producto,
@@ -822,7 +822,7 @@ async function guardarOrdenesEnBD(ordenes) {
             o.hora_en_camino, o.hora_asignacion,
             o.motivo_finalizacion, o.datos_tecnicos, autoTipoTrabajo, autoTipoTrabajo || o.tipo_trabajo, o.georeferencia,
             o.motivo_cancelacion, o.numero_documento, o.movil, o.codigo_seguimiento,
-            o.region_zona, o.fecha_visita, o.cod_seguimiento_cliente, o.direccion,
+            o.region_zona, (o.fecha_visita || o.fecha_solicitud), o.cod_seguimiento_cliente, o.direccion,
             o.estado, o.cuadrilla, o.cuadrilla, autoIdTecnico, autoNombreTecnico, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
             o.motivo_anulacion, o.motivo_regestion, o.motivo_suspension, o.pais_empresa,
             o.email, o.tipo_ubicacion, o.codigo_postal, o.tipo_documento, o.producto,
@@ -858,93 +858,74 @@ async function sincronizarFenix({ fechaDesde = null, fechaHasta = null } = {}) {
     // 1. Login inicial
     await loginWin();
 
-    const porPagina = 30;
-    let totalRegistros = 0;
-    let totalPaginas = 1;
-    let todasLasOrdenes = [];
-    let pag = 1;
-    let hayMasPaginas = true;
+        const porPagina = 30;
+    const ordenesMap = new Map();
 
-    while (hayMasPaginas && pag <= 100) {
-      let resPag = null;
-      let intentos = 0;
-      let exitoPagina = false;
+    const scrapeFiltro = async (tipoFecha) => {
+      let pag = 1;
+      let hayMas = true;
+      while (hayMas && pag <= 100) {
+        let resPag = null;
+        let intentos = 0;
+        let exitoPagina = false;
 
-      while (intentos < 3 && !exitoPagina) {
-        intentos++;
-        try {
-          resPag = await cargarGrillaWin(pag, fechaDesde, fechaHasta);
-          
-          if (!resPag || !resPag.d) {
-            console.log(`⚠️ [Fénix Scraper] Respuesta vacía en página ${pag} (intento ${intentos}/3), renovando sesión...`);
-            cookieJar.clear();
-            await loginWin();
-            continue;
-          }
-
-          const decoded = Buffer.from(resPag.d, 'base64').toString('utf-8');
-          const dataJson = JSON.parse(decoded);
-          if (!dataJson || (!dataJson.html && !dataJson.registros)) {
-            console.log(`⚠️ [Fénix Scraper] JSON inválido en página ${pag} (intento ${intentos}/3), renovando sesión...`);
-            cookieJar.clear();
-            await loginWin();
-            continue;
-          }
-
-          exitoPagina = true;
-        } catch (errPag) {
-          console.warn(`⚠️ [Fénix Scraper] Error en página ${pag} (intento ${intentos}/3):`, errPag.message);
-          cookieJar.clear();
-          await loginWin().catch(() => {});
-          await new Promise(r => setTimeout(r, 2000));
-        }
-      }
-
-      if (!exitoPagina || !resPag || !resPag.d) {
-        console.log(`⚠️ [Fénix Scraper] No se pudo obtener la página ${pag} después de 3 intentos.`);
-        break;
-      }
-
-      try {
-        const decodedPag = Buffer.from(resPag.d, 'base64').toString('utf-8');
-        const dataJsonPag = JSON.parse(decodedPag);
-
-        // En la página 1, leer el total de registros
-        if (pag === 1 && dataJsonPag.registros) {
+        while (intentos < 3 && !exitoPagina) {
+          intentos++;
           try {
-            const decReg = Buffer.from(dataJsonPag.registros, 'base64').toString('utf-8');
-            const parsedReg = JSON.parse(decReg);
-            totalRegistros = typeof parsedReg === 'number' ? parsedReg : parseInt(parsedReg, 10) || 0;
-            totalPaginas = Math.ceil(totalRegistros / porPagina) || 1;
-            console.log(`📊 [Fénix Scraper] Total órdenes registradas en WIN: ${totalRegistros} (${totalPaginas} páginas).`);
-          } catch (e) {
-            console.warn("Aviso al leer total registros:", e.message);
+            resPag = await cargarGrillaWin(pag, fechaDesde, fechaHasta, tipoFecha);
+            if (!resPag || !resPag.d) {
+              cookieJar.clear();
+              await loginWin();
+              continue;
+            }
+            const decoded = Buffer.from(resPag.d, 'base64').toString('utf-8');
+            const dataJson = JSON.parse(decoded);
+            if (!dataJson || (!dataJson.html && !dataJson.registros)) {
+              cookieJar.clear();
+              await loginWin();
+              continue;
+            }
+            exitoPagina = true;
+          } catch (errPag) {
+            cookieJar.clear();
+            await loginWin().catch(() => {});
+            await new Promise(r => setTimeout(r, 2000));
           }
         }
 
-        if (dataJsonPag && dataJsonPag.html) {
-          const htmlPag = Buffer.from(dataJsonPag.html, 'base64').toString('utf-8');
-          const ordenesPag = parsearHtmlFenix(htmlPag);
-          console.log(`📄 [Fénix Scraper] Página ${pag} procesada: ${ordenesPag.length} órdenes.`);
-          
-          if (ordenesPag.length > 0) {
-            todasLasOrdenes = todasLasOrdenes.concat(ordenesPag);
-          }
+        if (!exitoPagina || !resPag || !resPag.d) break;
 
-          // Si la página devolvió menos del límite de 30 o ya alcanzamos el total de páginas
-          if (ordenesPag.length < porPagina || (totalPaginas && pag >= totalPaginas)) {
-            hayMasPaginas = false;
+        try {
+          const decodedPag = Buffer.from(resPag.d, 'base64').toString('utf-8');
+          const dataJsonPag = JSON.parse(decodedPag);
+          if (dataJsonPag && dataJsonPag.html) {
+            const htmlPag = Buffer.from(dataJsonPag.html, 'base64').toString('utf-8');
+            const ordenesPag = parsearHtmlFenix(htmlPag);
+            console.log(`📄 [Fénix Scraper ${tipoFecha}] Página ${pag} procesada: ${ordenesPag.length} órdenes.`);
+            ordenesPag.forEach(o => {
+              if (o.numero && !ordenesMap.has(o.numero)) {
+                ordenesMap.set(o.numero, o);
+              }
+            });
+            if (ordenesPag.length < porPagina) {
+              hayMas = false;
+            } else {
+              pag++;
+            }
+          } else {
+            hayMas = false;
           }
-        } else {
-          hayMasPaginas = false;
+        } catch (e) {
+          hayMas = false;
         }
-      } catch (e) {
-        console.error(`Error al procesar página ${pag}:`, e.message);
-        hayMasPaginas = false;
       }
+    };
 
-      pag++;
-    }
+    await scrapeFiltro('VISI');
+    await scrapeFiltro('SOLI');
+
+    const todasLasOrdenes = Array.from(ordenesMap.values());
+    console.log(`📦 [Fénix Scraper] Total órdenes combinadas: ${todasLasOrdenes.length}`);
 
     // 2. Enriquecer automáticamente con tiempos de CargarHistoEstaGrilla (En camino, Inicio, Fin)
     if (todasLasOrdenes.length > 0) {
@@ -979,8 +960,7 @@ async function sincronizarFenix({ fechaDesde = null, fechaHasta = null } = {}) {
 
     return {
       success: true,
-      totalRegistros: totalRegistros || todasLasOrdenes.length,
-      totalPaginas: pag - 1,
+      totalRegistros: todasLasOrdenes.length,
       totalOrdenesObtenidas: todasLasOrdenes.length,
       guardadasEnBD: resultadoBD.totalGuardadas
     };

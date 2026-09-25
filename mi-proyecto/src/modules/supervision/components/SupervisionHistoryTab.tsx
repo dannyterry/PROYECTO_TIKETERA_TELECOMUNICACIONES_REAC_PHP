@@ -101,7 +101,6 @@ export const SupervisionHistoryTab: React.FC = () => {
       (c) =>
         c.tecnico.toLowerCase().includes(q) ||
         (c.cuadrilla && c.cuadrilla.toLowerCase().includes(q)) ||
-        (c.dni && c.dni.includes(q)) ||
         c.supervisor.toLowerCase().includes(q)
     );
   }, [campoList, searchTerm]);
@@ -116,6 +115,7 @@ export const SupervisionHistoryTab: React.FC = () => {
         c.cliente.toLowerCase().includes(q) ||
         (c.cuadrilla && c.cuadrilla.toLowerCase().includes(q)) ||
         (c.numero_ticket && c.numero_ticket.toLowerCase().includes(q)) ||
+        (c.numero_acta && c.numero_acta.toLowerCase().includes(q)) ||
         (c.distrito && c.distrito.toLowerCase().includes(q)) ||
         c.auditor.toLowerCase().includes(q)
     );
@@ -152,7 +152,6 @@ export const SupervisionHistoryTab: React.FC = () => {
       Fecha: c.fecha,
       Hora: c.hora || "",
       Técnico: c.tecnico,
-      DNI: c.dni || "",
       Cuadrilla: c.cuadrilla || "",
       Tipo: c.tipo_inspeccion,
       Supervisor: c.supervisor,
@@ -402,7 +401,7 @@ export const SupervisionHistoryTab: React.FC = () => {
                       <td className="py-3 px-4">
                         <div className="font-bold text-slate-800">{c.tecnico}</div>
                         <div className="text-[11px] text-slate-500">
-                          {c.cuadrilla || "Sin Cuadrilla"} {c.dni ? `· DNI: ${c.dni}` : ""}
+                          {c.cuadrilla || "Sin Cuadrilla"}
                         </div>
                       </td>
                       <td className="py-3 px-4">
@@ -703,9 +702,9 @@ export const SupervisionHistoryTab: React.FC = () => {
                   <span className="font-bold text-slate-800 text-sm">{selectedCampo.tecnico}</span>
                 </div>
                 <div>
-                  <span className="text-slate-500 font-semibold block">Cuadrilla / DNI:</span>
+                  <span className="text-slate-500 font-semibold block">Cuadrilla / Móvil:</span>
                   <span className="font-bold text-slate-800">
-                    {selectedCampo.cuadrilla || "—"} / {selectedCampo.dni || "—"}
+                    {selectedCampo.cuadrilla || "—"}
                   </span>
                 </div>
                 <div>

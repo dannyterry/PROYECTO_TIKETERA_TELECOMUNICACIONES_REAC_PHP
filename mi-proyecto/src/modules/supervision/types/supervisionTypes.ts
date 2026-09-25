@@ -8,6 +8,7 @@ export interface ItemChecklist {
   nombre: string;
   cumple: boolean; // SI / NO
   cantidad?: number | string;
+  series?: string[]; // Series escaneadas para equipos
   estado?: EstadoItem;
   observacion?: string;
   unidad?: string; // PZ, METROS, etc.
@@ -22,6 +23,9 @@ export interface FichaSupervisionCampo {
   tipo_inspeccion: TipoInspeccion;
   fecha: string;
   hora?: string;
+  hora_inicio?: string;
+  hora_fin?: string;
+  estado_operativo?: "EN_CAMINO" | "INICIADA" | "FINALIZADA";
   lugar_inspeccion?: string;
   supervisor: string;
   cumplimiento_porcentaje: number;
@@ -49,6 +53,7 @@ export interface AuditoriaCalidadCliente {
   id?: number;
   id_orden?: number;
   numero_ticket?: string;
+  numero_acta?: string; // N° de Acta física asignada al supervisor para supervisión de calidad
   id_tecnico?: number;
   tecnico: string;
   cuadrilla?: string;
@@ -65,6 +70,33 @@ export interface AuditoriaCalidadCliente {
   estado_conformidad: "CONFORME" | "CON_OBSERVACIONES" | "NO_CONFORME";
   created_at?: string;
   updated_at?: string;
+}
+
+export interface SupervisorAvanceDiario {
+  id_supervisor: number;
+  supervisor: string;
+  usuario?: string;
+  foto?: string;
+  total_tecnicos_supervisados: number;
+  meta_tecnicos: number; // 6
+  total_clientes_auditados: number;
+  meta_clientes: number; // 2
+  porcentaje_avance: number;
+  estado_actual: "EN_CAMINO" | "EN_SUPERVISION" | "DISPONIBLE" | "FINALIZADO";
+  supervisando_a?: string;
+  cuadrilla_actual?: string;
+  hora_inicio_actual?: string;
+  ultima_actividad?: string;
+  supervisiones_hoy: {
+    id: number;
+    tipo: "CAMPO" | "CLIENTE";
+    tecnico: string;
+    cuadrilla?: string;
+    cliente?: string;
+    hora: string;
+    cumplimiento: number;
+    semaforo: "verde" | "amarillo" | "rojo";
+  }[];
 }
 
 export interface TecnicoCombo {

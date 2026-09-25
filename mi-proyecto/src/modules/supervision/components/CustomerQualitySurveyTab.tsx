@@ -79,6 +79,7 @@ export const CustomerQualitySurveyTab: React.FC<CustomerQualitySurveyTabProps> =
   // Form State
   const [idOrden, setIdOrden] = useState<string>("");
   const [numeroTicket, setNumeroTicket] = useState<string>("");
+  const [numeroActa, setNumeroActa] = useState<string>("");
   const [selectedTecnico, setSelectedTecnico] = useState<TecnicoCombo | null>(null);
   const [tecnicoName, setTecnicoName] = useState<string>("");
   const [cuadrilla, setCuadrilla] = useState<string>("");
@@ -258,6 +259,7 @@ export const CustomerQualitySurveyTab: React.FC<CustomerQualitySurveyTabProps> =
       setTelefono("");
       setDistrito("");
       setNumeroTicket("");
+      setNumeroActa("");
       setIdOrden("");
       setComentarioCliente("");
       setSearchOtTerm("");
@@ -286,6 +288,7 @@ export const CustomerQualitySurveyTab: React.FC<CustomerQualitySurveyTabProps> =
     const payload: AuditoriaCalidadCliente = {
       id_orden: idOrden ? parseInt(idOrden, 10) : undefined,
       numero_ticket: numeroTicket.trim() || undefined,
+      numero_acta: numeroActa.trim() || undefined,
       id_tecnico: selectedTecnico?.id_tecnico,
       tecnico: tecnicoName.trim(),
       cuadrilla: cuadrilla.trim() || undefined,
@@ -321,7 +324,7 @@ export const CustomerQualitySurveyTab: React.FC<CustomerQualitySurveyTabProps> =
       ["Fecha de Auditoría:", fechaAuditoria, "Fecha de Atención:", fechaAtencion],
       ["Técnico:", tecnicoName, "Cuadrilla:", cuadrilla],
       ["Cliente:", cliente, "Teléfono:", telefono],
-      ["Distrito:", distrito, "Ticket / OT:", numeroTicket],
+      ["Distrito:", distrito, "Ticket / OT:", numeroTicket, "N° de Acta:", numeroActa],
       ["Auditor:", auditor, "Puntaje Obtenido:", `${scoreStats.porcentaje}%`],
       ["Calificación Estrellas:", `${calificacionEstrellas} / 5`, "Conformidad:", estadoConformidad],
       [],
@@ -518,7 +521,7 @@ export const CustomerQualitySurveyTab: React.FC<CustomerQualitySurveyTabProps> =
                     setShowTecnicoDropdown(true);
                   }}
                   onFocus={() => setShowTecnicoDropdown(true)}
-                  placeholder="Buscar por Nombre o DNI..."
+                  placeholder="Buscar técnico por nombre o cuadrilla..."
                   className="w-full pl-8 pr-16 py-2 text-xs md:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 font-medium text-slate-800"
                 />
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-3" />
@@ -572,7 +575,7 @@ export const CustomerQualitySurveyTab: React.FC<CustomerQualitySurveyTabProps> =
                         <div>
                           <div className="font-bold text-slate-800">{t.tecnico}</div>
                           <div className="text-[10px] text-slate-400">
-                            DNI: {t.dni || "—"} · Cel: {t.celular || "—"}
+                            Cel: {t.celular || "—"} · Cargo: {t.cargo || "Técnico"}
                           </div>
                         </div>
                         <span className="bg-teal-100 text-teal-800 font-bold px-1.5 py-0.5 rounded text-[10px]">
@@ -601,6 +604,24 @@ export const CustomerQualitySurveyTab: React.FC<CustomerQualitySurveyTabProps> =
                 placeholder="ej. K 5 CESPEDES SGA"
                 className="w-full px-3 py-2 text-xs md:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 font-medium"
               />
+            </div>
+
+            {/* Número de Acta Asignada al Supervisor */}
+            <div className="bg-gradient-to-r from-teal-50/80 to-cyan-50/80 p-3 rounded-2xl border border-teal-200/80">
+              <label className="block text-xs font-black text-teal-900 mb-1 flex items-center gap-1.5">
+                <FileSpreadsheet className="w-3.5 h-3.5 text-teal-700" />
+                N° de Acta Física Asignada *
+              </label>
+              <input
+                type="text"
+                value={numeroActa}
+                onChange={(e) => setNumeroActa(e.target.value)}
+                placeholder="ej. ACTA-2026-0045 / N° Impreso en acta física"
+                className="w-full px-3 py-2 text-xs md:text-sm border border-teal-300 rounded-xl bg-white focus:ring-2 focus:ring-teal-500 font-bold font-mono text-teal-950 placeholder:font-normal placeholder:text-slate-400"
+              />
+              <p className="text-[10px] text-teal-700 mt-1">
+                Ingresa el número correlativo de la hoja de acta física asignada para auditar al cliente.
+              </p>
             </div>
 
             {/* Client Info */}

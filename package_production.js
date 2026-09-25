@@ -8,7 +8,7 @@ console.log('====================================================');
 
 const baseDir = 'd:\\proyectofinal';
 const miProyectoDir = path.join(baseDir, 'mi-proyecto');
-const distReactSource = 'C:\\xampp\\htdocs\\corporacionescepe\\public\\dist_react';
+const distReactSource = path.join(miProyectoDir, 'dist');
 
 // 1. Compilar React fresco con la corrección del login
 console.log('\n🔵 [1/3] Compilando React (npm run build)...');
@@ -85,6 +85,7 @@ const filesToCopy = [
   'looker_alert_service.js',
   'looker_session.json',
   'cards_and_alerts.json',
+  'looker_orders_parsed.json',
   'package.json',
   'package-lock.json'
 ];

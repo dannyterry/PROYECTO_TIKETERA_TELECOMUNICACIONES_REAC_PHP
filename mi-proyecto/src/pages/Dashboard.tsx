@@ -3,8 +3,6 @@ import EmployeeForm from "../components/employee/EmployeeForm";
 import { Employee } from "../components/employee/Employee";
 import { getEmpleados , getHistorialEstados } from "../services/employeeService";
 import { API_URL } from "../config/api";
-import { useReactToPrint } from "react-to-print";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { authService } from "../services/authService";
 import { Search, Filter, Check, ChevronDown, X, User } from "lucide-react";
 
@@ -84,26 +82,16 @@ export default function Dashboard({ selectedEmpProp, onDataUpdated }: DashboardP
     setSelectedEmpleado(empleado);
   }; 
 
-  const handlePrint = useReactToPrint({
-    contentRef: componentRef, 
-    documentTitle: selectedEmpleado ? `Ficha_${selectedEmpleado.nombres}_${selectedEmpleado.primerApellido}` : "Ficha",
-    pageStyle: `
-      @page {
-        size: A4 portrait;
-        margin: 15mm 12mm 15mm 12mm;
-      }
-      @media print {
-        html, body {
-          background-color: #ffffff !important;
-          -webkit-print-color-adjust: exact !important;
-          print-color-adjust: exact !important;
-        }
-        * {
-          box-shadow: none !important;
-        }
-      }
-    `
-  });
+  const handlePrint = () => {
+    const prevTitle = document.title;
+    if (selectedEmpleado) {
+      document.title = `Ficha_${selectedEmpleado.nombres}_${selectedEmpleado.primerApellido}`;
+    }
+    window.print();
+    setTimeout(() => {
+      document.title = prevTitle;
+    }, 1000);
+  };
 
   const handleDelete = async () => {
     if (!selectedEmpleado) return;
@@ -377,22 +365,40 @@ export default function Dashboard({ selectedEmpProp, onDataUpdated }: DashboardP
             </button>
           )}
 
-          <Dialog open={isModalOpen} onOpenChange={(isOpen) => { if (isOpen) setIsModalOpen(true); }}>
-            <DialogContent showCloseButton={false} className="p-6 max-w-4xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader className="mb-4">
-                <DialogTitle className="flex items-center justify-between text-xl font-bold text-gray-800">
-                  {modoEdicion ? "Editar Información del Empleado" : "Registro de Nuevo Empleado"}
-                  <button onClick={() => setIsModalOpen(false)} className="text-sm text-red-500 hover:text-red-700 font-semibold">[ Cancelar ]</button>
-                </DialogTitle>
-              </DialogHeader>
-              
-              <EmployeeForm 
-                key={modoEdicion && selectedEmpleado ? `edit-${selectedEmpleado.id}` : 'nuevo'}
-                empleadoAEditar={modoEdicion ? selectedEmpleado : null} 
-                onSuccess={handleSuccess} 
-              />
-            </DialogContent>
-          </Dialog>
+          {isModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs animate-in fade-in duration-150">
+              <div className="relative w-full max-w-4xl max-h-[92vh] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in zoom-in-95 duration-150">
+                {/* Cabezal fijo sólido */}
+                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-white shrink-0 z-20 shadow-xs">
+                  <div>
+                    <h3 className="text-base sm:text-lg font-black text-slate-900">
+                      {modoEdicion ? "Editar Información del Empleado" : "Registro de Nuevo Empleado"}
+                    </h3>
+                    <p className="text-[11px] text-slate-500 font-medium">
+                      {modoEdicion ? "Actualice los datos personales y laborales del trabajador" : "Complete la información requerida para dar de alta al empleado"}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-slate-500 hover:text-rose-600 bg-slate-100 hover:bg-rose-50 rounded-xl transition-all cursor-pointer border border-slate-200"
+                  >
+                    <X size={14} />
+                    <span>Cerrar</span>
+                  </button>
+                </div>
+                
+                {/* Cuerpo desplazable */}
+                <div className="p-4 sm:p-6 overflow-y-auto flex-1 bg-white">
+                  <EmployeeForm 
+                    key={modoEdicion && selectedEmpleado ? `edit-${selectedEmpleado.id}` : 'nuevo'}
+                    empleadoAEditar={modoEdicion ? selectedEmpleado : null} 
+                    onSuccess={handleSuccess} 
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
           {selectedEmpleado && (
             <>
@@ -564,7 +570,20 @@ export default function Dashboard({ selectedEmpProp, onDataUpdated }: DashboardP
                   </div>
                   <div className="bg-slate-50/70 p-5 rounded-xl border border-slate-200/80 print:border-gray-300 print:bg-white print:break-inside-avoid">
                     <h4 className="font-bold text-gray-800 border-b border-slate-200 pb-2.5 mb-3 uppercase text-xs tracking-wider">Hijos Registrados ({selectedEmpleado.hijos?.length || 0})</h4>
-                    {selectedEmpleado.hijos && selectedEmpleado.hijos.length > 0 ? (<ul className="space-y-3">{selectedEmpleado.hijos.map((hijo, i) => (<li key={i} className="bg-white p-3.5 rounded-xl border border-gray-200 shadow-2xs flex flex-col gap-1 print:shadow-none print:border-gray-200 print:break-inside-avoid"><span className="font-bold text-gray-800">{hijo.nombres} {hijo.primerApellido} {hijo.segundoApellido}</span><span className="text-xs text-gray-500">Nacimiento: {hijo.nacimiento ? hijo.nacimiento.substring(0, 10) : 'N/A'}</span></li>))}</ul>) : (<div className="flex items-center justify-center h-16 text-gray-400 italic bg-white rounded-xl border border-dashed border-gray-300">No registra hijos</div>)}
+                    {selectedEmpleado.hijos && Array.isArray(selectedEmpleado.hijos) && selectedEmpleado.hijos.length > 0 ? (
+                      <ul className="space-y-3">
+                        {selectedEmpleado.hijos.map((hijo, i) => (
+                          <li key={i} className="bg-white p-3.5 rounded-xl border border-gray-200 shadow-2xs flex flex-col gap-1 print:shadow-none print:border-gray-200 print:break-inside-avoid">
+                            <span className="font-bold text-gray-800">{hijo.nombres} {hijo.primerApellido} {hijo.segundoApellido}</span>
+                            <span className="text-xs text-gray-500">Nacimiento: {hijo.nacimiento ? String(hijo.nacimiento).substring(0, 10) : 'N/A'}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className="flex items-center justify-center h-16 text-gray-400 italic bg-white rounded-xl border border-dashed border-gray-300">
+                        No registra hijos
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -635,7 +654,7 @@ export default function Dashboard({ selectedEmpProp, onDataUpdated }: DashboardP
                   ⏱️ Historial de Estados (Línea de Tiempo)
                 </h3>
                 
-                {historial.length > 0 ? (
+                {Array.isArray(historial) && historial.length > 0 ? (
                   <div className="space-y-3 max-h-[280px] overflow-y-auto pr-1">
                     {historial.map((evento, idx) => (
                       <div key={idx} className="flex gap-3 p-3 rounded-xl border border-gray-100 bg-gray-50/70">
@@ -664,10 +683,10 @@ export default function Dashboard({ selectedEmpProp, onDataUpdated }: DashboardP
                           
                           <div className="mt-1 flex flex-wrap gap-x-4 text-xs text-gray-600">
                             {evento.fecha_inicio && (
-                              <p><strong>{evento.estado_cambiado === "Activo" ? "Retorno:" : "Desde:"}</strong> {evento.fecha_inicio.substring(0, 10)}</p>
+                              <p><strong>{evento.estado_cambiado === "Activo" ? "Retorno:" : "Desde:"}</strong> {String(evento.fecha_inicio).substring(0, 10)}</p>
                             )}
                             {evento.fecha_fin && (
-                              <p><strong>Hasta:</strong> {evento.fecha_fin.substring(0, 10)}</p>
+                              <p><strong>Hasta:</strong> {String(evento.fecha_fin).substring(0, 10)}</p>
                             )}
                           </div>
                           

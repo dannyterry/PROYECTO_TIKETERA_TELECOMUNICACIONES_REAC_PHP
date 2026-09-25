@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input"; 
-import { createEmpleado, getDatosAFP, updateEmpleado, getAreas, AreaItem } from "../../services/employeeService";
+import { createEmpleado, getDatosAFP, updateEmpleado, getAreas, AreaItem, getRoles } from "../../services/employeeService";
 import { API_URL } from "../../config/api";
 import { Employee } from "./Employee";
 
@@ -261,13 +261,20 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
     const cargarDatosIniciales = async () => {
       try {
         const [tasas, rolesRes, areasRes] = await Promise.all([
-          getDatosAFP(),
-          fetch(`${API_URL}/roles`).then(res => res.json()),
+          getDatosAFP().catch(() => []),
+          getRoles().catch(async () => {
+            const res = await fetch(`${API_URL}/roles`).catch(() => null);
+            if (res && res.ok) {
+              const d = await res.json().catch(() => []);
+              return Array.isArray(d) ? d : [];
+            }
+            return [];
+          }),
           getAreas().catch(() => [])
         ]);
-        setTasasAfp(tasas);
-        setRoles(rolesRes);
-        setAreas(areasRes);
+        setTasasAfp(Array.isArray(tasas) ? tasas : []);
+        setRoles(Array.isArray(rolesRes) ? rolesRes : []);
+        setAreas(Array.isArray(areasRes) ? areasRes : []);
       } catch (error) {
         console.error("Error al cargar datos iniciales:", error);
       }
@@ -361,7 +368,7 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
         dni_pdf: e.dni_pdf || "",
         licencia_pdf: e.licencia_pdf || "",
         
-        hijos: e.hijos && e.hijos.length > 0 
+        hijos: Array.isArray(e.hijos) && e.hijos.length > 0 
           ? e.hijos 
           : [{ nombres: "", primerApellido: "", segundoApellido: "", nacimiento: "" }]
       }));
@@ -416,7 +423,9 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
   };
 
   const handleHijoChange = (index: number, field: "nombres" | "primerApellido" | "segundoApellido" | "nacimiento", value: string) => {
-    const nuevosHijos = [...formData.hijos];
+    const listaHijos = Array.isArray(formData.hijos) ? [...formData.hijos] : [];
+    if (!listaHijos[index]) return;
+    const nuevosHijos = [...listaHijos];
     if (field !== "nacimiento") {
       value = value.toUpperCase();
     }
@@ -424,8 +433,8 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
     setFormData({ ...formData, hijos: nuevosHijos });
   };
 
-  const agregarHijo = () => setFormData({ ...formData, hijos: [...formData.hijos, { nombres: "", primerApellido: "", segundoApellido: "", nacimiento: "" }] });
-  const eliminarHijo = (index: number) => setFormData({ ...formData, hijos: formData.hijos.filter((_, i) => i !== index) });
+  const agregarHijo = () => setFormData({ ...formData, hijos: [...(Array.isArray(formData.hijos) ? formData.hijos : []), { nombres: "", primerApellido: "", segundoApellido: "", nacimiento: "" }] });
+  const eliminarHijo = (index: number) => setFormData({ ...formData, hijos: (Array.isArray(formData.hijos) ? formData.hijos : []).filter((_, i) => i !== index) });
 
   // =============== NUEVO HANDLE SUBMIT (FORM DATA FÍSICO) ===============
   const handleSubmit = async (e: React.FormEvent) => {
@@ -554,8 +563,8 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
   };
 
   const tasaActual = (() => {
-    if (!formData.regimenPensionario.includes("AFP")) return null;
-    return tasasAfp.find(tasa => tasa.afp === formData.regimenPensionario.replace("AFP ", "").toUpperCase());
+    if (!formData.regimenPensionario.includes("AFP") || !Array.isArray(tasasAfp)) return null;
+    return tasasAfp.find(tasa => tasa && tasa.afp === formData.regimenPensionario.replace("AFP ", "").toUpperCase());
   })();
 
   const esAFP = formData.regimenPensionario.includes("AFP");
@@ -648,7 +657,7 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
         <label className="text-xs font-medium text-gray-700">Área *</label>
         <select name="id_rol" value={formData.id_rol} onChange={handleChange} className={selectClass} required>
           <option value="">Seleccione un área</option>
-          {roles.map((rol) => (
+          {Array.isArray(roles) && roles.map((rol) => (
             <option key={rol.id_rol} value={rol.id_rol}>{rol.nombre}</option>
           ))}
         </select>
@@ -659,9 +668,11 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
         <select name="area" value={formData.area} onChange={handleChange} className={selectClass}>
           <option value="">Elegir Cargo...</option>
           {(() => {
-            const nombresDeBd = areas
-              .filter((a) => a.estado === "Activo")
-              .map((a) => a.nombre);
+            const nombresDeBd = Array.isArray(areas)
+              ? areas
+                  .filter((a) => a && a.estado === "Activo")
+                  .map((a) => a.nombre)
+              : [];
             
             const todasLasAreas = Array.from(new Set([...areasFijas, ...nombresDeBd]));
 
@@ -673,7 +684,8 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
           })()}
           {formData.area &&
             !areasFijas.includes(formData.area) &&
-            !areas.some((a) => a.nombre === formData.area) && (
+            Array.isArray(areas) &&
+            !areas.some((a) => a && a.nombre === formData.area) && (
               <option value={formData.area}>{formData.area}</option>
             )}
         </select>
@@ -829,13 +841,13 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
 
       <div className="col-span-full bg-gray-50 p-4 rounded-lg border border-gray-200">
         <div className="flex justify-between items-center mb-3"><h4 className="text-xs font-bold text-gray-600 uppercase">Hijos (Opcional)</h4><button type="button" onClick={agregarHijo} className="px-3 py-1 bg-emerald-600 text-white text-xs font-bold rounded hover:bg-emerald-700 transition-colors">+ Agregar Hijo</button></div>
-        {formData.hijos.map((hijo, index) => (
+        {Array.isArray(formData.hijos) && formData.hijos.map((hijo, index) => (
           <div key={index} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end mb-3 pb-3 border-b border-gray-200 last:border-0 last:mb-0 last:pb-0">
             <div className="flex flex-col gap-1.5 md:col-span-3"><label className="text-xs font-medium text-gray-700">Nombres del Hijo {index + 1}</label><Input value={hijo.nombres} onChange={(e) => handleHijoChange(index, 'nombres', e.target.value)} /></div>
             <div className="flex flex-col gap-1.5 md:col-span-3"><label className="text-xs font-medium text-gray-700">Primer Apellido</label><Input value={hijo.primerApellido} onChange={(e) => handleHijoChange(index, 'primerApellido', e.target.value)} /></div>
             <div className="flex flex-col gap-1.5 md:col-span-3"><label className="text-xs font-medium text-gray-700">Segundo Apellido</label><Input value={hijo.segundoApellido} onChange={(e) => handleHijoChange(index, 'segundoApellido', e.target.value)} /></div>
             <div className="flex flex-col gap-1.5 md:col-span-2"><label className="text-xs font-medium text-gray-700">Fecha de Nacimiento</label><Input type="date" value={hijo.nacimiento} onChange={(e) => handleHijoChange(index, 'nacimiento', e.target.value)} max={fechaHoy} /></div>
-            <div className="md:col-span-1 flex justify-end">{formData.hijos.length > 1 && (<button type="button" onClick={() => eliminarHijo(index)} className="px-3 py-2 bg-red-500 text-white text-xs rounded hover:bg-red-600">✕</button>)}</div>
+            <div className="md:col-span-1 flex justify-end">{Array.isArray(formData.hijos) && formData.hijos.length > 1 && (<button type="button" onClick={() => eliminarHijo(index)} className="px-3 py-2 bg-red-500 text-white text-xs rounded hover:bg-red-600">✕</button>)}</div>
           </div>
         ))}
       </div>

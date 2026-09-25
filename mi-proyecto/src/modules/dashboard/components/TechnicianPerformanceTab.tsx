@@ -58,6 +58,11 @@ export interface TechnicianStats {
   cuadrilla: string;
   total: number;
   finalizadas: number;
+  liquidadas?: number;
+  actas_aprobadas?: number;
+  actas_pendientes?: number;
+  pendientes_liquidacion?: number;
+  ratio_liquidacion?: number;
   canceladas: number;
   reagendadas: number;
   iniciadas: number;
@@ -73,10 +78,13 @@ export interface PerformanceData {
     total_tecnicos: number;
     total_ordenes: number;
     total_finalizadas: number;
+    total_liquidadas?: number;
+    total_pendientes_liquidacion?: number;
     total_canceladas: number;
     total_reagendadas: number;
     total_iniciadas: number;
     tasa_efectividad_global: number;
+    tasa_liquidacion_global?: number;
     tecnico_top: { nombre: string; total: number; finalizadas: number; efectividad: number } | null;
   };
   tipos_trabajo_columnas: string[];
@@ -535,14 +543,99 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
     );
   };
 
+  // Totales y estadísticas para la tabla comparativa Finalizadas vs Liquidadas
+  const totalesLiquidadas = useMemo(() => {
+    const totalFin = tecnicosFiltrados.reduce((acc, t) => acc + (t.finalizadas || 0), 0);
+    const totalLiq = tecnicosFiltrados.reduce((acc, t) => acc + (t.liquidadas || 0), 0);
+    const totalPend = Math.max(0, totalFin - totalLiq);
+    const ratio = totalFin > 0 ? Math.round((totalLiq / totalFin) * 1000) / 10 : 0;
+    return {
+      totalFinalizadas: totalFin,
+      totalLiquidadas: totalLiq,
+      totalPendientes: totalPend,
+      ratioGlobal: ratio
+    };
+  }, [tecnicosFiltrados]);
+
+  // Exportar a Excel la tabla comparativa Técnico vs Finalizadas vs Liquidadas
+  const exportarComparativaLiquidadasExcel = () => {
+    if (!data || tecnicosFiltrados.length === 0) return;
+
+    const headers = [
+      "Técnico",
+      "Cuadrilla",
+      "Órdenes Asignadas",
+      "Órdenes Finalizadas",
+      "Actas Liquidadas",
+      "Pendientes de Liquidar (Brecha)",
+      "% Conciliación / Liquidación",
+      "% Efectividad de Cierre"
+    ];
+
+    const rows = tecnicosFiltrados.map((t) => {
+      const finalizadas = t.finalizadas || 0;
+      const liquidadas = t.liquidadas || 0;
+      const pendientes = Math.max(0, finalizadas - liquidadas);
+      const ratio = finalizadas > 0 ? ((liquidadas / finalizadas) * 100).toFixed(1) + "%" : "0.0%";
+
+      return [
+        t.tecnico,
+        t.cuadrilla,
+        t.total,
+        finalizadas,
+        liquidadas,
+        pendientes,
+        ratio,
+        t.efectividad + "%"
+      ];
+    });
+
+    const worksheetData = [
+      ["REPORTE: TÉCNICO VS ÓRDENES FINALIZADAS VS ACTAS LIQUIDADAS"],
+      [`Período: ${fechas.desde} al ${fechas.hasta}`],
+      [],
+      headers,
+      ...rows,
+      [],
+      [
+        "TOTAL GENERAL",
+        "",
+        kpis.total_ordenes,
+        totalesLiquidadas.totalFinalizadas,
+        totalesLiquidadas.totalLiquidadas,
+        totalesLiquidadas.totalPendientes,
+        totalesLiquidadas.ratioGlobal + "%",
+        kpis.tasa_efectividad_global + "%"
+      ]
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(worksheetData);
+    ws["!cols"] = [
+      { wch: 32 },
+      { wch: 28 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 24 },
+      { wch: 22 },
+      { wch: 20 }
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Finalizadas_vs_Liquidadas");
+    XLSX.writeFile(wb, `Tecnicos_vs_Finalizadas_vs_Liquidadas_${fechas.desde}_al_${fechas.hasta}.xlsx`);
+  };
+
   const kpis = data?.kpis || {
     total_tecnicos: 0,
     total_ordenes: 0,
     total_finalizadas: 0,
+    total_liquidadas: 0,
+    total_pendientes_liquidacion: 0,
     total_canceladas: 0,
     total_reagendadas: 0,
     total_iniciadas: 0,
     tasa_efectividad_global: 0,
+    tasa_liquidacion_global: 0,
     tecnico_top: null
   };
 
@@ -1786,128 +1879,298 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
-          5. GRID DE ESTADOS & RATIO DE EFECTIVIDAD
+          5. COMPARATIVAS EN PARALELO: PRODUCTIVIDAD vs CONCILIACIÓN DE ACTAS
       ───────────────────────────────────────────────────────────── */}
-      <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs overflow-hidden">
-        <div className="p-5 border-b border-slate-100 bg-slate-50/50">
-          <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
-            <CheckCircle2 size={18} className="text-emerald-600" />
-            Productividad de Cierre & Efectividad por Técnico
-          </h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Comparativa de órdenes Finalizadas vs Canceladas, Reagendadas e Iniciadas con indicador de rendimiento.
-          </p>
-        </div>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+        {/* TABLA 1: PRODUCTIVIDAD DE CIERRE & EFECTIVIDAD */}
+        <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs overflow-hidden flex flex-col justify-between">
+          <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm sm:text-base font-black text-slate-900 flex items-center gap-2">
+                <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
+                Productividad de Cierre & Efectividad
+              </h3>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Órdenes Finalizadas vs Iniciadas, Reagendadas y Canceladas con % de efectividad.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 self-start sm:self-auto">
+              <span className="px-2.5 py-1 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] font-black text-emerald-800">
+                Efectividad: {kpis.tasa_efectividad_global}%
+              </span>
+            </div>
+          </div>
 
-        <div className="overflow-auto max-h-[540px] relative border-t border-slate-200">
-          <table className="w-full text-left text-xs border-separate border-spacing-0">
-            <thead className="sticky top-0 z-20 bg-slate-100 shadow-xs">
-              <tr>
-                <th className="sticky top-0 z-20 bg-slate-100 p-3.5 pl-5 text-slate-700 font-bold border-b border-slate-200">
-                  Técnico
-                </th>
-                <th className="sticky top-0 z-20 bg-slate-100 p-3 text-center text-slate-700 font-bold border-b border-slate-200">
-                  Asignadas
-                </th>
-                <th className="sticky top-0 z-20 bg-slate-100 p-3 text-center text-[#1f4e78] font-black border-b border-slate-200">
-                  Finalizadas
-                </th>
-                <th className="sticky top-0 z-20 bg-slate-100 p-3 text-center text-[#375623] font-black border-b border-slate-200">
-                  Iniciadas
-                </th>
-                <th className="sticky top-0 z-20 bg-slate-100 p-3 text-center text-[#833c0c] font-black border-b border-slate-200">
-                  Reagendadas
-                </th>
-                <th className="sticky top-0 z-20 bg-slate-100 p-3 text-center text-[#c00000] font-black border-b border-slate-200">
-                  Canceladas
-                </th>
-                <th className="sticky top-0 z-20 bg-slate-100 p-3 text-center text-slate-700 font-bold min-w-[160px] border-b border-slate-200">
-                  % Efectividad
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white">
-              {tecnicosFiltrados.map((t, idx) => {
-                const colorBarra =
-                  t.efectividad >= 75
-                    ? "bg-[#70ad47]"
-                    : t.efectividad >= 50
-                    ? "bg-[#ffc000]"
-                    : "bg-[#ef4444]";
+          <div className="overflow-auto max-h-[540px] relative border-t border-slate-200 flex-1">
+            <table className="w-full text-left text-xs border-separate border-spacing-0">
+              <thead className="sticky top-0 z-20 bg-slate-100 shadow-xs">
+                <tr>
+                  <th className="sticky top-0 z-20 bg-slate-100 p-3 pl-4 text-slate-700 font-bold border-b border-slate-200 min-w-[140px]">
+                    Técnico
+                  </th>
+                  <th className="sticky top-0 z-20 bg-slate-100 p-3 text-center text-slate-700 font-bold border-b border-slate-200">
+                    Asign.
+                  </th>
+                  <th className="sticky top-0 z-20 bg-slate-100 p-3 text-center text-[#1f4e78] font-black border-b border-slate-200">
+                    Fin.
+                  </th>
+                  <th className="sticky top-0 z-20 bg-slate-100 p-3 text-center text-[#375623] font-black border-b border-slate-200">
+                    Inic.
+                  </th>
+                  <th className="sticky top-0 z-20 bg-slate-100 p-3 text-center text-[#833c0c] font-black border-b border-slate-200">
+                    Reag.
+                  </th>
+                  <th className="sticky top-0 z-20 bg-slate-100 p-3 text-center text-[#c00000] font-black border-b border-slate-200">
+                    Canc.
+                  </th>
+                  <th className="sticky top-0 z-20 bg-slate-100 p-3 text-center text-slate-700 font-bold min-w-[130px] border-b border-slate-200">
+                    % Efectividad
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white">
+                {tecnicosFiltrados.map((t, idx) => {
+                  const colorBarra =
+                    t.efectividad >= 75
+                      ? "bg-[#70ad47]"
+                      : t.efectividad >= 50
+                      ? "bg-[#ffc000]"
+                      : "bg-[#ef4444]";
 
-                const colorTexto =
-                  t.efectividad >= 75
-                    ? "text-[#375623]"
-                    : t.efectividad >= 50
-                    ? "text-[#833c0c]"
-                    : "text-[#c00000]";
+                  const colorTexto =
+                    t.efectividad >= 75
+                      ? "text-[#375623]"
+                      : t.efectividad >= 50
+                      ? "text-[#833c0c]"
+                      : "text-[#c00000]";
 
-                return (
-                  <tr key={t.id_tecnico || idx} className="hover:bg-slate-50 transition-colors">
-                    <td className="p-3.5 pl-5 border-b border-slate-100">
-                      <div className="font-bold text-slate-900">{t.tecnico}</div>
-                      <div className="text-[10px] text-slate-400">{t.cuadrilla}</div>
-                    </td>
-                    <td className="p-3 text-center font-bold text-slate-900 border-b border-slate-100">{t.total}</td>
-                    <td className="p-3 text-center font-black text-[#1f4e78] border-b border-slate-100">{t.finalizadas}</td>
-                    <td className="p-3 text-center font-black text-[#375623] border-b border-slate-100">{t.iniciadas}</td>
-                    <td className="p-3 text-center font-black text-[#833c0c] border-b border-slate-100">{t.reagendadas}</td>
-                    <td className="p-3 text-center font-black text-[#c00000] border-b border-slate-100">{t.canceladas}</td>
-                    <td className="p-3 border-b border-slate-100">
-                      <div className="flex items-center gap-3">
-                        <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${colorBarra} transition-all duration-500`}
-                            style={{ width: `${Math.min(t.efectividad, 100)}%` }}
-                          />
+                  return (
+                    <tr key={t.id_tecnico || idx} className="hover:bg-slate-50 transition-colors">
+                      <td className="p-3 pl-4 border-b border-slate-100">
+                        <div className="font-bold text-slate-900 leading-tight">{t.tecnico}</div>
+                        <div className="text-[10px] text-slate-400 truncate max-w-[150px]">{t.cuadrilla}</div>
+                      </td>
+                      <td className="p-3 text-center font-bold text-slate-900 border-b border-slate-100">{t.total}</td>
+                      <td className="p-3 text-center font-black text-[#1f4e78] border-b border-slate-100">{t.finalizadas}</td>
+                      <td className="p-3 text-center font-black text-[#375623] border-b border-slate-100">{t.iniciadas}</td>
+                      <td className="p-3 text-center font-black text-[#833c0c] border-b border-slate-100">{t.reagendadas}</td>
+                      <td className="p-3 text-center font-black text-[#c00000] border-b border-slate-100">{t.canceladas}</td>
+                      <td className="p-3 border-b border-slate-100">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${colorBarra} transition-all duration-500`}
+                              style={{ width: `${Math.min(t.efectividad, 100)}%` }}
+                            />
+                          </div>
+                          <span className={`text-[11px] font-black min-w-[38px] text-right ${colorTexto}`}>
+                            {t.efectividad}%
+                          </span>
                         </div>
-                        <span className={`text-xs font-black min-w-[45px] text-right ${colorTexto}`}>
-                          {t.efectividad}%
-                        </span>
-                      </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                {tecnicosFiltrados.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-slate-400 font-semibold border-b border-slate-200">
+                      No se encontraron técnicos para este filtro.
                     </td>
                   </tr>
-                );
-              })}
+                )}
+              </tbody>
 
-              {tecnicosFiltrados.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="p-8 text-center text-slate-400 font-semibold border-b border-slate-200">
-                    No se encontraron técnicos para este filtro.
-                  </td>
-                </tr>
+              {/* Fila Resumen Inferior Estática */}
+              {tecnicosFiltrados.length > 0 && (
+                <tfoot className="sticky bottom-0 z-20 bg-slate-100/95 font-bold border-t-2 border-slate-300 shadow-xs">
+                  <tr>
+                    <td className="p-3 pl-4 font-black text-slate-900 uppercase text-[11px]">
+                      Total General
+                    </td>
+                    <td className="p-3 text-center font-black text-slate-900">
+                      {kpis.total_ordenes}
+                    </td>
+                    <td className="p-3 text-center font-black text-[#1f4e78]">
+                      {kpis.total_finalizadas}
+                    </td>
+                    <td className="p-3 text-center font-black text-[#375623]">
+                      {kpis.total_iniciadas}
+                    </td>
+                    <td className="p-3 text-center font-black text-[#833c0c]">
+                      {kpis.total_reagendadas}
+                    </td>
+                    <td className="p-3 text-center font-black text-[#c00000]">
+                      {kpis.total_canceladas}
+                    </td>
+                    <td className="p-3 text-center font-black text-slate-900 text-[11px]">
+                      {kpis.tasa_efectividad_global}%
+                    </td>
+                  </tr>
+                </tfoot>
               )}
-            </tbody>
+            </table>
+          </div>
+        </div>
 
-            {/* Fila Resumen Inferior Estática */}
-            {tecnicosFiltrados.length > 0 && (
-              <tfoot className="sticky bottom-0 z-20 bg-slate-100/95 font-bold border-t-2 border-slate-300 shadow-xs">
+        {/* TABLA 2: TÉCNICO VS FINALIZADAS VS LIQUIDADAS */}
+        <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs overflow-hidden flex flex-col justify-between">
+          <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm sm:text-base font-black text-slate-900 flex items-center gap-2">
+                  <FileSpreadsheet size={18} className="text-indigo-600 shrink-0" />
+                  Técnico vs Finalizadas vs Liquidadas
+                </h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 text-indigo-800 border border-indigo-200 hidden sm:inline-block">
+                  Auditoría de Actas
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Conciliación entre órdenes finalizadas en campo y actas de liquidación auditadas.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+              <button
+                type="button"
+                onClick={exportarComparativaLiquidadasExcel}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+                title="Descargar reporte en Excel de Finalizadas vs Liquidadas"
+              >
+                <Download size={13} />
+                Excel
+              </button>
+              <span className="px-2.5 py-1 rounded-xl bg-indigo-50 border border-indigo-200 text-[11px] font-black text-indigo-800">
+                Conciliación: {totalesLiquidadas.ratioGlobal}%
+              </span>
+            </div>
+          </div>
+
+          <div className="overflow-auto max-h-[540px] relative border-t border-slate-200 flex-1">
+            <table className="w-full text-left text-xs border-separate border-spacing-0">
+              <thead className="sticky top-0 z-20 bg-slate-100 shadow-xs">
                 <tr>
-                  <td className="p-3 pl-5 font-black text-slate-900 uppercase">
-                    Total General
-                  </td>
-                  <td className="p-3 text-center font-black text-slate-900">
-                    {kpis.total_ordenes}
-                  </td>
-                  <td className="p-3 text-center font-black text-[#1f4e78]">
-                    {kpis.total_finalizadas}
-                  </td>
-                  <td className="p-3 text-center font-black text-[#375623]">
-                    {kpis.total_iniciadas}
-                  </td>
-                  <td className="p-3 text-center font-black text-[#833c0c]">
-                    {kpis.total_reagendadas}
-                  </td>
-                  <td className="p-3 text-center font-black text-[#c00000]">
-                    {kpis.total_canceladas}
-                  </td>
-                  <td className="p-3 text-center font-black text-slate-900">
-                    {kpis.tasa_efectividad_global}%
-                  </td>
+                  <th className="sticky top-0 z-20 bg-slate-100 p-3 pl-4 text-slate-700 font-bold border-b border-slate-200 min-w-[140px]">
+                    Técnico
+                  </th>
+                  <th className="sticky top-0 z-20 bg-slate-100 p-3 text-center text-[#1f4e78] font-black border-b border-slate-200">
+                    Finalizadas
+                  </th>
+                  <th className="sticky top-0 z-20 bg-slate-100 p-3 text-center text-indigo-700 font-black border-b border-slate-200">
+                    Liquidadas
+                  </th>
+                  <th className="sticky top-0 z-20 bg-slate-100 p-3 text-center text-amber-700 font-black border-b border-slate-200">
+                    Pendientes
+                  </th>
+                  <th className="sticky top-0 z-20 bg-slate-100 p-3 text-center text-slate-700 font-bold min-w-[140px] border-b border-slate-200">
+                    % Conciliación
+                  </th>
                 </tr>
-              </tfoot>
-            )}
-          </table>
+              </thead>
+              <tbody className="bg-white">
+                {tecnicosFiltrados.map((t, idx) => {
+                  const finalizadas = t.finalizadas || 0;
+                  const liquidadas = t.liquidadas || 0;
+                  const pendientes = t.pendientes_liquidacion !== undefined ? t.pendientes_liquidacion : Math.max(0, finalizadas - liquidadas);
+                  const ratio = t.ratio_liquidacion !== undefined ? t.ratio_liquidacion : (finalizadas > 0 ? Math.round((liquidadas / finalizadas) * 1000) / 10 : 0);
+
+                  const colorBarra =
+                    ratio >= 90
+                      ? "bg-emerald-500"
+                      : ratio >= 50
+                      ? "bg-amber-500"
+                      : ratio > 0
+                      ? "bg-rose-500"
+                      : "bg-slate-300";
+
+                  const colorTexto =
+                    ratio >= 90
+                      ? "text-emerald-700"
+                      : ratio >= 50
+                      ? "text-amber-700"
+                      : ratio > 0
+                      ? "text-rose-700"
+                      : "text-slate-400";
+
+                  return (
+                    <tr key={t.id_tecnico || idx} className="hover:bg-slate-50 transition-colors">
+                      <td className="p-3 pl-4 border-b border-slate-100">
+                        <div className="font-bold text-slate-900 leading-tight">{t.tecnico}</div>
+                        <div className="text-[10px] text-slate-400 truncate max-w-[150px]">{t.cuadrilla}</div>
+                      </td>
+                      <td className="p-3 text-center font-black text-[#1f4e78] border-b border-slate-100">
+                        {finalizadas}
+                      </td>
+                      <td className="p-3 text-center border-b border-slate-100">
+                        <span className="inline-block px-2.5 py-0.5 rounded-lg bg-indigo-50 border border-indigo-200 font-black text-indigo-700 text-[11px]">
+                          {liquidadas}
+                        </span>
+                      </td>
+                      <td className="p-3 text-center border-b border-slate-100">
+                        {pendientes > 0 ? (
+                          <span className="inline-block px-2.5 py-0.5 rounded-lg bg-amber-50 border border-amber-200 font-black text-amber-700 text-[11px]">
+                            {pendientes}
+                          </span>
+                        ) : finalizadas > 0 ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-50 border border-emerald-200 font-black text-emerald-700 text-[10px]">
+                            <CheckCircle2 size={11} />
+                            Al día
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 text-xs font-semibold">0</span>
+                        )}
+                      </td>
+                      <td className="p-3 border-b border-slate-100">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${colorBarra} transition-all duration-500`}
+                              style={{ width: `${Math.min(ratio, 100)}%` }}
+                            />
+                          </div>
+                          <span className={`text-[11px] font-black min-w-[42px] text-right ${colorTexto}`}>
+                            {ratio}%
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                {tecnicosFiltrados.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="p-8 text-center text-slate-400 font-semibold border-b border-slate-200">
+                      No se encontraron técnicos para este filtro.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+
+              {/* Fila Resumen Inferior Estática */}
+              {tecnicosFiltrados.length > 0 && (
+                <tfoot className="sticky bottom-0 z-20 bg-slate-100/95 font-bold border-t-2 border-slate-300 shadow-xs">
+                  <tr>
+                    <td className="p-3 pl-4 font-black text-slate-900 uppercase text-[11px]">
+                      Total General
+                    </td>
+                    <td className="p-3 text-center font-black text-[#1f4e78]">
+                      {totalesLiquidadas.totalFinalizadas}
+                    </td>
+                    <td className="p-3 text-center font-black text-indigo-700">
+                      {totalesLiquidadas.totalLiquidadas}
+                    </td>
+                    <td className="p-3 text-center font-black text-amber-700">
+                      {totalesLiquidadas.totalPendientes}
+                    </td>
+                    <td className="p-3 text-center font-black text-slate-900 text-[11px]">
+                      {totalesLiquidadas.ratioGlobal}%
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
         </div>
       </div>
 

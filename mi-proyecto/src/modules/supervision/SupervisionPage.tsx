@@ -2,19 +2,16 @@ import React, { useState } from "react";
 import {
   ClipboardCheck,
   Star,
-  History,
   ShieldCheck,
-  Building2,
-  Sparkles,
   Menu,
-  ChevronRight,
+  Target,
 } from "lucide-react";
 import { FieldSupervisionTab } from "./components/FieldSupervisionTab";
 import { CustomerQualitySurveyTab } from "./components/CustomerQualitySurveyTab";
-import { SupervisionHistoryTab } from "./components/SupervisionHistoryTab";
+import { SupervisorProgressTab } from "./components/SupervisorProgressTab";
 
 export const SupervisionPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<"CAMPO" | "CLIENTE" | "HISTORIAL">("CAMPO");
+  const [activeTab, setActiveTab] = useState<"CAMPO" | "CLIENTE" | "AVANCE">("CAMPO");
   const [refreshKey, setRefreshKey] = useState(0);
 
   const handleSavedRecord = () => {
@@ -54,7 +51,7 @@ export const SupervisionPage: React.FC = () => {
               Supervisión & Control de Calidad
             </h1>
             <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5 hidden sm:block">
-              Fichas técnicas en campo, encuestas post-servicio y ranking operativo.
+              Fichas técnicas en campo, encuestas post-servicio y avance diario operativo (6+2).
             </p>
           </div>
         </div>
@@ -89,15 +86,15 @@ export const SupervisionPage: React.FC = () => {
 
           <button
             type="button"
-            onClick={() => setActiveTab("HISTORIAL")}
+            onClick={() => setActiveTab("AVANCE")}
             className={`flex-1 sm:flex-none px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shrink-0 cursor-pointer ${
-              activeTab === "HISTORIAL"
+              activeTab === "AVANCE"
                 ? "bg-white text-indigo-700 shadow-md scale-102 font-black"
                 : "text-slate-600 hover:text-slate-900"
             }`}
           >
-            <History className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-            <span>Historial & Ranking</span>
+            <Target className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <span>Mi Avance Diario</span>
           </button>
         </div>
       </div>
@@ -111,8 +108,12 @@ export const SupervisionPage: React.FC = () => {
         <CustomerQualitySurveyTab onSaved={handleSavedRecord} />
       )}
 
-      {activeTab === "HISTORIAL" && (
-        <SupervisionHistoryTab key={refreshKey} />
+      {activeTab === "AVANCE" && (
+        <SupervisorProgressTab
+          key={refreshKey}
+          onGoToCampo={() => setActiveTab("CAMPO")}
+          onGoToCliente={() => setActiveTab("CLIENTE")}
+        />
       )}
     </div>
   );
