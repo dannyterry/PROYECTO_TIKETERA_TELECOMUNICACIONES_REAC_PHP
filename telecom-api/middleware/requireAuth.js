@@ -40,6 +40,22 @@ function isPublicPath(req) {
 function requireAuth(req, res, next) {
   if (isPublicPath(req)) return next();
 
+  const path = String(req.path || "").split("?")[0];
+  const orig = String(req.originalUrl || req.url || "").split("?")[0];
+
+  // Clave secreta fija para tareas programadas (cron de cPanel / scripts internos)
+  const CRON_SECRET = process.env.CRON_SECRET || "telecom_cron_2026_cespedes";
+  const providedSecret = req.query.secret || req.headers["x-cron-secret"] || (req.body && req.body.secret);
+
+  // Si la petición viene con el secret válido para sincronización de órdenes
+  if (
+    (path === "/ordenes/sincronizar-win" || orig === "/ordenes/sincronizar-win" || path.startsWith("/ordenes/sincronizar-win") || orig.startsWith("/ordenes/sincronizar-win") || path.endsWith("/sincronizar-win") || orig.endsWith("/sincronizar-win")) &&
+    providedSecret === CRON_SECRET
+  ) {
+    req.auth = { id_usuario: 0, usuario: "cron_system", rol: "System" };
+    return next();
+  }
+
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
 

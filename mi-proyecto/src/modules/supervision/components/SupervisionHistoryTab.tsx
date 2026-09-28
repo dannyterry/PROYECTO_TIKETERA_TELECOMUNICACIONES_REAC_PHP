@@ -203,9 +203,15 @@ export const SupervisionHistoryTab: React.FC = () => {
             <div className="text-3xl font-extrabold text-slate-800 mt-1">
               {stats?.campo.total_inspecciones || 0}
             </div>
-            <div className="text-xs text-emerald-600 font-bold mt-1 flex items-center gap-1">
-              <TrendingUp className="w-3.5 h-3.5" />
-              {stats?.campo.promedio_cumplimiento || 0}% prom. cumplimiento
+            <div className="text-xs text-slate-500 font-bold mt-1 flex items-center gap-1">
+              <TrendingUp className="w-3.5 h-3.5 text-slate-400" />
+              {Number(stats?.campo?.total_inspecciones || 0) > 0 ? (
+                <span className="text-emerald-600 font-bold">
+                  {Number(stats?.campo?.promedio_cumplimiento || 0).toFixed(1)}% prom. cumplimiento
+                </span>
+              ) : (
+                <span className="text-slate-400 font-medium">Sin inspecciones aún</span>
+              )}
             </div>
           </div>
           <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
@@ -249,9 +255,15 @@ export const SupervisionHistoryTab: React.FC = () => {
             <div className="text-3xl font-extrabold text-slate-800 mt-1">
               {stats?.cliente.total_auditorias || 0}
             </div>
-            <div className="text-xs text-teal-600 font-bold mt-1 flex items-center gap-1">
+            <div className="text-xs text-slate-500 font-bold mt-1 flex items-center gap-1">
               <Star className="w-3.5 h-3.5 fill-teal-500 text-teal-500" />
-              {stats?.cliente.promedio_estrellas || 0} / 5.0 satisfacción
+              {Number(stats?.cliente?.total_auditorias || 0) > 0 ? (
+                <span className="text-teal-600 font-bold">
+                  {Number(stats?.cliente?.promedio_estrellas || 0).toFixed(1)} / 5.0 satisfacción
+                </span>
+              ) : (
+                <span className="text-slate-400 font-medium">Sin auditorías aún</span>
+              )}
             </div>
           </div>
           <div className="w-12 h-12 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center">

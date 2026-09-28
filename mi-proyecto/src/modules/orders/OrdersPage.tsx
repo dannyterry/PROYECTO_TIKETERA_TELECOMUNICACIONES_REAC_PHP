@@ -349,7 +349,6 @@ export const OrdersPage: React.FC = () => {
     scopeOrders.forEach((o) => {
       if (esOrdenamiento(o.cuadrilla)) {
         ordenamientos++;
-        return;
       }
       const s = normStatus(o.status);
       if (s.includes("INICIAD") || s.includes("PROCESO")) {
@@ -385,7 +384,6 @@ export const OrdersPage: React.FC = () => {
     if (statusKey === "Ordenamientos") {
       return esOrd;
     }
-    if (esOrd) return false;
 
     const s = normStatus(order.status);
     const isVerde = s.includes("INICIAD") || s.includes("PROCESO");
@@ -412,14 +410,14 @@ export const OrdersPage: React.FC = () => {
 
   // 4. Filtrado final para la tabla con soporte MULTI-SELECCIÓN ACUMULATIVO:
   // - Si se seleccionan varios estados (ej: Finalizadas + Canceladas), se SUMAN (OR entre estados).
-  // - Si no hay estados seleccionados o es "Todos", muestra todas las órdenes regulares.
+  // - Si no hay estados seleccionados o es "Todos", muestra todas las órdenes.
   const filteredOrders = useMemo(() => {
     const activeStatuses = (filters.statuses && filters.statuses.length > 0)
       ? filters.statuses.filter((st) => st !== "Todos")
       : (filters.status && filters.status !== "Todos" ? [filters.status] : []);
 
     if (activeStatuses.length === 0) {
-      return scopeOrders.filter((order) => !esOrdenamiento(order.cuadrilla));
+      return scopeOrders;
     }
 
     return scopeOrders.filter((order) => {
@@ -727,6 +725,20 @@ export const OrdersPage: React.FC = () => {
     }));
   }, []);
 
+  const handleEstadoUpdate = useCallback((key: string, nuevoEstado: string) => {
+    if (!key || !nuevoEstado) return;
+    setOrders((prev) =>
+      prev.map((o) => {
+        const matches =
+          String(o.id) === key ||
+          String(o.ot || "") === key ||
+          String(o.ticket || "") === key ||
+          String(o.numeroOrden || "") === key;
+        return matches ? { ...o, status: nuevoEstado } : o;
+      })
+    );
+  }, []);
+
   return (
     <div className="w-full h-full flex flex-col min-h-0 gap-1.5 overflow-hidden">
       {/* BARRA DE HERRAMIENTAS Y FILTROS */}
@@ -867,6 +879,7 @@ export const OrdersPage: React.FC = () => {
           orderCuadrilla={selectedOrderForTasks.cuadrilla}
           orderEstado={selectedOrderForTasks.status}
           onProgressUpdate={handleTaskProgressUpdate}
+          onEstadoUpdate={handleEstadoUpdate}
         />
       )}
 

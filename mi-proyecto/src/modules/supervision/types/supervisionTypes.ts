@@ -25,12 +25,21 @@ export interface FichaSupervisionCampo {
   hora?: string;
   hora_inicio?: string;
   hora_fin?: string;
-  estado_operativo?: "EN_CAMINO" | "INICIADA" | "FINALIZADA";
+  estado_operativo?: "EN_CAMINO" | "INICIADA" | "FINALIZADA" | "CANCELADA";
   lugar_inspeccion?: string;
   supervisor: string;
   cumplimiento_porcentaje: number;
   semaforo: "verde" | "amarillo" | "rojo";
   items_json: ItemChecklist[];
+  id_orden?: number;
+  numero_ticket?: string;
+  cliente_orden?: string;
+  direccion_orden?: string;
+  coordenadas_orden?: string;
+  coordenadas_en_camino?: string;
+  coordenadas_inicio?: string;
+  coordenadas_fin?: string;
+  distancia_metros_inicio?: number;
   observaciones?: string;
   firma_supervisor?: string;
   foto_epp_uniforme?: string;
@@ -72,33 +81,6 @@ export interface AuditoriaCalidadCliente {
   updated_at?: string;
 }
 
-export interface SupervisorAvanceDiario {
-  id_supervisor: number;
-  supervisor: string;
-  usuario?: string;
-  foto?: string;
-  total_tecnicos_supervisados: number;
-  meta_tecnicos: number; // 6
-  total_clientes_auditados: number;
-  meta_clientes: number; // 2
-  porcentaje_avance: number;
-  estado_actual: "EN_CAMINO" | "EN_SUPERVISION" | "DISPONIBLE" | "FINALIZADO";
-  supervisando_a?: string;
-  cuadrilla_actual?: string;
-  hora_inicio_actual?: string;
-  ultima_actividad?: string;
-  supervisiones_hoy: {
-    id: number;
-    tipo: "CAMPO" | "CLIENTE";
-    tecnico: string;
-    cuadrilla?: string;
-    cliente?: string;
-    hora: string;
-    cumplimiento: number;
-    semaforo: "verde" | "amarillo" | "rojo";
-  }[];
-}
-
 export interface TecnicoCombo {
   id_tecnico: number;
   tecnico: string;
@@ -134,6 +116,51 @@ export interface OrdenBusqueda {
   fecha_atencion: string;
   tipo_trabajo: string;
   direccion: string;
+  georeferencia?: string;
+}
+
+export interface SupervisorAvanceDiario {
+  id_supervisor: number;
+  supervisor: string;
+  usuario?: string;
+  foto?: string;
+  total_tecnicos_supervisados: number;
+  meta_tecnicos: number; // 6
+  total_clientes_auditados: number;
+  meta_clientes: number; // 2
+  porcentaje_avance: number;
+  estado_actual: "EN_CAMINO" | "EN_SUPERVISION" | "DISPONIBLE" | "FINALIZADO";
+  supervisando_a?: string;
+  cuadrilla_actual?: string;
+  hora_inicio_actual?: string;
+  ultima_actividad?: string;
+  coordenadas_supervisor?: string | null;
+  distancia_metros?: number | null;
+  orden_actual?: {
+    id_orden?: number;
+    numero_ticket?: string;
+    cliente?: string;
+    direccion?: string;
+    coordenadas?: string;
+  } | null;
+  supervisiones_hoy: {
+    id: number;
+    tipo: "CAMPO" | "CLIENTE";
+    tecnico: string;
+    cuadrilla?: string;
+    cliente?: string;
+    ticket?: string;
+    direccion?: string;
+    coordenadas_orden?: string | null;
+    coordenadas_supervisor?: string | null;
+    distancia_metros?: number | null;
+    estado_operativo?: "EN_CAMINO" | "INICIADA" | "FINALIZADA";
+    hora: string;
+    hora_inicio?: string;
+    hora_fin?: string;
+    cumplimiento: number;
+    semaforo: "verde" | "amarillo" | "rojo";
+  }[];
 }
 
 export interface SupervisionStats {

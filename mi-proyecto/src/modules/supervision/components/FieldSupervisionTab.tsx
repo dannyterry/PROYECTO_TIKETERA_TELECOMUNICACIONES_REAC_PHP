@@ -37,6 +37,8 @@ import {
   Barcode,
   Plus,
   Tag,
+  AlertOctagon,
+  EyeOff,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -49,6 +51,7 @@ import {
   getItemsForTipo,
 } from "../types/supervisionTypes";
 import { supervisionService } from "../services/supervisionService";
+import { authService } from "../../../services/authService";
 import { CameraBarcodeScannerModal } from "../../../components/CameraBarcodeScannerModal";
 
 interface FieldSupervisionTabProps {
@@ -106,10 +109,9 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
   const [observaciones, setObservaciones] = useState("");
 
   // Operative Workflow Status & Stopwatch Timer
-  const [estadoOperativo, setEstadoOperativo] = useState<"EN_CAMINO" | "INICIADA" | "FINALIZADA">("INICIADA");
-  const [horaInicio, setHoraInicio] = useState<string>(
-    new Date().toTimeString().split(" ")[0].slice(0, 5)
-  );
+  const [idSupervisionGuardada, setIdSupervisionGuardada] = useState<number | null>(null);
+  const [estadoOperativo, setEstadoOperativo] = useState<"EN_CAMINO" | "INICIADA" | "FINALIZADA" | "CANCELADA">("EN_CAMINO");
+  const [horaInicio, setHoraInicio] = useState<string>("");
   const [horaFin, setHoraFin] = useState<string>("");
   const [segundosTranscurridos, setSegundosTranscurridos] = useState<number>(0);
 
@@ -137,6 +139,64 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
   const [activeScanningItemId, setActiveScanningItemId] = useState<string | null>(null);
   const [manualSerieInputs, setManualSerieInputs] = useState<{ [itemId: string]: string }>({});
 
+  // GPS & Order Association State
+  const [selectedOrden, setSelectedOrden] = useState<OrdenBusqueda | null>(null);
+  const [coordenadasEnCamino, setCoordenadasEnCamino] = useState<string | null>(null);
+  const [coordenadasInicio, setCoordenadasInicio] = useState<string | null>(null);
+  const [coordenadasFin, setCoordenadasFin] = useState<string | null>(null);
+  const [coordenadasOrden, setCoordenadasOrden] = useState<string | null>(null);
+  const [distanciaMetros, setDistanciaMetros] = useState<number | null>(null);
+  const [gpsError, setGpsError] = useState<string | null>(null);
+  const [isCapturingGps, setIsCapturingGps] = useState<boolean>(false);
+
+  // Helper: Haversine distance in meters between two lat/lng
+  const calcularDistanciaMetros = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371e3; // Radio de la Tierra en metros
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+    const a =
+      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return Math.round(R * c);
+  };
+
+  // Helper: Capturar GPS actual del dispositivo con alta precisión
+  const obtenerCoordenadasGpsActual = (): Promise<{ lat: number; lng: number; str: string }> => {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error("Tu navegador o dispositivo no soporta geolocalización GPS"));
+        return;
+      }
+      setIsCapturingGps(true);
+      setGpsError(null);
+
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setIsCapturingGps(false);
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          const str = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+          resolve({ lat, lng, str });
+        },
+        (err) => {
+          setIsCapturingGps(false);
+          let msg = "No se pudo obtener el GPS. Por favor activa la ubicación en tu dispositivo.";
+          if (err.code === err.PERMISSION_DENIED) {
+            msg = "Permiso de GPS denegado. Permite el acceso a la ubicación en el navegador.";
+          }
+          setGpsError(msg);
+          reject(new Error(msg));
+        },
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+      );
+    });
+  };
+
   // Fotos de Validación en Terreno
   const [fotoEppUniforme, setFotoEppUniforme] = useState<string | null>(null);
   const [fotoHerramientas, setFotoHerramientas] = useState<string | null>(null);
@@ -160,9 +220,9 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Load Catalogs on Mount
+  // Load Catalogs and Session Supervisor on Mount
   useEffect(() => {
-    const loadCatalogs = async () => {
+    const loadCatalogsAndSession = async () => {
       setLoadingCatalog(true);
       try {
         const [tecnicos, supervisores] = await Promise.all([
@@ -171,16 +231,69 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
         ]);
         setTecnicosCombo(tecnicos);
         setSupervisoresCombo(supervisores);
-        if (supervisores.length > 0) {
-          setSupervisor(supervisores[0].supervisor);
+
+        // Identificar usuario logueado en la sesión
+        const currentUser = authService.getCurrentUser();
+        let targetSupervisorName = "";
+
+        if (currentUser) {
+          const userFull = currentUser.nombreCompleto || `${currentUser.nombres || ""} ${currentUser.apellidos || ""}`.trim();
+          // Buscar match en la lista de supervisores
+          const matchSup = supervisores.find(
+            (s) =>
+              s.supervisor.toLowerCase().includes(userFull.toLowerCase()) ||
+              (currentUser.usuario && s.supervisor.toLowerCase().includes(currentUser.usuario.toLowerCase()))
+          );
+
+          if (matchSup) {
+            targetSupervisorName = matchSup.supervisor;
+          } else if (currentUser.rol?.toUpperCase().includes("SUPERVI") || currentUser.id_rol === 6) {
+            targetSupervisorName = userFull;
+          }
+        }
+
+        if (!targetSupervisorName && supervisores.length > 0) {
+          targetSupervisorName = supervisores[0].supervisor;
+        }
+
+        if (targetSupervisorName) {
+          setSupervisor(targetSupervisorName);
+
+          // Verificar si ya tiene una supervisión "EN_CAMINO" o "INICIADA" guardada en la base de datos
+          const activa = await supervisionService.getSupervisionActiva(targetSupervisorName);
+          if (activa) {
+            setIdSupervisionGuardada(activa.id);
+            setEstadoOperativo(activa.estado_operativo || "EN_CAMINO");
+            if (activa.tecnico) {
+              setTecnicoName(activa.tecnico);
+              setSearchTermTecnico(activa.tecnico);
+            }
+            if (activa.cuadrilla) setCuadrilla(activa.cuadrilla);
+            if (activa.fecha) setFecha(activa.fecha);
+            if (activa.hora_inicio) setHoraInicio(activa.hora_inicio);
+            if (activa.lugar_inspeccion) setLugarInspeccion(activa.lugar_inspeccion);
+            if (activa.tipo_inspeccion) setSelectedTipo(activa.tipo_inspeccion);
+            if (activa.coordenadas_en_camino) setCoordenadasEnCamino(activa.coordenadas_en_camino);
+            if (activa.coordenadas_inicio) setCoordenadasInicio(activa.coordenadas_inicio);
+            if (activa.coordenadas_orden) setCoordenadasOrden(activa.coordenadas_orden);
+            if (activa.distancia_metros_inicio !== null && activa.distancia_metros_inicio !== undefined) {
+              setDistanciaMetros(activa.distancia_metros_inicio);
+            }
+            if (activa.numero_ticket) {
+              setSearchOtTerm(`OT: ${activa.numero_ticket} · ${activa.tecnico || ""}`);
+            }
+            if (Array.isArray(activa.items_json) && activa.items_json.length > 0) {
+              setItems(activa.items_json);
+            }
+          }
         }
       } catch (e) {
-        console.error("Error al cargar catálogos:", e);
+        console.error("Error al cargar catálogos y sesión de supervisión:", e);
       } finally {
         setLoadingCatalog(false);
       }
     };
-    loadCatalogs();
+    loadCatalogsAndSession();
   }, []);
 
   // When Inspection Type Changes, load template items
@@ -210,6 +323,13 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
 
   // Handle Order Selection from Search
   const handleSelectOrden = (ord: OrdenBusqueda) => {
+    setSelectedOrden(ord);
+    if (ord.georeferencia && ord.georeferencia.includes(",")) {
+      setCoordenadasOrden(ord.georeferencia.trim());
+    } else {
+      setCoordenadasOrden(null);
+    }
+
     if (ord.tecnico) {
       setTecnicoName(ord.tecnico);
       setSearchTermTecnico(ord.tecnico);
@@ -385,18 +505,188 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
     setItems((prev) => prev.map((it) => ({ ...it, cumple })));
   };
 
-  // Workflow transitions
-  const handleIniciarSupervision = () => {
-    const currentNow = new Date().toTimeString().split(" ")[0].slice(0, 5);
-    setEstadoOperativo("INICIADA");
-    setHoraInicio(currentNow);
-    setHoraFin("");
+  // Workflow transitions with mandatory GPS capture and instant database persistence
+  const handlePonerEnCamino = async () => {
+    if (!tecnicoName.trim()) {
+      alert("Por favor selecciona o autocompleta el técnico u orden antes de iniciar el traslado 'En Camino'.");
+      return;
+    }
+
+    try {
+      const pos = await obtenerCoordenadasGpsActual();
+      setCoordenadasEnCamino(pos.str);
+      setEstadoOperativo("EN_CAMINO");
+
+      // Guardar inmediatamente en la base de datos para que persista aunque cierre la app
+      const payload: FichaSupervisionCampo = {
+        id: idSupervisionGuardada || undefined,
+        id_tecnico: selectedTecnico?.id_tecnico,
+        tecnico: tecnicoName.trim(),
+        cuadrilla: cuadrilla.trim() || undefined,
+        tipo_inspeccion: selectedTipo,
+        fecha,
+        hora,
+        hora_inicio: horaInicio || hora,
+        estado_operativo: "EN_CAMINO",
+        id_orden: selectedOrden?.id_orden || undefined,
+        numero_ticket: selectedOrden?.ticket || selectedOrden?.ot || undefined,
+        cliente_orden: selectedOrden?.cliente || undefined,
+        direccion_orden: selectedOrden?.direccion || undefined,
+        coordenadas_orden: coordenadasOrden || undefined,
+        coordenadas_en_camino: pos.str,
+        coordenadas_inicio: coordenadasInicio || undefined,
+        distancia_metros_inicio: distanciaMetros !== null ? distanciaMetros : undefined,
+        lugar_inspeccion: lugarInspeccion.trim() || undefined,
+        supervisor: supervisor.trim() || "Supervisor de Calidad",
+        cumplimiento_porcentaje: scoreStats.porcentaje,
+        semaforo: scoreStats.semaforo,
+        items_json: items,
+      };
+
+      const res = await supervisionService.saveSupervisionCampo(payload);
+      if (res.success && res.id) {
+        setIdSupervisionGuardada(res.id);
+      }
+      if (onSaved) onSaved();
+    } catch (err: any) {
+      alert(`⚠️ GPS OBLIGATORIO: Para iniciar el traslado "En Camino", debes activar el GPS en tu dispositivo y dar permiso al navegador.\n\nDetalle: ${err.message}`);
+    }
   };
 
-  const handleFinalizarSupervision = () => {
-    const currentNow = new Date().toTimeString().split(" ")[0].slice(0, 5);
-    setEstadoOperativo("FINALIZADA");
-    setHoraFin(currentNow);
+  const handleIniciarSupervision = async () => {
+    if (!tecnicoName.trim()) {
+      alert("Por favor selecciona o autocompleta el técnico u orden para iniciar la supervisión.");
+      return;
+    }
+
+    try {
+      const pos = await obtenerCoordenadasGpsActual();
+      setCoordenadasInicio(pos.str);
+
+      let dist: number | null = null;
+      // Si hay coordenadas de la orden vinculada, calcular distancia exacta en metros
+      if (coordenadasOrden && coordenadasOrden.includes(",")) {
+        const [ordLatStr, ordLngStr] = coordenadasOrden.split(",");
+        const ordLat = parseFloat(ordLatStr);
+        const ordLng = parseFloat(ordLngStr);
+        if (!isNaN(ordLat) && !isNaN(ordLng)) {
+          dist = calcularDistanciaMetros(pos.lat, pos.lng, ordLat, ordLng);
+          setDistanciaMetros(dist);
+        }
+      }
+
+      const currentNow = new Date().toTimeString().split(" ")[0].slice(0, 5);
+      setEstadoOperativo("INICIADA");
+      setHoraInicio(currentNow);
+      setHoraFin("");
+
+      // Guardar inicio de supervisión en base de datos
+      const payload: FichaSupervisionCampo = {
+        id: idSupervisionGuardada || undefined,
+        id_tecnico: selectedTecnico?.id_tecnico,
+        tecnico: tecnicoName.trim(),
+        cuadrilla: cuadrilla.trim() || undefined,
+        tipo_inspeccion: selectedTipo,
+        fecha,
+        hora,
+        hora_inicio: currentNow,
+        estado_operativo: "INICIADA",
+        id_orden: selectedOrden?.id_orden || undefined,
+        numero_ticket: selectedOrden?.ticket || selectedOrden?.ot || undefined,
+        cliente_orden: selectedOrden?.cliente || undefined,
+        direccion_orden: selectedOrden?.direccion || undefined,
+        coordenadas_orden: coordenadasOrden || undefined,
+        coordenadas_en_camino: coordenadasEnCamino || undefined,
+        coordenadas_inicio: pos.str,
+        distancia_metros_inicio: dist !== null ? dist : (distanciaMetros || undefined),
+        lugar_inspeccion: lugarInspeccion.trim() || undefined,
+        supervisor: supervisor.trim() || "Supervisor de Calidad",
+        cumplimiento_porcentaje: scoreStats.porcentaje,
+        semaforo: scoreStats.semaforo,
+        items_json: items,
+      };
+
+      const res = await supervisionService.saveSupervisionCampo(payload);
+      if (res.success && res.id) {
+        setIdSupervisionGuardada(res.id);
+      }
+      if (onSaved) onSaved();
+    } catch (err: any) {
+      alert(`⚠️ GPS OBLIGATORIO: Para iniciar la "Supervisión en Terreno", es obligatorio capturar tu ubicación física exacta para validar que estás junto al técnico y la orden.\n\nDetalle: ${err.message}`);
+    }
+  };
+
+  const handleCancelarSupervision = async () => {
+    const motivo = window.prompt("¿Por qué motivo deseas cancelar esta supervisión en curso?\n(ej. Técnico no se encontraba en el sitio, cambio de ruta por emergencia, etc.)");
+    if (motivo === null) return; // canceló prompt
+
+    const obsCancelacion = `[CANCELADA POR SUPERVISOR]: ${motivo.trim() || "Sin motivo especificado"}`;
+    const obsTotal = observaciones ? `${observaciones}\n${obsCancelacion}` : obsCancelacion;
+    setObservaciones(obsTotal);
+
+    const payload: FichaSupervisionCampo = {
+      id: idSupervisionGuardada || undefined,
+      id_tecnico: selectedTecnico?.id_tecnico,
+      tecnico: tecnicoName.trim() || "Técnico no especificado",
+      cuadrilla: cuadrilla.trim() || undefined,
+      tipo_inspeccion: selectedTipo,
+      fecha,
+      hora,
+      hora_inicio: horaInicio || hora,
+      hora_fin: new Date().toTimeString().split(" ")[0].slice(0, 5),
+      estado_operativo: "CANCELADA",
+      id_orden: selectedOrden?.id_orden || undefined,
+      numero_ticket: selectedOrden?.ticket || selectedOrden?.ot || undefined,
+      cliente_orden: selectedOrden?.cliente || undefined,
+      direccion_orden: selectedOrden?.direccion || undefined,
+      coordenadas_orden: coordenadasOrden || undefined,
+      coordenadas_en_camino: coordenadasEnCamino || undefined,
+      coordenadas_inicio: coordenadasInicio || undefined,
+      distancia_metros_inicio: distanciaMetros !== null ? distanciaMetros : undefined,
+      lugar_inspeccion: lugarInspeccion.trim() || undefined,
+      supervisor: supervisor.trim() || "Supervisor de Calidad",
+      cumplimiento_porcentaje: scoreStats.porcentaje,
+      semaforo: scoreStats.semaforo,
+      items_json: items,
+      observaciones: obsTotal,
+    };
+
+    await supervisionService.saveSupervisionCampo(payload);
+    alert("Supervisión marcada como CANCELADA. La información quedó registrada para auditoría en el panel de análisis.");
+
+    // Resetear formulario para poder atender al siguiente técnico
+    setIdSupervisionGuardada(null);
+    setEstadoOperativo("EN_CAMINO");
+    setTecnicoName("");
+    setSearchTermTecnico("");
+    setSelectedTecnico(null);
+    setSelectedOrden(null);
+    setSearchOtTerm("");
+    setCuadrilla("");
+    setLugarInspeccion("");
+    setCoordenadasEnCamino(null);
+    setCoordenadasInicio(null);
+    setCoordenadasFin(null);
+    setCoordenadasOrden(null);
+    setDistanciaMetros(null);
+    setObservaciones("");
+    setItems(getItemsForTipo(selectedTipo));
+    if (onSaved) onSaved();
+  };
+
+  const handleFinalizarSupervision = async () => {
+    try {
+      const pos = await obtenerCoordenadasGpsActual().catch(() => null);
+      if (pos) setCoordenadasFin(pos.str);
+
+      const currentNow = new Date().toTimeString().split(" ")[0].slice(0, 5);
+      setEstadoOperativo("FINALIZADA");
+      setHoraFin(currentNow);
+    } catch {
+      const currentNow = new Date().toTimeString().split(" ")[0].slice(0, 5);
+      setEstadoOperativo("FINALIZADA");
+      setHoraFin(currentNow);
+    }
   };
 
   // Procesar y comprimir fotos cargadas
@@ -478,6 +768,15 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
       hora_inicio: horaInicio || undefined,
       hora_fin: horaFin || undefined,
       estado_operativo: estadoOperativo,
+      id_orden: selectedOrden?.id_orden || undefined,
+      numero_ticket: selectedOrden?.ticket || selectedOrden?.ot || undefined,
+      cliente_orden: selectedOrden?.cliente || undefined,
+      direccion_orden: selectedOrden?.direccion || undefined,
+      coordenadas_orden: coordenadasOrden || undefined,
+      coordenadas_en_camino: coordenadasEnCamino || undefined,
+      coordenadas_inicio: coordenadasInicio || undefined,
+      coordenadas_fin: coordenadasFin || undefined,
+      distancia_metros_inicio: distanciaMetros !== null ? distanciaMetros : undefined,
       lugar_inspeccion: lugarInspeccion.trim() || undefined,
       supervisor: supervisor.trim() || "Supervisor de Calidad",
       cumplimiento_porcentaje: scoreStats.porcentaje,
@@ -627,14 +926,15 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
             {/* Operative Buttons */}
             <button
               type="button"
-              onClick={() => setEstadoOperativo("EN_CAMINO")}
+              onClick={handlePonerEnCamino}
+              disabled={isCapturingGps}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                 estadoOperativo === "EN_CAMINO"
                   ? "bg-amber-500 text-slate-950 font-black shadow-md scale-105"
                   : "bg-white/10 text-slate-200 hover:bg-white/20"
               }`}
             >
-              <Navigation className="w-3.5 h-3.5" />
+              <Navigation className={`w-3.5 h-3.5 ${isCapturingGps ? "animate-spin" : ""}`} />
               <span>🚗 En Camino</span>
             </button>
 
@@ -663,6 +963,19 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
               <CheckCheck className="w-3.5 h-3.5" />
               <span>🏁 Finalizada</span>
             </button>
+
+            {/* Cancel Button: Available when En Camino or Iniciada */}
+            {(estadoOperativo === "EN_CAMINO" || estadoOperativo === "INICIADA") && (
+              <button
+                type="button"
+                onClick={handleCancelarSupervision}
+                className="px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer bg-rose-500/20 text-rose-300 hover:bg-rose-500/40 border border-rose-500/30"
+                title="Cancelar supervisión actual por imprevisto y registrar motivo"
+              >
+                <AlertOctagon className="w-3.5 h-3.5 text-rose-400" />
+                <span>❌ Cancelar</span>
+              </button>
+            )}
           </div>
 
           {/* Time & Duration Display */}
@@ -688,6 +1001,56 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
             )}
           </div>
         </div>
+
+        {/* GPS Live Telemetry & Proximity Indicator */}
+        {(coordenadasEnCamino || coordenadasInicio || coordenadasOrden || gpsError) && (
+          <div className="mt-3 pt-3 border-t border-white/10 grid grid-cols-1 md:grid-cols-3 gap-2.5 text-[11px]">
+            {coordenadasEnCamino && (
+              <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-1.5 text-amber-200">
+                <Navigation className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <div className="truncate">
+                  <span className="font-bold block text-amber-300">GPS En Camino:</span>
+                  <span className="font-mono text-[10px]">{coordenadasEnCamino}</span>
+                </div>
+              </div>
+            )}
+
+            {coordenadasInicio && (
+              <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-3 py-1.5 text-emerald-200">
+                <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <div className="truncate">
+                  <span className="font-bold block text-emerald-300">GPS Inicio Supervisión:</span>
+                  <span className="font-mono text-[10px]">{coordenadasInicio}</span>
+                </div>
+              </div>
+            )}
+
+            {distanciaMetros !== null && (
+              <div className={`flex items-center gap-2 rounded-xl px-3 py-1.5 border ${
+                distanciaMetros <= 150
+                  ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-200"
+                  : distanciaMetros <= 500
+                  ? "bg-amber-500/20 border-amber-500/40 text-amber-200"
+                  : "bg-rose-500/20 border-rose-500/40 text-rose-200"
+              }`}>
+                <Truck className="w-3.5 h-3.5 shrink-0" />
+                <div>
+                  <span className="font-bold block">
+                    {distanciaMetros <= 150 ? "✅ En Punto de Trabajo" : distanciaMetros <= 500 ? "⚠️ En Zona Cercana" : "🚨 Fuera de Zona"}
+                  </span>
+                  <span>Distancia a la orden: <strong>{distanciaMetros} metros</strong></span>
+                </div>
+              </div>
+            )}
+
+            {gpsError && (
+              <div className="col-span-full bg-rose-500/20 border border-rose-500/40 rounded-xl px-3 py-2 text-rose-200 flex items-center gap-2 text-xs">
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>{gpsError}</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* 2. Header Data & Technician Selector (NO DNI) */}
@@ -906,36 +1269,80 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
           </div>
         </div>
 
-        {/* Supervisor Selector */}
+        {/* Supervisor Responsable */}
         <div className="pt-2 border-t border-slate-100">
           <label className="block text-xs font-bold text-slate-700 mb-1">
             Supervisor Responsable de la Auditoría *
           </label>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <select
-              value={supervisor}
-              onChange={(e) => setSupervisor(e.target.value)}
-              className="w-full px-3 py-2 text-xs md:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 font-medium bg-white"
-            >
-              {supervisoresCombo.map((sup) => (
-                <option key={sup.id_usuario} value={sup.supervisor}>
-                  {sup.supervisor} ({sup.cargo || "SUPERVISOR"})
-                </option>
-              ))}
-            </select>
-            <input
-              type="text"
-              value={supervisor}
-              onChange={(e) => setSupervisor(e.target.value)}
-              placeholder="O ingresa nombre del auditor personalizado..."
-              className="w-full px-3 py-2 text-xs md:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
+
+          {/* Si el usuario actual es supervisor o ya está identificado, mostrar su insignia fija */}
+          {supervisor && (
+            <div className="flex items-center justify-between bg-blue-50/80 border border-blue-200 rounded-2xl p-3 text-xs">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-blue-600 text-white font-black flex items-center justify-center shadow-md">
+                  {supervisor.slice(0, 2).toUpperCase()}
+                </div>
+                <div>
+                  <div className="font-extrabold text-blue-950 text-sm">{supervisor}</div>
+                  <div className="text-[11px] text-blue-700 font-semibold">
+                    Supervisor de Terreno · Sesión Activa
+                  </div>
+                </div>
+              </div>
+
+              {/* Si es SuperAdmin o tiene permiso especial, permitir cambiar supervisor */}
+              {authService.getCurrentUser()?.id_rol === 1 && supervisoresCombo.length > 1 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-slate-400 font-medium">Cambiar:</span>
+                  <select
+                    value={supervisor}
+                    onChange={(e) => setSupervisor(e.target.value)}
+                    className="px-2.5 py-1 text-xs border border-blue-300 rounded-xl bg-white font-bold text-slate-800"
+                  >
+                    {supervisoresCombo.map((sup) => (
+                      <option key={sup.id_usuario} value={sup.supervisor}>
+                        {sup.supervisor}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* 3. Score & Category Filter Bar */}
-      <div className="bg-slate-900 rounded-3xl p-4 md:p-5 text-white flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
+      {/* Step Gate: If EN_CAMINO, show clear instruction card until supervisor arrives and clicks "En Supervisión" */}
+      {estadoOperativo === "EN_CAMINO" && (
+        <div className="bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-slate-900 border-2 border-dashed border-amber-500/40 rounded-3xl p-8 text-center space-y-4 shadow-sm">
+          <div className="w-16 h-16 bg-amber-500/20 text-amber-500 rounded-3xl mx-auto flex items-center justify-center animate-bounce">
+            <Navigation className="w-8 h-8" />
+          </div>
+          <div className="max-w-md mx-auto space-y-2">
+            <h4 className="text-base md:text-lg font-black text-slate-800 dark:text-white">
+              🚗 Traslado en Camino Registrado
+            </h4>
+            <p className="text-xs md:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+              Tu ruta y GPS de salida han quedado guardados. Cuando llegues al sitio físico junto al técnico o cliente, presiona el botón <strong>"⏱️ En Supervisión"</strong> arriba para desbloquear la ficha de evaluación e iniciar el conteo.
+            </p>
+          </div>
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={handleIniciarSupervision}
+              className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs md:text-sm font-black shadow-lg shadow-emerald-600/30 transition-all cursor-pointer inline-flex items-center gap-2 active:scale-95"
+            >
+              <Play className="w-4 h-4" />
+              <span>Llegué al Sitio · Iniciar Supervisión Ahora</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Score & Category Filter Bar (Only shown when INICIADA or FINALIZADA) */}
+      {(estadoOperativo === "INICIADA" || estadoOperativo === "FINALIZADA") && (
+        <>
+          <div className="bg-slate-900 rounded-3xl p-4 md:p-5 text-white flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
         <div className="flex items-center gap-3">
           <div
             className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-lg shadow-md ${
@@ -1615,6 +2022,8 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
           </div>
         </div>
       </div>
+      </>
+      )}
 
       {/* Barcode / QR Camera Scanner Modal */}
       {isScannerOpen && (

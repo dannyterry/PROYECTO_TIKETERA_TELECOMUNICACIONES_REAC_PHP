@@ -138,12 +138,16 @@ export const authService = {
       user.rol?.toUpperCase().includes("TÉCNIC") ||
       user.rol?.toUpperCase().includes("CAMPO");
 
+    const esSupervisor =
+      user.rol?.toUpperCase().includes("SUPERVIS") ||
+      user.rol?.toUpperCase().includes("CALIDAD");
+
     switch (moduleId) {
       case "dashboard":
         return this.hasPermission("dashboard.ver");
 
       case "ordenes":
-        // El módulo administrativo de Órdenes solo para quien tenga permiso explícito de ver órdenes
+        // Controlado 100% por la Matriz de Permisos (el admin puede marcarlo o quitarlo cuando desee)
         return this.hasPermission("ordenes.ver");
 
       case "portal-tecnico":
@@ -194,13 +198,16 @@ export const authService = {
         ]);
 
       case "supervision":
-        return this.hasAnyPermission([
-          "supervision.ver",
-          "supervision.crear",
-          "calidad.ver",
-          "auditoria.ver",
-          "ordenes.ver",
-        ]);
+        return (
+          esSupervisor ||
+          this.hasAnyPermission([
+            "supervision.ver",
+            "supervision.crear",
+            "calidad.ver",
+            "auditoria.ver",
+            "ordenes.ver",
+          ])
+        );
 
       case "pagos":
         return (
@@ -237,8 +244,14 @@ export const authService = {
       return "portal-tecnico";
     }
 
+    // Si es supervisor de campo / calidad, su módulo de supervisión
+    if (user.rol?.toUpperCase().includes("SUPERVIS") || user.rol?.toUpperCase().includes("CALIDAD")) {
+      return "supervision";
+    }
+
     if (this.canAccessModule("dashboard")) return "dashboard";
     if (this.canAccessModule("ordenes")) return "ordenes";
+    if (this.canAccessModule("supervision")) return "supervision";
     if (this.canAccessModule("inventario")) return "inventario";
     if (this.canAccessModule("personal")) return "personal";
     if (this.canAccessModule("movilidad")) return "movilidad";

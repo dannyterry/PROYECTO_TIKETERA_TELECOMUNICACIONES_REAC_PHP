@@ -25,11 +25,19 @@ import {
   TrendingUp,
   Cpu,
   History,
+  MapPin,
+  Map as MapIcon,
+  Globe,
+  Radio,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supervisionService } from "../../supervision/services/supervisionService";
 import { SupervisionHistoryTab } from "../../supervision/components/SupervisionHistoryTab";
 import { SupervisorAvanceDiario } from "../../supervision/types/supervisionTypes";
+import {
+  SupervisionMonitoringMap,
+  MapPointSupervisor,
+} from "../../supervision/components/SupervisionMonitoringMap";
 
 export const SupervisorDashboardTab: React.FC = () => {
   const [activeSubTab, setActiveSubTab] = useState<"AVANCE_VIVO" | "CRUCE_STOCK" | "HISTORIAL_RANKING">("AVANCE_VIVO");
@@ -37,8 +45,16 @@ export const SupervisorDashboardTab: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [avanceData, setAvanceData] = useState<any | null>(null);
 
+  // Selected point for Map Interaction
+  const [selectedMapItem, setSelectedMapItem] = useState<MapPointSupervisor | null>(null);
+
+  // Grid search & filter for real-time monitoring
+  const [gridSearchTerm, setGridSearchTerm] = useState("");
+  const [gridEstadoFilter, setGridEstadoFilter] = useState<string>("TODOS");
+
   // Cruce de stock search & filter
   const [stockSearchTerm, setStockSearchTerm] = useState("");
+  const [stockEstadoFilter, setStockEstadoFilter] = useState<"TODOS" | "DISCREPANCIA" | "SOBRANTE" | "FALTANTE" | "CONFORME" | "PENDIENTE">("TODOS");
 
   const cargarDatos = async (targetFecha = fecha) => {
     setLoading(true);
@@ -64,7 +80,14 @@ export const SupervisorDashboardTab: React.FC = () => {
 
   // Cruce de stock filtered
   const filteredStock = useMemo(() => {
-    const list: any[] = avanceData?.cruce_stock || [];
+    let list: any[] = avanceData?.cruce_stock || [];
+
+    if (stockEstadoFilter === "DISCREPANCIA") {
+      list = list.filter((item) => item.estado_auditoria === "SOBRANTE" || item.estado_auditoria === "FALTANTE");
+    } else if (stockEstadoFilter !== "TODOS") {
+      list = list.filter((item) => item.estado_auditoria === stockEstadoFilter);
+    }
+
     if (!stockSearchTerm.trim()) return list;
     const q = stockSearchTerm.toLowerCase();
     return list.filter(
@@ -73,7 +96,7 @@ export const SupervisorDashboardTab: React.FC = () => {
         (item.cuadrilla && item.cuadrilla.toLowerCase().includes(q)) ||
         (item.producto && item.producto.toLowerCase().includes(q))
     );
-  }, [avanceData, stockSearchTerm]);
+  }, [avanceData, stockSearchTerm, stockEstadoFilter]);
 
   const handleExportStockExcel = () => {
     if (!filteredStock || filteredStock.length === 0) return;
@@ -82,12 +105,134 @@ export const SupervisorDashboardTab: React.FC = () => {
       Cuadrilla: s.cuadrilla || "S/C",
       Producto: s.producto,
       "Stock en Sistema (Almacén)": s.stock_sistema,
+      "Stock Físico Auditado (Camioneta)": s.cantidad_auditada !== null && s.cantidad_auditada !== undefined ? s.cantidad_auditada : "Pendiente de Auditoría",
+      "Diferencia (Físico - Almacén)": s.diferencia !== null && s.diferencia !== undefined ? s.diferencia : "-",
+      "Estado de Auditoría": s.estado_auditoria || "PENDIENTE",
+      "Fecha Última Auditoría": s.fecha_auditoria || "-",
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Cruce_Stock");
     XLSX.writeFile(wb, `Cruce_Stock_Camioneta_Almacen_${fecha}.xlsx`);
   };
+
+  // Real-Time Monitoring Grid rows (All records today with order, technician, customer, supervisor and status)
+  const monitoringGridRows = useMemo(() => {
+    const list: any[] = [];
+    if (!avanceData?.supervisores) return list;
+
+    avanceData.supervisores.forEach((sup: SupervisorAvanceDiario) => {
+      // Add each completed/in-progress supervision of today
+      if (sup.supervisiones_hoy && sup.supervisiones_hoy.length > 0) {
+        sup.supervisiones_hoy.forEach((reg) => {
+          list.push({
+            id: `${sup.id_supervisor}-${reg.id}`,
+            supervisor: sup.supervisor,
+            id_supervisor: sup.id_supervisor,
+            tecnico: reg.tecnico,
+            cuadrilla: reg.cuadrilla || sup.cuadrilla_actual || "-",
+            tipo: reg.tipo,
+            ticket: reg.ticket || "-",
+            cliente: reg.cliente || "-",
+            direccion: reg.direccion || "-",
+            coordenadas_orden: reg.coordenadas_orden,
+            coordenadas_supervisor: reg.coordenadas_supervisor,
+            distancia_metros: reg.distancia_metros,
+            estado_operativo: reg.estado_operativo || (reg.tipo === "CLIENTE" ? "AUDITADO" : "FINALIZADA"),
+            hora: reg.hora_inicio || reg.hora || "-",
+            hora_fin: reg.hora_fin || "-",
+            cumplimiento: reg.cumplimiento,
+            semaforo: reg.semaforo,
+          });
+        });
+      } else if (sup.estado_actual === "EN_CAMINO" || sup.estado_actual === "EN_SUPERVISION") {
+        // Active without finalized record yet
+        list.push({
+          id: `active-${sup.id_supervisor}`,
+          supervisor: sup.supervisor,
+          id_supervisor: sup.id_supervisor,
+          tecnico: sup.supervisando_a || "-",
+          cuadrilla: sup.cuadrilla_actual || "-",
+          tipo: "CAMPO",
+          ticket: sup.orden_actual?.numero_ticket || "-",
+          cliente: sup.orden_actual?.cliente || "-",
+          direccion: sup.orden_actual?.direccion || "-",
+          coordenadas_orden: sup.orden_actual?.coordenadas,
+          coordenadas_supervisor: sup.coordenadas_supervisor,
+          distancia_metros: sup.distancia_metros,
+          estado_operativo: sup.estado_actual === "EN_CAMINO" ? "EN_CAMINO" : "INICIADA",
+          hora: sup.hora_inicio_actual || "-",
+          hora_fin: "-",
+          cumplimiento: 100,
+          semaforo: "verde",
+        });
+      }
+    });
+
+    return list;
+  }, [avanceData]);
+
+  // Filtered rows for Monitoring Grid
+  const filteredGridRows = useMemo(() => {
+    let rows = monitoringGridRows;
+    if (gridEstadoFilter !== "TODOS") {
+      rows = rows.filter((r) => r.estado_operativo === gridEstadoFilter);
+    }
+    if (!gridSearchTerm.trim()) return rows;
+    const q = gridSearchTerm.toLowerCase();
+    return rows.filter(
+      (r) =>
+        r.supervisor.toLowerCase().includes(q) ||
+        r.tecnico.toLowerCase().includes(q) ||
+        r.cuadrilla.toLowerCase().includes(q) ||
+        r.ticket.toLowerCase().includes(q) ||
+        r.cliente.toLowerCase().includes(q) ||
+        r.direccion.toLowerCase().includes(q)
+    );
+  }, [monitoringGridRows, gridEstadoFilter, gridSearchTerm]);
+
+  // Points for Leaflet Map
+  const mapPoints: MapPointSupervisor[] = useMemo(() => {
+    const pts: MapPointSupervisor[] = [];
+
+    monitoringGridRows.forEach((row) => {
+      let latSup: number | undefined;
+      let lngSup: number | undefined;
+      let latOrd: number | undefined;
+      let lngOrd: number | undefined;
+
+      if (row.coordenadas_supervisor && row.coordenadas_supervisor.includes(",")) {
+        const parts = row.coordenadas_supervisor.split(",");
+        latSup = parseFloat(parts[0]);
+        lngSup = parseFloat(parts[1]);
+      }
+
+      if (row.coordenadas_orden && row.coordenadas_orden.includes(",")) {
+        const parts = row.coordenadas_orden.split(",");
+        latOrd = parseFloat(parts[0]);
+        lngOrd = parseFloat(parts[1]);
+      }
+
+      if ((latSup && !isNaN(latSup)) || (latOrd && !isNaN(latOrd))) {
+        pts.push({
+          id: row.id,
+          supervisor: row.supervisor,
+          tecnico: row.tecnico,
+          ticket: row.ticket,
+          cliente: row.cliente,
+          direccion: row.direccion,
+          estado_actual: row.estado_operativo,
+          latSupervisor: latSup,
+          lngSupervisor: lngSup,
+          latOrden: latOrd,
+          lngOrden: lngOrd,
+          distanciaMetros: row.distancia_metros,
+        });
+      }
+    });
+
+    return pts;
+  }, [monitoringGridRows]);
 
   const kpis = avanceData?.kpis_globales || {
     total_supervisores_activos: 0,
@@ -358,6 +503,271 @@ export const SupervisorDashboardTab: React.FC = () => {
                 <p className="text-xs font-medium">No se encontraron supervisores activos para esta fecha.</p>
               </div>
             )}
+            {/* Map and Operational Grid Section */}
+            <div className="space-y-6 pt-4 border-t border-slate-200">
+              {/* Header for Map & Monitoring */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-5 rounded-3xl border border-slate-200 shadow-sm">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <MapIcon className="w-5 h-5 text-blue-600" />
+                    <h3 className="font-extrabold text-slate-800 text-sm md:text-base">
+                      Mapa de Monitoreo GPS & Cruce en Tiempo Real
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Visualiza la ubicación en vivo del supervisor, el punto exacto de la orden (Fénix) y la distancia entre ambos.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-xl">
+                    <Radio className="w-3.5 h-3.5 text-emerald-500 animate-pulse" />
+                    <span>{mapPoints.length} Puntos GPS Geolocalizados</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 1. Leaflet Interactive Monitoring Map */}
+              <SupervisionMonitoringMap
+                items={mapPoints}
+                selectedItem={selectedMapItem}
+                onSelectItem={(item) => setSelectedMapItem(item)}
+              />
+
+              {/* 2. Real-Time Operational Monitoring Grid */}
+              <div className="bg-white rounded-3xl p-5 md:p-6 border border-slate-200 shadow-sm space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                  <div>
+                    <h4 className="font-extrabold text-slate-800 text-sm md:text-base flex items-center gap-2">
+                      <Target className="w-4 h-4 text-blue-600" />
+                      Avance Operativo y Desplazamiento en Terreno
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Seguimiento de visitas, órdenes atendidas, coordenadas y cruce de proximidad supervisor ➔ técnico.
+                    </p>
+                  </div>
+
+                  {/* Filter by Operative Status */}
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none text-[11px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setGridEstadoFilter("TODOS")}
+                      className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer ${
+                        gridEstadoFilter === "TODOS"
+                          ? "bg-slate-900 text-white shadow-xs"
+                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      }`}
+                    >
+                      Todos ({monitoringGridRows.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGridEstadoFilter("INICIADA")}
+                      className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer ${
+                        gridEstadoFilter === "INICIADA"
+                          ? "bg-emerald-600 text-white shadow-xs"
+                          : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                      }`}
+                    >
+                      En Supervisión
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGridEstadoFilter("EN_CAMINO")}
+                      className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer ${
+                        gridEstadoFilter === "EN_CAMINO"
+                          ? "bg-amber-500 text-slate-950 shadow-xs"
+                          : "bg-amber-50 text-amber-800 hover:bg-amber-100"
+                      }`}
+                    >
+                      En Camino
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGridEstadoFilter("FINALIZADA")}
+                      className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer ${
+                        gridEstadoFilter === "FINALIZADA"
+                          ? "bg-blue-600 text-white shadow-xs"
+                          : "bg-blue-50 text-blue-700 hover:bg-blue-100"
+                      }`}
+                    >
+                      Finalizadas
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGridEstadoFilter("CANCELADA")}
+                      className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer ${
+                        gridEstadoFilter === "CANCELADA"
+                          ? "bg-rose-600 text-white shadow-xs"
+                          : "bg-rose-50 text-rose-700 hover:bg-rose-100"
+                      }`}
+                    >
+                      Canceladas
+                    </button>
+                  </div>
+                </div>
+
+                {/* Grid Search */}
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={gridSearchTerm}
+                    onChange={(e) => setGridSearchTerm(e.target.value)}
+                    placeholder="Buscar por supervisor, técnico, cuadrilla, ticket u orden, cliente..."
+                    className="w-full pl-9 pr-4 py-2 text-xs md:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 font-medium"
+                  />
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                </div>
+
+                {/* Table */}
+                <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 uppercase text-[10px] tracking-wider">
+                        <th className="py-3 px-3.5">Hora</th>
+                        <th className="py-3 px-3.5">Supervisor</th>
+                        <th className="py-3 px-3.5">Técnico / Cuadrilla</th>
+                        <th className="py-3 px-3.5">Orden / Ticket</th>
+                        <th className="py-3 px-3.5">Cliente</th>
+                        <th className="py-3 px-3.5">Dirección</th>
+                        <th className="py-3 px-3.5">Distancia GPS (Sup ➔ Ord)</th>
+                        <th className="py-3 px-3.5 text-center">Estado</th>
+                        <th className="py-3 px-3.5 text-center">Calidad</th>
+                        <th className="py-3 px-3.5 text-center">Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredGridRows.length > 0 ? (
+                        filteredGridRows.map((row) => {
+                          const isSelectedOnMap = selectedMapItem?.id === row.id;
+
+                          return (
+                            <tr
+                              key={row.id}
+                              className={`transition-colors cursor-pointer ${
+                                isSelectedOnMap
+                                  ? "bg-blue-50/80 font-bold border-l-4 border-l-blue-600"
+                                  : "hover:bg-slate-50/80"
+                              }`}
+                              onClick={() => {
+                                const match = mapPoints.find((p) => p.id === row.id);
+                                if (match) setSelectedMapItem(match);
+                              }}
+                            >
+                              <td className="py-3 px-3.5 font-mono text-[11px] text-slate-500 whitespace-nowrap">
+                                {row.hora}
+                              </td>
+
+                              <td className="py-3 px-3.5 font-bold text-slate-900 whitespace-nowrap">
+                                <div className="flex items-center gap-1.5">
+                                  <Users className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                  <span>{row.supervisor}</span>
+                                </div>
+                              </td>
+
+                              <td className="py-3 px-3.5 text-slate-800 whitespace-nowrap">
+                                <div className="font-bold">{row.tecnico}</div>
+                                <div className="text-[10px] text-slate-400 font-medium">
+                                  {row.cuadrilla}
+                                </div>
+                              </td>
+
+                              <td className="py-3 px-3.5 whitespace-nowrap">
+                                <span className="font-mono font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200 text-[11px]">
+                                  {row.ticket}
+                                </span>
+                              </td>
+
+                              <td className="py-3 px-3.5 font-medium text-slate-700 max-w-[140px] truncate" title={row.cliente}>
+                                {row.cliente}
+                              </td>
+
+                              <td className="py-3 px-3.5 text-slate-500 text-[11px] max-w-[200px] truncate" title={row.direccion}>
+                                {row.direccion}
+                              </td>
+
+                              <td className="py-3 px-3.5 whitespace-nowrap">
+                                {row.distancia_metros !== null && row.distancia_metros !== undefined ? (
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-black inline-flex items-center gap-1 ${
+                                      row.distancia_metros <= 150
+                                        ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                                        : row.distancia_metros <= 500
+                                        ? "bg-amber-100 text-amber-800 border border-amber-300"
+                                        : "bg-rose-100 text-rose-800 border border-rose-300"
+                                    }`}
+                                  >
+                                    <MapPin className="w-3 h-3" />
+                                    {row.distancia_metros} metros
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 text-[10px]">Sin cruce GPS</span>
+                                )}
+                              </td>
+
+                              <td className="py-3 px-3.5 text-center whitespace-nowrap">
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-black inline-flex items-center gap-1 ${
+                                    row.estado_operativo === "EN_CAMINO"
+                                      ? "bg-amber-100 text-amber-800 border border-amber-300"
+                                      : row.estado_operativo === "INICIADA"
+                                      ? "bg-emerald-100 text-emerald-800 border border-emerald-300 animate-pulse"
+                                      : row.estado_operativo === "FINALIZADA" || row.estado_operativo === "AUDITADO"
+                                      ? "bg-blue-100 text-blue-800 border border-blue-300"
+                                      : row.estado_operativo === "CANCELADA"
+                                      ? "bg-rose-100 text-rose-800 border border-rose-300"
+                                      : "bg-slate-100 text-slate-600"
+                                  }`}
+                                >
+                                  {row.estado_operativo}
+                                </span>
+                              </td>
+
+                              <td className="py-3 px-3.5 text-center whitespace-nowrap">
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                    row.semaforo === "verde"
+                                      ? "bg-emerald-100 text-emerald-700"
+                                      : row.semaforo === "amarillo"
+                                      ? "bg-amber-100 text-amber-700"
+                                      : "bg-rose-100 text-rose-700"
+                                  }`}
+                                >
+                                  {row.cumplimiento !== undefined ? `${row.cumplimiento}%` : "—"}
+                                </span>
+                              </td>
+
+                              <td className="py-3 px-3.5 text-center whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const match = mapPoints.find((p) => p.id === row.id);
+                                    if (match) {
+                                      setSelectedMapItem(match);
+                                    }
+                                  }}
+                                  className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition-all cursor-pointer"
+                                  title="Ver en el mapa"
+                                >
+                                  <MapPin className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr>
+                          <td colSpan={10} className="py-8 text-center text-slate-400">
+                            No hay órdenes o supervisiones registradas con estos criterios.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -388,16 +798,89 @@ export const SupervisorDashboardTab: React.FC = () => {
             </div>
           </div>
 
-          {/* Search bar */}
-          <div className="relative">
-            <input
-              type="text"
-              value={stockSearchTerm}
-              onChange={(e) => setStockSearchTerm(e.target.value)}
-              placeholder="Filtrar por técnico, cuadrilla o producto..."
-              className="w-full pl-9 pr-4 py-2 text-xs md:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 font-medium"
-            />
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+          {/* Search bar & Quick Filters */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <div className="relative flex-1">
+              <input
+                type="text"
+                value={stockSearchTerm}
+                onChange={(e) => setStockSearchTerm(e.target.value)}
+                placeholder="Filtrar por técnico, cuadrilla o producto..."
+                className="w-full pl-9 pr-4 py-2 text-xs md:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 font-medium"
+              />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            </div>
+
+            {/* Quick Status Filters */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none text-[11px] font-bold">
+              <button
+                type="button"
+                onClick={() => setStockEstadoFilter("TODOS")}
+                className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer ${
+                  stockEstadoFilter === "TODOS"
+                    ? "bg-slate-900 text-white shadow-xs"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                Todos ({avanceData?.cruce_stock?.length || 0})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStockEstadoFilter("DISCREPANCIA")}
+                className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer flex items-center gap-1 ${
+                  stockEstadoFilter === "DISCREPANCIA"
+                    ? "bg-amber-600 text-white shadow-xs"
+                    : "bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100"
+                }`}
+              >
+                <AlertTriangle size={12} />
+                Discrepancias
+              </button>
+              <button
+                type="button"
+                onClick={() => setStockEstadoFilter("SOBRANTE")}
+                className={`px-2.5 py-1.5 rounded-xl transition-all cursor-pointer ${
+                  stockEstadoFilter === "SOBRANTE"
+                    ? "bg-amber-500 text-white shadow-xs"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                Sobrantes (+)
+              </button>
+              <button
+                type="button"
+                onClick={() => setStockEstadoFilter("FALTANTE")}
+                className={`px-2.5 py-1.5 rounded-xl transition-all cursor-pointer ${
+                  stockEstadoFilter === "FALTANTE"
+                    ? "bg-rose-600 text-white shadow-xs"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                Faltantes (-)
+              </button>
+              <button
+                type="button"
+                onClick={() => setStockEstadoFilter("CONFORME")}
+                className={`px-2.5 py-1.5 rounded-xl transition-all cursor-pointer ${
+                  stockEstadoFilter === "CONFORME"
+                    ? "bg-emerald-600 text-white shadow-xs"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                Exactos (0)
+              </button>
+              <button
+                type="button"
+                onClick={() => setStockEstadoFilter("PENDIENTE")}
+                className={`px-2.5 py-1.5 rounded-xl transition-all cursor-pointer ${
+                  stockEstadoFilter === "PENDIENTE"
+                    ? "bg-slate-600 text-white shadow-xs"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                Sin Auditar
+              </button>
+            </div>
           </div>
 
           {/* Table */}
@@ -405,37 +888,98 @@ export const SupervisorDashboardTab: React.FC = () => {
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-900 text-white font-bold">
-                  <th className="py-3 px-4">Técnico Evaluado</th>
-                  <th className="py-3 px-4">Cuadrilla / Móvil</th>
-                  <th className="py-3 px-4">Producto / Equipo</th>
-                  <th className="py-3 px-4 text-center">Stock Registrado Almacén</th>
-                  <th className="py-3 px-4 text-center">Estado Auditoría</th>
+                  <th className="py-3 px-3">Técnico Evaluado</th>
+                  <th className="py-3 px-3">Cuadrilla / Móvil</th>
+                  <th className="py-3 px-3">Producto / Equipo</th>
+                  <th className="py-3 px-3 text-center bg-slate-800/80">Stock Sistema (Almacén)</th>
+                  <th className="py-3 px-3 text-center bg-indigo-950/80">Stock Físico (Auditado)</th>
+                  <th className="py-3 px-3 text-center bg-slate-800/80">Diferencia</th>
+                  <th className="py-3 px-3 text-center">Estado Auditoría</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredStock.length > 0 ? (
-                  filteredStock.map((s, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3 px-4 font-bold text-slate-800">{s.tecnico}</td>
-                      <td className="py-3 px-4 font-semibold text-slate-600">{s.cuadrilla || "S/C"}</td>
-                      <td className="py-3 px-4">
-                        <span className="bg-slate-100 text-slate-800 font-bold px-2 py-0.5 rounded text-[11px]">
-                          {s.producto}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-center font-black text-slate-900 text-sm">
-                        {s.stock_sistema}
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <span className="bg-emerald-100 text-emerald-800 font-bold px-2.5 py-0.5 rounded-full text-[10px]">
-                          Auditado
-                        </span>
-                      </td>
-                    </tr>
-                  ))
+                  filteredStock.map((s, idx) => {
+                    const tieneAuditoria = s.cantidad_auditada !== null && s.cantidad_auditada !== undefined;
+                    const dif = s.diferencia;
+
+                    return (
+                      <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-2.5 px-3 font-bold text-slate-800">{s.tecnico}</td>
+                        <td className="py-2.5 px-3 font-semibold text-slate-600">{s.cuadrilla || "S/C"}</td>
+                        <td className="py-2.5 px-3">
+                          <span className="bg-slate-100 text-slate-800 font-bold px-2 py-0.5 rounded text-[11px]">
+                            {s.producto}
+                          </span>
+                        </td>
+                        {/* Stock Almacén */}
+                        <td className="py-2.5 px-3 text-center font-black text-slate-800 text-sm bg-slate-50/50">
+                          {s.stock_sistema}
+                        </td>
+                        {/* Stock Físico Auditado */}
+                        <td className="py-2.5 px-3 text-center font-mono font-bold text-sm bg-indigo-50/30">
+                          {tieneAuditoria ? (
+                            <span className="text-indigo-900 bg-indigo-100/80 px-2.5 py-0.5 rounded-lg border border-indigo-200">
+                              {s.cantidad_auditada}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 italic text-[11px]">Pendiente</span>
+                          )}
+                        </td>
+                        {/* Diferencia (+ Sobrante, - Faltante, 0 Conforme) */}
+                        <td className="py-2.5 px-3 text-center font-mono font-black text-sm">
+                          {!tieneAuditoria ? (
+                            <span className="text-slate-300">-</span>
+                          ) : dif === 0 ? (
+                            <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                              0
+                            </span>
+                          ) : dif > 0 ? (
+                            <span
+                              className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200"
+                              title={`Técnico tiene +${dif} unidades de más respecto al almacén`}
+                            >
+                              +{dif} (Sobrante)
+                            </span>
+                          ) : (
+                            <span
+                              className="text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200"
+                              title={`Técnico tiene ${dif} unidades de menos respecto al almacén`}
+                            >
+                              {dif} (Faltante)
+                            </span>
+                          )}
+                        </td>
+                        {/* Estado Auditoría Badge */}
+                        <td className="py-2.5 px-3 text-center">
+                          {s.estado_auditoria === "CONFORME" ? (
+                            <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 font-extrabold px-2.5 py-0.5 rounded-full text-[10px] inline-flex items-center gap-1 shadow-2xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+                              Conforme (Exacto)
+                            </span>
+                          ) : s.estado_auditoria === "SOBRANTE" ? (
+                            <span className="bg-amber-100 text-amber-800 border border-amber-300 font-extrabold px-2.5 py-0.5 rounded-full text-[10px] inline-flex items-center gap-1 shadow-2xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
+                              Tiene de Más
+                            </span>
+                          ) : s.estado_auditoria === "FALTANTE" ? (
+                            <span className="bg-rose-100 text-rose-800 border border-rose-300 font-extrabold px-2.5 py-0.5 rounded-full text-[10px] inline-flex items-center gap-1 shadow-2xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-600"></span>
+                              Faltante
+                            </span>
+                          ) : (
+                            <span className="bg-slate-100 text-slate-500 border border-slate-200 font-bold px-2 py-0.5 rounded-full text-[10px] inline-flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                              Sin Auditar
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
                 ) : (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-400">
+                    <td colSpan={7} className="py-8 text-center text-slate-400">
                       No hay registros de stock cruzado disponibles.
                     </td>
                   </tr>

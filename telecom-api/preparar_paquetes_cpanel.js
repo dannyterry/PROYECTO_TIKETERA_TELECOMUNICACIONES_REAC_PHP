@@ -29,13 +29,11 @@ try {
   process.exit(1);
 }
 
-const zipFrontend = path.join(outputDir, '1_FRONTEND_dist_react.zip');
-if (fs.existsSync(distReactDir)) {
-  execSync(`powershell -Command "Compress-Archive -Path '${distReactDir}\\*' -DestinationPath '${zipFrontend}' -Force"`);
-  console.log('📦 ZIP Frontend generado:', zipFrontend);
-} else {
-  console.error('❌ No se encontró dist_react en:', distReactDir);
-}
+const projectDistDir = path.join(frontendDir, 'dist');
+const zipFrontend = path.join(outputDir, '1_FRONTEND_dist.zip');
+
+execSync(`powershell -Command "Compress-Archive -Path '${projectDistDir}\\*' -DestinationPath '${zipFrontend}' -Force"`);
+console.log('📦 ZIP Frontend (React puro) generado:', zipFrontend);
 
 // ----------------------------------------------------
 // 2. BACKEND: SOLO LOS ARCHIVOS ESTRICTAMENTE NECESARIOS
@@ -80,6 +78,7 @@ function copyDirRecursive(srcDir, destDir) {
 }
 
 copyDirRecursive(path.join(apiDir, 'lib'), path.join(stagingApiDir, 'lib'));
+copyDirRecursive(path.join(apiDir, 'middleware'), path.join(stagingApiDir, 'middleware'));
 copyDirRecursive(path.join(apiDir, 'services'), path.join(stagingApiDir, 'services'));
 
 // Carpeta uploads vacía con .gitkeep
@@ -99,8 +98,8 @@ fs.rmSync(stagingApiDir, { recursive: true, force: true });
 // 3. BASE DE DATOS: COPIAR SCRIPT DE MIGRACIÓN
 // ----------------------------------------------------
 console.log('\n🟡 [3/3] Copiando script de base de datos para Producción...');
-const sqlSrc = path.join(apiDir, 'backups', 'migracion_alinear_trabajadores_prod.sql');
-const sqlDest = path.join(outputDir, '3_BASE_DE_DATOS_migracion_alinear_prod.sql');
+const sqlSrc = path.join(apiDir, 'backups', 'migracion_supervision_gps_prod.sql');
+const sqlDest = path.join(outputDir, '3_BASE_DE_DATOS_migracion_supervision_prod.sql');
 if (fs.existsSync(sqlSrc)) {
   fs.copyFileSync(sqlSrc, sqlDest);
   console.log('📄 SQL de migración copiado:', sqlDest);
@@ -109,7 +108,7 @@ if (fs.existsSync(sqlSrc)) {
 console.log('\n====================================================');
 console.log('🎉 ¡TODOS LOS PAQUETES ESTÁN LISTOS!');
 console.log('📁 Carpeta: ' + outputDir);
-console.log('   1️⃣  1_FRONTEND_dist_react.zip (Descomprimir en public/dist_react)');
+console.log('   1️⃣  1_FRONTEND_dist.zip (Descomprimir en public/dist_react)');
 console.log('   2️⃣  2_BACKEND_telecom_api.zip (Descomprimir en la raíz de tu Node App)');
-console.log('   3️⃣  3_BASE_DE_DATOS_migracion_alinear_prod.sql (Importar o ejecutar en phpMyAdmin)');
+console.log('   3️⃣  3_BASE_DE_DATOS_migracion_supervision_prod.sql (Importar o ejecutar en phpMyAdmin)');
 console.log('====================================================\n');

@@ -191,4 +191,17 @@ export const supervisionService = {
       return null;
     }
   },
+
+  // 6. Obtener supervisión activa o en camino del supervisor actual
+  async getSupervisionActiva(supervisorName?: string): Promise<any> {
+    if (!supervisorName) return null;
+    try {
+      const res = await fetch(`${API_URL}/api/supervision/activa-supervisor?supervisor=${encodeURIComponent(supervisorName.trim())}`);
+      const data = await res.json();
+      return data.success && data.tieneActiva ? data.data : null;
+    } catch (e) {
+      console.error("Error al verificar supervisión activa:", e);
+      return null;
+    }
+  },
 };

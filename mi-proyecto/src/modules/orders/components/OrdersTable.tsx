@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { Order } from "../types/Order";
 import { getRowColorByStatus, getBadgeColorByStatus } from "../utils/statusColors";
 import { extractCuadrillaKey, extractCuadrillaMemberName } from "../utils/cuadrillaUtils";
@@ -548,6 +548,65 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
     setTimeout(() => setCopiedKey(null), 1800);
   };
 
+  // ⚡ VIRTUALIZACIÓN DE SCROLL ULTRA-RÁPIDA (60 FPS PARA RANGOS DE MESES COMPLETOS)
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [containerHeight, setContainerHeight] = useState(600);
+
+  const ROW_HEIGHT = 28; // Altura exacta de cada fila compacta en píxeles
+  const OVERSCAN = 15; // Filas de amortiguación arriba y abajo para scroll perfecto sin parpadeos
+
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    setScrollTop(e.currentTarget.scrollTop);
+  }, []);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.height > 0) {
+          setContainerHeight(entry.contentRect.height);
+        }
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const totalCount = sortedOrders.length;
+  const isVirtualizing = totalCount > 50;
+
+  const { visibleStartIndex, visibleEndIndex, topPadding, bottomPadding } = useMemo(() => {
+    if (!isVirtualizing) {
+      return {
+        visibleStartIndex: 0,
+        visibleEndIndex: totalCount,
+        topPadding: 0,
+        bottomPadding: 0,
+      };
+    }
+
+    const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+    const visibleCount = Math.ceil(containerHeight / ROW_HEIGHT) + OVERSCAN * 2;
+    const end = Math.min(totalCount, start + visibleCount);
+
+    const top = start * ROW_HEIGHT;
+    const bottom = Math.max(0, (totalCount - end) * ROW_HEIGHT);
+
+    return {
+      visibleStartIndex: start,
+      visibleEndIndex: end,
+      topPadding: top,
+      bottomPadding: bottom,
+    };
+  }, [isVirtualizing, scrollTop, containerHeight, totalCount]);
+
+  const visibleOrders = useMemo(() => {
+    if (!isVirtualizing) return sortedOrders;
+    return sortedOrders.slice(visibleStartIndex, visibleEndIndex);
+  }, [sortedOrders, isVirtualizing, visibleStartIndex, visibleEndIndex]);
+
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex-1 min-h-0 flex flex-col">
       {/* 🚨 TARJETA / BANNER DE ALERTAS LOOKER STUDIO (3 TARJETAS + ZONAS SUR) */}
@@ -560,7 +619,11 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
         ))}
       </datalist>
 
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto custom-scrollbar">
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-auto custom-scrollbar"
+      >
         <table className="w-full text-[11px] border-separate border-spacing-0 whitespace-nowrap">
           {/* CABECERA DE LA TABLA COMPACTA ESTILO EXCEL */}
           <thead className="sticky top-0 z-30 bg-[#1e4b8a] text-white shadow-2xs">
@@ -686,8 +749,18 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
 
           {/* CUERPO DE LA TABLA CON COLOREADO COMPLETO POR ESTADO Y ORDEN ALFABÉTICO POR TÉCNICO */}
           <tbody>
-            {sortedOrders.length > 0 ? (
-              sortedOrders.map((order, idx) => {
+            {topPadding > 0 && (
+              <tr>
+                <td
+                  colSpan={35}
+                  style={{ height: `${topPadding}px`, padding: 0, border: 0, margin: 0 }}
+                  className="bg-transparent pointer-events-none select-none"
+                />
+              </tr>
+            )}
+            {visibleOrders.length > 0 ? (
+              visibleOrders.map((order, localIndex) => {
+                const idx = isVirtualizing ? visibleStartIndex + localIndex : localIndex;
                 const rowColorClass = getRowColorByStatus(order.status);
                 const badgeColorClass = getBadgeColorByStatus(order.status);
                 const tramoAlert = getTramoAlertInfo(order);
@@ -1478,9 +1551,18 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
               })
             ) : (
               <tr>
-                <td colSpan={27} className="text-center py-16 text-slate-400 bg-white">
+                <td colSpan={35} className="text-center py-16 text-slate-400 bg-white">
                   No se encontraron órdenes con los filtros seleccionados.
                 </td>
+              </tr>
+            )}
+            {bottomPadding > 0 && (
+              <tr>
+                <td
+                  colSpan={35}
+                  style={{ height: `${bottomPadding}px`, padding: 0, border: 0, margin: 0 }}
+                  className="bg-transparent pointer-events-none select-none"
+                />
               </tr>
             )}
           </tbody>

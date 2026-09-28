@@ -38,6 +38,7 @@ interface OrderTasksModalProps {
   orderCuadrilla?: string;
   orderEstado?: string;
   onProgressUpdate?: (key: string, progress: { total: number; done: number; pct: number }) => void;
+  onEstadoUpdate?: (key: string, nuevoEstado: string) => void;
 }
 
 export const OrderTasksModal: React.FC<OrderTasksModalProps> = ({
@@ -49,9 +50,15 @@ export const OrderTasksModal: React.FC<OrderTasksModalProps> = ({
   orderCuadrilla,
   orderEstado,
   onProgressUpdate,
+  onEstadoUpdate,
 }) => {
   const [activeTab, setActiveTab] = useState<"tareas" | "historial">("tareas");
+  const [currentEstado, setCurrentEstado] = useState<string>(orderEstado || "");
   const [tasks, setTasks] = useState<OrderTask[]>([]);
+
+  useEffect(() => {
+    if (orderEstado) setCurrentEstado(orderEstado);
+  }, [orderEstado]);
   const [history, setHistory] = useState<OrderStatusHistoryItem[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -191,7 +198,16 @@ export const OrderTasksModal: React.FC<OrderTasksModalProps> = ({
           enrichObservationCandidates(loadedTasks);
         }
         if (historyRes.status === "fulfilled") {
-          setHistory(historyRes.value);
+          const histList = historyRes.value || [];
+          setHistory(histList);
+          if (histList.length > 0 && histList[0]?.estado) {
+            const nuevoEstado = String(histList[0].estado).trim();
+            if (nuevoEstado && nuevoEstado !== currentEstado) {
+              setCurrentEstado(nuevoEstado);
+              if (orderNumber) onEstadoUpdate?.(String(orderNumber), nuevoEstado);
+              if (orderId) onEstadoUpdate?.(String(orderId), nuevoEstado);
+            }
+          }
         }
 
         if (tasksRes.status === "rejected" && !cachedTasks) {
@@ -339,9 +355,21 @@ export const OrderTasksModal: React.FC<OrderTasksModalProps> = ({
               <h3 className="text-base font-bold text-slate-800 tracking-tight">
                 Orden de Trabajo #{orderNumber}
               </h3>
-              {orderEstado && (
-                <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-slate-200 text-slate-700">
-                  {orderEstado}
+              {currentEstado && (
+                <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-md ${
+                  currentEstado.toLowerCase().includes("fin") || currentEstado.toLowerCase().includes("liq")
+                    ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                    : currentEstado.toLowerCase().includes("camino")
+                      ? "bg-sky-100 text-sky-800 border border-sky-300"
+                      : currentEstado.toLowerCase().includes("inic")
+                        ? "bg-indigo-100 text-indigo-800 border border-indigo-300"
+                        : currentEstado.toLowerCase().includes("regest")
+                          ? "bg-amber-100 text-amber-900 border border-amber-300"
+                          : currentEstado.toLowerCase().includes("cancel") || currentEstado.toLowerCase().includes("anul")
+                            ? "bg-rose-100 text-rose-800 border border-rose-300"
+                            : "bg-slate-200 text-slate-700"
+                }`}>
+                  {currentEstado}
                 </span>
               )}
             </div>

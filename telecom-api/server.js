@@ -2630,8 +2630,12 @@ app.post('/ordenes/sincronizar-win', async (req, res) => {
     }, 1000);
   } catch (error) {
     ultimoErrorFenixTime = Date.now();
-    console.error("❌ Error o timeout en sincronización Fénix:", error.message);
-    res.status(500).json({ error: error.message });
+    console.warn("⚠️ [Aviso Fénix] Timeout o lentitud en sincronización Fénix:", error.message);
+    res.json({
+      success: false,
+      warning: error.message || "Fénix tardó demasiado en responder. Se mantienen los datos locales actualizados.",
+      status: "TIMEOUT_FENIX"
+    });
   } finally {
     estaSincronizandoFenix = false; // Siempre liberar el candado
   }
@@ -3151,16 +3155,55 @@ app.post('/ordenes/tarea-imagen', async (req, res) => {
   }
 });
 
-// --- 1.4 OBTENER HISTORIAL DE ESTADOS DE UNA ORDEN (Y ENRIQUECER HORARIOS) ---
+// --- 1.4 OBTENER HISTORIAL DE ESTADOS DE UNA ORDEN (Y ENRIQUECER HORARIOS Y ESTADO REAL) ---
 app.get('/ordenes/:numero/historial-estados', async (req, res) => {
   try {
     const { numero } = req.params;
     const historial = await obtenerHistorialEstados(numero);
+    let estadoActualizado = null;
     
-    // Si se obtuvieron hitos de tiempo, enriquecer automáticamente la BD si estaban nulos
+    // Si se obtuvieron hitos de tiempo o estado, enriquecer automáticamente la BD
     if (historial && historial.length > 0) {
       const tiempos = extraerTiemposDeHistorial(historial);
-      if (tiempos.horaEnCamino || tiempos.inicioVisita || tiempos.finVisita || tiempos.horaAsignacion) {
+      const ultimoEstadoFenix = historial[0]?.estado ? String(historial[0].estado).trim() : null;
+
+      // Lista de estados oficiales de Fénix
+      const esEstadoFenixSolido = ultimoEstadoFenix && [
+        'Finalizada', 'Liquidada', 'Cancelada', 'Anulada', 'Regestión', 'Regestion', 'Iniciada', 'En camino', 'Agendada'
+      ].includes(ultimoEstadoFenix);
+
+      if (esEstadoFenixSolido) {
+        // Actualizar la orden preservando si ya estaba Liquidada localmente
+        const [updateRes] = await pool.query(
+          `UPDATE ordenes 
+           SET 
+             estado = CASE 
+               WHEN UPPER(estado) = 'LIQUIDADA' THEN estado 
+               ELSE ? 
+             END,
+             hora_en_camino = COALESCE(hora_en_camino, ?),
+             inicio_visita = COALESCE(inicio_visita, ?),
+             fin_visita = COALESCE(fin_visita, ?),
+             hora_asignacion = COALESCE(hora_asignacion, ?)
+           WHERE numero = ? OR id_orden = ?`,
+          [
+            ultimoEstadoFenix,
+            tiempos.horaEnCamino,
+            tiempos.inicioVisita,
+            tiempos.finVisita,
+            tiempos.horaAsignacion,
+            numero,
+            numero
+          ]
+        ).catch((err) => {
+          console.error("Aviso al enriquecer estado desde historial:", err.message);
+          return [{}];
+        });
+
+        if (updateRes && updateRes.affectedRows > 0) {
+          estadoActualizado = ultimoEstadoFenix;
+        }
+      } else if (tiempos.horaEnCamino || tiempos.inicioVisita || tiempos.finVisita || tiempos.horaAsignacion) {
         await pool.query(
           `UPDATE ordenes 
            SET 
@@ -3181,7 +3224,7 @@ app.get('/ordenes/:numero/historial-estados', async (req, res) => {
       }
     }
     
-    res.json({ success: true, numero, historial });
+    res.json({ success: true, numero, historial, estadoActual: estadoActualizado || historial?.[0]?.estado || null });
   } catch (error) {
     console.error("Error al obtener historial de estados:", error.message);
     res.status(500).json({ success: false, error: error.message });
@@ -12302,7 +12345,8 @@ app.get(['/api/supervision/buscar-orden', '/supervision/buscar-orden'], async (r
         COALESCE(o.cuadrilla, u.cuadrilla, '') as cuadrilla,
         COALESCE(DATE_FORMAT(o.fecha_visita, '%Y-%m-%d'), DATE_FORMAT(o.fecha_solicitud, '%Y-%m-%d'), DATE_FORMAT(o.fecha_estado, '%Y-%m-%d'), '') as fecha_atencion,
         COALESCE(o.motivo_trabajo, o.tipo_trabajo, o.motivo, '') as tipo_trabajo,
-        COALESCE(o.direccion, o.ubicacion, '') as direccion
+        COALESCE(o.direccion, o.ubicacion, '') as direccion,
+        COALESCE(o.georeferencia, '') as georeferencia
       FROM ordenes o
       LEFT JOIN (
         SELECT id_usuario, CONCAT(TRIM(COALESCE(nombres, '')), ' ', TRIM(COALESCE(apellidos, ''))) as nombre_completo, documento, cuadrilla 
@@ -12360,7 +12404,7 @@ app.get(['/api/supervision/campo', '/supervision/campo'], async (req, res) => {
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
     const [rows] = await pool.query(
-      `SELECT * FROM supervisiones_campo ${whereSql} ORDER BY fecha DESC, hora DESC, id DESC`,
+      `SELECT * FROM supervision_campo ${whereSql} ORDER BY fecha DESC, hora DESC, id DESC`,
       params
     );
 
@@ -12374,12 +12418,51 @@ app.get(['/api/supervision/campo', '/supervision/campo'], async (req, res) => {
 // 3. Obtener una ficha de supervisión por ID
 app.get(['/api/supervision/campo/:id', '/supervision/campo/:id'], async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM supervisiones_campo WHERE id = ?', [req.params.id]);
+    const [rows] = await pool.query('SELECT * FROM supervision_campo WHERE id = ?', [req.params.id]);
     if (rows.length === 0) {
       return res.status(404).json({ success: false, error: 'Ficha de supervisión no encontrada' });
     }
     res.json({ success: true, data: rows[0] });
   } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 3.5. Obtener supervisión activa o en camino para un supervisor
+app.get(['/api/supervision/activa-supervisor', '/supervision/activa-supervisor'], async (req, res) => {
+  try {
+    const { supervisor, id_supervisor } = req.query;
+    if (!supervisor && !id_supervisor) {
+      return res.status(400).json({ success: false, error: 'supervisor o id_supervisor es requerido' });
+    }
+
+    let query = `
+      SELECT * FROM supervision_campo 
+      WHERE (estado_operativo = 'EN_CAMINO' OR estado_operativo = 'INICIADA')
+    `;
+    let params = [];
+
+    if (supervisor) {
+      query += ` AND supervisor LIKE ?`;
+      params.push(`%${supervisor.trim()}%`);
+    }
+
+    query += ` ORDER BY id DESC LIMIT 1`;
+
+    const [rows] = await pool.query(query, params);
+    if (rows.length > 0) {
+      let items = rows[0].items_json;
+      if (typeof items === 'string') {
+        try {
+          items = JSON.parse(items);
+        } catch {}
+      }
+      return res.json({ success: true, tieneActiva: true, data: { ...rows[0], items_json: items } });
+    }
+
+    res.json({ success: true, tieneActiva: false, data: null });
+  } catch (error) {
+    console.error('Error en GET /api/supervision/activa-supervisor:', error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -12393,6 +12476,15 @@ app.post(['/api/supervision/campo', '/supervision/campo'], async (req, res) => {
       tecnico,
       dni,
       cuadrilla,
+      id_orden,
+      numero_ticket,
+      cliente_orden,
+      direccion_orden,
+      coordenadas_orden,
+      coordenadas_en_camino,
+      coordenadas_inicio,
+      coordenadas_fin,
+      distancia_metros_inicio,
       tipo_inspeccion,
       fecha,
       hora,
@@ -12420,8 +12512,11 @@ app.post(['/api/supervision/campo', '/supervision/campo'], async (req, res) => {
     if (id) {
       // Actualizar
       await pool.query(
-        `UPDATE supervisiones_campo SET
+        `UPDATE supervision_campo SET
           id_tecnico = ?, tecnico = ?, dni = ?, cuadrilla = ?, tipo_inspeccion = ?,
+          id_orden = ?, numero_ticket = ?, cliente_orden = ?, direccion_orden = ?,
+          coordenadas_orden = ?, coordenadas_en_camino = ?, coordenadas_inicio = ?, coordenadas_fin = ?,
+          distancia_metros_inicio = ?,
           fecha = ?, hora = ?, hora_inicio = ?, hora_fin = ?, estado_operativo = ?,
           lugar_inspeccion = ?, supervisor = ?,
           cumplimiento_porcentaje = ?, semaforo = ?, items_json = ?,
@@ -12430,6 +12525,9 @@ app.post(['/api/supervision/campo', '/supervision/campo'], async (req, res) => {
         WHERE id = ?`,
         [
           id_tecnico || null, tecnico, dni || null, cuadrilla || null, tipo_inspeccion || 'CAMPO_GENERAL',
+          id_orden || null, numero_ticket || null, cliente_orden || null, direccion_orden || null,
+          coordenadas_orden || null, coordenadas_en_camino || null, coordenadas_inicio || null, coordenadas_fin || null,
+          distancia_metros_inicio || null,
           fecha, hora || null, hora_inicio || null, hora_fin || null, estado_operativo || 'FINALIZADA',
           lugar_inspeccion || null, supervisor || null,
           cumplimiento_porcentaje || 100, semaforo || 'verde', itemsStr,
@@ -12442,15 +12540,21 @@ app.post(['/api/supervision/campo', '/supervision/campo'], async (req, res) => {
     } else {
       // Insertar
       const [result] = await pool.query(
-        `INSERT INTO supervisiones_campo (
+        `INSERT INTO supervision_campo (
           id_tecnico, tecnico, dni, cuadrilla, tipo_inspeccion,
+          id_orden, numero_ticket, cliente_orden, direccion_orden,
+          coordenadas_orden, coordenadas_en_camino, coordenadas_inicio, coordenadas_fin,
+          distancia_metros_inicio,
           fecha, hora, hora_inicio, hora_fin, estado_operativo, lugar_inspeccion, supervisor,
           cumplimiento_porcentaje, semaforo, items_json,
           observaciones, firma_supervisor,
           foto_epp_uniforme, foto_herramientas, foto_carro_limpio
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id_tecnico || null, tecnico, dni || null, cuadrilla || null, tipo_inspeccion || 'CAMPO_GENERAL',
+          id_orden || null, numero_ticket || null, cliente_orden || null, direccion_orden || null,
+          coordenadas_orden || null, coordenadas_en_camino || null, coordenadas_inicio || null, coordenadas_fin || null,
+          distancia_metros_inicio || null,
           fecha, hora || null, hora_inicio || null, hora_fin || null, estado_operativo || 'FINALIZADA',
           lugar_inspeccion || null, supervisor || null,
           cumplimiento_porcentaje || 100, semaforo || 'verde', itemsStr,
@@ -12469,7 +12573,7 @@ app.post(['/api/supervision/campo', '/supervision/campo'], async (req, res) => {
 // 5. Eliminar ficha de supervisión
 app.delete(['/api/supervision/campo/:id', '/supervision/campo/:id'], async (req, res) => {
   try {
-    await pool.query('DELETE FROM supervisiones_campo WHERE id = ?', [req.params.id]);
+    await pool.query('DELETE FROM supervision_campo WHERE id = ?', [req.params.id]);
     res.json({ success: true, message: 'Ficha de supervisión eliminada' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -12511,7 +12615,7 @@ app.get(['/api/supervision/calidad-cliente', '/supervision/calidad-cliente'], as
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
     const [rows] = await pool.query(
-      `SELECT * FROM auditorias_calidad_cliente ${whereSql} ORDER BY fecha_auditoria DESC, id DESC`,
+      `SELECT * FROM supervision_calidad_cliente ${whereSql} ORDER BY fecha_auditoria DESC, id DESC`,
       params
     );
 
@@ -12554,14 +12658,14 @@ app.post(['/api/supervision/calidad-cliente', '/supervision/calidad-cliente'], a
 
     if (id) {
       await pool.query(
-        `UPDATE auditorias_calidad_cliente SET
-          id_orden = ?, numero_ticket = ?, numero_acta = ?, id_tecnico = ?, tecnico = ?, cuadrilla = ?,
+        `UPDATE supervision_calidad_cliente SET
+          id_orden = ?, numero_ticket = ?, id_tecnico = ?, tecnico = ?, cuadrilla = ?,
           cliente = ?, telefono = ?, distrito = ?, fecha_atencion = ?, fecha_auditoria = ?,
           auditor = ?, preguntas_json = ?, puntaje_porcentaje = ?, calificacion_estrellas = ?,
           comentario_cliente = ?, estado_conformidad = ?
         WHERE id = ?`,
         [
-          id_orden || null, numero_ticket || null, numero_acta || null, id_tecnico || null, tecnico, cuadrilla || null,
+          id_orden || null, numero_ticket || null, id_tecnico || null, tecnico, cuadrilla || null,
           cliente, telefono || null, distrito || null, fecha_atencion || null, fecha_auditoria,
           auditor || null, preguntasStr, puntaje_porcentaje || 100, calificacion_estrellas || 5,
           comentario_cliente || null, estado_conformidad || 'CONFORME',
@@ -12571,14 +12675,14 @@ app.post(['/api/supervision/calidad-cliente', '/supervision/calidad-cliente'], a
       return res.json({ success: true, id, message: 'Auditoría de calidad actualizada' });
     } else {
       const [result] = await pool.query(
-        `INSERT INTO auditorias_calidad_cliente (
-          id_orden, numero_ticket, numero_acta, id_tecnico, tecnico, cuadrilla,
+        `INSERT INTO supervision_calidad_cliente (
+          id_orden, numero_ticket, id_tecnico, tecnico, cuadrilla,
           cliente, telefono, distrito, fecha_atencion, fecha_auditoria,
           auditor, preguntas_json, puntaje_porcentaje, calificacion_estrellas,
           comentario_cliente, estado_conformidad
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          id_orden || null, numero_ticket || null, numero_acta || null, id_tecnico || null, tecnico, cuadrilla || null,
+          id_orden || null, numero_ticket || null, id_tecnico || null, tecnico, cuadrilla || null,
           cliente, telefono || null, distrito || null, fecha_atencion || null, fecha_auditoria,
           auditor || null, preguntasStr, puntaje_porcentaje || 100, calificacion_estrellas || 5,
           comentario_cliente || null, estado_conformidad || 'CONFORME'
@@ -12595,7 +12699,7 @@ app.post(['/api/supervision/calidad-cliente', '/supervision/calidad-cliente'], a
 // 8. Eliminar auditoría de calidad al cliente
 app.delete(['/api/supervision/calidad-cliente/:id', '/supervision/calidad-cliente/:id'], async (req, res) => {
   try {
-    await pool.query('DELETE FROM auditorias_calidad_cliente WHERE id = ?', [req.params.id]);
+    await pool.query('DELETE FROM supervision_calidad_cliente WHERE id = ?', [req.params.id]);
     res.json({ success: true, message: 'Auditoría eliminada con éxito' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -12621,22 +12725,22 @@ app.get(['/api/supervision/stats', '/supervision/stats'], async (req, res) => {
     const [campoStats] = await pool.query(`
       SELECT 
         COUNT(*) as total_inspecciones,
-        COALESCE(AVG(cumplimiento_porcentaje), 100) as promedio_cumplimiento,
+        COALESCE(ROUND(AVG(cumplimiento_porcentaje), 1), 0) as promedio_cumplimiento,
         SUM(CASE WHEN semaforo = 'verde' THEN 1 ELSE 0 END) as total_verdes,
         SUM(CASE WHEN semaforo = 'amarillo' THEN 1 ELSE 0 END) as total_amarillos,
         SUM(CASE WHEN semaforo = 'rojo' THEN 1 ELSE 0 END) as total_rojos
-      FROM supervisiones_campo ${filterCampo}
+      FROM supervision_campo ${filterCampo}
     `, paramsCampo);
 
     const [clienteStats] = await pool.query(`
       SELECT 
         COUNT(*) as total_auditorias,
-        COALESCE(AVG(puntaje_porcentaje), 100) as promedio_puntaje,
-        COALESCE(AVG(calificacion_estrellas), 5) as promedio_estrellas,
+        COALESCE(ROUND(AVG(puntaje_porcentaje), 1), 0) as promedio_puntaje,
+        COALESCE(ROUND(AVG(calificacion_estrellas), 1), 0) as promedio_estrellas,
         SUM(CASE WHEN estado_conformidad = 'CONFORME' THEN 1 ELSE 0 END) as total_conformes,
         SUM(CASE WHEN estado_conformidad = 'CON_OBSERVACIONES' THEN 1 ELSE 0 END) as total_observaciones,
         SUM(CASE WHEN estado_conformidad = 'NO_CONFORME' THEN 1 ELSE 0 END) as total_no_conformes
-      FROM auditorias_calidad_cliente ${filterCalidad}
+      FROM supervision_calidad_cliente ${filterCalidad}
     `, paramsCalidad);
 
     const [rankingTecnicos] = await pool.query(`
@@ -12645,10 +12749,10 @@ app.get(['/api/supervision/stats', '/supervision/stats'], async (req, res) => {
         c.cuadrilla,
         COUNT(c.id) as total_supervisiones,
         ROUND(AVG(c.cumplimiento_porcentaje), 1) as score_campo,
-        COALESCE(ROUND(AVG(a.puntaje_porcentaje), 1), 100) as score_cliente,
-        ROUND((AVG(c.cumplimiento_porcentaje) * 0.5 + COALESCE(AVG(a.puntaje_porcentaje), 100) * 0.5), 1) as score_global
-      FROM supervisiones_campo c
-      LEFT JOIN auditorias_calidad_cliente a ON a.tecnico = c.tecnico
+        COALESCE(ROUND(AVG(a.puntaje_porcentaje), 1), 0) as score_cliente,
+        ROUND((AVG(c.cumplimiento_porcentaje) * 0.5 + COALESCE(AVG(a.puntaje_porcentaje), 0) * 0.5), 1) as score_global
+      FROM supervision_campo c
+      LEFT JOIN supervision_calidad_cliente a ON a.tecnico = c.tecnico
       ${filterCampo}
       GROUP BY c.tecnico, c.cuadrilla
       ORDER BY score_global DESC
@@ -12678,23 +12782,26 @@ app.get(['/api/supervision/avance-diario', '/supervision/avance-diario'], async 
     // Obtener catálogo de supervisores
     const [supervisores] = await pool.query(`
       SELECT 
-        id_usuario as id_supervisor,
-        TRIM(CONCAT(COALESCE(nombres, ''), ' ', COALESCE(primer_apellido, apellidos, ''))) as supervisor,
-        usuario,
-        foto_personal as foto
-      FROM usuarios
-      WHERE (LOWER(rol) LIKE '%supervis%' OR LOWER(cargo) LIKE '%supervis%' OR LOWER(rol) LIKE '%admin%') AND estado = 'Activo'
+        u.id_usuario as id_supervisor,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) as supervisor,
+        u.usuario,
+        u.foto_personal as foto
+      FROM usuarios u
+      LEFT JOIN roles r ON u.id_rol = r.id_rol
+      WHERE (u.id_rol = 6 OR LOWER(COALESCE(r.nombre, '')) LIKE '%supervi%' OR LOWER(COALESCE(u.cargo, '')) LIKE '%supervi%') 
+        AND LOWER(COALESCE(r.nombre, '')) NOT LIKE '%admin%'
+        AND u.estado = 'Activo'
       ORDER BY supervisor ASC
     `);
 
     // Obtener supervisiones de campo del día
     const [campoRows] = await pool.query(`
-      SELECT * FROM supervisiones_campo WHERE fecha = ? ORDER BY hora DESC, id DESC
+      SELECT * FROM supervision_campo WHERE fecha = ? ORDER BY hora DESC, id DESC
     `, [targetFecha]);
 
     // Obtener auditorías de clientes del día
     const [clienteRows] = await pool.query(`
-      SELECT * FROM auditorias_calidad_cliente WHERE fecha_auditoria = ? ORDER BY id DESC
+      SELECT * FROM supervision_calidad_cliente WHERE fecha_auditoria = ? ORDER BY id DESC
     `, [targetFecha]);
 
     const META_TECNICOS = 6;
@@ -12719,7 +12826,10 @@ app.get(['/api/supervision/avance-diario', '/supervision/avance-diario'], async 
       const totalPuntos = Math.min(totalTec, META_TECNICOS) + Math.min(totalCli, META_CLIENTES);
       const pctAvance = Math.round((totalPuntos / (META_TECNICOS + META_CLIENTES)) * 100);
 
-      // Determinar estado actual
+      let coordenadasSupervisor = null;
+      let ordenActual = null;
+      let distanciaMetros = null;
+
       const ultimaCampo = campoDelSup[0];
       let estadoActual = 'DISPONIBLE';
       let supervisandoA = '';
@@ -12732,13 +12842,27 @@ app.get(['/api/supervision/avance-diario', '/supervision/avance-diario'], async 
           supervisandoA = ultimaCampo.tecnico;
           cuadrillaActual = ultimaCampo.cuadrilla || '';
           horaInicioActual = ultimaCampo.hora_inicio || ultimaCampo.hora || '';
+          coordenadasSupervisor = ultimaCampo.coordenadas_en_camino || ultimaCampo.coordenadas_inicio || null;
         } else if (ultimaCampo.estado_operativo === 'INICIADA') {
           estadoActual = 'EN_SUPERVISION';
           supervisandoA = ultimaCampo.tecnico;
           cuadrillaActual = ultimaCampo.cuadrilla || '';
           horaInicioActual = ultimaCampo.hora_inicio || ultimaCampo.hora || '';
+          coordenadasSupervisor = ultimaCampo.coordenadas_inicio || ultimaCampo.coordenadas_en_camino || null;
         } else {
           estadoActual = totalTec >= META_TECNICOS && totalCli >= META_CLIENTES ? 'FINALIZADO' : 'DISPONIBLE';
+          coordenadasSupervisor = ultimaCampo.coordenadas_fin || ultimaCampo.coordenadas_inicio || null;
+        }
+
+        distanciaMetros = ultimaCampo.distancia_metros_inicio || null;
+        if (ultimaCampo.numero_ticket || ultimaCampo.id_orden) {
+          ordenActual = {
+            id_orden: ultimaCampo.id_orden,
+            numero_ticket: ultimaCampo.numero_ticket,
+            cliente: ultimaCampo.cliente_orden,
+            direccion: ultimaCampo.direccion_orden,
+            coordenadas: ultimaCampo.coordenadas_orden
+          };
         }
       }
 
@@ -12748,8 +12872,16 @@ app.get(['/api/supervision/avance-diario', '/supervision/avance-diario'], async 
           tipo: 'CAMPO',
           tecnico: c.tecnico,
           cuadrilla: c.cuadrilla,
-          cliente: '',
+          cliente: c.cliente_orden || '',
+          ticket: c.numero_ticket || '',
+          direccion: c.direccion_orden || c.lugar_inspeccion || '',
+          coordenadas_orden: c.coordenadas_orden || null,
+          coordenadas_supervisor: c.coordenadas_inicio || c.coordenadas_en_camino || null,
+          distancia_metros: c.distancia_metros_inicio || null,
+          estado_operativo: c.estado_operativo || 'FINALIZADA',
           hora: c.hora || c.hora_inicio || '',
+          hora_inicio: c.hora_inicio || '',
+          hora_fin: c.hora_fin || '',
           cumplimiento: c.cumplimiento_porcentaje || 100,
           semaforo: c.semaforo || 'verde'
         })),
@@ -12759,6 +12891,8 @@ app.get(['/api/supervision/avance-diario', '/supervision/avance-diario'], async 
           tecnico: cl.tecnico,
           cuadrilla: cl.cuadrilla,
           cliente: cl.cliente,
+          ticket: cl.numero_ticket || '',
+          direccion: cl.direccion || '',
           hora: '',
           cumplimiento: cl.puntaje_porcentaje || 100,
           semaforo: cl.estado_conformidad === 'CONFORME' ? 'verde' : cl.estado_conformidad === 'CON_OBSERVACIONES' ? 'amarillo' : 'rojo'
@@ -12780,24 +12914,124 @@ app.get(['/api/supervision/avance-diario', '/supervision/avance-diario'], async 
         cuadrilla_actual: cuadrillaActual,
         hora_inicio_actual: horaInicioActual,
         ultima_actividad: ultimaCampo ? (ultimaCampo.hora || ultimaCampo.created_at) : null,
+        coordenadas_supervisor: coordenadasSupervisor,
+        orden_actual: ordenActual,
+        distancia_metros: distanciaMetros,
         supervisiones_hoy: supervisionesHoy
       };
     });
 
-    // Cruce de materiales auditados vs stock en almacén
+    // Cruce de materiales auditados en terreno vs stock en almacén
     const [stockAlmacen] = await pool.query(`
       SELECT 
         ts.id_trabajador,
-        CONCAT(u.nombres, ' ', u.apellidos) as tecnico,
+        t.id_usuario,
+        CONCAT(u.nombres, ' ', COALESCE(u.primer_apellido, u.apellidos, '')) as tecnico,
         u.cuadrilla,
         p.nombre as producto,
         ts.stock as stock_sistema
-      FROM trabajadores_stock ts
+      FROM trabajador_productos ts
       JOIN trabajadores t ON ts.id_trabajador = t.id_trabajador
       JOIN usuarios u ON t.id_usuario = u.id_usuario
       JOIN productos p ON ts.id_producto = p.id_producto
       WHERE ts.stock > 0
+      ORDER BY tecnico ASC, p.nombre ASC
     `);
+
+    // Obtener las últimas fichas de supervisión de campo de cada técnico
+    const [todasFichasCampo] = await pool.query(`
+      SELECT id, id_tecnico, tecnico, fecha, items_json
+      FROM supervision_campo
+      ORDER BY fecha DESC, hora DESC, id DESC
+    `);
+
+    // Indexar auditoría más reciente por técnico (por id_tecnico o por nombre normalizado)
+    const auditoriaPorTecnico = new Map();
+    for (const ficha of todasFichasCampo) {
+      const keyTec = ficha.id_tecnico || (ficha.tecnico ? ficha.tecnico.trim().toUpperCase() : null);
+      if (!keyTec || auditoriaPorTecnico.has(keyTec)) continue;
+
+      let items = [];
+      try {
+        items = typeof ficha.items_json === 'string' ? JSON.parse(ficha.items_json) : (ficha.items_json || []);
+      } catch (err) {
+        items = [];
+      }
+
+      // Mapear cantidad física auditada por nombre normalizado de producto
+      const mapaItems = new Map();
+      if (Array.isArray(items)) {
+        for (const it of items) {
+          if (!it || !it.nombre) continue;
+          const normNombre = it.nombre.trim().toUpperCase();
+          let cantFisica = null;
+          if (it.cantidad !== undefined && it.cantidad !== null && it.cantidad !== '') {
+            const parsed = parseFloat(it.cantidad);
+            if (!isNaN(parsed)) cantFisica = parsed;
+          } else if (Array.isArray(it.series) && it.series.length > 0) {
+            cantFisica = it.series.length;
+          } else if (it.cumple !== undefined) {
+            cantFisica = it.cumple ? 1 : 0;
+          }
+          mapaItems.set(normNombre, {
+            cantidad_auditada: cantFisica,
+            estado_item: it.estado || (it.cumple ? 'BUENO' : 'MALO'),
+            fecha_auditoria: ficha.fecha
+          });
+        }
+      }
+
+      auditoriaPorTecnico.set(keyTec, {
+        fecha_auditoria: ficha.fecha,
+        items: mapaItems
+      });
+    }
+
+    // Enriquecer cruce de stock con cantidad física auditada y diferencia
+    const cruceConDiferencias = stockAlmacen.map(row => {
+      const stockSis = Number(row.stock_sistema) || 0;
+      const keyId = row.id_usuario;
+      const keyNombre = (row.tecnico || '').trim().toUpperCase();
+      const auditTec = auditoriaPorTecnico.get(keyId) || auditoriaPorTecnico.get(keyNombre);
+
+      let cantAuditada = null;
+      let fechaAuditoria = null;
+
+      if (auditTec && auditTec.items) {
+        fechaAuditoria = auditTec.fecha_auditoria;
+        const normProd = (row.producto || '').trim().toUpperCase();
+
+        // Buscar coincidencia exacta o por subcadena
+        if (auditTec.items.has(normProd)) {
+          cantAuditada = auditTec.items.get(normProd).cantidad_auditada;
+        } else {
+          for (const [itNombre, itData] of auditTec.items.entries()) {
+            if (normProd.includes(itNombre) || itNombre.includes(normProd)) {
+              cantAuditada = itData.cantidad_auditada;
+              break;
+            }
+          }
+        }
+      }
+
+      const tieneAuditoria = cantAuditada !== null;
+      const diferencia = tieneAuditoria ? (cantAuditada - stockSis) : null;
+
+      let estadoAuditoria = 'PENDIENTE'; // Sin auditar aún
+      if (tieneAuditoria) {
+        if (diferencia === 0) estadoAuditoria = 'CONFORME'; // Coincide exactamente
+        else if (diferencia > 0) estadoAuditoria = 'SOBRANTE'; // Técnico tiene más de lo registrado
+        else estadoAuditoria = 'FALTANTE'; // Técnico tiene menos de lo registrado
+      }
+
+      return {
+        ...row,
+        cantidad_auditada: cantAuditada,
+        diferencia: diferencia,
+        estado_auditoria: estadoAuditoria,
+        fecha_auditoria: fechaAuditoria
+      };
+    });
 
     res.json({
       success: true,
@@ -12815,7 +13049,7 @@ app.get(['/api/supervision/avance-diario', '/supervision/avance-diario'], async 
           : 0
       },
       supervisores: avanceSupervisores,
-      cruce_stock: stockAlmacen
+      cruce_stock: cruceConDiferencias
     });
   } catch (error) {
     console.error('Error en GET /api/supervision/avance-diario:', error.message);
