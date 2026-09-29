@@ -1057,6 +1057,8 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                         const t2 = rawTecs[1];
                         const tecFull = `${t1}${t2 ? ` / ${t2}` : ''}`;
                         const isManual = Boolean(order.asignacionManual);
+                        const isExternal = t1.toUpperCase().startsWith("EXTERNO");
+                        const cleanT1 = isExternal ? t1.replace(/^EXTERNO:\s*/i, "") : t1;
 
                         return (
                           <div className="flex items-center gap-1">
@@ -1064,25 +1066,37 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                               type="button"
                               onClick={() => openAssignModal(order)}
                               className={`flex-1 min-w-0 text-left inline-flex items-center justify-between gap-1 px-1.5 py-0.5 text-[10px] rounded transition-all cursor-pointer shadow-2xs group ${
-                                isManual 
-                                  ? "bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-300"
-                                  : "bg-indigo-50/80 hover:bg-indigo-100/90 text-indigo-950 border border-indigo-200/90 hover:border-indigo-300"
+                                isExternal
+                                  ? "bg-purple-50 hover:bg-purple-100 text-purple-950 border border-purple-300"
+                                  : isManual 
+                                    ? "bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-300"
+                                    : "bg-indigo-50/80 hover:bg-indigo-100/90 text-indigo-950 border border-indigo-200/90 hover:border-indigo-300"
                               }`}
-                              title={isManual ? "Asignado manualmente por gestión (Blindado contra sobreescritura de Fénix). Clic para editar." : "Clic para editar o cambiar técnicos asignados"}
+                              title={
+                                isExternal
+                                  ? "Ejecutado por técnico externo / otra contrata / supervisor WIN. Clic para asignar técnico interno si aplica."
+                                  : isManual 
+                                    ? "Asignado manualmente por gestión (Blindado contra sobreescritura de Fénix). Clic para editar." 
+                                    : "Clic para editar o cambiar técnicos asignados"
+                              }
                             >
                               <div className="flex items-center gap-1 truncate font-medium">
-                                {isManual && (
+                                {isExternal ? (
+                                  <span className="text-[7.5px] font-black uppercase text-purple-900 bg-purple-200/90 px-1 py-0 rounded font-mono shrink-0 flex items-center gap-0.5" title="Técnico externo / otra contrata">
+                                    <Sparkles size={8} className="text-purple-800" />
+                                    EXT
+                                  </span>
+                                ) : isManual ? (
                                   <span className="text-[7.5px] font-black uppercase text-amber-900 bg-amber-200/90 px-1 py-0 rounded font-mono shrink-0 flex items-center gap-0.5" title="Asignación manual de gestión">
                                     <ShieldCheck size={8} className="text-amber-800" />
                                     MAN
                                   </span>
+                                ) : (
+                                  <span className="text-[8px] font-black uppercase px-1 py-0 rounded font-mono shrink-0 text-indigo-700 bg-indigo-200/70">
+                                    T1
+                                  </span>
                                 )}
-                                <span className={`text-[8px] font-black uppercase px-1 py-0 rounded font-mono shrink-0 ${
-                                  isManual ? "text-amber-800 bg-amber-200/70" : "text-indigo-700 bg-indigo-200/70"
-                                }`}>
-                                  T1
-                                </span>
-                                <span className="truncate font-semibold text-slate-900 uppercase">{t1}</span>
+                                <span className={`truncate font-semibold uppercase ${isExternal ? "text-purple-900" : "text-slate-900"}`}>{cleanT1}</span>
                                 {t2 && (
                                   <>
                                     <span className="text-indigo-300 font-bold">/</span>

@@ -39,7 +39,8 @@ async function migrate() {
   const colsOrdenes = [
     { name: 'asignacion_manual', sql: 'ALTER TABLE ordenes ADD COLUMN asignacion_manual TINYINT(1) DEFAULT 0' },
     { name: 'fecha_asignacion_manual', sql: 'ALTER TABLE ordenes ADD COLUMN fecha_asignacion_manual DATETIME DEFAULT NULL' },
-    { name: 'cuadrilla_origen_fenix', sql: 'ALTER TABLE ordenes ADD COLUMN cuadrilla_origen_fenix VARCHAR(255) DEFAULT NULL' }
+    { name: 'cuadrilla_origen_fenix', sql: 'ALTER TABLE ordenes ADD COLUMN cuadrilla_origen_fenix VARCHAR(255) DEFAULT NULL' },
+    { name: 'usuario_ejecutor_fenix', sql: 'ALTER TABLE ordenes ADD COLUMN usuario_ejecutor_fenix VARCHAR(255) DEFAULT NULL' }
   ];
 
   for (const c of colsOrdenes) {

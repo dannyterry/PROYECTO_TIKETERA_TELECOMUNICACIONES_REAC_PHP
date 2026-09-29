@@ -31,6 +31,7 @@ import {
   PackagePlus,
   ShoppingCart,
   ArrowRightLeft,
+  Zap,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -42,6 +43,7 @@ import {
 } from "../types/inventoryTypes";
 import { QuickDispatchModal } from "./QuickDispatchModal";
 import { QuickStockEntryModal } from "./QuickStockEntryModal";
+import { DischargeDetailModal } from "./DischargeDetailModal";
 import {
   getActasTecnicos,
   getProductoSeries,
@@ -127,6 +129,27 @@ export const StockOverviewTab: React.FC<Props> = ({
   const [cantidadDevolver, setCantidadDevolver] = useState<number>(1);
   const [motivoDevolucion, setMotivoDevolucion] = useState<string>("Sobrante de instalación / bobina");
   const [guardandoDevolucion, setGuardandoDevolucion] = useState<boolean>(false);
+
+  // Modal de Auditoría de Descargas / Consumos por Órdenes y Actas
+  const [modalDescargas, setModalDescargas] = useState<{
+    isOpen: boolean;
+    idTrabajador: number | null;
+    tecnicoNombre: string;
+    cuadrilla?: string;
+    vehiculoPlaca?: string;
+    idProducto?: number | null;
+    productoNombre?: string;
+    productoCodigo?: string;
+    categoria?: string;
+    esDrop?: boolean | number;
+    cantidadEntregada?: number;
+    cantidadGastada?: number;
+    stockEnCarro?: number;
+  }>({
+    isOpen: false,
+    idTrabajador: null,
+    tecnicoNombre: "",
+  });
 
   // Modal de Auditoría de Series Individuales de un Equipo
   const [modalSeries, setModalSeries] = useState<{
@@ -1502,7 +1525,7 @@ export const StockOverviewTab: React.FC<Props> = ({
 
             return (
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50/80 text-slate-400 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
+                <thead className="bg-slate-50/80 text-slate-500 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
                   <tr>
                     <th className="py-3.5 px-4">Técnico Conductor</th>
                     <th className="py-3.5 px-4">Cuadrilla / Vehículo</th>
@@ -1510,14 +1533,16 @@ export const StockOverviewTab: React.FC<Props> = ({
                     <th className="py-3.5 px-4">Categoría</th>
                     <th className="py-3.5 px-4">Fecha Entrega</th>
                     {mostrarColumnaSeries && <th className="py-3.5 px-4">Series / Rangos Asignados</th>}
-                    <th className="py-3.5 px-4 text-right">Cantidad en Carro</th>
-                    <th className="py-3.5 px-4 text-center">Acción</th>
+                    <th className="py-3.5 px-4 text-center">📦 Entregado</th>
+                    <th className="py-3.5 px-4 text-center">⚡ Descargado / Gastado</th>
+                    <th className="py-3.5 px-4 text-right">🚗 En Carro</th>
+                    <th className="py-3.5 px-4 text-center">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {stockTecnicosFiltrado.length === 0 ? (
                     <tr>
-                      <td colSpan={mostrarColumnaSeries ? 8 : 7} className="py-12 text-center text-slate-400 text-xs font-bold">
+                      <td colSpan={mostrarColumnaSeries ? 10 : 9} className="py-12 text-center text-slate-400 text-xs font-bold">
                         No hay asignaciones registradas para el filtro seleccionado.
                       </td>
                     </tr>
@@ -1646,45 +1671,139 @@ export const StockOverviewTab: React.FC<Props> = ({
                             </td>
                           )}
 
-                          {/* CANTIDAD EN CARRO */}
-                          <td className="py-3.5 px-4 text-right font-black font-mono text-sm text-cyan-800">
+                          {/* 📦 1. ENTREGADO (DOTACIÓN / TOTAL DESPACHADO) */}
+                          <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                            {(() => {
+                              const cantGastada = Number(st.cantidad_gastada) || Number(st.total_gastado_ordenes) || Number(st.total_liquidadas) || 0;
+                              const cantEnCarro = Number(st.stock) || 0;
+                              const cantEntregada = Number(st.cantidad_asignada) || Number(st.total_asignadas) || (cantEnCarro + cantGastada);
+                              const unidad = st.es_drop ? "m" : "und";
+
+                              return (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 text-slate-800 font-black font-mono text-xs border border-slate-200" title={`Total entregado al técnico: ${cantEntregada} ${unidad}`}>
+                                  <Package size={11} className="text-slate-500" />
+                                  <span>{cantEntregada} {unidad}</span>
+                                </span>
+                              );
+                            })()}
+                          </td>
+
+                          {/* ⚡ 2. DESCARGADO / GASTADO EN ÓRDENES O ACTAS */}
+                          <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                            {(() => {
+                              const cantGastada = Number(st.cantidad_gastada) || Number(st.total_gastado_ordenes) || Number(st.total_liquidadas) || 0;
+                              const cantEnCarro = Number(st.stock) || 0;
+                              const cantEntregada = Number(st.cantidad_asignada) || Number(st.total_asignadas) || (cantEnCarro + cantGastada);
+                              const unidad = st.es_drop ? "m" : "und";
+
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setModalDescargas({
+                                      isOpen: true,
+                                      idTrabajador: st.id_trabajador,
+                                      tecnicoNombre: st.tecnico_nombre,
+                                      cuadrilla: st.cuadrilla,
+                                      vehiculoPlaca: st.vehiculo_placa,
+                                      idProducto: st.id_producto,
+                                      productoNombre: st.producto_nombre,
+                                      productoCodigo: st.producto_codigo,
+                                      categoria: st.categoria,
+                                      esDrop: st.es_drop,
+                                      cantidadEntregada: cantEntregada,
+                                      cantidadGastada: cantGastada,
+                                      stockEnCarro: cantEnCarro,
+                                    });
+                                  }}
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl font-bold font-mono text-xs transition-all cursor-pointer shadow-2xs border group ${
+                                    cantGastada > 0
+                                      ? "bg-amber-50 hover:bg-amber-100 text-amber-950 border-amber-300 ring-1 ring-amber-200"
+                                      : "bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200"
+                                  }`}
+                                  title="Haz clic para ver el desglose exacto de órdenes y actas donde se descargó"
+                                >
+                                  <Zap size={11} className={cantGastada > 0 ? "text-amber-600" : "text-slate-400"} />
+                                  <span>{cantGastada} {unidad}</span>
+                                  <span className="text-[10px] font-sans text-amber-800 group-hover:underline font-bold ml-0.5">
+                                    Ver {esActa ? "actas" : "órdenes"} →
+                                  </span>
+                                </button>
+                              );
+                            })()}
+                          </td>
+
+                          {/* 🚗 3. SALDO EN CARRO (STOCK DISPONIBLE) */}
+                          <td className="py-3.5 px-4 text-right font-black font-mono text-sm text-cyan-800 whitespace-nowrap">
                             {st.stock} {st.es_drop ? "m" : "und"}
                           </td>
 
-                          {/* ACCIÓN: DEVOLUCIÓN A ALMACÉN CENTRAL */}
+                          {/* ACCIONES: VER DESCARGAS + DEVOLVER A CENTRAL */}
                           <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const seriesDelItem = seriesTecnicos
-                                  .filter(
-                                    (s) =>
-                                      s.id_trabajador === st.id_trabajador &&
-                                      (s.id_producto
-                                        ? s.id_producto === st.id_producto
-                                        : s.equipo_nombre.trim().toUpperCase() === st.producto_nombre.trim().toUpperCase()) &&
-                                      s.estado === "Asignada"
-                                  )
-                                  .map((s) => s.numero_serie);
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const cantGastada = Number(st.cantidad_gastada) || Number(st.total_gastado_ordenes) || Number(st.total_liquidadas) || 0;
+                                  const cantEnCarro = Number(st.stock) || 0;
+                                  const cantEntregada = Number(st.cantidad_asignada) || Number(st.total_asignadas) || (cantEnCarro + cantGastada);
 
-                                setModalDevolucion({
-                                  isOpen: true,
-                                  item: st,
-                                  devolverTodo: false,
-                                  tecnicoNombre: st.tecnico_nombre,
-                                  idTrabajador: st.id_trabajador,
-                                  seriesDisponibles: seriesDelItem,
-                                  seriesSeleccionadas: seriesDelItem.slice(0, st.stock),
-                                });
-                                setCantidadDevolver(st.stock);
-                                setMotivoDevolucion("Sobrante de instalación / bobina");
-                              }}
-                              className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl font-bold text-[11px] inline-flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
-                              title="Devolver este material de la camioneta a Almacén Central"
-                            >
-                              <Undo2 size={12} className="text-amber-700" />
-                              <span>Devolver</span>
-                            </button>
+                                  setModalDescargas({
+                                    isOpen: true,
+                                    idTrabajador: st.id_trabajador,
+                                    tecnicoNombre: st.tecnico_nombre,
+                                    cuadrilla: st.cuadrilla,
+                                    vehiculoPlaca: st.vehiculo_placa,
+                                    idProducto: st.id_producto,
+                                    productoNombre: st.producto_nombre,
+                                    productoCodigo: st.producto_codigo,
+                                    categoria: st.categoria,
+                                    esDrop: st.es_drop,
+                                    cantidadEntregada: cantEntregada,
+                                    cantidadGastada: cantGastada,
+                                    stockEnCarro: cantEnCarro,
+                                  });
+                                }}
+                                className="px-2 py-1 bg-cyan-50 hover:bg-cyan-100 text-cyan-950 border border-cyan-300 rounded-xl font-bold text-[11px] inline-flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                                title="Ver historial de órdenes y consumos de este material"
+                              >
+                                <Eye size={11} className="text-cyan-700" />
+                                <span>Descargas</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const seriesDelItem = seriesTecnicos
+                                    .filter(
+                                      (s) =>
+                                        s.id_trabajador === st.id_trabajador &&
+                                        (s.id_producto
+                                          ? s.id_producto === st.id_producto
+                                          : s.equipo_nombre.trim().toUpperCase() === st.producto_nombre.trim().toUpperCase()) &&
+                                        s.estado === "Asignada"
+                                    )
+                                    .map((s) => s.numero_serie);
+
+                                  setModalDevolucion({
+                                    isOpen: true,
+                                    item: st,
+                                    devolverTodo: false,
+                                    tecnicoNombre: st.tecnico_nombre,
+                                    idTrabajador: st.id_trabajador,
+                                    seriesDisponibles: seriesDelItem,
+                                    seriesSeleccionadas: seriesDelItem.slice(0, st.stock),
+                                  });
+                                  setCantidadDevolver(st.stock);
+                                  setMotivoDevolucion("Sobrante de instalación / bobina");
+                                }}
+                                className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl font-bold text-[11px] inline-flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                                title="Devolver este material de la camioneta a Almacén Central"
+                              >
+                                <Undo2 size={11} className="text-amber-700" />
+                                <span>Devolver</span>
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -3333,6 +3452,24 @@ export const StockOverviewTab: React.FC<Props> = ({
           </div>
         </div>
       )}
+
+      {/* 🔍 MODAL DE AUDITORÍA DE DESCARGAS Y CONSUMOS POR ÓRDENES / ACTAS */}
+      <DischargeDetailModal
+        isOpen={modalDescargas.isOpen}
+        onClose={() => setModalDescargas((prev) => ({ ...prev, isOpen: false }))}
+        idTrabajador={modalDescargas.idTrabajador}
+        tecnicoNombre={modalDescargas.tecnicoNombre}
+        cuadrilla={modalDescargas.cuadrilla}
+        vehiculoPlaca={modalDescargas.vehiculoPlaca}
+        idProducto={modalDescargas.idProducto}
+        productoNombre={modalDescargas.productoNombre}
+        productoCodigo={modalDescargas.productoCodigo}
+        categoria={modalDescargas.categoria}
+        esDrop={modalDescargas.esDrop}
+        cantidadEntregada={modalDescargas.cantidadEntregada}
+        cantidadGastada={modalDescargas.cantidadGastada}
+        stockEnCarro={modalDescargas.stockEnCarro}
+      />
 
     </div>
   );

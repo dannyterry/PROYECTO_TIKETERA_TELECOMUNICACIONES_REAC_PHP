@@ -25,6 +25,10 @@ import {
   Coffee,
   LayoutDashboard,
   Menu,
+  ArrowRightLeft,
+  ArrowDownLeft,
+  QrCode,
+  XCircle,
 } from "lucide-react";
 import { Order } from "../types/Order";
 import { getOrders } from "../services/orderService";
@@ -32,6 +36,8 @@ import { getTecnicoStock } from "../../inventory/services/inventoryService";
 import { TechnicalActModal } from "./TechnicalActModal";
 import { TechnicianChecklistModal } from "../../mobility/components/TechnicianChecklistModal";
 import { TechnicianDashboardTab } from "./TechnicianDashboardTab";
+import { TransferStockModal } from "./TransferStockModal";
+import { IncomingTransfersModal } from "./IncomingTransfersModal";
 import { registrarLogGps } from "../../mobility/services/mobilityService";
 import { extractCuadrillaKey } from "../utils/cuadrillaUtils";
 import { authService } from "../../../services/authService";
@@ -47,6 +53,13 @@ interface Props {
 export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, userRol }) => {
   // Solo se muestra el selector de cambio de técnico en modo prueba (sin userId) o si es Administrador (Rol 1)
   const esAdminOSimulador = !userId || userRol === "1" || String(userRol).toLowerCase().includes("admin");
+  const esSupervisorOAdmin =
+    userRol === "1" ||
+    userRol === "6" ||
+    String(userRol).toLowerCase().includes("admin") ||
+    String(userRol).toLowerCase().includes("supervi") ||
+    authService.canAccessModule("supervision") ||
+    authService.canAccessModule("dashboard");
   const [tecnicos, setTecnicos] = useState<any[]>([]);
   const [trabajadorActual, setTrabajadorActual] = useState<any>(null);
   const [ordenes, setOrdenes] = useState<Order[]>([]);
@@ -65,6 +78,18 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
   const [ordenParaActa, setOrdenParaActa] = useState<Order | null>(null);
   const [mostrarChecklist, setMostrarChecklist] = useState(false);
   const [mostrarStock, setMostrarStock] = useState(false);
+  const [mostrarTransferModal, setMostrarTransferModal] = useState(false);
+  const [mostrarIncomingModal, setMostrarIncomingModal] = useState(false);
+  const [transferenciasEntrantes, setTransferenciasEntrantes] = useState<any[]>([]);
+  const [transferenciasRespondidas, setTransferenciasRespondidas] = useState<any[]>([]);
+  const [transferenciasRespondidasVistas, setTransferenciasRespondidasVistas] = useState<Set<number>>(() => {
+    try {
+      const saved = localStorage.getItem("trf_respondidas_vistas");
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
   const [permiteVerStock, setPermiteVerStock] = useState<boolean>(() => {
     return authService.hasAnyPermission([
       "ordenes.ver_stock",
@@ -212,17 +237,30 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
           }
 
           if (matched) {
-            setTrabajadorActual(matched);
+            setTrabajadorActual((prev: any) => {
+              if (
+                prev &&
+                (prev.id_trabajador === matched.id_trabajador || prev.id_usuario === matched.id_usuario)
+              ) {
+                return prev;
+              }
+              return matched;
+            });
           } else if (userId || userName) {
             // Usuario con sesión pero sin cuadrilla o vehículo asignado
-            setTrabajadorActual({
+            const fallback = {
               id_usuario: Number(userId) || 0,
+              id_trabajador: Number(userId) || 0,
               nombre_completo: userName || "Técnico de Campo",
               cuadrilla: "",
               vehiculo_placa: "",
+            };
+            setTrabajadorActual((prev: any) => {
+              if (prev && prev.id_usuario === fallback.id_usuario) return prev;
+              return fallback;
             });
           } else {
-            setTrabajadorActual(res.data[0]);
+            setTrabajadorActual((prev: any) => (prev ? prev : res.data[0]));
           }
         }
       })
@@ -282,32 +320,81 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
       .catch(console.error)
       .finally(() => setLoading(false));
 
-    // Sincronizar permisos en tiempo real con el servidor
-    authService.refreshUserPermissions().then(() => {
-      const allowed = authService.hasAnyPermission([
-        "ordenes.ver_stock",
-        "portal_tecnico.ver_stock",
-        "stock.ver",
-        "inventario.ver",
-      ]);
-      setPermiteVerStock(allowed);
-      if (!allowed) setMostrarStock(false);
-    });
+    // Permisos del técnico
+    const allowed = authService.hasAnyPermission([
+      "ordenes.ver_stock",
+      "portal_tecnico.ver_stock",
+      "stock.ver",
+      "inventario.ver",
+    ]);
+    setPermiteVerStock(allowed);
+    if (!allowed) setMostrarStock(false);
 
-    setCargandoStock(true);
-    getTecnicoStock(trabajadorActual.id_trabajador)
-      .then((res) => {
-        // Almacenamos materiales y series para que el técnico pueda liquidar sus actas
-        setMiStock(res?.materiales || []);
-        setMisSeries(res?.seriesAsignadas || []);
+    if (trabajadorActual.id_trabajador) {
+      setCargandoStock(true);
+      getTecnicoStock(trabajadorActual.id_trabajador)
+        .then((res) => {
+          // Almacenamos materiales y series para que el técnico pueda liquidar sus actas
+          setMiStock(res?.materiales || []);
+          setMisSeries(res?.seriesAsignadas || []);
+        })
+        .catch(console.error)
+        .finally(() => setCargandoStock(false));
+
+      // Cargar transferencias pendientes entrantes
+      cargarTransferenciasPendientes(trabajadorActual.id_trabajador);
+    }
+  };
+
+  const cargarTransferenciasPendientes = (idTrabajador: number) => {
+    if (!idTrabajador) return;
+    fetch(`${API_URL}/api/inventario/transferencias/pendientes?id_trabajador=${idTrabajador}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setTransferenciasEntrantes(data.entrantes || []);
+          if (Array.isArray(data.respondidas_recientes)) {
+            setTransferenciasRespondidas(data.respondidas_recientes);
+
+            // Si hay un traspaso recién aceptado que aún no se ha notificado, refrescar el stock local del emisor
+            const hayNuevaAceptada = data.respondidas_recientes.some(
+              (r: any) => r.estado === "ACEPTADA" && !transferenciasRespondidasVistas.has(r.id_transferencia)
+            );
+            if (hayNuevaAceptada) {
+              getTecnicoStock(idTrabajador)
+                .then((resStock) => {
+                  setMiStock(resStock?.stock || []);
+                  setMisSeries(resStock?.series || []);
+                })
+                .catch(console.error);
+            }
+          }
+        }
       })
-      .catch(console.error)
-      .finally(() => setCargandoStock(false));
+      .catch(console.error);
+  };
+
+  const descartarNotificacionTransferencia = (idTrf: number) => {
+    setTransferenciasRespondidasVistas((prev) => {
+      const updated = new Set(prev);
+      updated.add(idTrf);
+      try {
+        localStorage.setItem("trf_respondidas_vistas", JSON.stringify(Array.from(updated)));
+      } catch {}
+      return updated;
+    });
   };
 
   useEffect(() => {
+    if (!trabajadorActual) return;
     cargarDatosTecnico();
-  }, [trabajadorActual]);
+    const timer = setInterval(() => {
+      if (trabajadorActual?.id_trabajador) {
+        cargarTransferenciasPendientes(trabajadorActual.id_trabajador);
+      }
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [trabajadorActual?.id_trabajador, trabajadorActual?.id_usuario]);
 
   // 📍 RASTREO GPS AUTOMÁTICO DISCRETO EN SEGUNDO PLANO (MIGAS DE PAN CADA 5 MINUTOS)
   useEffect(() => {
@@ -511,6 +598,85 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
       )}
 
       {/* ─────────────────────────────────────────────────────────────
+          0.1 ALERTA PULSANTE: TRANSFERENCIA DE MATERIALES ENTRANTE
+      ───────────────────────────────────────────────────────────── */}
+      {transferenciasEntrantes.length > 0 && (
+        <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-sky-600 text-white rounded-3xl p-4 shadow-xl border border-emerald-300 flex items-center justify-between gap-3 animate-fade-in">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-11 h-11 rounded-2xl bg-white/20 flex items-center justify-center shrink-0 text-white shadow-inner">
+              <ArrowDownLeft size={22} className="text-white animate-bounce" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[9.5px] font-black uppercase tracking-wider bg-white/25 px-2.5 py-0.5 rounded-full inline-block mb-0.5 shadow-2xs">
+                🔔 ¡Traspaso Entrante de Stock!
+              </span>
+              <p className="text-xs font-black leading-snug truncate">
+                {transferenciasEntrantes.length === 1
+                  ? `De: ${transferenciasEntrantes[0].nombre_origen}`
+                  : `Tienes ${transferenciasEntrantes.length} traspasos pendientes`}
+              </p>
+              <p className="text-[10.5px] text-emerald-100 font-medium">
+                Toca "Revisar" para aceptar y sumar materiales/equipos a tu camioneta.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setMostrarIncomingModal(true)}
+            className="px-4 py-2.5 bg-white text-emerald-900 hover:bg-emerald-50 active:scale-95 rounded-2xl font-black text-xs shadow-md transition-all cursor-pointer shrink-0"
+          >
+            Revisar
+          </button>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          0.2 NOTIFICACIÓN DE RESPUESTA A TRASPASOS ENVIADOS (RECIPROCIDAD)
+      ───────────────────────────────────────────────────────────── */}
+      {transferenciasRespondidas
+        .filter((t) => !transferenciasRespondidasVistas.has(t.id_transferencia))
+        .map((trf) => (
+          <div
+            key={trf.id_transferencia}
+            className={`rounded-3xl p-4 shadow-xl border flex items-center justify-between gap-3 animate-fade-in ${
+              trf.estado === "ACEPTADA"
+                ? "bg-gradient-to-r from-teal-700 via-emerald-600 to-indigo-700 text-white border-teal-300"
+                : "bg-gradient-to-r from-rose-700 via-orange-600 to-amber-700 text-white border-rose-300"
+            }`}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-11 h-11 rounded-2xl bg-white/20 flex items-center justify-center shrink-0 text-white shadow-inner">
+                {trf.estado === "ACEPTADA" ? (
+                  <CheckCircle2 size={24} className="text-white" />
+                ) : (
+                  <XCircle size={24} className="text-white" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <span className="text-[9.5px] font-black uppercase tracking-wider bg-white/25 px-2.5 py-0.5 rounded-full inline-block mb-0.5 shadow-2xs">
+                  {trf.estado === "ACEPTADA" ? "✅ ¡Traspaso Aceptado!" : "⚠️ Traspaso Rechazado"}
+                </span>
+                <p className="text-xs font-black leading-snug truncate">
+                  {trf.estado === "ACEPTADA"
+                    ? `Tu compañero ${trf.nombre_destino} ha aceptado los materiales`
+                    : `Tu compañero ${trf.nombre_destino} rechazó la solicitud`}
+                </p>
+                <p className="text-[10.5px] text-white/90 font-medium">
+                  {trf.estado === "ACEPTADA"
+                    ? `Ref: ${trf.codigo_transferencia} (${trf.total_items || 0} ítems / ${trf.total_series || 0} series). Tu stock móvil se ha actualizado.`
+                    : `Motivo: "${trf.motivo_rechazo || "Sin motivo indicado"}". Los materiales se conservan en tu camioneta.`}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => descartarNotificacionTransferencia(trf.id_transferencia)}
+              className="px-3.5 py-2 bg-white/20 hover:bg-white/30 active:scale-95 text-white rounded-2xl font-black text-xs transition-all cursor-pointer shrink-0 border border-white/30"
+            >
+              Entendido
+            </button>
+          </div>
+        ))}
+
+      {/* ─────────────────────────────────────────────────────────────
           1. HEADER MÓVIL DEL TÉCNICO (DISEÑO CLARO: BLANCO / CELESTE / PLOMO SUAVE)
       ───────────────────────────────────────────────────────────── */}
       <div className="bg-white text-slate-800 rounded-3xl p-3.5 sm:p-4.5 shadow-sm border border-slate-200/90 space-y-2.5">
@@ -523,7 +689,7 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="text-[9px] sm:text-[10px] uppercase font-bold text-sky-700 tracking-wider block">
-                  Portal de Campo • Técnico
+                  {esSupervisorOAdmin ? "Portal de Dotación & Vehículo" : "Portal de Campo • Técnico"}
                 </span>
                 {esAdminOSimulador && tecnicos.length > 1 && (
                   <select
@@ -551,8 +717,22 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
             </div>
           </div>
 
-          {/* Lado derecho: Botón fullscreen + Placa */}
+          {/* Lado derecho: Acceso rápido a Supervisión + Fullscreen + Placa */}
           <div className="flex items-center gap-1.5 shrink-0">
+            {authService.canAccessModule("supervision") && (
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.hash = "supervision";
+                }}
+                className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 flex items-center gap-1 text-[11px] font-bold transition-all active:scale-95 cursor-pointer shrink-0 shadow-2xs"
+                title="Volver a Supervisión & Calidad"
+              >
+                <ShieldCheck size={13} className="text-blue-600" />
+                <span className="hidden sm:inline">Supervisión</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={toggleFullScreen}
@@ -596,7 +776,7 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
         ) : null}
 
         {/* Acciones Rápidas del Técnico */}
-        <div className={`grid gap-2 pt-0.5 ${permiteVerStock ? "grid-cols-2" : "grid-cols-1"}`}>
+        <div className="grid grid-cols-2 gap-2 pt-0.5">
           <button
             onClick={abrirChecklist}
             className="w-full py-2.5 px-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 active:scale-95 text-white rounded-2xl font-black text-xs shadow-md shadow-amber-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
@@ -605,10 +785,18 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
             Checklist Diario
           </button>
 
+          <button
+            onClick={() => setMostrarTransferModal(true)}
+            className="w-full py-2.5 px-3 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 active:scale-95 text-white rounded-2xl font-black text-xs shadow-md shadow-indigo-600/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            <ArrowRightLeft size={15} />
+            Traspaso a Compañero
+          </button>
+
           {permiteVerStock && (
             <button
               onClick={alternarStock}
-              className={`w-full py-2.5 px-3 rounded-2xl font-bold text-xs border transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 ${
+              className={`w-full py-2.5 px-3 rounded-2xl font-bold text-xs border transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 col-span-2 ${
                 mostrarStock
                   ? "bg-sky-600 text-white border-sky-600 shadow-md shadow-sky-600/25"
                   : "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200/90"
@@ -811,16 +999,46 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
           </div>
 
           {ordenes.length === 0 ? (
-            <div className="bg-white rounded-3xl p-8 text-center text-slate-400 border border-slate-200 font-bold text-xs space-y-2">
-              <CheckCircle2 size={32} className="mx-auto text-emerald-500" />
-              <p>¡No tienes órdenes pendientes asignadas para hoy!</p>
+            <div className="bg-white rounded-3xl p-8 text-center text-slate-500 border border-slate-200 font-bold text-xs space-y-2 shadow-xs">
+              <div className="w-12 h-12 mx-auto rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <CheckCircle2 size={28} />
+              </div>
+              <p className="text-slate-700 font-black text-sm">¡Sin órdenes pendientes asignadas para hoy!</p>
+              <p className="text-slate-400 max-w-sm mx-auto text-[11px] font-normal leading-relaxed">
+                Puedes registrar tu <strong>Check-List Vehicular Diario</strong> de inicio/fin de jornada o realizar <strong>Traspasos de Dotación</strong> a tus técnicos usando los botones superiores.
+              </p>
             </div>
           ) : (
             ordenes.map((ord) => {
               const s = (ord.status || ord.estado || "").toUpperCase().trim();
               const isLiquidada = s.includes("LIQUID") || Boolean(ord.acta && ord.acta.trim() && ord.acta !== "-");
               const isFinalizada = s.includes("FINALIZ") || s.includes("TERMIN") || s.includes("CERRAD") || s.includes("FENIX") || isLiquidada;
+              const isEnProceso = s.includes("INICIAD") || s.includes("PROCESO") || s.includes("CAMINO") || s.includes("ASIGNAD");
               const esReiterada = Boolean(ord.esReiterada || (ord.totalOrdenesCliente && ord.totalOrdenesCliente > 1));
+
+              // Detectar si la orden amerita cambio de ONT / Equipo o Instalación
+              const fullTextBusqueda = `${ord.tipoLiquidacion || ""} ${ord.motivoLiquidacion || ""} ${ord.motivoFinalizacion || ""} ${ord.tipoTrabajo || ""} ${ord.tipoAveria || ""} ${ord.observacionesAtencion || ""} ${ord.observacionLlamada || ""} ${ord.tipoTrabajoAsignado || ""}`.toUpperCase();
+              const requiereCambioEquipo = 
+                fullTextBusqueda.includes("CAMBIO DE ONT") ||
+                fullTextBusqueda.includes("CAMBIO DE EQUIPO") ||
+                fullTextBusqueda.includes("CAMBIO ONT") ||
+                fullTextBusqueda.includes("MEJORA TECNOLOGICA") ||
+                fullTextBusqueda.includes("MEJORA TECNOLÓGICA") ||
+                fullTextBusqueda.includes("REEMPLAZO DE ONT") ||
+                fullTextBusqueda.includes("REEMPLAZO ONT") ||
+                fullTextBusqueda.includes("CAMBIO DE ROUTER") ||
+                fullTextBusqueda.includes("CAMBIO DE MESH") ||
+                fullTextBusqueda.includes("CAMBIO MESH") ||
+                fullTextBusqueda.includes("INSTALACION") ||
+                fullTextBusqueda.includes("INSTALACIÓN") ||
+                fullTextBusqueda.includes("ALTA") ||
+                fullTextBusqueda.includes("MIGRACION") ||
+                fullTextBusqueda.includes("MIGRACIÓN") ||
+                fullTextBusqueda.includes("EQUIPO") ||
+                fullTextBusqueda.includes("ONT");
+
+              const habilitarParaEscanearEquipo = !isFinalizada && isEnProceso && requiereCambioEquipo;
+
               // Tipo de liquidación / motivo de finalización
               const tipoLiq = (ord.tipoLiquidacion || ord.motivoLiquidacion || ord.motivoFinalizacion || ord.tipoTrabajo || "").trim();
               // Solo mostrar tipo de liquidación/trabajo si existe y la orden está finalizada (o tiene liquidación real)
@@ -977,10 +1195,20 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
                       <FileText size={16} />
                       <span>📝 Llenar Acta WIN & Liquidar Materiales</span>
                     </button>
+                  ) : habilitarParaEscanearEquipo ? (
+                    <button
+                      type="button"
+                      onClick={() => abrirActa(ord)}
+                      className="w-full py-2.5 px-4 bg-gradient-to-r from-indigo-600 via-purple-600 to-sky-600 hover:from-indigo-700 hover:to-sky-700 text-white rounded-2xl font-black text-xs shadow-md shadow-indigo-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                      title="Cambio de equipo detectado: Toca para escanear y registrar series de ONT/Mesh en el domicilio del cliente"
+                    >
+                      <QrCode size={16} className="text-amber-300 animate-pulse" />
+                      <span>📦 Escanear ONT / Equipos en Domicilio</span>
+                    </button>
                   ) : (
                     <div
                       className="w-full py-2.5 px-4 bg-slate-100 border border-slate-200 text-slate-400 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 cursor-not-allowed select-none"
-                      title="La orden debe estar en estado Finalizada para registrar el Acta WIN y liquidar materiales"
+                      title="La orden debe estar en estado Finalizada para registrar el Acta WIN digital en el sistema"
                     >
                       <Lock size={15} className="text-slate-400" />
                       <span>🔒 Liquidación habilitada al finalizar ({ord.status || "En proceso"})</span>
@@ -1029,6 +1257,37 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
           onClose={() => setMostrarChecklist(false)}
           onSuccess={() => {
             setMostrarChecklist(false);
+            cargarDatosTecnico();
+          }}
+        />
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          5.1 MODAL DE TRASPASO A COMPAÑERO (EMISOR)
+      ───────────────────────────────────────────────────────────── */}
+      {mostrarTransferModal && (
+        <TransferStockModal
+          isOpen={mostrarTransferModal}
+          onClose={() => setMostrarTransferModal(false)}
+          trabajadorActual={trabajadorActual}
+          miStock={miStock}
+          misSeries={misSeries}
+          onTransferenciaExitosa={() => {
+            cargarDatosTecnico();
+          }}
+        />
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          5.2 MODAL DE TRANSFERENCIAS ENTRANTES (RECEPTOR)
+      ───────────────────────────────────────────────────────────── */}
+      {mostrarIncomingModal && (
+        <IncomingTransfersModal
+          isOpen={mostrarIncomingModal}
+          onClose={() => setMostrarIncomingModal(false)}
+          transferencias={transferenciasEntrantes}
+          idTrabajadorDestino={trabajadorActual?.id_trabajador}
+          onActualizado={() => {
             cargarDatosTecnico();
           }}
         />

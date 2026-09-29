@@ -15,6 +15,7 @@ import {
   MotivoItem,
   ActaTecnicoResumen,
   CompraHistorialItem,
+  DescargaOrdenItem,
 } from "../types/inventoryTypes";
 
 const api = axios.create({
@@ -392,3 +393,23 @@ export const ajustarMaterialLiquidacion = async (
   const res = await api.put(`/almacen/orden-liquidaciones/${idLiquidacion}/ajustar-material`, payload);
   return res.data;
 };
+
+export const getDescargasTecnicoDetalle = async (
+  idTrabajador: number,
+  idProducto?: number
+): Promise<{
+  descargasMateriales: DescargaOrdenItem[];
+  descargasSeries: DescargaOrdenItem[];
+  totalDescargas: number;
+}> => {
+  const params: any = { id_trabajador: idTrabajador };
+  if (idProducto) params.id_producto = idProducto;
+  const res = await api.get("/almacen/descargas-tecnico-detalle", { params });
+  return res.data;
+};
+
+export const getTecnicosDisponibles = async (): Promise<any[]> => {
+  const res = await api.get("/almacen/tecnicos-disponibles");
+  return res.data?.tecnicos || [];
+};
+

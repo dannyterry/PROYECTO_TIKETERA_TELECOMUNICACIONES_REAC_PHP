@@ -599,11 +599,11 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
               ? "bg-slate-900 text-white border-slate-950 ring-2 ring-slate-400 shadow-2xs"
               : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
           }`}
-          title={`Total: ${stats.agendadas + stats.verdes + stats.azules + stats.amarillos}`}
+          title={`Total: ${stats.agendadas + stats.verdes + stats.azules + stats.amarillos + (stats.ordenamientos || 0)}`}
         >
           <span className="truncate">Total:</span>
           <span className="font-mono font-black ml-1">
-            {stats.agendadas + stats.verdes + stats.azules + stats.amarillos}
+            {stats.agendadas + stats.verdes + stats.azules + stats.amarillos + (stats.ordenamientos || 0)}
           </span>
         </button>
 
@@ -705,13 +705,13 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
               ? "bg-slate-900 text-white border-slate-950 ring-2 ring-slate-400 shadow-2xs scale-102"
               : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
           }`}
-          title={`Total de Órdenes: ${stats.agendadas + stats.verdes + stats.azules + stats.amarillos}`}
+          title={`Total de Órdenes: ${stats.agendadas + stats.verdes + stats.azules + stats.amarillos + (stats.ordenamientos || 0)}`}
         >
           <span>Total:</span>
-          <span className="font-mono font-black">{stats.agendadas + stats.verdes + stats.azules + stats.amarillos}</span>
+          <span className="font-mono font-black">{stats.agendadas + stats.verdes + stats.azules + stats.amarillos + (stats.ordenamientos || 0)}</span>
           {stats.ordenamientos > 0 && (
             <span className={`text-[9.5px] font-semibold px-1 py-0 rounded ${isStatusActive("Todos") ? "bg-slate-800 text-sky-200" : "bg-slate-200 text-slate-800"}`}>
-              ({stats.agendadas + stats.verdes + stats.azules + stats.amarillos - stats.ordenamientos} Op + {stats.ordenamientos} Ord)
+              ({stats.agendadas + stats.verdes + stats.azules + stats.amarillos} Op + {stats.ordenamientos} Ord)
             </span>
           )}
         </span>

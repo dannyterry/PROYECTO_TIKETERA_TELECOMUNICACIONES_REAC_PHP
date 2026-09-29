@@ -9,6 +9,7 @@ import {
   Gauge,
   Droplet,
   Waves,
+  Fuel,
   X,
   Sparkles,
   Sun,
@@ -48,6 +49,7 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
   const [idTrabajador, setIdTrabajador] = useState<string>(idTrabajadorInicial ? String(idTrabajadorInicial) : "");
   const [kmInicio, setKmInicio] = useState("");
   const [kmFin, setKmFin] = useState("");
+  const [nivelCombustible, setNivelCombustible] = useState<string>("Medio");
   const [observaciones, setObservaciones] = useState("");
 
   // Cargar si no vienen por props
@@ -165,6 +167,7 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
       fd.append("id_vehiculo", idVehiculo);
       fd.append("id_trabajador", idTrabajador);
       fd.append("observaciones_tecnico", observaciones);
+      fd.append("nivel_combustible", nivelCombustible);
 
       // Capturar GPS en segundo plano
       const gps = await obtenerGpsActual();
@@ -216,7 +219,7 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-3 md:p-6 animate-fade-in">
       <div className="bg-white rounded-3xl p-5 md:p-6 max-w-lg w-full shadow-2xl border border-slate-100 space-y-4 max-h-[92vh] overflow-y-auto">
-        
+
         {/* HEADER */}
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2.5 text-cyan-600 font-black text-base">
@@ -236,11 +239,10 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => setTipoJornada("inicio")}
-            className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
-              tipoJornada === "inicio"
+            className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${tipoJornada === "inicio"
                 ? "bg-amber-500 text-white shadow-sm"
                 : "text-slate-600 hover:text-slate-900"
-            }`}
+              }`}
           >
             <Sun size={16} />
             🌅 Inicio de Jornada
@@ -249,11 +251,10 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => setTipoJornada("fin")}
-            className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
-              tipoJornada === "fin"
+            className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${tipoJornada === "fin"
                 ? "bg-indigo-600 text-white shadow-sm"
                 : "text-slate-600 hover:text-slate-900"
-            }`}
+              }`}
           >
             <Moon size={16} />
             🌙 Cierre de Jornada
@@ -261,7 +262,7 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 text-xs font-semibold text-slate-700">
-          
+
           {/* Identificación del Técnico y Vehículo Asignado */}
           <div className="space-y-3">
             <div>
@@ -381,9 +382,8 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
 
                 <div className="grid grid-cols-2 gap-2.5">
                   {/* Foto Tablero Inicio */}
-                  <label className={`p-3 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer transition-all ${
-                    fotoTableroInicio ? "border-emerald-500 bg-emerald-50/50" : "border-slate-200 bg-slate-50 hover:bg-slate-100"
-                  }`}>
+                  <label className={`p-3 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer transition-all ${fotoTableroInicio ? "border-emerald-500 bg-emerald-50/50" : "border-slate-200 bg-slate-50 hover:bg-slate-100"
+                    }`}>
                     <Gauge size={22} className={fotoTableroInicio ? "text-emerald-600" : "text-slate-400"} />
                     <span className="font-bold text-[11px] mt-1 text-slate-700">1. Foto Tablero</span>
                     <span className="text-[10px] text-slate-400 truncate max-w-[120px]">
@@ -398,9 +398,8 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
                   </label>
 
                   {/* Foto Aceite */}
-                  <label className={`p-3 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer transition-all ${
-                    fotoAceite ? "border-emerald-500 bg-emerald-50/50" : "border-slate-200 bg-slate-50 hover:bg-slate-100"
-                  }`}>
+                  <label className={`p-3 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer transition-all ${fotoAceite ? "border-emerald-500 bg-emerald-50/50" : "border-slate-200 bg-slate-50 hover:bg-slate-100"
+                    }`}>
                     <Droplet size={22} className={fotoAceite ? "text-emerald-600" : "text-slate-400"} />
                     <span className="font-bold text-[11px] mt-1 text-slate-700">2. Foto Aceite</span>
                     <span className="text-[10px] text-slate-400 truncate max-w-[120px]">
@@ -415,9 +414,8 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
                   </label>
 
                   {/* Foto Agua / Refrigerante */}
-                  <label className={`p-3 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer transition-all ${
-                    fotoAgua ? "border-emerald-500 bg-emerald-50/50" : "border-slate-200 bg-slate-50 hover:bg-slate-100"
-                  }`}>
+                  <label className={`p-3 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer transition-all ${fotoAgua ? "border-emerald-500 bg-emerald-50/50" : "border-slate-200 bg-slate-50 hover:bg-slate-100"
+                    }`}>
                     <Waves size={22} className={fotoAgua ? "text-emerald-600" : "text-slate-400"} />
                     <span className="font-bold text-[11px] mt-1 text-slate-700">3. Foto Refrigerante</span>
                     <span className="text-[10px] text-slate-400 truncate max-w-[120px]">
@@ -431,14 +429,13 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
                     />
                   </label>
 
-                  {/* Foto Carrocería */}
-                  <label className={`p-3 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer transition-all ${
-                    fotoEstadoGeneral ? "border-emerald-500 bg-emerald-50/50" : "border-slate-200 bg-slate-50 hover:bg-slate-100"
-                  }`}>
-                    <Camera size={22} className={fotoEstadoGeneral ? "text-emerald-600" : "text-slate-400"} />
-                    <span className="font-bold text-[11px] mt-1 text-slate-700">4. Carrocería / Llantas</span>
+                  {/* Foto Marcador Gas / Gasolina */}
+                  <label className={`p-3 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer transition-all ${fotoEstadoGeneral ? "border-emerald-500 bg-emerald-50/50" : "border-slate-200 bg-slate-50 hover:bg-slate-100"
+                    }`}>
+                    <Fuel size={22} className={fotoEstadoGeneral ? "text-emerald-600" : "text-slate-400"} />
+                    <span className="font-bold text-[11px] mt-1 text-slate-700">4. Marcador Gas / Gasolina</span>
                     <span className="text-[10px] text-slate-400 truncate max-w-[120px]">
-                      {fotoEstadoGeneral ? fotoEstadoGeneral.name : "Estado general"}
+                      {fotoEstadoGeneral ? fotoEstadoGeneral.name : "Manómetro o marcador"}
                     </span>
                     <input
                       type="file"
@@ -472,9 +469,8 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
               {/* Foto Tablero Final */}
               <div>
                 <label className="block mb-1 text-slate-600">Foto del Tablero Final *</label>
-                <label className={`p-4 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer transition-all ${
-                  fotoTableroFin ? "border-indigo-500 bg-indigo-50/50" : "border-slate-200 bg-slate-50 hover:bg-slate-100"
-                }`}>
+                <label className={`p-4 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer transition-all ${fotoTableroFin ? "border-indigo-500 bg-indigo-50/50" : "border-slate-200 bg-slate-50 hover:bg-slate-100"
+                  }`}>
                   <Gauge size={24} className={fotoTableroFin ? "text-indigo-600" : "text-slate-400"} />
                   <span className="font-bold text-xs mt-1 text-slate-800">
                     {fotoTableroFin ? fotoTableroFin.name : "Subir foto de odómetro final"}
@@ -490,6 +486,50 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
               </div>
             </>
           )}
+
+          {/* ⛽ SELECTOR INTERACTIVO DE NIVEL DE GAS / GASOLINA */}
+          <div className="space-y-2 p-3.5 rounded-2xl bg-slate-50/90 border border-slate-200 shadow-2xs">
+            <div className="flex items-center justify-between">
+              <label className="text-slate-800 font-extrabold text-xs flex items-center gap-1.5">
+                <Fuel size={16} className="text-amber-600" />
+                Nivel de Gas / Gasolina Reportado *
+              </label>
+              <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
+                nivelCombustible === "Bajo" 
+                  ? "bg-rose-100 text-rose-700 border border-rose-300 animate-pulse" 
+                  : nivelCombustible === "Medio" 
+                  ? "bg-amber-100 text-amber-800 border border-amber-300"
+                  : nivelCombustible === "3/4"
+                  ? "bg-sky-100 text-sky-800 border border-sky-300"
+                  : "bg-emerald-100 text-emerald-800 border border-emerald-300"
+              }`}>
+                {nivelCombustible === "Bajo" ? "⚠️ Reserva / Bajo" : nivelCombustible === "Medio" ? "🟡 Medio (1/2)" : nivelCombustible === "3/4" ? "🔵 Tres Cuartos (3/4)" : "🟢 Lleno (Full)"}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-4 gap-1.5 pt-0.5">
+              {[
+                { id: "Bajo", label: "Reserva (1/4)", icon: "🔴", activeClass: "bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-600/30 scale-[1.02]" },
+                { id: "Medio", label: "Medio (1/2)", icon: "🟡", activeClass: "bg-amber-500 text-white border-amber-500 shadow-md shadow-amber-500/30 scale-[1.02]" },
+                { id: "3/4", label: "3/4", icon: "🔵", activeClass: "bg-sky-600 text-white border-sky-600 shadow-md shadow-sky-600/30 scale-[1.02]" },
+                { id: "Lleno", label: "Full / Lleno", icon: "🟢", activeClass: "bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-600/30 scale-[1.02]" },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setNivelCombustible(opt.id)}
+                  className={`py-2 px-1 rounded-xl text-[11px] font-bold border flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer ${
+                    nivelCombustible === opt.id
+                      ? opt.activeClass
+                      : "bg-white text-slate-600 hover:bg-slate-100 border-slate-200"
+                  }`}
+                >
+                  <span className="text-xs">{opt.icon}</span>
+                  <span className="truncate w-full text-center">{opt.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
 
           {/* Observaciones */}
           <div>
@@ -515,21 +555,20 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
             <button
               type="submit"
               disabled={guardando || !vehiculoAsignado}
-              className={`px-6 py-2.5 rounded-xl font-bold text-white shadow-md transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-                !vehiculoAsignado
+              className={`px-6 py-2.5 rounded-xl font-bold text-white shadow-md transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${!vehiculoAsignado
                   ? "bg-slate-400"
                   : tipoJornada === "inicio"
-                  ? "bg-amber-500 hover:bg-amber-600 shadow-amber-500/20"
-                  : "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20"
-              }`}
+                    ? "bg-amber-500 hover:bg-amber-600 shadow-amber-500/20"
+                    : "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20"
+                }`}
             >
               {guardando
                 ? "Enviando..."
                 : !vehiculoAsignado
-                ? "🔒 Requiere Asignación por Admin"
-                : tipoJornada === "inicio"
-                ? "🚀 Enviar Inicio de Jornada"
-                : "🏁 Enviar Cierre de Jornada"}
+                  ? "🔒 Requiere Asignación por Admin"
+                  : tipoJornada === "inicio"
+                    ? "🚀 Enviar Inicio de Jornada"
+                    : "🏁 Enviar Cierre de Jornada"}
             </button>
           </div>
 

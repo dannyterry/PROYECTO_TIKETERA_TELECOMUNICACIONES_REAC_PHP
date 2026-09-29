@@ -30,6 +30,7 @@ export interface Order {
   asignacionManual?: boolean;
   cuadrillaOrigenFenix?: string;
   fechaAsignacionManual?: string;
+  usuarioEjecutorFenix?: string;
   observacionesAtencion?: string;
   motivoFinalizacion?: string;
   motivoCancelacion?: string;

@@ -311,7 +311,26 @@ export const CustomerQualitySurveyTab: React.FC<CustomerQualitySurveyTabProps> =
     if (res.success) {
       setSaveSuccess(true);
       if (onSaved) onSaved();
-      setTimeout(() => setSaveSuccess(false), 5000);
+
+      // Limpiar formulario para la siguiente encuesta / cliente
+      setIdOrden("");
+      setNumeroTicket("");
+      setNumeroActa("");
+      setSelectedTecnico(null);
+      setTecnicoName("");
+      setSearchTermTecnico("");
+      setCuadrilla("");
+      setCliente("");
+      setTelefono("");
+      setDistrito("");
+      setComentarioCliente("");
+      setCalificacionEstrellas(5);
+      setEstadoConformidad("CONFORME");
+      setSearchOtTerm("");
+      setPreguntas(JSON.parse(JSON.stringify(PREGUNTAS_CALIDAD_DEFAULT)));
+
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      setTimeout(() => setSaveSuccess(false), 6000);
     } else {
       setSaveError(res.message || "No se pudo guardar la auditoría.");
     }

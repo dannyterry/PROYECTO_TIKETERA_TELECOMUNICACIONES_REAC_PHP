@@ -17,11 +17,13 @@ import {
   Check,
   Building2,
   FileSpreadsheet,
-  AlertCircle
+  AlertCircle,
+  ArrowLeftRight,
+  UserCheck
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { KardexMovimientoItem, KardexKPIs, ProductoStock } from "../types/inventoryTypes";
-import { getKardexMovimientos } from "../services/inventoryService";
+import { getKardexMovimientos, getTecnicosDisponibles } from "../services/inventoryService";
 
 interface Props {
   productos?: ProductoStock[];
@@ -39,12 +41,16 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Lista de técnicos y supervisores
+  const [tecnicos, setTecnicos] = useState<any[]>([]);
+
   // Filtros
   const [search, setSearch] = useState<string>("");
   const [tipoFiltro, setTipoFiltro] = useState<string>("TODOS");
   const [subtipoFiltro, setSubtipoFiltro] = useState<string>("TODOS");
   const [categoriaFiltro, setCategoriaFiltro] = useState<string>("TODAS");
   const [productoFiltro, setProductoFiltro] = useState<string>("TODOS");
+  const [tecnicoFiltro, setTecnicoFiltro] = useState<string>("TODOS");
   const [fechaDesde, setFechaDesde] = useState<string>("");
   const [fechaHasta, setFechaHasta] = useState<string>("");
 
@@ -52,6 +58,33 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
   const [paginaActual, setPaginaActual] = useState<number>(1);
   const [itemsPorPagina, setItemsPorPagina] = useState<number>(50);
   const [copiadoId, setCopiadoId] = useState<string | null>(null);
+
+  // Cargar lista de técnicos y supervisores disponibles
+  useEffect(() => {
+    getTecnicosDisponibles()
+      .then((data) => {
+        if (Array.isArray(data)) setTecnicos(data);
+      })
+      .catch((err) => console.error("Error al cargar técnicos/supervisores en Kardex:", err));
+  }, []);
+
+  // Agrupación de Supervisores vs Técnicos
+  const { supervisores, tecnicosCampo } = useMemo(() => {
+    const sups: any[] = [];
+    const tecs: any[] = [];
+
+    tecnicos.forEach((t) => {
+      const rolUpper = (t.rol_nombre || "").toUpperCase();
+      const cuadUpper = (t.cuadrilla || "").toUpperCase();
+      if (rolUpper.includes("SUPERVI") || cuadUpper.includes("SUPERVI")) {
+        sups.push(t);
+      } else {
+        tecs.push(t);
+      }
+    });
+
+    return { supervisores: sups, tecnicosCampo: tecs };
+  }, [tecnicos]);
 
   // Cargar datos
   const cargarKardex = async () => {
@@ -64,6 +97,7 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
       if (tipoFiltro !== "TODOS") params.tipo = tipoFiltro;
       if (subtipoFiltro !== "TODOS") params.subtipo = subtipoFiltro;
       if (productoFiltro !== "TODOS") params.idProducto = Number(productoFiltro);
+      if (tecnicoFiltro !== "TODOS") params.idTrabajador = Number(tecnicoFiltro);
       if (search.trim()) params.search = search.trim();
 
       const res = await getKardexMovimientos(params);
@@ -83,7 +117,7 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
 
   useEffect(() => {
     cargarKardex();
-  }, [tipoFiltro, subtipoFiltro, productoFiltro, fechaDesde, fechaHasta]);
+  }, [tipoFiltro, subtipoFiltro, productoFiltro, tecnicoFiltro, fechaDesde, fechaHasta]);
 
   // Lista única de categorías
   const categoriasUnicas = useMemo(() => {
@@ -94,11 +128,32 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
     return Array.from(setCats).sort();
   }, [productos]);
 
-  // Filtrado local adicional para búsqueda y categoría
+  // Filtrado local adicional para búsqueda, categoría y técnico
   const movimientosFiltrados = useMemo(() => {
     return movimientos.filter((m) => {
       if (categoriaFiltro !== "TODAS" && (m.categoria || "").toUpperCase() !== categoriaFiltro) {
         return false;
+      }
+      if (tecnicoFiltro !== "TODOS") {
+        const tecObj = tecnicos.find((t) => String(t.id_trabajador) === String(tecnicoFiltro));
+        if (tecObj) {
+          const nomUpper = (tecObj.nombre_completo || "").toUpperCase();
+          const userUpper = (tecObj.usuario || "").toUpperCase();
+          const doc = (tecObj.documento || "").toUpperCase();
+          const idStr = String(tecObj.id_trabajador);
+          const refUpper = (m.referencia || "").toUpperCase();
+
+          const matchesTec =
+            refUpper.includes(`TÉCNICO #${idStr}`) ||
+            refUpper.includes(`TECNICO #${idStr}`) ||
+            refUpper.includes(`SUPERVISOR #${idStr}`) ||
+            refUpper.includes(`CUADRILLA #${idStr}`) ||
+            (nomUpper && refUpper.includes(nomUpper)) ||
+            (userUpper && refUpper.includes(userUpper)) ||
+            (doc && refUpper.includes(doc));
+
+          if (!matchesTec) return false;
+        }
       }
       if (search.trim()) {
         const q = search.toLowerCase().trim();
@@ -111,7 +166,7 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
       }
       return true;
     });
-  }, [movimientos, categoriaFiltro, search]);
+  }, [movimientos, categoriaFiltro, tecnicoFiltro, tecnicos, search]);
 
   // Paginación
   const totalPaginas = Math.ceil(movimientosFiltrados.length / itemsPorPagina) || 1;
@@ -143,6 +198,10 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
             ? "Devolución a Almacén (Retorno)"
             : m.subtipo === "LIQUIDACION_ORDEN"
             ? "Consumo en Orden de Trabajo"
+            : m.subtipo === "TRASPASO_ENTRADA"
+            ? "Traspaso entre Técnicos (Entrada)"
+            : m.subtipo === "TRASPASO_SALIDA"
+            ? "Traspaso entre Técnicos (Salida)"
             : m.subtipo,
         "Código Producto": m.producto_codigo || "-",
         "Producto": m.producto_nombre,
@@ -285,19 +344,51 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
       <div className="bg-white rounded-3xl p-5 border border-slate-200/90 shadow-xs space-y-3.5">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
           {/* Buscador */}
-          <div className="md:col-span-4 relative">
+          <div className="md:col-span-3 relative">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
             <input
               type="text"
-              placeholder="Buscar producto, serie, orden, técnico o referencia..."
+              placeholder="Buscar producto, serie, orden, técnico..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
             />
           </div>
 
-          {/* Filtro Subtipo / Operación */}
+          {/* Filtro Técnico / Supervisor */}
           <div className="md:col-span-3">
+            <select
+              value={tecnicoFiltro}
+              onChange={(e) => {
+                setTecnicoFiltro(e.target.value);
+                setPaginaActual(1);
+              }}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:bg-white focus:outline-none cursor-pointer"
+            >
+              <option value="TODOS">👤 Todos los Técnicos / Supervisores</option>
+              {supervisores.length > 0 && (
+                <optgroup label="🛡️ Supervisores">
+                  {supervisores.map((s) => (
+                    <option key={s.id_trabajador} value={s.id_trabajador}>
+                      {s.nombre_completo} {s.cuadrilla ? `(${s.cuadrilla})` : ""}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {tecnicosCampo.length > 0 && (
+                <optgroup label="👨‍🔧 Técnicos de Campo">
+                  {tecnicosCampo.map((t) => (
+                    <option key={t.id_trabajador} value={t.id_trabajador}>
+                      {t.nombre_completo} {t.cuadrilla ? `(${t.cuadrilla})` : ""}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+          </div>
+
+          {/* Filtro Subtipo / Operación */}
+          <div className="md:col-span-2">
             <select
               value={subtipoFiltro}
               onChange={(e) => {
@@ -306,12 +397,15 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
               }}
               className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:bg-white focus:outline-none cursor-pointer"
             >
-              <option value="TODOS">⚡ Todas las Operaciones</option>
-              <option value="COMPRA_INGRESO">📥 Compras / Ingresos a Almacén</option>
-              <option value="DESPACHO_TECNICO">🚚 Despachos a Técnicos (Salida)</option>
-              <option value="DEVOLUCION_TECNICO">↩️ Devoluciones a Almacén (Retorno)</option>
-              <option value="LIQUIDACION_ORDEN">🛠️ Consumo en Órdenes de Campo</option>
-              <option value="AJUSTE_INVENTARIO">⚙️ Ajustes de Inventario</option>
+              <option value="TODOS">⚡ Operaciones</option>
+              <option value="COMPRA_INGRESO">📥 Compras / Ingresos</option>
+              <option value="DESPACHO_TECNICO">🚚 Despachos a Cuadrilla</option>
+              <option value="DEVOLUCION_TECNICO">↩️ Devoluciones a Almacén</option>
+              <option value="TRASPASOS">🔄 Todos los Traspasos</option>
+              <option value="TRASPASO_ENTRADA">↳ 🔄 Traspaso (Entrada)</option>
+              <option value="TRASPASO_SALIDA">↳ 🔄 Traspaso (Salida)</option>
+              <option value="LIQUIDACION_ORDEN">🛠️ Órdenes de Campo</option>
+              <option value="AJUSTE_INVENTARIO">⚙️ Ajustes Inventario</option>
             </select>
           </div>
 
@@ -325,7 +419,7 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
               }}
               className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:bg-white focus:outline-none cursor-pointer"
             >
-              <option value="TODAS">🏷️ Todas las Categorías</option>
+              <option value="TODAS">🏷️ Categorías</option>
               {categoriasUnicas.map((cat) => (
                 <option key={cat} value={cat}>
                   {cat}
@@ -335,7 +429,7 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
           </div>
 
           {/* Rango de Fechas */}
-          <div className="md:col-span-3 flex items-center gap-1.5">
+          <div className="md:col-span-2 flex items-center gap-1">
             <input
               type="date"
               value={fechaDesde}
@@ -343,7 +437,7 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
                 setFechaDesde(e.target.value);
                 setPaginaActual(1);
               }}
-              className="w-1/2 p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none"
+              className="w-1/2 px-1.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none"
               title="Fecha Desde"
             />
             <span className="text-slate-400 text-xs font-bold">-</span>
@@ -354,7 +448,7 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
                 setFechaHasta(e.target.value);
                 setPaginaActual(1);
               }}
-              className="w-1/2 p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none"
+              className="w-1/2 px-1.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none"
               title="Fecha Hasta"
             />
           </div>
@@ -368,6 +462,7 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
             { id: "COMPRA_INGRESO", label: "📥 Compras" },
             { id: "DESPACHO_TECNICO", label: "🚚 Despachos" },
             { id: "DEVOLUCION_TECNICO", label: "↩️ Devoluciones" },
+            { id: "TRASPASOS", label: "🔄 Traspasos" },
             { id: "LIQUIDACION_ORDEN", label: "🛠️ Órdenes Campo" },
           ].map((pill) => (
             <button
@@ -386,7 +481,7 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
             </button>
           ))}
 
-          {(fechaDesde || fechaHasta || search || categoriaFiltro !== "TODAS" || subtipoFiltro !== "TODOS") && (
+          {(fechaDesde || fechaHasta || search || categoriaFiltro !== "TODAS" || subtipoFiltro !== "TODOS" || tecnicoFiltro !== "TODOS") && (
             <button
               onClick={() => {
                 setSearch("");
@@ -394,6 +489,7 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
                 setSubtipoFiltro("TODOS");
                 setCategoriaFiltro("TODAS");
                 setProductoFiltro("TODOS");
+                setTecnicoFiltro("TODOS");
                 setFechaDesde("");
                 setFechaHasta("");
                 setPaginaActual(1);
@@ -500,6 +596,20 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-purple-50 text-purple-800 border border-purple-200">
                             <FileCheck size={11} className="text-purple-600" />
                             CONSUMO EN ORDEN
+                          </span>
+                        );
+                      } else if (m.subtipo === "TRASPASO_ENTRADA") {
+                        badge = (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-teal-50 text-teal-800 border border-teal-300 shadow-sm">
+                            <ArrowLeftRight size={11} className="text-teal-600" />
+                            TRASPASO (ENTRADA)
+                          </span>
+                        );
+                      } else if (m.subtipo === "TRASPASO_SALIDA") {
+                        badge = (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-indigo-50 text-indigo-800 border border-indigo-200 shadow-sm">
+                            <ArrowLeftRight size={11} className="text-indigo-600" />
+                            TRASPASO (SALIDA)
                           </span>
                         );
                       }

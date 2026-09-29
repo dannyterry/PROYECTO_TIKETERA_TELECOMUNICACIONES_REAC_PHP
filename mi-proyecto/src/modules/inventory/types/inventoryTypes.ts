@@ -68,6 +68,36 @@ export interface SerieTecnicoDetalle {
   fecha_asignacion: string;
 }
 
+export interface DescargaOrdenItem {
+  id_detalle_liq?: number;
+  id_trabajador_serie?: number;
+  id_liquidacion?: number;
+  id_orden?: number;
+  orden_numero: string;
+  ticket: string;
+  cliente: string;
+  direccion: string;
+  distrito: string;
+  tipo_trabajo: string;
+  numero_acta?: string;
+  numero_guia?: string;
+  fecha_liquidacion?: string;
+  estado_liquidacion?: string;
+  liquidado_por?: string;
+  observaciones?: string;
+  observaciones_tecnico?: string;
+  id_producto: number;
+  producto_nombre: string;
+  producto_codigo?: string;
+  es_drop?: number;
+  cantidad?: number;
+  drop_inicio?: number | null;
+  drop_fin?: number | null;
+  numero_serie?: string;
+  codigo_serie?: string;
+  estado_serie?: string;
+}
+
 export interface Proveedor {
   id_proveedor: number;
   ruc: string;

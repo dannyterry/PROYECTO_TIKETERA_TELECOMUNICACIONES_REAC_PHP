@@ -386,6 +386,7 @@ export const getOrders = async (filters?: {
           asignacionManual: Boolean(raw.asignacion_manual === 1 || raw.asignacion_manual === true || raw.asignacion_manual === "1"),
           cuadrillaOrigenFenix: raw.cuadrilla_origen_fenix ? String(raw.cuadrilla_origen_fenix) : undefined,
           fechaAsignacionManual: raw.fecha_asignacion_manual ? String(raw.fecha_asignacion_manual) : undefined,
+          usuarioEjecutorFenix: raw.usuario_ejecutor_fenix ? String(raw.usuario_ejecutor_fenix) : undefined,
           tipoAveria: String(raw.motivo_trabajo || raw.tipo_averia || raw.motivo || raw.averia || ""),
           tipoTrabajoAsignado: rawTipoTrabajoAsignado || autoPairedTipoTrabajo || "",
           tipoTrabajo: finalTipoTrabajo,

@@ -9,6 +9,7 @@ import {
   Gauge,
   Droplet,
   Waves,
+  Fuel,
   Eye,
   MessageSquare,
   Calendar,
@@ -37,6 +38,7 @@ export const InspectionAuditTab: React.FC<Props> = ({
 }) => {
   const [filtroTexto, setFiltroTexto] = useState("");
   const [filtroEstado, setFiltroEstado] = useState<string>("Todos");
+  const [filtroCombustible, setFiltroCombustible] = useState<string>("Todos");
   const [filtroVehiculo, setFiltroVehiculo] = useState<string>("");
   const [filtroFecha, setFiltroFecha] = useState<string>("");
 
@@ -61,13 +63,18 @@ export const InspectionAuditTab: React.FC<Props> = ({
     const coincideEstado =
       filtroEstado === "Todos" || insp.estado_auditoria === filtroEstado;
 
+    const coincideCombustible =
+      filtroCombustible === "Todos" ||
+      (filtroCombustible === "Bajo" && (insp.nivel_combustible === "Bajo" || (!insp.nivel_combustible && false))) ||
+      (insp.nivel_combustible && insp.nivel_combustible.toLowerCase() === filtroCombustible.toLowerCase());
+
     const coincideVehiculo =
       !filtroVehiculo || String(insp.id_vehiculo) === filtroVehiculo;
 
     const coincideFecha =
       !filtroFecha || (insp.fecha && insp.fecha.startsWith(filtroFecha));
 
-    return coincideTexto && coincideEstado && coincideVehiculo && coincideFecha;
+    return coincideTexto && coincideEstado && coincideCombustible && coincideVehiculo && coincideFecha;
   });
 
   const handleOpenPhotos = (insp: Inspeccion, startIndex = 0) => {
@@ -96,8 +103,8 @@ export const InspectionAuditTab: React.FC<Props> = ({
     if (insp.foto_estado_general) {
       list.push({
         url: insp.foto_estado_general,
-        title: "Estado General del Vehículo",
-        subtitle: `Carrocería / Llantas | Placa: ${insp.placa || ""}`,
+        title: "Marcador Gas / Gasolina",
+        subtitle: `Manómetro GLP/GNV o Marcador | Placa: ${insp.placa || ""}`,
       });
     }
     if (insp.foto_tablero_fin) {
@@ -197,6 +204,23 @@ export const InspectionAuditTab: React.FC<Props> = ({
                 {v.placa} ({v.modelo || "S/M"})
               </option>
             ))}
+          </select>
+
+          {/* Filtro Nivel de Combustible */}
+          <select
+            value={filtroCombustible}
+            onChange={(e) => setFiltroCombustible(e.target.value)}
+            className={`border rounded-2xl px-3.5 py-2 text-xs font-bold focus:outline-none cursor-pointer transition-all ${
+              filtroCombustible === "Bajo"
+                ? "bg-rose-50 text-rose-800 border-rose-300 font-extrabold shadow-2xs"
+                : "bg-slate-50 border-slate-200/80 text-slate-700"
+            }`}
+          >
+            <option value="Todos">⛽ Todos los Niveles</option>
+            <option value="Bajo">🔴 Solo Reserva / Bajo</option>
+            <option value="Medio">🟡 Medio (1/2)</option>
+            <option value="3/4">🔵 3/4</option>
+            <option value="Lleno">🟢 Full / Lleno</option>
           </select>
 
           {/* Filtro Estado */}
@@ -324,6 +348,43 @@ export const InspectionAuditTab: React.FC<Props> = ({
                     )}
                   </div>
 
+                  {/* ⛽ Nivel de Combustible Reportado */}
+                  {insp.nivel_combustible && (
+                    <div className={`flex items-center justify-between px-3 py-2 rounded-2xl border text-xs font-bold ${
+                      insp.nivel_combustible === "Bajo"
+                        ? "bg-rose-50/90 border-rose-200 text-rose-900"
+                        : insp.nivel_combustible === "Medio"
+                        ? "bg-amber-50/90 border-amber-200 text-amber-900"
+                        : insp.nivel_combustible === "3/4"
+                        ? "bg-sky-50/90 border-sky-200 text-sky-900"
+                        : "bg-emerald-50/90 border-emerald-200 text-emerald-900"
+                    }`}>
+                      <span className="flex items-center gap-1.5 font-bold">
+                        <Fuel size={14} className={
+                          insp.nivel_combustible === "Bajo"
+                            ? "text-rose-600 animate-bounce"
+                            : insp.nivel_combustible === "Medio"
+                            ? "text-amber-600"
+                            : insp.nivel_combustible === "3/4"
+                            ? "text-sky-600"
+                            : "text-emerald-600"
+                        } />
+                        Marcador Gas / Gasolina:
+                      </span>
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                        insp.nivel_combustible === "Bajo"
+                          ? "bg-rose-600 text-white shadow-xs animate-pulse"
+                          : insp.nivel_combustible === "Medio"
+                          ? "bg-amber-500 text-white shadow-xs"
+                          : insp.nivel_combustible === "3/4"
+                          ? "bg-sky-600 text-white shadow-xs"
+                          : "bg-emerald-600 text-white shadow-xs"
+                      }`}>
+                        {insp.nivel_combustible === "Bajo" ? "🔴 Reserva / Bajo" : insp.nivel_combustible === "Medio" ? "🟡 Medio (1/2)" : insp.nivel_combustible === "3/4" ? "🔵 3/4" : "🟢 Full / Lleno"}
+                      </span>
+                    </div>
+                  )}
+
                   {/* Lecturas de Kilometraje: Inicio / Fin / Recorrido */}
                   <div className="grid grid-cols-3 gap-2 text-center">
                     <div className="bg-slate-50 p-2 rounded-2xl border border-slate-100">
@@ -346,7 +407,7 @@ export const InspectionAuditTab: React.FC<Props> = ({
                     </div>
                   </div>
 
-                  {/* MINIATURAS DE FOTOS REQUERIDAS */}
+                  {/* MINIATURAS DE FOTOS REQUERIDAS (5 FOTOS) */}
                   <div>
                     <div className="flex items-center justify-between text-xs font-bold text-slate-600 mb-2">
                       <span className="flex items-center gap-1.5">
@@ -363,7 +424,7 @@ export const InspectionAuditTab: React.FC<Props> = ({
                       )}
                     </div>
 
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-5 gap-1.5">
                       
                       {/* Foto Tablero Inicio */}
                       <button
@@ -382,12 +443,12 @@ export const InspectionAuditTab: React.FC<Props> = ({
                               alt="Tablero Inicio"
                               className="w-full h-full object-cover rounded-xl"
                             />
-                            <span className="absolute bottom-1 inset-x-1 bg-black/70 text-[9px] font-bold text-white text-center rounded py-0.5">
+                            <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[8px] font-bold text-white text-center rounded py-0.5 truncate">
                               Tablero
                             </span>
                           </>
                         ) : (
-                          <Gauge size={18} />
+                          <Gauge size={16} />
                         )}
                       </button>
 
@@ -408,12 +469,12 @@ export const InspectionAuditTab: React.FC<Props> = ({
                               alt="Aceite"
                               className="w-full h-full object-cover rounded-xl"
                             />
-                            <span className="absolute bottom-1 inset-x-1 bg-black/70 text-[9px] font-bold text-white text-center rounded py-0.5">
+                            <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[8px] font-bold text-white text-center rounded py-0.5 truncate">
                               Aceite
                             </span>
                           </>
                         ) : (
-                          <Droplet size={18} />
+                          <Droplet size={16} />
                         )}
                       </button>
 
@@ -434,12 +495,38 @@ export const InspectionAuditTab: React.FC<Props> = ({
                               alt="Agua"
                               className="w-full h-full object-cover rounded-xl"
                             />
-                            <span className="absolute bottom-1 inset-x-1 bg-black/70 text-[9px] font-bold text-white text-center rounded py-0.5">
+                            <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[8px] font-bold text-white text-center rounded py-0.5 truncate">
                               Agua
                             </span>
                           </>
                         ) : (
-                          <Waves size={18} />
+                          <Waves size={16} />
+                        )}
+                      </button>
+
+                      {/* Foto Marcador Gas / Gasolina */}
+                      <button
+                        type="button"
+                        onClick={() => insp.foto_estado_general && handleOpenPhotos(insp, 3)}
+                        className={`relative aspect-square rounded-2xl border overflow-hidden flex flex-col items-center justify-center p-1 transition-all ${
+                          insp.foto_estado_general
+                            ? "border-slate-200 hover:border-cyan-500 cursor-pointer shadow-xs"
+                            : "border-dashed border-slate-200 bg-slate-50 text-slate-300 cursor-not-allowed"
+                        }`}
+                      >
+                        {insp.foto_estado_general ? (
+                          <>
+                            <img
+                              src={getImageUrl(insp.foto_estado_general)}
+                              alt="Marcador Gas"
+                              className="w-full h-full object-cover rounded-xl"
+                            />
+                            <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[8px] font-bold text-white text-center rounded py-0.5 truncate">
+                              Gas
+                            </span>
+                          </>
+                        ) : (
+                          <Fuel size={16} />
                         )}
                       </button>
 
@@ -460,12 +547,12 @@ export const InspectionAuditTab: React.FC<Props> = ({
                               alt="Tablero Cierre"
                               className="w-full h-full object-cover rounded-xl"
                             />
-                            <span className="absolute bottom-1 inset-x-1 bg-black/70 text-[9px] font-bold text-white text-center rounded py-0.5">
+                            <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[8px] font-bold text-white text-center rounded py-0.5 truncate">
                               Cierre
                             </span>
                           </>
                         ) : (
-                          <Clock size={18} />
+                          <Clock size={16} />
                         )}
                       </button>
                     </div>

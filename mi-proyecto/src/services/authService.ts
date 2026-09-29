@@ -139,7 +139,7 @@ export const authService = {
       user.rol?.toUpperCase().includes("CAMPO");
 
     const esSupervisor =
-      user.rol?.toUpperCase().includes("SUPERVIS") ||
+      user.rol?.toUpperCase().includes("SUPERVI") ||
       user.rol?.toUpperCase().includes("CALIDAD");
 
     switch (moduleId) {
@@ -153,6 +153,7 @@ export const authService = {
       case "portal-tecnico":
         return (
           esTecnico ||
+          esSupervisor ||
           this.hasAnyPermission([
             "portal_tecnico.ver",
             "portal_tecnico.liquidar_acta",
@@ -245,7 +246,7 @@ export const authService = {
     }
 
     // Si es supervisor de campo / calidad, su módulo de supervisión
-    if (user.rol?.toUpperCase().includes("SUPERVIS") || user.rol?.toUpperCase().includes("CALIDAD")) {
+    if (user.rol?.toUpperCase().includes("SUPERVI") || user.rol?.toUpperCase().includes("CALIDAD")) {
       return "supervision";
     }
 

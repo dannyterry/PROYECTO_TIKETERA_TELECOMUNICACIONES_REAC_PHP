@@ -29,10 +29,13 @@ function isPublicPath(req) {
   if (path.startsWith("/uploads") || orig.startsWith("/uploads")) return true;
   if (path.startsWith("/api/looker/") || path.startsWith("/looker/") || orig.startsWith("/api/looker/") || orig.startsWith("/looker/")) return true;
   if (path.startsWith("/api/win-audit/") || path.startsWith("/win-audit/") || orig.startsWith("/api/win-audit/") || orig.startsWith("/win-audit/")) return true;
-  if (path.startsWith("/api/dashboard/") || path.startsWith("/dashboard/") || orig.startsWith("/api/dashboard/") || orig.startsWith("/dashboard/")) return true;
   if (
     path === "/tecnicos" || path === "/api/tecnicos" || path.startsWith("/api/tecnicos") || path.startsWith("/tecnicos") ||
     orig === "/tecnicos" || orig === "/api/tecnicos" || orig.startsWith("/api/tecnicos") || orig.startsWith("/tecnicos")
+  ) return true;
+  if (
+    path.startsWith("/api/inventario/transferencias") || path.startsWith("/inventario/transferencias") ||
+    orig.startsWith("/api/inventario/transferencias") || orig.startsWith("/inventario/transferencias")
   ) return true;
   return false;
 }

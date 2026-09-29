@@ -686,7 +686,7 @@ async function guardarOrdenesEnBD(ordenes) {
       return hasName && hasApe;
     });
 
-    return found ? { id: found.id_usuario, nombre: `${found.nombres} ${found.apellidos || found.primer_apellido || ''}`.trim() } : (rawName.length > 3 ? { id: null, nombre: rawName } : null);
+    return found ? { id: found.id_usuario, nombre: `${found.nombres} ${found.apellidos || found.primer_apellido || ''}`.trim(), isExternal: false } : (rawName.length > 3 ? { id: null, nombre: rawName, isExternal: true } : null);
   };
 
   const extractCuadrillaKey = (cuadStr) => {
@@ -718,9 +718,23 @@ async function guardarOrdenesEnBD(ordenes) {
     if (!o.numero) continue;
 
     try {
-      const techInfo = findTechMatch(o.cuadrilla);
+      // Prioridad de matching inteligente: solo marcar EXTERNO si la orden está Finalizada o Liquidada
+      let techInfo = null;
+      const esFinLiq = o.estado && /^(finalizad[ao]|liquidad[ao])/i.test(String(o.estado).trim());
+      
+      if (esFinLiq && o.usuario_ejecutor_fenix) {
+        techInfo = findTechMatch(o.usuario_ejecutor_fenix);
+        if (techInfo && techInfo.isExternal) {
+          techInfo.id = null;
+          techInfo.nombre = 'EXTERNO: ' + o.usuario_ejecutor_fenix;
+        }
+      }
+      if (!techInfo || (!esFinLiq && techInfo.isExternal)) {
+        techInfo = findTechMatch(o.cuadrilla);
+      }
       const autoIdTecnico = techInfo?.id || null;
       const autoNombreTecnico = techInfo?.nombre || null;
+      const autoEstado = (esFinLiq && techInfo?.isExternal) ? 'Finalizada Externa' : o.estado;
       const autoTipoTrabajo = resolverTipoTrabajoConCatalogo(o.motivo_finalizacion, o.tipo_trabajo || o.motivo_trabajo, o.estado, catalogoMotivos);
 
       // Auto-actualizar cuadrilla canónica del técnico en la base de datos si estaba vacía
@@ -785,7 +799,8 @@ async function guardarOrdenesEnBD(ordenes) {
           historial_estados = COALESCE(?, historial_estados),
           fijo = COALESCE(?, fijo),
           sector_operativo = COALESCE(?, sector_operativo),
-          suscripcion = COALESCE(NULLIF(?, ''), NULLIF(suscripcion, ''))
+          suscripcion = COALESCE(NULLIF(?, ''), NULLIF(suscripcion, '')),
+          usuario_ejecutor_fenix = COALESCE(?, usuario_ejecutor_fenix)
         WHERE numero = ?`,
         [
           o.fecha_solicitud, o.cliente, o.inicio_visita, o.fin_visita,
@@ -793,11 +808,12 @@ async function guardarOrdenesEnBD(ordenes) {
           o.motivo_finalizacion, o.datos_tecnicos, autoTipoTrabajo || o.tipo_trabajo, autoTipoTrabajo, o.georeferencia,
           o.motivo_cancelacion, o.numero_documento, o.movil, o.codigo_seguimiento,
           o.region_zona, o.fecha_visita, o.fecha_solicitud, o.cod_seguimiento_cliente, o.direccion,
-          o.estado, o.cuadrilla, o.cuadrilla, autoIdTecnico, autoNombreTecnico, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
+          autoEstado, o.cuadrilla, o.cuadrilla, autoIdTecnico, autoNombreTecnico, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
           o.motivo_anulacion, o.motivo_regestion, o.motivo_suspension, o.pais_empresa,
           o.email, o.tipo_ubicacion, o.codigo_postal, o.tipo_documento, o.producto,
           o.id_proyecto, o.proveedor, o.localidad, o.tipo_trabajo || o.motivo_trabajo, o.prioridad,
           o.historial_estados, o.fijo, o.sector_operativo, o.suscripcion,
+          o.usuario_ejecutor_fenix,
           o.numero
         ]
       );
@@ -815,19 +831,19 @@ async function guardarOrdenesEnBD(ordenes) {
             motivo_anulacion, motivo_regestion, motivo_suspension, pais_empresa,
             email, tipo_ubicacion, codigo_postal, tipo_documento, producto,
             id_proyecto, proveedor, localidad, motivo_trabajo, prioridad,
-            historial_estados, fijo, sector_operativo, suscripcion, fecha_creacion
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+            historial_estados, fijo, sector_operativo, suscripcion, usuario_ejecutor_fenix, fecha_creacion
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
           [
             o.numero, o.fecha_solicitud, o.cliente, o.inicio_visita, o.fin_visita,
             o.hora_en_camino, o.hora_asignacion,
             o.motivo_finalizacion, o.datos_tecnicos, autoTipoTrabajo, autoTipoTrabajo || o.tipo_trabajo, o.georeferencia,
             o.motivo_cancelacion, o.numero_documento, o.movil, o.codigo_seguimiento,
             o.region_zona, (o.fecha_visita || o.fecha_solicitud), o.cod_seguimiento_cliente, o.direccion,
-            o.estado, o.cuadrilla, o.cuadrilla, autoIdTecnico, autoNombreTecnico, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
+            autoEstado, o.cuadrilla, o.cuadrilla, autoIdTecnico, autoNombreTecnico, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
             o.motivo_anulacion, o.motivo_regestion, o.motivo_suspension, o.pais_empresa,
             o.email, o.tipo_ubicacion, o.codigo_postal, o.tipo_documento, o.producto,
             o.id_proyecto, o.proveedor, o.localidad, o.tipo_trabajo || o.motivo_trabajo, o.prioridad,
-            o.historial_estados, o.fijo, o.sector_operativo, o.suscripcion
+            o.historial_estados, o.fijo, o.sector_operativo, o.suscripcion, o.usuario_ejecutor_fenix
           ]
         );
       }
@@ -946,6 +962,7 @@ async function sincronizarFenix({ fechaDesde = null, fechaHasta = null } = {}) {
                 if (tiempos.inicioVisita) ord.inicio_visita = tiempos.inicioVisita;
                 if (tiempos.finVisita) ord.fin_visita = tiempos.finVisita;
                 if (tiempos.horaAsignacion) ord.hora_asignacion = tiempos.horaAsignacion;
+                if (tiempos.usuarioEjecutor) ord.usuario_ejecutor_fenix = tiempos.usuarioEjecutor;
               }
             } catch (errHist) {}
           })
@@ -1381,31 +1398,47 @@ function extraerTiemposDeHistorial(historial) {
   let horaEnCamino = null;
   let inicioVisita = null;
   let finVisita = null;
+  let usuarioEjecutor = null;
 
+  if (!historial || !Array.isArray(historial)) {
+    return { horaAsignacion, horaEnCamino, inicioVisita, finVisita, usuarioEjecutor };
+  }
+
+  // 1. Extraer hitos de tiempo
   for (const h of historial) {
     const st = (h.estado || '').toUpperCase();
     const parsedDate = parseDateToMySQL(h.fecha);
     if (!parsedDate) continue;
 
-    if (st.includes('CAMINO') && !horaEnCamino) {
-      horaEnCamino = parsedDate;
-    }
-    if ((st.includes('INICIA') || st.includes('PROCESO')) && !inicioVisita) {
-      inicioVisita = parsedDate;
-    }
-    if ((st.includes('FINALIZ') || st.includes('LIQUID') || st.includes('TERMIN')) && !finVisita) {
-      finVisita = parsedDate;
-    }
-    if ((st.includes('ASIGNA') || st.includes('AGENDA')) && !horaAsignacion) {
-      horaAsignacion = parsedDate;
-    }
+    if (st.includes('CAMINO') && !horaEnCamino) horaEnCamino = parsedDate;
+    if ((st.includes('INICIA') || st.includes('PROCESO')) && !inicioVisita) inicioVisita = parsedDate;
+    if ((st.includes('FINALIZ') || st.includes('LIQUID') || st.includes('TERMIN')) && !finVisita) finVisita = parsedDate;
+    if ((st.includes('ASIGNA') || st.includes('AGENDA')) && !horaAsignacion) horaAsignacion = parsedDate;
+  }
+
+  // 2. Extraer usuario ejecutor de campo REAL (ESTRICTAMENTE en estados operativos: En camino, Iniciada, Revisión)
+  // Estados administrativos como Pendiente, Agendada, Asignada, Anulada, Cancelada NO generan ejecutor.
+  const filasCampo = historial.filter((h) => {
+    const st = (h.estado || '').toUpperCase();
+    const u = (h.usuario || '').trim();
+    if (!u || /^(administrador|admin|sistema|central)$/i.test(u)) return false;
+    return st.includes('CAMINO') || st.includes('INICIA') || st.includes('PROCESO') || st.includes('REVISI');
+  });
+
+  if (filasCampo.length > 0) {
+    const opRow = filasCampo.find(h => {
+      const st = (h.estado || '').toUpperCase();
+      return st.includes('REVISI') || st.includes('INICIA') || st.includes('CAMINO');
+    }) || filasCampo[0];
+    usuarioEjecutor = opRow.usuario.trim();
   }
 
   return {
     horaAsignacion,
     horaEnCamino,
     inicioVisita,
-    finVisita
+    finVisita,
+    usuarioEjecutor
   };
 }
 

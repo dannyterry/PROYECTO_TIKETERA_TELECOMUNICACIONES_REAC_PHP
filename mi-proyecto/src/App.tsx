@@ -163,10 +163,10 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (currentUser) {
+    if (currentUser?.id_usuario) {
       cargarEmpleados();
     }
-  }, [currentUser]);
+  }, [currentUser?.id_usuario]);
 
   const handleSeleccionarEmpleado = (emp: Employee) => {
     setEmpleadoSeleccionado(emp);
@@ -242,6 +242,14 @@ export default function App() {
     currentView === "kardex-movimientos" ||
     currentView === "kardex_movimientos" ||
     currentView === "kardex-general" ||
+    currentView === "transferencias_tecnicos" ||
+    currentView === "transferencias-tecnicos" ||
+    currentView === "transferencias" ||
+    currentView === "transferencia" ||
+    currentView === "traspasos" ||
+    currentView === "traspaso" ||
+    currentView === "traspasos_tecnicos" ||
+    currentView === "traspasos-tecnicos" ||
     currentView === "compras" ||
     currentView === "despacho" ||
     currentView === "historial_despachos" ||
@@ -327,29 +335,13 @@ export default function App() {
         .catch(() => {});
     };
 
-    const fetchNoLeidos = () => {
-      if (document.hidden || !userId) return;
-      fetch(`${API_URL}/api/chat/noleidos?id_usuario=${userId}`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (data && typeof data.total === "number") {
-            setTotalNoLeidos(data.total);
-            setNoLeidosPorUsuario(data.por_usuario || {});
-          }
-        })
-        .catch(() => {});
-    };
-
     fetchOnline();
-    fetchNoLeidos();
-    const intervalOnline = setInterval(fetchOnline, 10000);
-    const intervalChat = setInterval(fetchNoLeidos, 4000);
+    const intervalOnline = setInterval(fetchOnline, 60000); // Solo cada 60s si está activo
 
     return () => {
       clearInterval(intervalOnline);
-      clearInterval(intervalChat);
     };
-  }, [esTecnico, userId]);
+  }, [esTecnico]);
 
   const handleOpenGroupChat = () => {
     window.dispatchEvent(new CustomEvent("openTeamChat", { detail: { tab: "general" } }));
@@ -366,7 +358,7 @@ export default function App() {
     { id: "dashboard", label: "Análisis & Visualización", icon: LayoutDashboard, activo: isExecutiveDashboard },
     { id: "ordenes", label: "Órdenes", icon: ClipboardList, activo: isOrdersView },
     { id: "supervision", label: "Supervisión & Calidad", icon: ShieldCheck, activo: isSupervisionView },
-    { id: "portal-tecnico", label: "Portal Técnico", icon: Car, activo: isTechnicianPortal },
+    { id: "portal-tecnico", label: "Portal Técnico / Dotación", icon: Car, activo: isTechnicianPortal },
     { id: "personal", label: "Personal", icon: Users, activo: isPersonalView },
     { id: "inventario", label: "Inventario", icon: Package, activo: isInventoryView },
     { id: "movilidad", label: "Movilidad", icon: Car, activo: isMobilityView },
@@ -402,7 +394,7 @@ export default function App() {
       window.location.hash = defaultView;
       setCurrentView(defaultView);
     }
-  }, [currentUser, currentView, isCurrentViewAllowed]);
+  }, [currentUser?.id_usuario, currentView]);
 
   // Permisos para subpestañas de Personal
   const canDirectorio = authService.hasAnyPermission(["usuarios.ver", "usuarios.crear", "usuarios.editar"]);

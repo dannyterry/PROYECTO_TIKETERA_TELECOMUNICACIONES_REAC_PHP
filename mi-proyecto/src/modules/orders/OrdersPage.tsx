@@ -349,29 +349,30 @@ export const OrdersPage: React.FC = () => {
     scopeOrders.forEach((o) => {
       if (esOrdenamiento(o.cuadrilla)) {
         ordenamientos++;
-      }
-      const s = normStatus(o.status);
-      if (s.includes("INICIAD") || s.includes("PROCESO")) {
-        verdes++;
-      } else if (
-        s.includes("FINALIZ") ||
-        s.includes("LIQUID") ||
-        s.includes("TERMIN") ||
-        s.includes("CERRAD") ||
-        s.includes("FENIX")
-      ) {
-        azules++;
-      } else if (
-        s.includes("CANCELAD") ||
-        s.includes("OBSERVAD") ||
-        s.includes("REGESTION") ||
-        s.includes("ANULAD") ||
-        s.includes("SUSPENDID")
-      ) {
-        amarillos++;
       } else {
-        // ⚪ Gris: Agendada, Asignada, En camino, Pendiente
-        agendadas++;
+        const s = normStatus(o.status);
+        if (s.includes("INICIAD") || s.includes("PROCESO")) {
+          verdes++;
+        } else if (
+          s.includes("FINALIZ") ||
+          s.includes("LIQUID") ||
+          s.includes("TERMIN") ||
+          s.includes("CERRAD") ||
+          s.includes("FENIX")
+        ) {
+          azules++;
+        } else if (
+          s.includes("CANCELAD") ||
+          s.includes("OBSERVAD") ||
+          s.includes("REGESTION") ||
+          s.includes("ANULAD") ||
+          s.includes("SUSPENDID")
+        ) {
+          amarillos++;
+        } else {
+          // ⚪ Gris: Agendada, Asignada, En camino, Pendiente
+          agendadas++;
+        }
       }
     });
 
@@ -383,6 +384,10 @@ export const OrdersPage: React.FC = () => {
     const esOrd = esOrdenamiento(order.cuadrilla);
     if (statusKey === "Ordenamientos") {
       return esOrd;
+    }
+    // Si la orden es de ordenamiento, no debe entrar en los filtros operativos
+    if (esOrd) {
+      return false;
     }
 
     const s = normStatus(order.status);
@@ -410,14 +415,15 @@ export const OrdersPage: React.FC = () => {
 
   // 4. Filtrado final para la tabla con soporte MULTI-SELECCIÓN ACUMULATIVO:
   // - Si se seleccionan varios estados (ej: Finalizadas + Canceladas), se SUMAN (OR entre estados).
-  // - Si no hay estados seleccionados o es "Todos", muestra todas las órdenes.
+  // - Si no hay estados seleccionados o es "Todos", muestra únicamente las órdenes operativas (excluye ordenamientos por defecto).
+  // - Las órdenes de ordenamiento SÓLO se muestran cuando se hace clic en "Ordenamientos".
   const filteredOrders = useMemo(() => {
     const activeStatuses = (filters.statuses && filters.statuses.length > 0)
       ? filters.statuses.filter((st) => st !== "Todos")
       : (filters.status && filters.status !== "Todos" ? [filters.status] : []);
 
     if (activeStatuses.length === 0) {
-      return scopeOrders;
+      return scopeOrders.filter((order) => !esOrdenamiento(order.cuadrilla));
     }
 
     return scopeOrders.filter((order) => {
@@ -652,7 +658,9 @@ export const OrdersPage: React.FC = () => {
   // Si el filtro "Ordenamientos" NO está activo, se excluyen las cuadrillas que empiezan con 'O'
   const displayAlertsData = useMemo(() => {
     if (!alertsData) return null;
-    const mostrarOrdenamientos = filters.status === "Ordenamientos";
+    const mostrarOrdenamientos =
+      (filters.statuses && filters.statuses.includes("Ordenamientos")) ||
+      filters.status === "Ordenamientos";
 
     const tecnicosFiltrados = alertsData.alertas.tecnicos_sin_orden.filter((t) => {
       const esO = esOrdenamiento(t.cuadrilla);
@@ -685,7 +693,7 @@ export const OrdersPage: React.FC = () => {
         tramos_riesgo: tramosFiltrados,
       },
     };
-  }, [alertsData, filters.status]);
+  }, [alertsData, filters.status, filters.statuses]);
 
   // Abrir modal de tareas por número de orden desde las alertas
   const handleOpenTasksByOrderNumber = useCallback((num: string) => {

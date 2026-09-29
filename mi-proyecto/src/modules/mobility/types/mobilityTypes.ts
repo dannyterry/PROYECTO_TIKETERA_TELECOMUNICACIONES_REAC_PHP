@@ -52,6 +52,7 @@ export interface Vehiculo {
   tecnico_asignado?: string;
   cuadrilla?: string;
   ultimo_km?: number | null;
+  ultimo_nivel_combustible?: string | null;
   fecha_asignacion?: string | null;
   motivo_asignacion?: string | null;
 }
@@ -92,6 +93,7 @@ export interface Inspeccion {
   foto_aceite?: string;
   foto_agua?: string;
   foto_estado_general?: string;
+  nivel_combustible?: string;
   km_fin?: number;
   hora_fin?: string;
   foto_tablero_fin?: string;

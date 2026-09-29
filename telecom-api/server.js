@@ -18,7 +18,7 @@ const { sincronizarTareasOrdenSeguro, getTareasDeBD, sincronizarTareasOrdenesAct
 const { getMotivosCatalogo, resolverTipoTrabajoConCatalogo, resolverTipoTrabajoOficial } = require('./services/tipoTrabajoHelper');
 const { hashPassword, verifyPassword, isHashed } = require("./lib/password");
 const { signToken, requireAuth } = require("./middleware/requireAuth");
-// [WIN-AUDIT] Layer enabled v1.1
+// [WIN-AUDIT] Layer enabled v1.1 - Reload: 2026-09-29T15:54:00
 
 // CONFIGURACIÓN DE MULTER CON RUTA ABSOLUTA (Para compatibilidad con cPanel / Passenger)
 const uploadDir = path.join(__dirname, 'uploads');
@@ -3155,76 +3155,126 @@ app.post('/ordenes/tarea-imagen', async (req, res) => {
   }
 });
 
-// --- 1.4 OBTENER HISTORIAL DE ESTADOS DE UNA ORDEN (Y ENRIQUECER HORARIOS Y ESTADO REAL) ---
+// --- 1.4 OBTENER HISTORIAL DE ESTADOS DE UNA ORDEN (Y ENRIQUECER HORARIOS, ESTADO REAL Y EJECUTOR) ---
 app.get('/ordenes/:numero/historial-estados', async (req, res) => {
   try {
     const { numero } = req.params;
     const historial = await obtenerHistorialEstados(numero);
     let estadoActualizado = null;
+    let tecnicoActualizado = null;
+    let idTecnicoActualizado = null;
     
-    // Si se obtuvieron hitos de tiempo o estado, enriquecer automáticamente la BD
+    // Si se obtuvieron hitos de tiempo, estado o ejecutor, enriquecer automáticamente la BD
     if (historial && historial.length > 0) {
       const tiempos = extraerTiemposDeHistorial(historial);
       const ultimoEstadoFenix = historial[0]?.estado ? String(historial[0].estado).trim() : null;
+
+      // Obtener estado actual de la orden y si tiene asignación manual
+      const [ordRows] = await pool.query(
+        "SELECT id_orden, numero, asignacion_manual, id_tecnico, tecnico_asignado, cuadrilla FROM ordenes WHERE numero = ? OR id_orden = ? LIMIT 1",
+        [numero, numero]
+      );
+      const ordenActual = ordRows[0] || null;
+      const esManual = Boolean(ordenActual && (ordenActual.asignacion_manual === 1 || ordenActual.asignacion_manual === true || ordenActual.asignacion_manual === '1'));
+
+      let autoIdTecnico = ordenActual ? ordenActual.id_tecnico : null;
+      let autoNombreTecnico = ordenActual ? ordenActual.tecnico_asignado : null;
+
+      // Si NO tiene asignación manual y SÍ hubo trabajo de campo real (En camino / Iniciada / Revisión)
+      if (!esManual && tiempos.usuarioEjecutor) {
+        const [techUsers] = await pool.query("SELECT id_usuario, nombres, apellidos, primer_apellido, segundo_apellido FROM usuarios");
+        
+        // Verificar si alguna fila de campo pertenece a un técnico de Céspedes (prioridad absoluta a técnicos internos)
+        const filasCampo = historial.filter((h) => {
+          const st = (h.estado || '').toUpperCase();
+          const u = (h.usuario || '').trim();
+          if (!u || /^(administrador|admin|sistema|central)$/i.test(u)) return false;
+          return st.includes('CAMINO') || st.includes('INICIA') || st.includes('PROCESO') || st.includes('REVISI');
+        });
+
+        let foundTech = null;
+        for (const h of filasCampo) {
+          const norm = String(h.usuario).toUpperCase().trim();
+          foundTech = (techUsers || []).find((u) => {
+            const full1 = `${u.nombres || ''} ${u.apellidos || ''}`.toUpperCase().trim();
+            const full2 = `${u.nombres || ''} ${u.primer_apellido || ''} ${u.segundo_apellido || ''}`.toUpperCase().trim();
+            if (full1 && (norm === full1 || norm.includes(full1) || full1.includes(norm))) return true;
+            if (full2 && (norm === full2 || norm.includes(full2) || full2.includes(norm))) return true;
+
+            const nameParts = (u.nombres || '').toUpperCase().split(/\s+/).filter(p => p.length > 2);
+            const apeParts = (u.apellidos || u.primer_apellido || '').toUpperCase().split(/\s+/).filter(p => p.length > 2);
+            return nameParts.some(p => norm.includes(p)) && apeParts.some(p => norm.includes(p));
+          });
+          if (foundTech) break;
+        }
+
+        if (foundTech) {
+          autoIdTecnico = foundTech.id_usuario;
+          autoNombreTecnico = `${foundTech.nombres} ${foundTech.apellidos || foundTech.primer_apellido || ''}`.trim();
+        } else {
+          // Solo si el estado final es Finalizada o Liquidada se marca como EXTERNO
+          const esFinLiq = ultimoEstadoFenix && /^(finalizad[ao]|liquidad[ao])/i.test(ultimoEstadoFenix);
+          if (esFinLiq) {
+            autoIdTecnico = null;
+            autoNombreTecnico = 'EXTERNO: ' + tiempos.usuarioEjecutor;
+          }
+        }
+      }
 
       // Lista de estados oficiales de Fénix
       const esEstadoFenixSolido = ultimoEstadoFenix && [
         'Finalizada', 'Liquidada', 'Cancelada', 'Anulada', 'Regestión', 'Regestion', 'Iniciada', 'En camino', 'Agendada'
       ].includes(ultimoEstadoFenix);
 
-      if (esEstadoFenixSolido) {
-        // Actualizar la orden preservando si ya estaba Liquidada localmente
-        const [updateRes] = await pool.query(
-          `UPDATE ordenes 
-           SET 
-             estado = CASE 
-               WHEN UPPER(estado) = 'LIQUIDADA' THEN estado 
-               ELSE ? 
-             END,
-             hora_en_camino = COALESCE(hora_en_camino, ?),
-             inicio_visita = COALESCE(inicio_visita, ?),
-             fin_visita = COALESCE(fin_visita, ?),
-             hora_asignacion = COALESCE(hora_asignacion, ?)
-           WHERE numero = ? OR id_orden = ?`,
-          [
-            ultimoEstadoFenix,
-            tiempos.horaEnCamino,
-            tiempos.inicioVisita,
-            tiempos.finVisita,
-            tiempos.horaAsignacion,
-            numero,
-            numero
-          ]
-        ).catch((err) => {
-          console.error("Aviso al enriquecer estado desde historial:", err.message);
-          return [{}];
-        });
+      const [updateRes] = await pool.query(
+        `UPDATE ordenes 
+         SET 
+           estado = CASE 
+             WHEN UPPER(estado) = 'LIQUIDADA' THEN estado 
+             WHEN ? IS NOT NULL THEN ? 
+             ELSE estado 
+           END,
+           hora_en_camino = COALESCE(hora_en_camino, ?),
+           inicio_visita = COALESCE(inicio_visita, ?),
+           fin_visita = COALESCE(fin_visita, ?),
+           hora_asignacion = COALESCE(hora_asignacion, ?),
+           usuario_ejecutor_fenix = ?,
+           id_tecnico = CASE WHEN asignacion_manual = 1 THEN id_tecnico ELSE ? END,
+           tecnico_asignado = CASE WHEN asignacion_manual = 1 THEN tecnico_asignado ELSE ? END
+         WHERE numero = ? OR id_orden = ?`,
+        [
+          esEstadoFenixSolido ? ultimoEstadoFenix : null,
+          esEstadoFenixSolido ? ultimoEstadoFenix : null,
+          tiempos.horaEnCamino,
+          tiempos.inicioVisita,
+          tiempos.finVisita,
+          tiempos.horaAsignacion,
+          tiempos.usuarioEjecutor || null,
+          autoIdTecnico,
+          autoNombreTecnico,
+          numero,
+          numero
+        ]
+      ).catch((err) => {
+        console.error("Aviso al enriquecer estado desde historial:", err.message);
+        return [{}];
+      });
 
-        if (updateRes && updateRes.affectedRows > 0) {
-          estadoActualizado = ultimoEstadoFenix;
-        }
-      } else if (tiempos.horaEnCamino || tiempos.inicioVisita || tiempos.finVisita || tiempos.horaAsignacion) {
-        await pool.query(
-          `UPDATE ordenes 
-           SET 
-             hora_en_camino = COALESCE(hora_en_camino, ?),
-             inicio_visita = COALESCE(inicio_visita, ?),
-             fin_visita = COALESCE(fin_visita, ?),
-             hora_asignacion = COALESCE(hora_asignacion, ?)
-           WHERE numero = ? OR id_orden = ?`,
-          [
-            tiempos.horaEnCamino,
-            tiempos.inicioVisita,
-            tiempos.finVisita,
-            tiempos.horaAsignacion,
-            numero,
-            numero
-          ]
-        ).catch(() => {});
+      if (updateRes && updateRes.affectedRows > 0) {
+        if (esEstadoFenixSolido) estadoActualizado = ultimoEstadoFenix;
+        tecnicoActualizado = autoNombreTecnico;
+        idTecnicoActualizado = autoIdTecnico;
       }
     }
     
-    res.json({ success: true, numero, historial, estadoActual: estadoActualizado || historial?.[0]?.estado || null });
+    res.json({ 
+      success: true, 
+      numero, 
+      historial, 
+      estadoActual: estadoActualizado || historial?.[0]?.estado || null,
+      tecnicoAsignado: tecnicoActualizado,
+      idTecnico: idTecnicoActualizado
+    });
   } catch (error) {
     console.error("Error al obtener historial de estados:", error.message);
     res.status(500).json({ success: false, error: error.message });
@@ -3765,6 +3815,7 @@ app.get('/api/movilidad/vehiculos', async (req, res) => {
         v.transmision,
         v.color,
         v.estado,
+        v.ultimo_nivel_combustible,
         v.observaciones,
         v.fecha_ven_soat,
         v.fecha_ven_revision,
@@ -4195,7 +4246,7 @@ app.get('/api/movilidad/vehiculos/:id/asignaciones', async (req, res) => {
 // --- 🚗 4. REGISTRAR CHECKLIST INICIO JORNADA (TÉCNICO 7:00 AM) ---
 app.post('/api/movilidad/inspeccion/inicio', uploadInspeccion, async (req, res) => {
   try {
-    const { id_vehiculo, id_trabajador, fecha, km_inicio, hora_inicio, observaciones_tecnico, lat_inicio, lng_inicio } = req.body;
+    const { id_vehiculo, id_trabajador, fecha, km_inicio, hora_inicio, observaciones_tecnico, lat_inicio, lng_inicio, nivel_combustible } = req.body;
 
     if (!id_vehiculo || !id_trabajador) {
       return res.status(400).json({ error: "id_vehiculo y id_trabajador son requeridos" });
@@ -4203,6 +4254,7 @@ app.post('/api/movilidad/inspeccion/inicio', uploadInspeccion, async (req, res) 
 
     const fechaInspeccion = fecha || new Date().toISOString().slice(0, 10);
     const horaInicio = hora_inicio || new Date().toTimeString().slice(0, 8);
+    const nivelComb = nivel_combustible || 'Medio';
 
     const foto_tablero_inicio = req.files && req.files['foto_tablero_inicio'] ? req.files['foto_tablero_inicio'][0].filename : null;
     const foto_aceite = req.files && req.files['foto_aceite'] ? req.files['foto_aceite'][0].filename : null;
@@ -4228,9 +4280,12 @@ app.post('/api/movilidad/inspeccion/inicio', uploadInspeccion, async (req, res) 
           foto_aceite = COALESCE(?, foto_aceite),
           foto_agua = COALESCE(?, foto_agua),
           foto_estado_general = COALESCE(?, foto_estado_general),
+          nivel_combustible = COALESCE(?, nivel_combustible),
           observaciones_tecnico = COALESCE(?, observaciones_tecnico)
         WHERE id_inspeccion = ?
-      `, [id_trabajador, km_inicio, horaInicio, lat_inicio || null, lng_inicio || null, foto_tablero_inicio, foto_aceite, foto_agua, foto_estado_general, observaciones_tecnico, existente[0].id_inspeccion]);
+      `, [id_trabajador, km_inicio, horaInicio, lat_inicio || null, lng_inicio || null, foto_tablero_inicio, foto_aceite, foto_agua, foto_estado_general, nivelComb, observaciones_tecnico, existente[0].id_inspeccion]);
+
+      await pool.query("UPDATE vehiculos SET ultimo_nivel_combustible = ? WHERE id_vehiculo = ?", [nivelComb, id_vehiculo]).catch(() => {});
 
       if (lat_inicio && lng_inicio) {
         await registrarLogGps(id_trabajador, id_vehiculo, Number(lat_inicio), Number(lng_inicio), 'CHECKLIST_INICIO', 'INSP-INICIO', 'Checklist de Inicio de Jornada');
@@ -4244,9 +4299,11 @@ app.post('/api/movilidad/inspeccion/inicio', uploadInspeccion, async (req, res) 
         id_vehiculo, id_trabajador, fecha, km_inicio, hora_inicio,
         lat_inicio, lng_inicio,
         foto_tablero_inicio, foto_aceite, foto_agua, foto_estado_general,
-        observaciones_tecnico, estado_auditoria
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pendiente')
-    `, [id_vehiculo, id_trabajador, fechaInspeccion, km_inicio, horaInicio, lat_inicio || null, lng_inicio || null, foto_tablero_inicio, foto_aceite, foto_agua, foto_estado_general, observaciones_tecnico]);
+        nivel_combustible, observaciones_tecnico, estado_auditoria
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pendiente')
+    `, [id_vehiculo, id_trabajador, fechaInspeccion, km_inicio, horaInicio, lat_inicio || null, lng_inicio || null, foto_tablero_inicio, foto_aceite, foto_agua, foto_estado_general, nivelComb, observaciones_tecnico]);
+
+    await pool.query("UPDATE vehiculos SET ultimo_nivel_combustible = ? WHERE id_vehiculo = ?", [nivelComb, id_vehiculo]).catch(() => {});
 
     if (lat_inicio && lng_inicio) {
       await registrarLogGps(id_trabajador, id_vehiculo, Number(lat_inicio), Number(lng_inicio), 'CHECKLIST_INICIO', 'INSP-INICIO', 'Checklist de Inicio de Jornada');
@@ -4261,10 +4318,11 @@ app.post('/api/movilidad/inspeccion/inicio', uploadInspeccion, async (req, res) 
 // --- 🚗 5. REGISTRAR CHECKLIST FIN JORNADA (TÉCNICO 7:00 PM) ---
 app.post('/api/movilidad/inspeccion/fin', uploadInspeccion, async (req, res) => {
   try {
-    const { id_inspeccion, id_vehiculo, id_trabajador, fecha, km_fin, hora_fin, observaciones_tecnico, lat_fin, lng_fin } = req.body;
+    const { id_inspeccion, id_vehiculo, id_trabajador, fecha, km_fin, hora_fin, observaciones_tecnico, lat_fin, lng_fin, nivel_combustible } = req.body;
 
     const horaFin = hora_fin || new Date().toTimeString().slice(0, 8);
     const foto_tablero_fin = req.files && req.files['foto_tablero_fin'] ? req.files['foto_tablero_fin'][0].filename : null;
+    const nivelComb = nivel_combustible || null;
 
     let targetId = id_inspeccion;
     if (!targetId) {
@@ -4362,12 +4420,17 @@ app.post('/api/movilidad/inspeccion/fin', uploadInspeccion, async (req, res) => 
         lat_fin = ?,
         lng_fin = ?,
         foto_tablero_fin = COALESCE(?, foto_tablero_fin),
+        nivel_combustible = COALESCE(?, nivel_combustible),
         km_recorridos = ?,
         km_estimados_ordenes = ?,
         diferencia_km = ?,
         observaciones_tecnico = CONCAT(COALESCE(observaciones_tecnico, ''), ' | Fin: ', COALESCE(?, ''))
       WHERE id_inspeccion = ?
-    `, [kmFinNum, horaFin, lat_fin || null, lng_fin || null, foto_tablero_fin, kmRecorridos, kmEstimadosOrdenes, diferenciaKm, observaciones_tecnico, targetId]);
+    `, [kmFinNum, horaFin, lat_fin || null, lng_fin || null, foto_tablero_fin, nivelComb, kmRecorridos, kmEstimadosOrdenes, diferenciaKm, observaciones_tecnico, targetId]);
+
+    if (nivelComb && (id_vehiculo || insp.id_vehiculo)) {
+      await pool.query("UPDATE vehiculos SET ultimo_nivel_combustible = ? WHERE id_vehiculo = ?", [nivelComb, id_vehiculo || insp.id_vehiculo]).catch(() => {});
+    }
 
     res.json({
       success: true,
@@ -5417,6 +5480,120 @@ app.get('/api/almacen/stock-general', async (req, res) => {
       seriesTecnicos
     });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- 🔍 DETALLE DE DESCARGAS / CONSUMOS POR ÓRDENES Y ACTAS DE UN TÉCNICO ---
+app.get('/api/almacen/descargas-tecnico-detalle', async (req, res) => {
+  try {
+    const { id_trabajador, id_producto } = req.query;
+    if (!id_trabajador) {
+      return res.status(400).json({ error: "Parámetro 'id_trabajador' es requerido." });
+    }
+
+    // 1. Descargas de materiales, drops y productos desde orden_liquidacion_detalle
+    let paramsMateriales = [id_trabajador];
+    let whereMateriales = "WHERE ol.id_trabajador = ?";
+    if (id_producto) {
+      whereMateriales += " AND old.id_producto = ?";
+      paramsMateriales.push(id_producto);
+    }
+
+    const [descargasMateriales] = await pool.query(`
+      SELECT 
+        old.id_detalle_liq,
+        ol.id_liquidacion,
+        ol.id_orden,
+        COALESCE(o.numero, 'S/N') AS orden_numero,
+        COALESCE(o.cod_seguimiento_cliente, o.numero, 'S/T') AS ticket,
+        COALESCE(o.cliente, 'Cliente sin registrar') AS cliente,
+        COALESCE(o.direccion, 'Sin dirección') AS direccion,
+        COALESCE(o.localidad, o.region_zona, 'Sin distrito') AS distrito,
+        COALESCE(o.tipo_trabajo, ol.tipo_trabajo_acta, 'Instalación') AS tipo_trabajo,
+        ol.numero_acta,
+        ol.numero_guia,
+        ol.fecha_liquidacion,
+        ol.estado AS estado_liquidacion,
+        ol.liquidado_por,
+        ol.observaciones,
+        ol.observaciones_tecnico,
+        p.id_producto,
+        p.nombre AS producto_nombre,
+        p.codigo AS producto_codigo,
+        p.es_drop,
+        old.cantidad,
+        old.drop_inicio,
+        old.drop_fin,
+        old.numero_serie
+      FROM orden_liquidacion_detalle old
+      JOIN orden_liquidaciones ol ON old.id_liquidacion = ol.id_liquidacion
+      JOIN productos p ON old.id_producto = p.id_producto
+      LEFT JOIN ordenes o ON ol.id_orden = o.id_orden
+      ${whereMateriales}
+      ORDER BY ol.fecha_liquidacion DESC, ol.id_liquidacion DESC
+    `, paramsMateriales);
+
+    // 2. Series/Equipos/Actas liquidadas desde trabajador_series
+    let paramsSeries = [id_trabajador];
+    let whereSeries = "WHERE ts.id_trabajador = ? AND (ts.estado = 'Usada' OR ts.estado = 'Liquidada')";
+    if (id_producto) {
+      whereSeries += " AND ts.id_producto = ?";
+      paramsSeries.push(id_producto);
+    }
+
+    const [descargasSeries] = await pool.query(`
+      SELECT 
+        ts.id_trabajador_serie,
+        ts.id_trabajador,
+        ts.id_producto,
+        p.nombre AS producto_nombre,
+        p.codigo AS producto_codigo,
+        p.es_drop,
+        ps.numero_serie,
+        ps.codigo_serie,
+        ts.estado AS estado_serie,
+        ts.fecha_asignacion,
+        ol.id_liquidacion,
+        ol.id_orden,
+        COALESCE(o.numero, 'S/N') AS orden_numero,
+        COALESCE(o.cod_seguimiento_cliente, o.numero, 'S/T') AS ticket,
+        COALESCE(o.cliente, 'Cliente sin registrar') AS cliente,
+        COALESCE(o.direccion, 'Sin dirección') AS direccion,
+        COALESCE(o.localidad, o.region_zona, 'Sin distrito') AS distrito,
+        COALESCE(o.tipo_trabajo, ol.tipo_trabajo_acta, 'Instalación') AS tipo_trabajo,
+        ol.numero_acta,
+        ol.numero_guia,
+        ol.fecha_liquidacion,
+        ol.estado AS estado_liquidacion,
+        ol.liquidado_por,
+        ol.observaciones,
+        ol.observaciones_tecnico
+      FROM trabajador_series ts
+      JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
+      JOIN productos p ON ts.id_producto = p.id_producto
+      LEFT JOIN orden_liquidaciones ol ON (
+        ol.id_trabajador = ts.id_trabajador AND 
+        (ol.numero_acta = ps.numero_serie OR ol.numero_guia = ps.numero_serie)
+      )
+      LEFT JOIN ordenes o ON ol.id_orden = o.id_orden
+      ${whereSeries}
+        AND NOT EXISTS (
+          SELECT 1 FROM orden_liquidacion_detalle old2 
+          JOIN orden_liquidaciones ol2 ON old2.id_liquidacion = ol2.id_liquidacion
+          WHERE ol2.id_trabajador = ts.id_trabajador 
+            AND (old2.numero_serie = ps.numero_serie OR (old2.id_producto = ts.id_producto AND old2.id_liquidacion = ol.id_liquidacion))
+        )
+      ORDER BY COALESCE(ol.fecha_liquidacion, ts.fecha_asignacion) DESC
+    `, paramsSeries);
+
+    res.json({
+      descargasMateriales,
+      descargasSeries,
+      totalDescargas: descargasMateriales.length + descargasSeries.length
+    });
+  } catch (error) {
+    console.error("Error en /api/almacen/descargas-tecnico-detalle:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -6700,7 +6877,8 @@ app.get('/api/almacen/tecnicos-disponibles', async (req, res) => {
         TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))) AS nombre_completo,
         COALESCE(u.documento, '') AS documento,
         COALESCE(u.cuadrilla, '') AS cuadrilla,
-        COALESCE(v.placa, 'Sin vehículo') AS vehiculo_placa
+        COALESCE(v.placa, 'Sin vehículo') AS vehiculo_placa,
+        COALESCE(r.nombre, 'Técnico') AS rol_nombre
       FROM trabajadores t
       JOIN usuarios u ON t.id_usuario = u.id_usuario
       LEFT JOIN roles r ON u.id_rol = r.id_rol
@@ -6723,6 +6901,20 @@ app.post('/api/almacen/despacho-tecnico', async (req, res) => {
     if (!id_trabajador) {
       return res.status(400).json({ error: "Debe seleccionar el técnico al que se entrega el material." });
     }
+
+    const [tUserRows] = await pool.query(`
+      SELECT 
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))) AS nombre,
+        COALESCE(u.cuadrilla, '') AS cuadrilla,
+        COALESCE(r.nombre, 'Técnico') AS rol_nombre
+      FROM trabajadores t
+      JOIN usuarios u ON t.id_usuario = u.id_usuario
+      LEFT JOIN roles r ON u.id_rol = r.id_rol
+      WHERE t.id_trabajador = ?
+    `, [id_trabajador]);
+    const tecNombre = tUserRows[0]?.nombre || `Técnico #${id_trabajador}`;
+    const rolLabel = (tUserRows[0]?.rol_nombre || '').toUpperCase().includes('SUPERVI') ? 'Supervisor' : 'Técnico';
+    const tecCuadrilla = tUserRows[0]?.cuadrilla ? ` (${tUserRows[0].cuadrilla})` : '';
 
     const productosConSeries = new Set(
       (Array.isArray(series_pistoleadas) ? series_pistoleadas : [])
@@ -6842,8 +7034,8 @@ app.post('/api/almacen/despacho-tecnico', async (req, res) => {
 
         // Kardex Salida
         const refTexto = esSegundoUso
-          ? `Despacho (SEGUNDO USO) a Técnico #${id_trabajador} (${observaciones || 'Dotación operativa'})`
-          : `Despacho a Técnico #${id_trabajador} (${observaciones || 'Dotación operativa'})`;
+          ? `Despacho (SEGUNDO USO) a ${rolLabel}: ${tecNombre}${tecCuadrilla} (${observaciones || 'Dotación operativa'})`
+          : `Despacho a ${rolLabel}: ${tecNombre}${tecCuadrilla} (${observaciones || 'Dotación operativa'})`;
 
         await pool.query(`
           INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
@@ -7715,10 +7907,13 @@ app.get('/api/almacen/kardex-movimientos', async (req, res) => {
         COALESCE(c.nombre, 'MATERIALES') AS categoria,
         m.tipo,
         CASE 
+          WHEN m.referencia LIKE '%Traspaso%' OR m.referencia LIKE '%traspaso%' OR m.referencia LIKE '%Transferencia%' OR m.referencia LIKE '%transferencia%' THEN 
+            CASE WHEN m.tipo = 'ENTRADA' THEN 'TRASPASO_ENTRADA' ELSE 'TRASPASO_SALIDA' END
           WHEN m.referencia LIKE '%Devolución%' OR m.referencia LIKE '%devolucion%' OR m.referencia LIKE '%Retorno%' THEN 'DEVOLUCION_TECNICO'
-          WHEN m.referencia LIKE '%Compra%' OR m.referencia LIKE '%Factura%' OR m.referencia LIKE '%Ingreso%' THEN 'COMPRA_INGRESO'
+          WHEN m.referencia LIKE '%Compra%' OR m.referencia LIKE '%Factura%' OR m.referencia LIKE '%Ingreso%' OR m.referencia LIKE '%Proveedor%' THEN 'COMPRA_INGRESO'
           WHEN m.referencia LIKE '%Despacho%' OR m.referencia LIKE '%Dotación%' THEN 'DESPACHO_TECNICO'
           WHEN m.referencia LIKE '%Ajuste%' THEN 'AJUSTE_INVENTARIO'
+          WHEN m.tipo = 'ENTRADA' THEN 'COMPRA_INGRESO'
           ELSE m.tipo
         END AS subtipo,
         m.cantidad,
@@ -7733,6 +7928,35 @@ app.get('/api/almacen/kardex-movimientos', async (req, res) => {
       WHERE ${whereMov}
       ORDER BY m.fecha_creacion DESC, m.id_movimiento DESC
     `, paramsMov);
+
+    // Mapear trabajadores para enriquecer referencias que tengan "Técnico #123"
+    const [allWorkers] = await pool.query(`
+      SELECT 
+        t.id_trabajador,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))) AS nombre_completo,
+        COALESCE(u.cuadrilla, '') AS cuadrilla,
+        COALESCE(r.nombre, 'Técnico') AS rol_nombre
+      FROM trabajadores t
+      JOIN usuarios u ON t.id_usuario = u.id_usuario
+      LEFT JOIN roles r ON u.id_rol = r.id_rol
+    `);
+    const workerMap = new Map();
+    allWorkers.forEach(w => {
+      workerMap.set(String(w.id_trabajador), w);
+    });
+
+    movs.forEach(m => {
+      if (m.referencia) {
+        m.referencia = m.referencia.replace(/(?:Técnico|Tecnico|Cuadrilla)\s*#(\d+)/gi, (match, id) => {
+          const w = workerMap.get(String(id));
+          if (w && w.nombre_completo) {
+            const role = (w.rol_nombre || '').toUpperCase().includes('SUPERVI') ? 'Supervisor' : 'Técnico';
+            return `${role}: ${w.nombre_completo}${w.cuadrilla ? ` (${w.cuadrilla})` : ''}`;
+          }
+          return match;
+        });
+      }
+    });
 
     // 2. Consumos y Descargos en Órdenes de Trabajo de Campo
     let whereOrd = "1=1";
@@ -7792,16 +8016,35 @@ app.get('/api/almacen/kardex-movimientos', async (req, res) => {
     let unificados = [...movs, ...ordenLiquidaciones];
 
     // Filtros en memoria para búsqueda textual y filtros específicos
-    if (idTrabajador) {
+    if (idTrabajador && String(idTrabajador).toUpperCase() !== 'TODOS') {
       const [tUser] = await pool.query(`
-        SELECT t.id_trabajador, TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS nombre
+        SELECT 
+          t.id_trabajador, 
+          TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))) AS nombre,
+          u.usuario,
+          u.cuadrilla,
+          u.nombres,
+          COALESCE(u.primer_apellido, u.apellidos, '') AS primer_apellido
         FROM trabajadores t JOIN usuarios u ON t.id_usuario = u.id_usuario WHERE t.id_trabajador = ?
       `, [idTrabajador]);
-      const nomTec = tUser[0]?.nombre ? tUser[0].nombre.toUpperCase() : '';
-      unificados = unificados.filter(m => {
-        const refUpper = (m.referencia || '').toUpperCase();
-        return refUpper.includes(`TÉCNICO #${idTrabajador}`) || refUpper.includes(`TECNICO #${idTrabajador}`) || (nomTec && refUpper.includes(nomTec));
-      });
+
+      if (tUser && tUser.length > 0) {
+        const uInfo = tUser[0];
+        const nomTec = (uInfo.nombre || '').toUpperCase();
+        const userTec = (uInfo.usuario || '').toUpperCase();
+        const nomSimple = `${(uInfo.nombres || '').split(' ')[0]} ${(uInfo.primer_apellido || '').split(' ')[0]}`.trim().toUpperCase();
+
+        unificados = unificados.filter(m => {
+          const refUpper = (m.referencia || '').toUpperCase();
+          return refUpper.includes(`TÉCNICO #${idTrabajador}`) || 
+                 refUpper.includes(`TECNICO #${idTrabajador}`) || 
+                 refUpper.includes(`SUPERVISOR #${idTrabajador}`) || 
+                 refUpper.includes(`CUADRILLA #${idTrabajador}`) ||
+                 (nomTec && refUpper.includes(nomTec)) ||
+                 (userTec && refUpper.includes(userTec)) ||
+                 (nomSimple.length > 4 && refUpper.includes(nomSimple));
+        });
+      }
     }
 
     if (tipo && tipo !== 'TODOS') {
@@ -7809,7 +8052,11 @@ app.get('/api/almacen/kardex-movimientos', async (req, res) => {
     }
 
     if (subtipo && subtipo !== 'TODOS') {
-      unificados = unificados.filter(m => m.subtipo === subtipo);
+      if (subtipo === 'TRASPASOS') {
+        unificados = unificados.filter(m => m.subtipo === 'TRASPASO_ENTRADA' || m.subtipo === 'TRASPASO_SALIDA');
+      } else {
+        unificados = unificados.filter(m => m.subtipo === subtipo);
+      }
     }
 
     if (search && String(search).trim() !== '') {
@@ -13053,6 +13300,651 @@ app.get(['/api/supervision/avance-diario', '/supervision/avance-diario'], async 
     });
   } catch (error) {
     console.error('Error en GET /api/supervision/avance-diario:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ============================================================================
+// 🔄 MÓDULO DE TRANSFERENCIAS / TRASPASO DE STOCK ENTRE TÉCNICOS
+// ============================================================================
+
+// 1. Buscar técnico receptor por DNI (Personal con ROL TÉCNICO o SUPERVISOR)
+app.get('/api/inventario/transferencias/buscar-tecnico-dni', async (req, res) => {
+  try {
+    const dni = String(req.query.dni || '').trim();
+    if (!dni || dni.length < 6) {
+      return res.status(400).json({ success: false, message: 'DNI inválido o incompleto' });
+    }
+
+    const [rows] = await pool.query(`
+      SELECT 
+        t.id_trabajador,
+        u.id_usuario,
+        COALESCE(u.documento, '') AS dni,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS nombre_completo,
+        COALESCE(u.cuadrilla, '') AS cuadrilla,
+        COALESCE(v.placa, 'Sin vehículo') AS vehiculo_placa,
+        COALESCE(u.telefono, '') AS telefono,
+        r.nombre AS rol_nombre,
+        u.id_rol
+      FROM trabajadores t
+      JOIN usuarios u ON t.id_usuario = u.id_usuario
+      LEFT JOIN roles r ON u.id_rol = r.id_rol
+      LEFT JOIN vehiculos v ON t.id_vehiculo = v.id_vehiculo
+      WHERE TRIM(u.documento) = ?
+        AND (u.estado = 'Activo' OR u.estado IS NULL)
+        AND (
+          u.id_rol = 2 
+          OR UPPER(COALESCE(r.nombre, '')) LIKE '%TECNIC%'
+          OR UPPER(COALESCE(r.nombre, '')) LIKE '%SUPERVIS%'
+          OR UPPER(COALESCE(r.nombre, '')) LIKE '%CALIDAD%'
+        )
+      LIMIT 1
+    `, [dni]);
+
+    if (rows.length === 0) {
+      // Verificar si el usuario existe pero tiene otro rol (ej: Administración, Almacén, Gestión)
+      const [usuarioOtroRol] = await pool.query(`
+        SELECT u.id_usuario, TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS nombre_completo,
+               r.nombre AS rol_nombre
+        FROM usuarios u
+        LEFT JOIN roles r ON u.id_rol = r.id_rol
+        WHERE TRIM(u.documento) = ?
+          AND (u.estado = 'Activo' OR u.estado IS NULL)
+        LIMIT 1
+      `, [dni]);
+
+      if (usuarioOtroRol.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Solo se permite personal con rol técnico o supervisor'
+        });
+      }
+
+      return res.status(404).json({ success: false, message: 'No se encontró ningún técnico o supervisor activo con ese DNI' });
+    }
+
+    res.json({ success: true, tecnico: rows[0] });
+  } catch (error) {
+    console.error('Error en buscar-tecnico-dni:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 2. Solicitar transferencia (Técnico A -> Técnico B)
+app.post('/api/inventario/transferencias/solicitar', async (req, res) => {
+  let connection;
+  try {
+    const {
+      id_trabajador_origen,
+      id_trabajador_destino,
+      motivo,
+      materiales, // [{ id_producto, nombre_producto, cantidad, unidad_medida }]
+      series      // [{ id_producto, id_producto_serie, numero_serie, nombre_producto }]
+    } = req.body;
+
+    if (!id_trabajador_origen || !id_trabajador_destino) {
+      return res.status(400).json({ success: false, message: 'Se requiere técnico origen y destino' });
+    }
+
+    if (Number(id_trabajador_origen) === Number(id_trabajador_destino)) {
+      return res.status(400).json({ success: false, message: 'No puedes transferirte materiales a ti mismo' });
+    }
+
+    const itemsMateriales = Array.isArray(materiales) ? materiales.filter(m => Number(m.cantidad) > 0) : [];
+    const itemsSeries = Array.isArray(series) ? series.filter(s => String(s.numero_serie || '').trim() !== '') : [];
+
+    if (itemsMateriales.length === 0 && itemsSeries.length === 0) {
+      return res.status(400).json({ success: false, message: 'Debes seleccionar al menos un material o equipo con serie' });
+    }
+
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    // Obtener datos de ambos técnicos
+    const [infoTecnicos] = await connection.query(`
+      SELECT 
+        t.id_trabajador,
+        COALESCE(u.documento, '') AS dni,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS nombre,
+        COALESCE(u.cuadrilla, '') AS cuadrilla
+      FROM trabajadores t
+      JOIN usuarios u ON t.id_usuario = u.id_usuario
+      WHERE t.id_trabajador IN (?, ?)
+    `, [id_trabajador_origen, id_trabajador_destino]);
+
+    const tecOrigen = infoTecnicos.find(t => Number(t.id_trabajador) === Number(id_trabajador_origen));
+    const tecDestino = infoTecnicos.find(t => Number(t.id_trabajador) === Number(id_trabajador_destino));
+
+    if (!tecOrigen || !tecDestino) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Técnico de origen o destino no válido' });
+    }
+
+    // Validar disponibilidad de materiales en stock del técnico origen
+    for (const mat of itemsMateriales) {
+      const [tp] = await connection.query(
+        'SELECT stock FROM trabajador_productos WHERE id_trabajador = ? AND id_producto = ?',
+        [id_trabajador_origen, mat.id_producto]
+      );
+      const stockActual = tp.length > 0 ? Number(tp[0].stock) : 0;
+      if (stockActual < Number(mat.cantidad)) {
+        await connection.rollback();
+        return res.status(400).json({
+          success: false,
+          message: `Stock insuficiente para ${mat.nombre_producto || 'el producto'}. Tienes ${stockActual} pero intentas transferir ${mat.cantidad}`
+        });
+      }
+    }
+
+    // Validar que las series realmente pertenezcan al técnico origen
+    for (const ser of itemsSeries) {
+      const serieStr = String(ser.numero_serie).trim().toUpperCase();
+      let prodSerieId = ser.id_producto_serie ? Number(ser.id_producto_serie) : null;
+
+      if (!prodSerieId && serieStr) {
+        // Buscar id_producto_serie por numero_serie en producto_series
+        const [psRows] = await connection.query(
+          "SELECT id_producto_serie, id_producto FROM producto_series WHERE UPPER(TRIM(numero_serie)) = ? LIMIT 1",
+          [serieStr]
+        );
+        if (psRows.length > 0) {
+          prodSerieId = psRows[0].id_producto_serie;
+          if (!ser.id_producto) ser.id_producto = psRows[0].id_producto;
+        }
+      }
+
+      ser.id_producto_serie = prodSerieId;
+
+      const [ts] = await connection.query(`
+        SELECT ts.id_trabajador_serie, ts.estado, ts.id_producto_serie
+        FROM trabajador_series ts
+        LEFT JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
+        WHERE ts.id_trabajador = ? 
+          AND (ts.id_producto_serie = ? OR (ps.numero_serie IS NOT NULL AND UPPER(TRIM(ps.numero_serie)) = ?))
+          AND ts.estado = 'Asignada'
+      `, [id_trabajador_origen, prodSerieId || 0, serieStr]);
+
+      if (ts.length === 0) {
+        await connection.rollback();
+        return res.status(400).json({
+          success: false,
+          message: `La serie ${serieStr} no está asignada actualmente a tu usuario o ya fue liquidada.`
+        });
+      }
+    }
+
+    // Generar código único de transferencia
+    const now = new Date();
+    const dateCode = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    const codigoTransferencia = `TRF-${dateCode}-${randomSuffix}`;
+
+    // Insertar cabecera de transferencia
+    const [resHeader] = await connection.query(`
+      INSERT INTO transferencias_tecnicos (
+        codigo_transferencia,
+        id_trabajador_origen,
+        id_trabajador_destino,
+        dni_origen,
+        nombre_origen,
+        cuadrilla_origen,
+        dni_destino,
+        nombre_destino,
+        cuadrilla_destino,
+        estado,
+        motivo_transferencia,
+        total_items,
+        total_series,
+        fecha_solicitud
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDIENTE', ?, ?, ?, NOW())
+    `, [
+      codigoTransferencia,
+      id_trabajador_origen,
+      id_trabajador_destino,
+      tecOrigen.dni,
+      tecOrigen.nombre,
+      tecOrigen.cuadrilla,
+      tecDestino.dni,
+      tecDestino.nombre,
+      tecDestino.cuadrilla,
+      motivo || 'Transferencia de soporte operativo entre técnicos de campo',
+      itemsMateriales.reduce((acc, m) => acc + Number(m.cantidad || 0), 0),
+      itemsSeries.length
+    ]);
+
+    const idTransferencia = resHeader.insertId;
+
+    // Insertar detalles de materiales
+    for (const mat of itemsMateriales) {
+      await connection.query(`
+        INSERT INTO transferencia_tecnico_detalles (
+          id_transferencia,
+          id_producto,
+          nombre_producto,
+          cantidad,
+          unidad_medida,
+          es_serie,
+          numero_serie,
+          id_producto_serie
+        ) VALUES (?, ?, ?, ?, ?, 0, NULL, NULL)
+      `, [
+        idTransferencia,
+        mat.id_producto,
+        mat.nombre_producto || 'Material',
+        mat.cantidad,
+        mat.unidad_medida || 'und'
+      ]);
+    }
+
+    // Insertar detalles de series
+    for (const ser of itemsSeries) {
+      await connection.query(`
+        INSERT INTO transferencia_tecnico_detalles (
+          id_transferencia,
+          id_producto,
+          nombre_producto,
+          cantidad,
+          unidad_medida,
+          es_serie,
+          numero_serie,
+          id_producto_serie
+        ) VALUES (?, ?, ?, 1, 'und', 1, ?, ?)
+      `, [
+        idTransferencia,
+        ser.id_producto || 1,
+        ser.nombre_producto || 'Equipo Serializado',
+        String(ser.numero_serie).trim().toUpperCase(),
+        ser.id_producto_serie || null
+      ]);
+    }
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      message: `Solicitud de transferencia ${codigoTransferencia} creada correctamente. En espera de confirmación de ${tecDestino.nombre}.`,
+      codigo: codigoTransferencia,
+      id_transferencia: idTransferencia
+    });
+  } catch (error) {
+    if (connection) await connection.rollback();
+    console.error('Error en solicitar transferencia:', error);
+    res.status(500).json({ success: false, error: error.message });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// 3. Obtener transferencias pendientes de un técnico (entrantes y salientes)
+app.get('/api/inventario/transferencias/pendientes', async (req, res) => {
+  try {
+    const id_trabajador = Number(req.query.id_trabajador);
+    if (!id_trabajador) {
+      return res.status(400).json({ success: false, message: 'id_trabajador requerido' });
+    }
+
+    // Transferencias entrantes donde este técnico es el receptor
+    const [entrantes] = await pool.query(`
+      SELECT 
+        t.*,
+        TIMESTAMPDIFF(MINUTE, t.fecha_solicitud, NOW()) AS minutos_transcurridos
+      FROM transferencias_tecnicos t
+      WHERE t.id_trabajador_destino = ? AND t.estado = 'PENDIENTE'
+      ORDER BY t.fecha_solicitud DESC
+    `, [id_trabajador]);
+
+    // Transferencias salientes que este técnico envió
+    const [salientes] = await pool.query(`
+      SELECT 
+        t.*,
+        TIMESTAMPDIFF(MINUTE, t.fecha_solicitud, NOW()) AS minutos_transcurridos
+      FROM transferencias_tecnicos t
+      WHERE t.id_trabajador_origen = ? AND t.estado = 'PENDIENTE'
+      ORDER BY t.fecha_solicitud DESC
+    `, [id_trabajador]);
+
+    // Cargar detalles para cada transferencia entrante
+    for (const trf of entrantes) {
+      const [detalles] = await pool.query(
+        'SELECT * FROM transferencia_tecnico_detalles WHERE id_transferencia = ?',
+        [trf.id_transferencia]
+      );
+      trf.detalles = detalles;
+    }
+
+    for (const trf of salientes) {
+      const [detalles] = await pool.query(
+        'SELECT * FROM transferencia_tecnico_detalles WHERE id_transferencia = ?',
+        [trf.id_transferencia]
+      );
+      trf.detalles = detalles;
+    }
+
+    // Transferencias salientes que este técnico envió y que fueron respondidas en las últimas 24 horas
+    const [respondidas_recientes] = await pool.query(`
+      SELECT 
+        t.*,
+        TIMESTAMPDIFF(MINUTE, t.fecha_respuesta, NOW()) AS minutos_desde_respuesta
+      FROM transferencias_tecnicos t
+      WHERE t.id_trabajador_origen = ? 
+        AND t.estado IN ('ACEPTADA', 'RECHAZADA')
+        AND t.fecha_respuesta >= NOW() - INTERVAL 24 HOUR
+      ORDER BY t.fecha_respuesta DESC
+      LIMIT 10
+    `, [id_trabajador]);
+
+    for (const trf of respondidas_recientes) {
+      const [detalles] = await pool.query(
+        'SELECT * FROM transferencia_tecnico_detalles WHERE id_transferencia = ?',
+        [trf.id_transferencia]
+      );
+      trf.detalles = detalles;
+    }
+
+    res.json({
+      success: true,
+      entrantes,
+      salientes,
+      respondidas_recientes,
+      total_pendientes: entrantes.length
+    });
+  } catch (error) {
+    console.error('Error en obtener transferencias pendientes:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 4. Responder transferencia (Aceptar / Rechazar por el receptor)
+app.post('/api/inventario/transferencias/:id/responder', async (req, res) => {
+  let connection;
+  try {
+    const idTransferencia = Number(req.params.id);
+    const { id_trabajador_destino, accion, motivo_rechazo } = req.body;
+
+    if (!['ACEPTAR', 'RECHAZAR'].includes(accion)) {
+      return res.status(400).json({ success: false, message: 'Acción inválida. Use ACEPTAR o RECHAZAR' });
+    }
+
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    // Bloquear y validar registro
+    const [transferRows] = await connection.query(
+      'SELECT * FROM transferencias_tecnicos WHERE id_transferencia = ? FOR UPDATE',
+      [idTransferencia]
+    );
+
+    if (transferRows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Transferencia no encontrada' });
+    }
+
+    const trf = transferRows[0];
+
+    if (trf.estado !== 'PENDIENTE') {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        message: `Esta transferencia ya fue respondida previamente (Estado: ${trf.estado})`
+      });
+    }
+
+    if (id_trabajador_destino && Number(trf.id_trabajador_destino) !== Number(id_trabajador_destino)) {
+      await connection.rollback();
+      return res.status(403).json({ success: false, message: 'No estás autorizado para responder esta transferencia' });
+    }
+
+    if (accion === 'RECHAZAR') {
+      await connection.query(`
+        UPDATE transferencias_tecnicos
+        SET estado = 'RECHAZADA',
+            motivo_rechazo = ?,
+            fecha_respuesta = NOW()
+        WHERE id_transferencia = ?
+      `, [motivo_rechazo || 'Rechazado por el técnico receptor', idTransferencia]);
+
+      await connection.commit();
+      return res.json({
+        success: true,
+        message: 'Transferencia rechazada. El stock no ha sido modificado.'
+      });
+    }
+
+    // ACCIÓN: ACEPTAR -> Ejecutar traspaso de stock y registro en Kardex
+    const [detalles] = await connection.query(
+      'SELECT * FROM transferencia_tecnico_detalles WHERE id_transferencia = ?',
+      [idTransferencia]
+    );
+
+    for (const item of detalles) {
+      if (Number(item.es_serie) === 0) {
+        // Material no serializado
+        const cant = Number(item.cantidad);
+        const prodId = Number(item.id_producto);
+
+        // Descontar al origen
+        await connection.query(`
+          UPDATE trabajador_productos 
+          SET stock = GREATEST(0, stock - ?), fecha_actualizacion = NOW()
+          WHERE id_trabajador = ? AND id_producto = ?
+        `, [cant, trf.id_trabajador_origen, prodId]);
+
+        // Aumentar al receptor
+        const [tpDest] = await connection.query(
+          'SELECT id_trabajador_producto FROM trabajador_productos WHERE id_trabajador = ? AND id_producto = ?',
+          [trf.id_trabajador_destino, prodId]
+        );
+
+        if (tpDest.length > 0) {
+          await connection.query(
+            'UPDATE trabajador_productos SET stock = stock + ?, fecha_actualizacion = NOW() WHERE id_trabajador_producto = ?',
+            [cant, tpDest[0].id_trabajador_producto]
+          );
+        } else {
+          await connection.query(
+            'INSERT INTO trabajador_productos (id_trabajador, id_producto, stock, fecha_creacion, fecha_actualizacion) VALUES (?, ?, ?, NOW(), NOW())',
+            [trf.id_trabajador_destino, prodId, cant]
+          );
+        }
+
+        // Registrar KARDEX: Salida de Origen
+        const refSalida = `Traspaso a Técnico: ${trf.nombre_destino} (DNI ${trf.dni_destino}) [Ref: ${trf.codigo_transferencia}]`;
+        await connection.query(`
+          INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
+          VALUES (?, 1, 'SALIDA', ?, ?, NOW())
+        `, [prodId, cant, refSalida]);
+
+        // Registrar KARDEX: Entrada a Destino
+        const refEntrada = `Recepción de Traspaso: De ${trf.nombre_origen} (DNI ${trf.dni_origen}) [Ref: ${trf.codigo_transferencia}]`;
+        await connection.query(`
+          INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
+          VALUES (?, 1, 'ENTRADA', ?, ?, NOW())
+        `, [prodId, cant, refEntrada]);
+
+      } else {
+        // Equipo serializado
+        const serieStr = String(item.numero_serie).trim().toUpperCase();
+        const prodId = Number(item.id_producto);
+        let prodSerieId = item.id_producto_serie ? Number(item.id_producto_serie) : null;
+
+        if (!prodSerieId && serieStr) {
+          const [psRows] = await connection.query(
+            "SELECT id_producto_serie FROM producto_series WHERE UPPER(TRIM(numero_serie)) = ? LIMIT 1",
+            [serieStr]
+          );
+          if (psRows.length > 0) prodSerieId = psRows[0].id_producto_serie;
+        }
+
+        // Reasignar la serie en trabajador_series al nuevo técnico receptor
+        const [updateSerieRes] = await connection.query(`
+          UPDATE trabajador_series ts
+          LEFT JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
+          SET ts.id_trabajador = ?,
+              ts.fecha_asignacion = NOW(),
+              ts.estado = 'Asignada'
+          WHERE ts.id_trabajador = ?
+            AND (ts.id_producto_serie = ? OR (ps.numero_serie IS NOT NULL AND UPPER(TRIM(ps.numero_serie)) = ?))
+        `, [
+          trf.id_trabajador_destino,
+          trf.id_trabajador_origen,
+          prodSerieId || 0,
+          serieStr
+        ]);
+
+        // Si por alguna razón no existía en trabajador_series, insertarlo para el receptor
+        if (updateSerieRes.affectedRows === 0 && prodSerieId) {
+          await connection.query(`
+            INSERT INTO trabajador_series (id_trabajador, id_producto, id_producto_serie, estado, fecha_asignacion)
+            VALUES (?, ?, ?, 'Asignada', NOW())
+          `, [
+            trf.id_trabajador_destino,
+            prodId,
+            prodSerieId
+          ]);
+        }
+
+        // Registrar KARDEX para el equipo serializado
+        const refSalidaSer = `Traspaso Equipo Serializado: Salida de ${trf.nombre_origen} a ${trf.nombre_destino} [Serie: ${serieStr}] [Ref: ${trf.codigo_transferencia}]`;
+        await connection.query(`
+          INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
+          VALUES (?, 1, 'SALIDA', 1, ?, NOW())
+        `, [prodId, refSalidaSer]);
+
+        const refEntradaSer = `Traspaso Equipo Serializado: Ingreso a ${trf.nombre_destino} desde ${trf.nombre_origen} [Serie: ${serieStr}] [Ref: ${trf.codigo_transferencia}]`;
+        await connection.query(`
+          INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
+          VALUES (?, 1, 'ENTRADA', 1, ?, NOW())
+        `, [prodId, refEntradaSer]);
+      }
+    }
+
+    // Actualizar estado de la cabecera
+    await connection.query(`
+      UPDATE transferencias_tecnicos
+      SET estado = 'ACEPTADA',
+          fecha_respuesta = NOW()
+      WHERE id_transferencia = ?
+    `, [idTransferencia]);
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      message: `¡Transferencia ${trf.codigo_transferencia} aceptada con éxito! El stock y equipos han sido incorporados a tu camioneta.`
+    });
+  } catch (error) {
+    if (connection) await connection.rollback();
+    console.error('Error al responder transferencia:', error);
+    res.status(500).json({ success: false, error: error.message });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// 5. Cancelar transferencia por el técnico emisor (si aún está pendiente)
+app.post('/api/inventario/transferencias/:id/cancelar', async (req, res) => {
+  try {
+    const idTransferencia = Number(req.params.id);
+    const { id_trabajador_origen } = req.body;
+
+    const [rows] = await pool.query(
+      'SELECT * FROM transferencias_tecnicos WHERE id_transferencia = ?',
+      [idTransferencia]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Transferencia no encontrada' });
+    }
+
+    const trf = rows[0];
+    if (trf.estado !== 'PENDIENTE') {
+      return res.status(400).json({ success: false, message: `No se puede cancelar una transferencia en estado ${trf.estado}` });
+    }
+
+    if (id_trabajador_origen && Number(trf.id_trabajador_origen) !== Number(id_trabajador_origen)) {
+      return res.status(403).json({ success: false, message: 'Solo el emisor puede cancelar esta solicitud' });
+    }
+
+    await pool.query(`
+      UPDATE transferencias_tecnicos
+      SET estado = 'CANCELADA',
+          fecha_respuesta = NOW()
+      WHERE id_transferencia = ?
+    `, [idTransferencia]);
+
+    res.json({ success: true, message: 'Transferencia cancelada con éxito' });
+  } catch (error) {
+    console.error('Error al cancelar transferencia:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 6. Historial de transferencias para Auditoría / Almacén / Supervisión
+app.get('/api/inventario/transferencias/historial', async (req, res) => {
+  try {
+    const { fecha_desde, fecha_hasta, estado, id_trabajador, buscar } = req.query;
+
+    let query = `
+      SELECT 
+        t.*,
+        DATE_FORMAT(t.fecha_solicitud, '%d/%m/%Y %H:%i') AS fecha_solicitud_fmt,
+        DATE_FORMAT(t.fecha_respuesta, '%d/%m/%Y %H:%i') AS fecha_respuesta_fmt
+      FROM transferencias_tecnicos t
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (fecha_desde) {
+      query += ' AND DATE(t.fecha_solicitud) >= ?';
+      params.push(fecha_desde);
+    }
+    if (fecha_hasta) {
+      query += ' AND DATE(t.fecha_solicitud) <= ?';
+      params.push(fecha_hasta);
+    }
+    if (estado && estado !== 'TODOS') {
+      query += ' AND t.estado = ?';
+      params.push(estado);
+    }
+    if (id_trabajador) {
+      query += ' AND (t.id_trabajador_origen = ? OR t.id_trabajador_destino = ?)';
+      params.push(id_trabajador, id_trabajador);
+    }
+    if (buscar) {
+      query += ` AND (
+        t.codigo_transferencia LIKE ? OR
+        t.nombre_origen LIKE ? OR
+        t.nombre_destino LIKE ? OR
+        t.dni_origen LIKE ? OR
+        t.dni_destino LIKE ? OR
+        t.cuadrilla_origen LIKE ? OR
+        t.cuadrilla_destino LIKE ?
+      )`;
+      const b = `%${buscar}%`;
+      params.push(b, b, b, b, b, b, b);
+    }
+
+    query += ' ORDER BY t.fecha_solicitud DESC LIMIT 200';
+
+    const [transfers] = await pool.query(query, params);
+
+    // Adjuntar items a cada transferencia
+    for (const trf of transfers) {
+      const [detalles] = await pool.query(
+        'SELECT * FROM transferencia_tecnico_detalles WHERE id_transferencia = ?',
+        [trf.id_transferencia]
+      );
+      trf.detalles = detalles;
+    }
+
+    res.json({
+      success: true,
+      total: transfers.length,
+      transferencias: transfers
+    });
+  } catch (error) {
+    console.error('Error al obtener historial de transferencias:', error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });

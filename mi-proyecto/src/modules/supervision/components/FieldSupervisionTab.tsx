@@ -758,16 +758,21 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
     setSaveSuccess(false);
     setSaveError(null);
 
+    const posFin = await obtenerCoordenadasGpsActual().catch(() => null);
+    const finTime = horaFin || new Date().toTimeString().split(" ")[0].slice(0, 5);
+    const posFinStr = posFin ? posFin.str : coordenadasFin;
+
     const payload: FichaSupervisionCampo = {
+      id: idSupervisionGuardada || undefined,
       id_tecnico: selectedTecnico?.id_tecnico,
       tecnico: tecnicoName.trim(),
       cuadrilla: cuadrilla.trim() || undefined,
       tipo_inspeccion: selectedTipo,
       fecha,
       hora,
-      hora_inicio: horaInicio || undefined,
-      hora_fin: horaFin || undefined,
-      estado_operativo: estadoOperativo,
+      hora_inicio: horaInicio || hora,
+      hora_fin: finTime,
+      estado_operativo: "FINALIZADA",
       id_orden: selectedOrden?.id_orden || undefined,
       numero_ticket: selectedOrden?.ticket || selectedOrden?.ot || undefined,
       cliente_orden: selectedOrden?.cliente || undefined,
@@ -775,7 +780,7 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
       coordenadas_orden: coordenadasOrden || undefined,
       coordenadas_en_camino: coordenadasEnCamino || undefined,
       coordenadas_inicio: coordenadasInicio || undefined,
-      coordenadas_fin: coordenadasFin || undefined,
+      coordenadas_fin: posFinStr || undefined,
       distancia_metros_inicio: distanciaMetros !== null ? distanciaMetros : undefined,
       lugar_inspeccion: lugarInspeccion.trim() || undefined,
       supervisor: supervisor.trim() || "Supervisor de Calidad",
@@ -794,7 +799,33 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
     if (res.success) {
       setSaveSuccess(true);
       if (onSaved) onSaved();
-      setTimeout(() => setSaveSuccess(false), 5000);
+
+      // Limpiar y resetear el formulario para atender al siguiente técnico
+      setIdSupervisionGuardada(null);
+      setEstadoOperativo("EN_CAMINO");
+      setTecnicoName("");
+      setSearchTermTecnico("");
+      setSelectedTecnico(null);
+      setSelectedOrden(null);
+      setSearchOtTerm("");
+      setCuadrilla("");
+      setLugarInspeccion("");
+      setCoordenadasEnCamino(null);
+      setCoordenadasInicio(null);
+      setCoordenadasFin(null);
+      setCoordenadasOrden(null);
+      setDistanciaMetros(null);
+      setObservaciones("");
+      setFotoEppUniforme(null);
+      setFotoHerramientas(null);
+      setFotoCarroLimpio(null);
+      setHoraInicio("");
+      setHoraFin("");
+      setSegundosTranscurridos(0);
+      setItems(getItemsForTipo(selectedTipo));
+
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      setTimeout(() => setSaveSuccess(false), 6000);
     } else {
       setSaveError(res.message || "Error al guardar la supervisión");
     }
@@ -1966,9 +1997,14 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
 
         {/* Feedback Alerts */}
         {saveSuccess && (
-          <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            ¡Ficha de supervisión guardada con éxito en la base de datos!
+          <div className="p-4 bg-emerald-50 border-2 border-emerald-300 text-emerald-900 rounded-2xl text-xs font-black flex items-center gap-3 shadow-md animate-in fade-in slide-in-from-top-2">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0">
+              <CheckCircle2 className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-emerald-950 font-black text-xs">¡Ficha de Supervisión FINALIZADA y guardada con éxito!</p>
+              <p className="text-emerald-700 font-medium text-[11px]">El formulario ha sido limpiado automáticamente para registrar la siguiente inspección de técnico.</p>
+            </div>
           </div>
         )}
 

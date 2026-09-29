@@ -25,6 +25,7 @@ import { OrderLiquidationsAuditTab } from "./components/OrderLiquidationsAuditTa
 import { KardexOverviewTab } from "./components/KardexOverviewTab";
 import { CategoriesTab } from "./components/CategoriesTab";
 import { SuppliersTab } from "./components/SuppliersTab";
+import { TechnicianTransfersTab } from "./components/TechnicianTransfersTab";
 import { authService } from "../../services/authService";
 import { OnlineChatDropdown } from "../../components/chat/OnlineChatDropdown";
 import { UserProfileDropdown } from "../../components/layout/UserProfileDropdown";
@@ -40,10 +41,12 @@ export const InventoryPage: React.FC = () => {
   const canKardex = authService.hasAnyPermission(["stock.ver", "movimientos.ver", "almacenes.ver"]);
   const canCategorias = authService.hasAnyPermission(["categorias.ver", "productos.ver"]);
   const canProveedores = authService.hasAnyPermission(["proveedores.ver"]);
+  const canTraspasos = canStock || canKardex || canDespacho;
 
   type InventoryTabType =
     | "stock"
     | "kardex"
+    | "transferencias_tecnicos"
     | "compras"
     | "despacho"
     | "recogidos"
@@ -55,6 +58,7 @@ export const InventoryPage: React.FC = () => {
   const tabsConfig = useMemo(() => [
     { id: "stock" as InventoryTabType, label: "Control de Stock & Almacenes", icon: Layers, allowed: canStock },
     { id: "kardex" as InventoryTabType, label: "Kardex & Movimientos", badge: "General", icon: ArrowLeftRight, allowed: canKardex },
+    { id: "transferencias_tecnicos" as InventoryTabType, label: "Traspasos entre Técnicos", badge: "Campo", icon: ArrowLeftRight, allowed: canTraspasos },
     { id: "compras" as InventoryTabType, label: "Compras & Entrada (Series)", icon: ShoppingCart, allowed: canCompras },
     { id: "despacho" as InventoryTabType, label: "Despacho a Técnicos", icon: Truck, allowed: canDespacho },
     { id: "recogidos" as InventoryTabType, label: "Equipos Recogidos", icon: RotateCcw, allowed: canRecogidos },
@@ -62,12 +66,13 @@ export const InventoryPage: React.FC = () => {
     { id: "liquidaciones_ordenes" as InventoryTabType, label: "Liquidaciones de Técnicos", badge: "Actas", icon: FileCheck, allowed: canLiquidaciones },
     { id: "categorias" as InventoryTabType, label: "Categorías", icon: Tag, allowed: canCategorias },
     { id: "proveedores" as InventoryTabType, label: "Proveedores", icon: Building2, allowed: canProveedores },
-  ], [canStock, canKardex, canCompras, canDespacho, canRecogidos, canDevoluciones, canLiquidaciones, canCategorias, canProveedores]);
+  ], [canStock, canKardex, canTraspasos, canCompras, canDespacho, canRecogidos, canDevoluciones, canLiquidaciones, canCategorias, canProveedores]);
 
   const tabsDisponibles = useMemo(() => tabsConfig.filter((t) => t.allowed), [tabsConfig]);
 
   const getInitialTab = (): InventoryTabType => {
     const hash = window.location.hash.toLowerCase().replace("#", "");
+    if (hash.includes("traspaso") || hash.includes("transferencia")) return "transferencias_tecnicos";
     if ((hash.includes("kardex") || hash.includes("movimiento")) && canKardex) return "kardex";
     if (hash.includes("categoria") && canCategorias) return "categorias";
     if (hash.includes("proveedor") && canProveedores) return "proveedores";
@@ -246,6 +251,10 @@ export const InventoryPage: React.FC = () => {
 
       {tabActiva === "kardex" && canKardex && (
         <KardexOverviewTab productos={productos} />
+      )}
+
+      {tabActiva === "transferencias_tecnicos" && canTraspasos && (
+        <TechnicianTransfersTab />
       )}
 
       {tabActiva === "compras" && canCompras && (

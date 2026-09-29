@@ -62,6 +62,7 @@ export const FleetManagementTab: React.FC<Props> = ({
 }) => {
   const [filtroTexto, setFiltroTexto] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("Todos");
+  const [filtroCombustible, setFiltroCombustible] = useState<string>("Todos");
   const [modoVista, setModoVista] = useState<"tarjetas" | "filas">("tarjetas");
 
   // Catálogos
@@ -121,7 +122,12 @@ export const FleetManagementTab: React.FC<Props> = ({
 
     const coincideEstado = filtroEstado === "Todos" || v.estado === filtroEstado;
 
-    return coincideTexto && coincideEstado;
+    const coincideCombustible =
+      filtroCombustible === "Todos" ||
+      (filtroCombustible === "Bajo" && (v.ultimo_nivel_combustible === "Bajo" || (!v.ultimo_nivel_combustible && false))) ||
+      (v.ultimo_nivel_combustible && v.ultimo_nivel_combustible.toLowerCase() === filtroCombustible.toLowerCase());
+
+    return coincideTexto && coincideEstado && coincideCombustible;
   });
 
   const handleAbrirNuevoVehiculo = () => {
@@ -201,6 +207,23 @@ export const FleetManagementTab: React.FC<Props> = ({
             </button>
           ))}
         </div>
+
+        {/* Filtro de Nivel de Combustible */}
+        <select
+          value={filtroCombustible}
+          onChange={(e) => setFiltroCombustible(e.target.value)}
+          className={`border rounded-2xl px-3.5 py-2 text-xs font-bold focus:outline-none cursor-pointer transition-all ${
+            filtroCombustible === "Bajo"
+              ? "bg-rose-50 text-rose-800 border-rose-300 font-extrabold shadow-2xs"
+              : "bg-slate-50 border-slate-200/80 text-slate-700"
+          }`}
+        >
+          <option value="Todos">⛽ Todos los Niveles Gas</option>
+          <option value="Bajo">🔴 Reserva / Bajo</option>
+          <option value="Medio">🟡 Medio (1/2)</option>
+          <option value="3/4">🔵 3/4</option>
+          <option value="Lleno">🟢 Full / Lleno</option>
+        </select>
 
         {/* Botones de Acción: Catálogo y Nuevo Vehículo */}
         <div className="flex items-center gap-2">
@@ -307,7 +330,7 @@ export const FleetManagementTab: React.FC<Props> = ({
                 </div>
 
                 {/* Especificaciones */}
-                <div className={modoVista === "tarjetas" ? "grid grid-cols-3 gap-2 mt-4 text-center" : "flex items-center gap-2 text-center"}>
+                <div className={modoVista === "tarjetas" ? "grid grid-cols-4 gap-1.5 mt-4 text-center" : "flex items-center gap-2 text-center"}>
                   <div className="bg-slate-50 p-2 rounded-2xl border border-slate-100">
                     <span className="text-[10px] font-bold text-slate-400 uppercase block">Combustible</span>
                     <span className="text-xs font-bold text-slate-800 truncate block">
@@ -324,6 +347,20 @@ export const FleetManagementTab: React.FC<Props> = ({
                     <span className="text-[10px] font-bold text-slate-400 uppercase block">Último KM</span>
                     <span className="text-xs font-black text-cyan-800 font-mono block">
                       {v.ultimo_km ? `${v.ultimo_km.toLocaleString()} km` : "N/D"}
+                    </span>
+                  </div>
+                  <div className={`p-2 rounded-2xl border transition-all ${
+                    v.ultimo_nivel_combustible === "Bajo"
+                      ? "bg-rose-50 border-rose-300 text-rose-800 animate-pulse shadow-2xs"
+                      : v.ultimo_nivel_combustible === "Medio"
+                      ? "bg-amber-50 border-amber-200 text-amber-800"
+                      : v.ultimo_nivel_combustible === "3/4"
+                      ? "bg-sky-50 border-sky-200 text-sky-800"
+                      : "bg-emerald-50 border-emerald-200 text-emerald-800"
+                  }`}>
+                    <span className="text-[10px] font-bold uppercase block opacity-75">Nivel Gas</span>
+                    <span className="text-[11px] font-black truncate block">
+                      {v.ultimo_nivel_combustible === "Bajo" ? "🔴 Reserva" : v.ultimo_nivel_combustible === "Medio" ? "🟡 Medio" : v.ultimo_nivel_combustible === "3/4" ? "🔵 3/4" : "🟢 Full"}
                     </span>
                   </div>
                 </div>
