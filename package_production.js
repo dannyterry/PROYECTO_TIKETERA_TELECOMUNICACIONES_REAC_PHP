@@ -2,139 +2,58 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-console.log('====================================================');
-console.log('📦 COMPILANDO Y GENERANDO PAQUETES DE PRODUCCIÓN');
-console.log('====================================================');
-
-const baseDir = 'd:\\proyectofinal';
-const miProyectoDir = path.join(baseDir, 'mi-proyecto');
-const distReactSource = path.join(miProyectoDir, 'dist');
-
-// 1. Compilar React fresco con la corrección del login
-console.log('\n🔵 [1/3] Compilando React (npm run build)...');
+console.log('🔨 0. Compilando FRONTEND (npm run build en mi-proyecto)...');
+const miProyectoDir = path.resolve('d:/proyectofinal/mi-proyecto');
 execSync('npm run build', { cwd: miProyectoDir, stdio: 'inherit' });
-console.log('✅ React compilado con éxito.');
 
-// 2. Crear paquete React PURO para public_html
-console.log('\n🔵 [2/3] Generando paquete React Puro para public_html...');
-const stagingWebDir = path.join(baseDir, 'staging_public_html');
-if (fs.existsSync(stagingWebDir)) fs.rmSync(stagingWebDir, { recursive: true, force: true });
-fs.mkdirSync(stagingWebDir, { recursive: true });
+console.log('\n📦 1. Empacando FRONTEND (dist) para public_html...');
+const distDir = path.resolve('d:/proyectofinal/mi-proyecto/dist');
+const frontendZip = path.resolve('d:/proyectofinal/SUBIR_FRONTEND_PUBLIC_HTML.zip');
 
-function copyRecursiveSync(src, dest) {
-  const exists = fs.existsSync(src);
-  const stats = exists && fs.statSync(src);
-  const isDirectory = exists && stats.isDirectory();
-  if (isDirectory) {
-    if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
-    fs.readdirSync(src).forEach((child) => {
-      copyRecursiveSync(path.join(src, child), path.join(dest, child));
-    });
-  } else {
-    fs.copyFileSync(src, dest);
-  }
+if (fs.existsSync(frontendZip)) {
+  fs.unlinkSync(frontendZip);
 }
 
-// Copiar todo el contenido de dist_react a staging
-copyRecursiveSync(distReactSource, stagingWebDir);
+// PowerShell compress command for frontend
+const psFrontend = `Compress-Archive -Path '${distDir}/*' -DestinationPath '${frontendZip}' -Force`;
+execSync(`powershell -Command "${psFrontend}"`, { stdio: 'inherit' });
+console.log('✅ FRONTEND ZIP CREADO:', frontendZip, 'Tamaño:', (fs.statSync(frontendZip).size / 1024).toFixed(2), 'KB');
 
-// Crear .htaccess para React SPA
-const htaccessContent = `<IfModule mod_rewrite.c>
-  RewriteEngine On
-  RewriteBase /
-  RewriteRule ^index\\.html$ - [L]
-  RewriteCond %{REQUEST_FILENAME} !-f
-  RewriteCond %{REQUEST_FILENAME} !-d
-  RewriteCond %{REQUEST_FILENAME} !-l
-  RewriteRule . /index.html [L]
-</IfModule>
+console.log('\n📦 2. Empacando BACKEND (API) para api.corporacioncespedes.com...');
+const apiDir = path.resolve('d:/proyectofinal/telecom-api');
+const backendZip = path.resolve('d:/proyectofinal/SUBIR_BACKEND_API.zip');
 
-# Configuración MIME y Cache
-AddDefaultCharset UTF-8
-<IfModule mod_headers.c>
-  Header set X-Content-Type-Options "nosniff"
-</IfModule>
-`;
-fs.writeFileSync(path.join(stagingWebDir, '.htaccess'), htaccessContent, 'utf8');
-
-// Zipear paquete puro para public_html
-const zipPuro = path.join(baseDir, 'frontend_react_puro_public_html.zip');
-try { if (fs.existsSync(zipPuro)) fs.unlinkSync(zipPuro); } catch (e) {}
-
-try {
-  execSync(`tar -a -c -f "${zipPuro}" -C "${stagingWebDir}" .`, { stdio: 'pipe' });
-} catch (e) {
-  execSync(`powershell -Command "Start-Sleep -Milliseconds 800; Compress-Archive -Path '${stagingWebDir}\\*' -DestinationPath '${zipPuro}' -Force"`);
+if (fs.existsSync(backendZip)) {
+  fs.unlinkSync(backendZip);
 }
 
-const statPuro = fs.statSync(zipPuro);
-console.log(`✅ Paquete React Puro generado: ${zipPuro} (${(statPuro.size / 1024).toFixed(1)} KB)`);
+const tempBackend = path.resolve('d:/proyectofinal/temp_backend_pack');
+if (fs.existsSync(tempBackend)) {
+  fs.rmSync(tempBackend, { recursive: true, force: true });
+}
+fs.mkdirSync(tempBackend, { recursive: true });
 
-// Limpiar staging
-try { fs.rmSync(stagingWebDir, { recursive: true, force: true }); } catch (e) {}
-
-// 3. Backend API Node
-console.log('\n🟢 [3/3] Empaquetando Backend Node (telecom-api)...');
-const stagingApiDir = path.join(baseDir, 'staging_api_temp');
-if (fs.existsSync(stagingApiDir)) fs.rmSync(stagingApiDir, { recursive: true, force: true });
-fs.mkdirSync(stagingApiDir, { recursive: true });
-
-const filesToCopy = [
-  'server.js',
-  'db.js',
-  'looker_alert_service.js',
-  'looker_session.json',
-  'cards_and_alerts.json',
-  'looker_orders_parsed.json',
-  'package.json',
-  'package-lock.json'
-];
-
-for (const f of filesToCopy) {
-  const src = path.join(baseDir, 'telecom-api', f);
+// Copiar archivos raíz requeridos
+const rootFiles = ['server.js', 'package.json', 'package-lock.json', 'db.js'];
+rootFiles.forEach(f => {
+  const src = path.join(apiDir, f);
   if (fs.existsSync(src)) {
-    fs.copyFileSync(src, path.join(stagingApiDir, f));
+    fs.copyFileSync(src, path.join(tempBackend, f));
   }
-}
+});
 
-const srcServices = path.join(baseDir, 'telecom-api', 'services');
-if (fs.existsSync(srcServices)) {
-  copyRecursiveSync(srcServices, path.join(stagingApiDir, 'services'));
-}
+// Copiar carpetas necesarias (sin node_modules, sin uploads locales, sin scratch)
+const folders = ['services', 'middleware', 'lib', 'scripts', 'public'];
+folders.forEach(dir => {
+  const srcDir = path.join(apiDir, dir);
+  const destDir = path.join(tempBackend, dir);
+  if (fs.existsSync(srcDir)) {
+    fs.cpSync(srcDir, destDir, { recursive: true });
+  }
+});
 
-const srcLib = path.join(baseDir, 'telecom-api', 'lib');
-if (fs.existsSync(srcLib)) {
-  copyRecursiveSync(srcLib, path.join(stagingApiDir, 'lib'));
-}
-
-const srcMiddleware = path.join(baseDir, 'telecom-api', 'middleware');
-if (fs.existsSync(srcMiddleware)) {
-  copyRecursiveSync(srcMiddleware, path.join(stagingApiDir, 'middleware'));
-}
-
-const uploadsDir = path.join(stagingApiDir, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-const zipApi = path.join(baseDir, 'telecom_api_listo_hosting.zip');
-try { if (fs.existsSync(zipApi)) fs.unlinkSync(zipApi); } catch (e) {}
-
-try {
-  execSync(`tar -a -c -f "${zipApi}" -C "${stagingApiDir}" .`, { stdio: 'pipe' });
-} catch (e) {
-  execSync(`powershell -Command "Start-Sleep -Milliseconds 800; Compress-Archive -Path '${stagingApiDir}\\*' -DestinationPath '${zipApi}' -Force"`);
-}
-
-const statApi = fs.statSync(zipApi);
-console.log(`✅ Backend API zipeado: ${zipApi} (${(statApi.size / 1024).toFixed(1)} KB)`);
-
-// Limpiar staging
-try { fs.rmSync(stagingApiDir, { recursive: true, force: true }); } catch (e) {}
-
-console.log('\n====================================================');
-console.log('🎉 ¡TODOS LOS PAQUETES LISTOS PARA SUBIR!');
-console.log('1. frontend_react_puro_public_html.zip (Para poner directamente en public_html)');
-console.log('2. telecom_api_listo_hosting.zip (Para api.corporacioncespedes.com)');
-console.log('3. migracion_hosting_2026_09_10.sql (Para phpMyAdmin o ejecución directa)');
-console.log('====================================================');
+const psBackend = `Compress-Archive -Path '${tempBackend}/*' -DestinationPath '${backendZip}' -Force`;
+execSync(`powershell -Command "${psBackend}"`, { stdio: 'inherit' });
+fs.rmSync(tempBackend, { recursive: true, force: true });
+console.log('✅ BACKEND ZIP CREADO:', backendZip, 'Tamaño:', (fs.statSync(backendZip).size / 1024).toFixed(2), 'KB');
+console.log('\n🎉 ¡AMBOS ARCHIVOS .ZIP LISTOS PARA SUBIR A CPANEL!');

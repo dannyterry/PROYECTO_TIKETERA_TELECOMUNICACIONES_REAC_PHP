@@ -734,8 +734,26 @@ async function guardarOrdenesEnBD(ordenes) {
       }
       const autoIdTecnico = techInfo?.id || null;
       const autoNombreTecnico = techInfo?.nombre || null;
-      const autoEstado = (esFinLiq && techInfo?.isExternal) ? 'Finalizada Externa' : o.estado;
-      const autoTipoTrabajo = resolverTipoTrabajoConCatalogo(o.motivo_finalizacion, o.tipo_trabajo || o.motivo_trabajo, o.estado, catalogoMotivos);
+      // Auto-clasificación estricta de estado (Reconciliación automática con Fénix):
+      // Si la orden viene como Finalizada/Liquidada pero su motivo_finalizacion o motivo_cancelacion indica CANCELADA / OBSERVADA / NO REALIZADA,
+      // se clasifica como 'Observada' automáticamente para mantener cuadre exacto con Fénix y no pagar indebidamente al técnico.
+      let autoEstado = o.estado || 'Agendada';
+      const motivoFinUpper = String(o.motivo_finalizacion || '').toUpperCase();
+      const motivoCancUpper = String(o.motivo_cancelacion || '').toUpperCase();
+      const motivoAnulUpper = String(o.motivo_anulacion || '').toUpperCase();
+
+      if (esFinLiq) {
+        if (/CANCELAD|NO REALIZAD|OBSERVAD/i.test(motivoFinUpper) || /CANCELAD/i.test(motivoCancUpper)) {
+          autoEstado = 'Observada';
+        } else if (/ANULAD/i.test(motivoFinUpper) || /ANULAD/i.test(motivoAnulUpper)) {
+          autoEstado = 'Anulada';
+        } else if (techInfo?.isExternal || (o.usuario_ejecutor_fenix && !autoIdTecnico)) {
+          autoEstado = 'Finalizada Externa';
+        } else {
+          autoEstado = o.estado;
+        }
+      }
+      const autoTipoTrabajo = resolverTipoTrabajoConCatalogo(o.motivo_finalizacion, o.tipo_trabajo || o.motivo_trabajo, autoEstado, catalogoMotivos);
 
       // Auto-actualizar cuadrilla canónica del técnico en la base de datos si estaba vacía
       if (autoIdTecnico && o.cuadrilla) {
@@ -1219,34 +1237,52 @@ async function obtenerDetalleTarea(idTarea, index) {
 
     // Fotografías
     const fotografias = [];
-    const cardSplits = html.split(/<div[^>]*class=["'][^"']*card\b[^"']*["'][^>]*>/i);
-    cardSplits.shift();
-    cardSplits.forEach((cHtml) => {
-      const h5Match = cHtml.match(/<h5[^>]*>([\s\S]*?)<\/h5>/i);
-      
-      let finalImg = null;
-      const hrefMatch = cHtml.match(/(?:href|data-src|data-original|data-full)=["']([^"']+\.(?:png|jpg|jpeg|webp)[^"']*)["']/i);
-      if (hrefMatch && !hrefMatch[1].startsWith('#') && !hrefMatch[1].startsWith('javascript')) {
-        finalImg = hrefMatch[1];
-      }
-
-      if (!finalImg) {
-        const imgMatch = cHtml.match(/<img[^>]*src=["']([^"']+)["']/i);
-        if (imgMatch) finalImg = imgMatch[1];
-      }
-
-      // Check if there is an onclick or data-id for high-res photo
-      const dataIdMatch = cHtml.match(/ObtenerImagen\s*\(\s*['"]?(\d+)['"]?/i) || cHtml.match(/data-id=["'](\d+)["']/i) || cHtml.match(/id=["'][^"']*(\d{6,})[^"']*["']/i);
-      const dataId = dataIdMatch ? dataIdMatch[1] : idTarea;
-
-      if (finalImg || dataId) {
+    
+    // 1. Extraer identificadores de fotos en alta resolución (activarModalZoomImagenOriginal o OtImageDownload)
+    const zoomRegex = /activarModalZoomImagenOriginal\s*\(\s*[^,]+,\s*['"]?(\d+)['"]?(?:,\s*['"]?(\d+)['"]?)?\)/gi;
+    let zMatch;
+    while ((zMatch = zoomRegex.exec(html)) !== null) {
+      const pId = zMatch[1];
+      const pOp = zMatch[2] || 1;
+      if (pId && !fotografias.some(f => f.dataId === pId)) {
         fotografias.push({
-          titulo: h5Match ? h5Match[1].replace(/<[^>]+>/g, '').trim() : 'Fotografía',
-          imagen: finalImg,
-          dataId: dataId
+          titulo: 'Acta de Conformidad',
+          imagen: null,
+          dataId: pId,
+          opcion: pOp
         });
       }
-    });
+    }
+
+    const dlRegex = /OtImageDownload\.aspx\?Data=(\d+)(?:&OP=(\d+))?/gi;
+    let dMatch;
+    while ((dMatch = dlRegex.exec(html)) !== null) {
+      const pId = dMatch[1];
+      const pOp = dMatch[2] || 1;
+      if (pId && !fotografias.some(f => f.dataId === pId)) {
+        fotografias.push({
+          titulo: 'Acta de Conformidad',
+          imagen: null,
+          dataId: pId,
+          opcion: pOp
+        });
+      }
+    }
+
+    // 2. Extraer thumbnail base64 o imagen adjunta
+    const imgThumbMatch = html.match(/<img[^>]*class=["'][^"']*card-img-top[^"']*["'][^>]*src=["']([^"']+)["']/i) || html.match(/<img[^>]*src=["'](data:image\/[^"']+)["']/i);
+    if (imgThumbMatch) {
+      if (fotografias.length > 0) {
+        fotografias[0].imagen = imgThumbMatch[1];
+      } else {
+        fotografias.push({
+          titulo: 'Fotografía',
+          imagen: imgThumbMatch[1],
+          dataId: idTarea,
+          opcion: 1
+        });
+      }
+    }
 
     // Extraer campos de tabla (CAMPO / VALOR)
     const campos = {};

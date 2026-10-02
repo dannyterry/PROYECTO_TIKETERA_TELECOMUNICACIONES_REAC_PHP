@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   FileCheck,
   CheckCircle2,
@@ -28,19 +28,40 @@ import {
   XCircle,
   Edit2,
   Table,
-  LayoutGrid
+  LayoutGrid,
+  Plus,
+  Trash2,
+  ArrowLeftRight,
+  Truck,
+  ZoomIn,
+  ZoomOut,
+  RotateCw,
+  Maximize2,
+  Minimize2,
+  Download,
+  Move,
+  Image as ImageIcon,
+  Loader2,
 } from "lucide-react";
 import {
   LiquidacionOrdenAudit,
   TecnicoLiqAuditResumen,
-  MaterialLiquidadoAudit
+  MaterialLiquidadoAudit,
+  ProductoStock,
 } from "../types/inventoryTypes";
 import {
   getLiquidacionesOrdenesAudit,
   aprobarLiquidacionOrden,
   rechazarLiquidacionOrden,
   aprobarMasivoLiquidaciones,
-  ajustarMaterialLiquidacion
+  ajustarMaterialLiquidacion,
+  cambiarProductoLiquidacion,
+  agregarMaterialLiquidacion,
+  eliminarMaterialLiquidacion,
+  editarNumeroActaLiquidacion,
+  getTecnicoStock,
+  getStockGeneral,
+  getFotoActaLiquidacion,
 } from "../services/inventoryService";
 
 export const getDropConectorizadoInfo = (materiales?: any[]) => {
@@ -106,8 +127,207 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
   const [editingMatCant, setEditingMatCant] = useState<string>("");
   const [ajusteFeedback, setAjusteFeedback] = useState<{ msg: string; tipo: "success" | "error" } | null>(null);
 
+  // Estados para Modal de Agregar Material Olvidado
+  const [modalAgregarAbierto, setModalAgregarAbierto] = useState<boolean>(false);
+  const [nuevoMatProdId, setNuevoMatProdId] = useState<number | "">("");
+  const [nuevoMatCant, setNuevoMatCant] = useState<string>("1");
+  const [nuevoMatSerie, setNuevoMatSerie] = useState<string>("");
+  const [nuevoMatMotivo, setNuevoMatMotivo] = useState<string>("");
+  const [origenStockAgregar, setOrigenStockAgregar] = useState<"camioneta" | "catalogo">("camioneta");
+
+  // Estados para Modal de Cambiar / Sustituir Producto
+  const [materialACambiar, setMaterialACambiar] = useState<MaterialLiquidadoAudit | null>(null);
+  const [cambioProdId, setCambioProdId] = useState<number | "">("");
+  const [cambioCant, setCambioCant] = useState<string>("1");
+  const [cambioSerie, setCambioSerie] = useState<string>("");
+  const [cambioMotivo, setCambioMotivo] = useState<string>("");
+  const [origenStockCambio, setOrigenStockCambio] = useState<"camioneta" | "catalogo">("camioneta");
+
+  // Stock del técnico y catálogo general para los selectores
+  const [stockTecnico, setStockTecnico] = useState<{ materiales: any[]; seriesAsignadas: any[] } | null>(null);
+  const [catalogoGeneral, setCatalogoGeneral] = useState<ProductoStock[]>([]);
+  const [cargandoStockTec, setCargandoStockTec] = useState<boolean>(false);
+
   // Modal de confirmación para aprobación masiva
   const [modalMasivoAbierto, setModalMasivoAbierto] = useState<boolean>(false);
+
+  // 📸 Estados para Visor HD del Acta de Conformidad
+  const [fotoActaUrl, setFotoActaUrl] = useState<string | null>(null);
+  const [fotoActaLoading, setFotoActaLoading] = useState<boolean>(false);
+  const [fotoActaError, setFotoActaError] = useState<string | null>(null);
+  const [fotoActaDataId, setFotoActaDataId] = useState<string | null>(null);
+  const [fotoActaTiempos, setFotoActaTiempos] = useState<any>(null);
+  const [fotoActaCoordenadas, setFotoActaCoordenadas] = useState<any>(null);
+  const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const [rotation, setRotation] = useState<number>(0);
+  const [panPos, setPanPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [lupaActiva, setLupaActiva] = useState<boolean>(false);
+  const [lupaPos, setLupaPos] = useState<{ x: number; y: number; relX: number; relY: number }>({ x: 0, y: 0, relX: 50, relY: 50 });
+  const [fotoFullscreen, setFotoFullscreen] = useState<boolean>(false);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const imgWrapperRef = useRef<HTMLDivElement | null>(null);
+
+  // 📝 Estados para Edición de Número de Acta Física
+  const [editandoActa, setEditandoActa] = useState<boolean>(false);
+  const [nuevoNumeroActaInput, setNuevoNumeroActaInput] = useState<string>("");
+  const [guardandoActa, setGuardandoActa] = useState<boolean>(false);
+
+  // Extraer series de guías/actas disponibles en el stock asignado al técnico
+  const guiasDisponiblesTecnico: string[] = useMemo(() => {
+    if (!stockTecnico || !stockTecnico.seriesAsignadas) return [];
+    return stockTecnico.seriesAsignadas
+      .filter((s: any) => {
+        const cat = String(s.categoria || "").toUpperCase();
+        const nom = String(s.equipo_nombre || s.nombre_producto || s.nombre || "").toUpperCase();
+        const num = String(s.numero_serie || "").trim();
+        return (
+          cat.includes("ACTA") ||
+          cat.includes("GUIA") ||
+          cat.includes("TALONARIO") ||
+          cat.includes("DOCUMENT") ||
+          nom.includes("ACTA") ||
+          nom.includes("GUIA") ||
+          nom.includes("TALONARIO") ||
+          /^\d{4,8}$/.test(num.replace(/^001-?/i, ""))
+        );
+      })
+      .map((s: any) => String(s.numero_serie || "").trim())
+      .filter(Boolean);
+  }, [stockTecnico]);
+
+  const cargarStockTecnicoYCatalogo = async (idTrabajador?: number | string) => {
+    setCargandoStockTec(true);
+    try {
+      const [resStock, resGen] = await Promise.all([
+        idTrabajador ? getTecnicoStock(idTrabajador) : Promise.resolve({ materiales: [], seriesAsignadas: [] }),
+        getStockGeneral().catch(() => ({ productos: [] }))
+      ]);
+      setStockTecnico(resStock || { materiales: [], seriesAsignadas: [] });
+      setCatalogoGeneral(resGen?.productos || []);
+    } catch (e) {
+      console.error("Error al cargar stock del técnico y catálogo:", e);
+    } finally {
+      setCargandoStockTec(false);
+    }
+  };
+
+  const abrirAuditoria = (liq: LiquidacionOrdenAudit) => {
+    setModalLiq(liq);
+    setMostrandoRechazoInput(false);
+    setMotivoRechazo("");
+    setEditingMatId(null);
+    setMaterialACambiar(null);
+    setModalAgregarAbierto(false);
+    setAjusteFeedback(null);
+    setEditandoActa(false);
+    setNuevoNumeroActaInput("");
+    setGuardandoActa(false);
+
+    // Resetear visor interactivo de foto de acta
+    setFotoActaUrl(null);
+    setFotoActaLoading(true);
+    setFotoActaError(null);
+    setFotoActaDataId(null);
+    setFotoActaTiempos(null);
+    setFotoActaCoordenadas(null);
+    setZoomLevel(1);
+    setRotation(0);
+    setPanPos({ x: 0, y: 0 });
+    setLupaActiva(false);
+    setFotoFullscreen(false);
+
+    // Cargar fotografía HD del Acta desde Fénix o BD
+    if (liq.numero_orden) {
+      getFotoActaLiquidacion(liq.numero_orden)
+        .then((res) => {
+          if (res && res.success && res.foto_url) {
+            setFotoActaUrl(res.foto_url);
+            setFotoActaDataId(res.dataId || null);
+            setFotoActaTiempos(res.tiempos || null);
+            setFotoActaCoordenadas(res.coordenadas || null);
+            setFotoActaError(null);
+          } else {
+            setFotoActaError(res?.error || "El técnico no registró fotografía del Acta en Fénix.");
+          }
+        })
+        .catch((err: any) => {
+          console.warn("Error cargando foto del acta:", err);
+          setFotoActaError(err.response?.data?.error || "No se pudo conectar con Fénix para obtener el Acta.");
+        })
+        .finally(() => {
+          setFotoActaLoading(false);
+        });
+    } else {
+      setFotoActaLoading(false);
+      setFotoActaError("La liquidación no tiene número de orden.");
+    }
+
+    if (liq.id_trabajador) {
+      cargarStockTecnicoYCatalogo(liq.id_trabajador);
+    }
+  };
+
+  // Controles del visor interactivo de imagen
+  const handleZoomIn = () => setZoomLevel((z) => Math.min(4, Math.round((z + 0.25) * 100) / 100));
+  const handleZoomOut = () => {
+    setZoomLevel((z) => {
+      const next = Math.max(0.5, Math.round((z - 0.25) * 100) / 100);
+      if (next <= 1) setPanPos({ x: 0, y: 0 });
+      return next;
+    });
+  };
+  const handleResetZoom = () => {
+    setZoomLevel(1);
+    setPanPos({ x: 0, y: 0 });
+    setRotation(0);
+    setLupaActiva(false);
+  };
+  const handleRotate = () => setRotation((r) => (r + 90) % 360);
+
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    if (e.deltaY < 0) {
+      handleZoomIn();
+    } else {
+      handleZoomOut();
+    }
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (lupaActiva) return;
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - panPos.x, y: e.clientY - panPos.y });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (lupaActiva && imgWrapperRef.current) {
+      const rect = imgWrapperRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const relX = Math.max(0, Math.min(100, (x / rect.width) * 100));
+      const relY = Math.max(0, Math.min(100, (y / rect.height) * 100));
+      setLupaPos({ x, y, relX, relY });
+    } else if (isDragging) {
+      setPanPos({
+        x: e.clientX - dragStart.x,
+        y: e.clientY - dragStart.y
+      });
+    }
+  };
+
+  const handleMouseUp = () => setIsDragging(false);
+
+  const handleDownloadFoto = () => {
+    if (!fotoActaUrl || !modalLiq) return;
+    const a = document.createElement("a");
+    a.href = fotoActaUrl;
+    a.download = `Acta_Orden_${modalLiq.numero_orden || "WIN"}_${modalLiq.numero_acta || "HD"}.jpg`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
 
   const handleGuardarAjusteMaterial = async (mat: MaterialLiquidadoAudit) => {
     if (!modalLiq) return;
@@ -161,7 +381,10 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
         });
 
         setEditingMatId(null);
-        await cargarDatos();
+        if (modalLiq.id_trabajador) {
+          cargarStockTecnicoYCatalogo(modalLiq.id_trabajador);
+        }
+        await cargarDatos(true);
       } else {
         alert(res?.error || "No se pudo actualizar el material.");
       }
@@ -173,9 +396,241 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
     }
   };
 
+  const handleGuardarNuevoMaterial = async () => {
+    if (!modalLiq || !nuevoMatProdId) {
+      alert("Por favor seleccione un producto.");
+      return;
+    }
+    const nCant = parseInt(nuevoMatCant, 10);
+    if (isNaN(nCant) || nCant <= 0) {
+      alert("Por favor ingrese una cantidad válida mayor a 0.");
+      return;
+    }
+
+    setProcesandoAccion(true);
+    try {
+      const res = await agregarMaterialLiquidacion(modalLiq.id_liquidacion, {
+        id_producto: Number(nuevoMatProdId),
+        cantidad: nCant,
+        numero_serie: nuevoMatSerie.trim() || undefined,
+        motivo: nuevoMatMotivo.trim() || "Material agregado por auditoría de almacén"
+      });
+
+      if (res && res.success) {
+        setAjusteFeedback({ msg: res.message || "Material agregado correctamente.", tipo: "success" });
+        setTimeout(() => setAjusteFeedback(null), 6000);
+
+        const nuevoItem: MaterialLiquidadoAudit = {
+          id_detalle_liq: res.id_detalle_liq,
+          id_producto: res.id_producto,
+          nombre_producto: res.nombre_producto,
+          categoria_liquidar: res.categoria_liquidar,
+          cantidad: res.cantidad,
+          numero_serie: res.numero_serie,
+          precio_compra: res.precio_compra,
+          costo: res.costo
+        };
+
+        const nuevosMats = [...(modalLiq.materiales || []), nuevoItem];
+        const nuevoTotalCosto = nuevosMats.reduce((acc, m) => acc + (Number(m.costo) || 0), 0);
+        setModalLiq({
+          ...modalLiq,
+          materiales: nuevosMats,
+          total_costo: nuevoTotalCosto,
+          total_items: nuevosMats.length
+        });
+
+        setModalAgregarAbierto(false);
+        setNuevoMatProdId("");
+        setNuevoMatCant("1");
+        setNuevoMatSerie("");
+        setNuevoMatMotivo("");
+
+        if (modalLiq.id_trabajador) {
+          cargarStockTecnicoYCatalogo(modalLiq.id_trabajador);
+        }
+        await cargarDatos(true);
+      } else {
+        alert(res?.error || "Error al agregar material.");
+      }
+    } catch (err: any) {
+      console.error("Error al agregar material:", err);
+      alert(err.response?.data?.error || err.message || "Error al agregar material.");
+    } finally {
+      setProcesandoAccion(false);
+    }
+  };
+
+  const handleGuardarCambioProducto = async () => {
+    if (!modalLiq || !materialACambiar || !cambioProdId) {
+      alert("Por favor seleccione el nuevo producto de reemplazo.");
+      return;
+    }
+    const nCant = parseInt(cambioCant, 10);
+    if (isNaN(nCant) || nCant <= 0) {
+      alert("Por favor ingrese una cantidad válida mayor a 0.");
+      return;
+    }
+
+    const conf = window.confirm(
+      `¿Confirmas cambiar "${materialACambiar.nombre_producto}" por el nuevo producto seleccionado (${nCant} UND)?\n\nEl sistema reincorporará el producto anterior al stock del técnico y descontará el nuevo.`
+    );
+    if (!conf) return;
+
+    setProcesandoAccion(true);
+    try {
+      const res = await cambiarProductoLiquidacion(modalLiq.id_liquidacion, {
+        id_detalle_liq: materialACambiar.id_detalle_liq,
+        nuevo_id_producto: Number(cambioProdId),
+        nueva_cantidad: nCant,
+        nuevo_numero_serie: cambioSerie.trim() || undefined,
+        motivo: cambioMotivo.trim() || "Cambio de producto por corrección en auditoría"
+      });
+
+      if (res && res.success) {
+        setAjusteFeedback({ msg: res.message || "Producto cambiado correctamente.", tipo: "success" });
+        setTimeout(() => setAjusteFeedback(null), 6000);
+
+        const nuevosMats = modalLiq.materiales.map((m) => {
+          if (m.id_detalle_liq === materialACambiar.id_detalle_liq) {
+            return {
+              ...m,
+              id_producto: res.id_producto,
+              nombre_producto: res.nombre_producto,
+              cantidad: res.cantidad,
+              numero_serie: res.numero_serie,
+              precio_compra: res.precio_compra,
+              costo: res.costo
+            };
+          }
+          return m;
+        });
+
+        const nuevoTotalCosto = nuevosMats.reduce((acc, m) => acc + (Number(m.costo) || 0), 0);
+        setModalLiq({
+          ...modalLiq,
+          materiales: nuevosMats,
+          total_costo: nuevoTotalCosto
+        });
+
+        setMaterialACambiar(null);
+        setCambioProdId("");
+        setCambioCant("1");
+        setCambioSerie("");
+        setCambioMotivo("");
+
+        if (modalLiq.id_trabajador) {
+          cargarStockTecnicoYCatalogo(modalLiq.id_trabajador);
+        }
+        await cargarDatos(true);
+      } else {
+        alert(res?.error || "Error al cambiar producto.");
+      }
+    } catch (err: any) {
+      console.error("Error al cambiar producto:", err);
+      alert(err.response?.data?.error || err.message || "Error al cambiar producto.");
+    } finally {
+      setProcesandoAccion(false);
+    }
+  };
+
+  const handleEliminarMaterial = async (mat: MaterialLiquidadoAudit) => {
+    if (!modalLiq) return;
+    const conf = window.confirm(
+      `¿Deseas eliminar "${mat.nombre_producto}" (${mat.cantidad} UND) de esta liquidación?\n\nLas unidades serán reintegradas automáticamente al stock de la camioneta del técnico.`
+    );
+    if (!conf) return;
+
+    setProcesandoAccion(true);
+    try {
+      const res = await eliminarMaterialLiquidacion(modalLiq.id_liquidacion, mat.id_detalle_liq);
+      if (res && res.success) {
+        setAjusteFeedback({ msg: res.message || "Material eliminado y stock reintegrado.", tipo: "success" });
+        setTimeout(() => setAjusteFeedback(null), 6000);
+
+        const nuevosMats = modalLiq.materiales.filter((m) => m.id_detalle_liq !== mat.id_detalle_liq);
+        const nuevoTotalCosto = nuevosMats.reduce((acc, m) => acc + (Number(m.costo) || 0), 0);
+        setModalLiq({
+          ...modalLiq,
+          materiales: nuevosMats,
+          total_costo: nuevoTotalCosto,
+          total_items: nuevosMats.length
+        });
+
+        if (modalLiq.id_trabajador) {
+          cargarStockTecnicoYCatalogo(modalLiq.id_trabajador);
+        }
+        await cargarDatos(true);
+      } else {
+        alert(res?.error || "Error al eliminar material.");
+      }
+    } catch (err: any) {
+      console.error("Error al eliminar material:", err);
+      alert(err.response?.data?.error || err.message || "Error al eliminar material.");
+    } finally {
+      setProcesandoAccion(false);
+    }
+  };
+
+  // 📝 Guardar corrección de número de Acta Física con recalibración de series y Kardex
+  const handleGuardarNuevoNumeroActa = async () => {
+    if (!modalLiq) return;
+    const cleanNum = nuevoNumeroActaInput.trim();
+    if (!cleanNum) {
+      alert("Por favor ingrese un número de acta válido.");
+      return;
+    }
+
+    const actaActual = String(modalLiq.numero_acta || "").trim();
+    if (cleanNum === actaActual) {
+      setEditandoActa(false);
+      return;
+    }
+
+    const conf = window.confirm(
+      `¿Confirmas corregir el número de Acta física de "${actaActual || 'Sin Acta'}" a "${cleanNum}"?\n\nEl sistema liberará la serie anterior al stock del técnico, descontará la nueva y recalibrará Kardex y Auditoría.`
+    );
+    if (!conf) return;
+
+    setGuardandoActa(true);
+    try {
+      const res = await editarNumeroActaLiquidacion(modalLiq.id_liquidacion, {
+        nuevo_numero_acta: cleanNum,
+        motivo: "Corrección de número de acta física en auditoría de liquidación",
+      });
+
+      if (res && res.success) {
+        setAjusteFeedback({ msg: res.message || "Número de acta actualizado con éxito.", tipo: "success" });
+        setTimeout(() => setAjusteFeedback(null), 6000);
+
+        setModalLiq({
+          ...modalLiq,
+          numero_acta: res.nuevo_numero_acta || cleanNum,
+        });
+        setEditandoActa(false);
+
+        if (modalLiq.id_trabajador) {
+          cargarStockTecnicoYCatalogo(modalLiq.id_trabajador);
+        }
+        await cargarDatos(true);
+      } else {
+        alert(res?.error || "Error al actualizar el número de acta.");
+      }
+    } catch (err: any) {
+      console.error("Error al actualizar acta:", err);
+      alert(err.response?.data?.error || err.message || "Error al actualizar número de acta.");
+    } finally {
+      setGuardandoActa(false);
+    }
+  };
+
   // Cargar datos
-  const cargarDatos = async () => {
-    setLoading(true);
+  const isFetchingRef = React.useRef(false);
+  const cargarDatos = async (silent: boolean | unknown = false) => {
+    const isSilent = typeof silent === "boolean" && silent;
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+    if (!isSilent) setLoading(true);
     try {
       const res = await getLiquidacionesOrdenesAudit({
         desde: fechaDesde,
@@ -190,13 +645,36 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
     } catch (err) {
       console.error("Error al cargar auditoría de liquidaciones:", err);
     } finally {
-      setLoading(false);
+      isFetchingRef.current = false;
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     cargarDatos();
-  }, [fechaDesde, fechaHasta, tecnicoFiltro, estadoFiltro]);
+
+    // ⚡ 1. Polling automático cada 20 segundos solo si está en pantalla
+    const timer = setInterval(() => {
+      if (!document.hidden && !modalLiq) {
+        cargarDatos(true);
+      }
+    }, 20000);
+
+    // ⚡ 2. Refrescar automáticamente al regresar al navegador o pestaña
+    const handleFocus = () => {
+      if (document.visibilityState === "visible" && !modalLiq) {
+        cargarDatos(true);
+      }
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleFocus);
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleFocus);
+    };
+  }, [fechaDesde, fechaHasta, tecnicoFiltro, estadoFiltro, modalLiq]);
 
   // Manejador de presets de fecha
   const aplicarPresetFecha = (preset: "hoy" | "ayer" | "semana") => {
@@ -527,10 +1005,10 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
       {/* ─────────────────────────────────────────────────────────────
           3. SPLIT VIEW: MAESTRO TÉCNICOS & DETALLE ÓRDENES
       ───────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
 
         {/* COLUMNA IZQUIERDA: RESUMEN DE TÉCNICOS & CONCILIACIÓN (5 cols) */}
-        <div className="lg:col-span-5 bg-white rounded-3xl border border-slate-200/90 shadow-xs p-4 space-y-3 flex flex-col justify-between">
+        <div className="lg:col-span-5 bg-white rounded-3xl border border-slate-200/90 shadow-xs p-4 space-y-3 self-start lg:sticky lg:top-4">
           <div className="flex items-center justify-between pb-2 border-b border-slate-100 flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <User size={16} className="text-indigo-600" />
@@ -570,7 +1048,7 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
             </div>
           </div>
 
-          <div className="max-h-[620px] overflow-auto border rounded-2xl border-slate-200 flex-1">
+          <div className="max-h-[calc(100vh-230px)] min-h-[300px] overflow-auto border rounded-2xl border-slate-200">
             {tecnicos.length === 0 ? (
               <div className="text-center py-12 text-xs text-slate-400 font-semibold">
                 No hay técnicos con órdenes registradas en este rango.
@@ -997,11 +1475,7 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                         <td className="py-3 px-3 text-center">
                           <button
                             type="button"
-                            onClick={() => {
-                              setModalLiq(l);
-                              setMostrandoRechazoInput(false);
-                              setMotivoRechazo("");
-                            }}
+                            onClick={() => abrirAuditoria(l)}
                             className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl text-xs transition-all cursor-pointer shadow-2xs hover:scale-[1.02]"
                           >
                             <Eye size={13} />
@@ -1021,409 +1495,1155 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
-          4. MODAL DE AUDITORÍA DETALLADA DE LA LIQUIDACIÓN
+          4. MODAL DE AUDITORÍA DETALLADA DE LA LIQUIDACIÓN (SPLIT 2-PANEL CON FOTO HD DEL ACTA)
       ───────────────────────────────────────────────────────────── */}
       {modalLiq && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-[1440px] overflow-hidden flex flex-col max-h-[94vh]">
             
-            {/* Header Modal */}
-            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-5 flex items-center justify-between shrink-0">
-              <div className="space-y-1.5">
+            {/* Header Modal Unificado */}
+            <div className="bg-gradient-to-r from-slate-950 via-indigo-950 to-slate-900 text-white px-6 py-3.5 flex items-center justify-between shrink-0 border-b border-indigo-900/50">
+              <div className="flex items-center gap-3 flex-wrap">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="px-2.5 py-0.5 rounded-md bg-indigo-500/30 border border-indigo-400/40 text-[11px] font-bold font-mono">
+                  <span className="px-3 py-1 rounded-xl bg-indigo-500/30 border border-indigo-400/40 text-xs font-black font-mono text-indigo-200 shadow-xs">
                     Orden #{modalLiq.numero_orden}
                   </span>
-                  <span className="px-2.5 py-0.5 rounded-md bg-white/10 text-[11px] font-semibold">
-                    Acta: {modalLiq.numero_acta || "Sin Acta"}
-                  </span>
+
+                  {/* ✏️ EDITAR ACTA FÍSICA CON RECALIBRACIÓN EN STOCK Y KARDEX */}
+                  {editandoActa ? (
+                    <div className="flex items-center gap-1.5 bg-slate-900 border border-indigo-400 p-1 rounded-xl shadow-lg animate-in zoom-in-95">
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={nuevoNumeroActaInput}
+                          onChange={(e) => setNuevoNumeroActaInput(e.target.value)}
+                          placeholder="001-XXXXX"
+                          className="w-32 sm:w-36 px-2 py-0.5 rounded-lg bg-slate-800 text-white font-mono font-bold text-xs border border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-400"
+                          autoFocus
+                          list="sugerencias-actas-disponibles"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleGuardarNuevoNumeroActa();
+                            else if (e.key === "Escape") setEditandoActa(false);
+                          }}
+                        />
+                        {guiasDisponiblesTecnico.length > 0 && (
+                          <datalist id="sugerencias-actas-disponibles">
+                            {guiasDisponiblesTecnico.map((g, idx) => (
+                              <option key={idx} value={g} />
+                            ))}
+                          </datalist>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleGuardarNuevoNumeroActa}
+                        disabled={guardandoActa}
+                        className="p-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-all cursor-pointer shadow-xs disabled:opacity-50"
+                        title="Guardar nuevo número de acta y recalibrar stock del técnico"
+                      >
+                        <Check size={13} className={guardandoActa ? "animate-spin" : ""} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditandoActa(false)}
+                        disabled={guardandoActa}
+                        className="p-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-all cursor-pointer"
+                        title="Cancelar edición"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1 px-3 py-1 rounded-xl bg-white/10 border border-white/15 text-xs font-bold text-slate-200 group hover:border-indigo-400 transition-all">
+                      <span>Acta Física: <strong className="font-mono text-white font-black">{modalLiq.numero_acta || "Sin N° Acta"}</strong></span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNuevoNumeroActaInput(modalLiq.numero_acta || "001-");
+                          setEditandoActa(true);
+                        }}
+                        className="ml-1 p-0.5 rounded text-indigo-300 hover:text-white hover:bg-indigo-600/50 transition-colors cursor-pointer"
+                        title="Editar Número de Acta Física (Rebalancea series y stock en la camioneta del técnico)"
+                      >
+                        <Edit2 size={12} />
+                      </button>
+                    </div>
+                  )}
+
                   {(modalLiq.tipo_trabajo_acta || modalLiq.tipo_trabajo) && (
-                    <span className="px-2.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 text-[11px] font-bold uppercase tracking-wider">
+                    <span className="px-3 py-1 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 text-xs font-black uppercase tracking-wider">
                       {modalLiq.tipo_trabajo_acta || modalLiq.tipo_trabajo}
                     </span>
                   )}
                 </div>
-                <h3 className="text-base font-black tracking-tight text-white">
-                  Auditoría de Liquidación Técnica WIN
+                <div className="hidden sm:block h-4 w-px bg-white/20"></div>
+                <h3 className="text-sm font-black tracking-tight text-white flex items-center gap-2">
+                  <span>Auditoría & Conciliación de Acta WIN</span>
                 </h3>
               </div>
-              <button
-                type="button"
-                onClick={() => setModalLiq(null)}
-                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer transition-colors"
-              >
-                <X size={16} />
-              </button>
+              
+              <div className="flex items-center gap-3">
+                {fotoActaUrl && (
+                  <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 font-mono font-bold text-[11px]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    Acta Original HD {fotoActaDataId ? `(#${fotoActaDataId})` : ""}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setModalLiq(null)}
+                  className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer transition-colors"
+                  title="Cerrar auditoría"
+                >
+                  <X size={16} />
+                </button>
+              </div>
             </div>
 
-            {/* Contenido Scrollable */}
-            <div className="p-6 overflow-y-auto space-y-5">
+            {/* Contenido Principal en Grid Split de 2 Columnas (7 Cols Formulario | 5 Cols Fotografía) */}
+            <div className="p-5 overflow-y-auto flex-1">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
 
-              {/* Banner de Alerta si aplica */}
-              {modalLiq.es_alerta && (
-                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300/80 flex items-start gap-3">
-                  <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-extrabold text-xs text-amber-900 block">
-                      Liquidación Marcada para Revisión
-                    </span>
-                    <p className="text-xs text-amber-800 mt-0.5 font-medium">
-                      {modalLiq.motivo_alerta}
-                    </p>
-                  </div>
-                </div>
-              )}
+                {/* ══════════════════════════════════════════════════════════
+                    COLUMNA IZQUIERDA: FORMULARIO Y CONTROL DE MATERIALES (7 Cols)
+                ══════════════════════════════════════════════════════════ */}
+                <div className="lg:col-span-7 space-y-4">
 
-              {/* Ficha de Cliente y Técnico */}
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <div>
-                  <span className="text-slate-400 font-bold block text-[10px] uppercase">Cliente</span>
-                  <span className="font-bold text-slate-900 text-xs block mt-0.5">{modalLiq.cliente}</span>
-                  <span className="text-slate-600 text-[11px] block mt-0.5 flex items-center gap-1">
-                    <MapPin size={11} className="text-slate-400 shrink-0" />
-                    {modalLiq.direccion}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-400 font-bold block text-[10px] uppercase">Técnico Responsable</span>
-                  <span className="font-bold text-indigo-700 text-xs block mt-0.5">{modalLiq.tecnico}</span>
-                  <span className="text-slate-600 font-semibold text-[11px] block mt-0.5">
-                    {modalLiq.cuadrilla || "Sin Cuadrilla"}
-                  </span>
-                </div>
-
-                {/* Tipo de Trabajo / Liquidación */}
-                <div className="sm:col-span-2 pt-2 border-t border-slate-200/60 flex items-center justify-between flex-wrap gap-2 text-[11px]">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-slate-500 font-bold uppercase text-[10px]">Tipo de Liquidación:</span>
-                    <span className="font-extrabold text-indigo-900 bg-indigo-50 border border-indigo-200/80 px-2 py-0.5 rounded-md uppercase">
-                      {modalLiq.tipo_trabajo_acta || modalLiq.tipo_trabajo || "Liquidación Técnica"}
-                    </span>
-                  </div>
-                  {modalLiq.tipo_conexion && (
-                    <span className="text-slate-500">
-                      Conexión: <strong className="text-slate-800 font-semibold">{modalLiq.tipo_conexion}</strong>
-                    </span>
-                  )}
-                </div>
-
-                {/* Fechas de Orden y Liquidación */}
-                <div className="sm:col-span-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-600 font-mono">
-                  <span>
-                    📅 Fecha Orden: <strong className="text-slate-900">{modalLiq.fecha_orden ? modalLiq.fecha_orden.slice(0, 10) : "-"}</strong>
-                  </span>
-                  <span>
-                    ⏱️ Liquidado: <strong className="text-indigo-700">{modalLiq.fecha_liquidacion || "-"}</strong>
-                  </span>
-                </div>
-                {modalLiq.cto && (
-                  <div className="sm:col-span-2 pt-1 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-                    <span>CTO: <strong className="text-slate-800 font-mono">{modalLiq.cto}</strong></span>
-                    <span>Puerto: <strong className="text-slate-800 font-mono">{modalLiq.puerto || "-"}</strong></span>
-                  </div>
-                )}
-                {modalLiq.observaciones_tecnico && (
-                  <div className="sm:col-span-2 pt-1.5 border-t border-slate-200/60 text-[11px] bg-slate-100/70 p-2.5 rounded-xl">
-                    <span className="text-slate-500 font-bold text-[10px] uppercase block mb-0.5">Observación del Técnico:</span>
-                    <span className="italic text-slate-800 font-medium leading-relaxed">"{modalLiq.observaciones_tecnico}"</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Tarjeta de Fibra Drop y Mediciones (SOLO si realmente se usó Drop: Conectorizado o Bobina) */}
-              {(() => {
-                const modalConecInfo = getDropConectorizadoInfo(modalLiq.materiales);
-                const hasBobinaDrop = Number(modalLiq.drop_total_metros || 0) > 0 || Number(modalLiq.drop_metro_inicio || 0) > 0 || Number(modalLiq.drop_metro_fin || 0) > 0;
-                
-                // Si NO se usó Drop en la orden, no renderizar la tarjeta negra
-                if (!modalConecInfo && !hasBobinaDrop) {
-                  return null;
-                }
-
-                return (
-                  <div className="p-4 rounded-2xl bg-slate-900 text-white space-y-2.5">
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                        <Package size={14} className="text-indigo-400" />
-                        {modalConecInfo
-                          ? "Cable Drop Pre-Conectorizado"
-                          : "Medición de Bobina Drop Continua"}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        {modalConecInfo && (
-                          <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold">
-                            ✓ Pre-Conectorizado ({modalConecInfo.totalMetros}m)
-                          </span>
-                        )}
-                        {hasBobinaDrop && (
-                          <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 text-[10px] font-bold">
-                            ✓ Bobina Continua ({modalLiq.drop_total_metros}m)
-                          </span>
-                        )}
-                        {hasBobinaDrop ? (
-                          <span className="px-2 py-0.5 rounded-md bg-white/10 text-slate-300 text-[10px] font-mono font-bold">
-                            Límite Bobina: {modalLiq.max_drop_permitido || 120}m
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 text-[10px] font-mono font-bold">
-                            Despacho por Unidad
-                          </span>
-                        )}
+                  {/* Banner de Alerta si aplica */}
+                  {modalLiq.es_alerta && (
+                    <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300/80 flex items-start gap-3">
+                      <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-extrabold text-xs text-amber-900 block">
+                          Liquidación Marcada para Revisión
+                        </span>
+                        <p className="text-xs text-amber-800 mt-0.5 font-medium">
+                          {modalLiq.motivo_alerta}
+                        </p>
                       </div>
                     </div>
+                  )}
 
-                    {modalConecInfo ? (
-                      /* Vista para Rollo Drop Pre-Conectorizado */
-                      <div className="space-y-2 pt-1">
-                        <div className="p-2.5 rounded-xl bg-emerald-950/60 border border-emerald-500/40 flex items-center justify-between text-xs">
-                          <span className="text-emerald-300 font-medium">Rollo Pre-Conectorizado:</span>
-                          <span className="font-mono font-black text-emerald-100">{modalConecInfo.nombre}</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2 text-center pt-0.5">
-                          <div className="p-2 rounded-xl bg-white/5 border border-white/10">
-                            <span className="text-[10px] text-slate-400 block font-medium">Metraje Rollo</span>
-                            <span className="font-mono font-black text-sm text-white">{modalConecInfo.metrosRollo}m</span>
-                          </div>
-                          <div className="p-2 rounded-xl bg-white/5 border border-white/10">
-                            <span className="text-[10px] text-slate-400 block font-medium">Cantidad Usada</span>
-                            <span className="font-mono font-black text-sm text-white">{modalConecInfo.cantidad} UND</span>
-                          </div>
-                          <div className="p-2 rounded-xl bg-emerald-500/20 border border-emerald-400/40">
-                            <span className="text-[10px] text-emerald-300 block font-bold">Total Fibra</span>
-                            <span className="font-mono font-black text-sm text-emerald-200">{modalConecInfo.totalMetros}m</span>
-                          </div>
-                        </div>
+                  {/* Ficha de Cliente y Técnico */}
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <span className="text-slate-400 font-bold block text-[10px] uppercase">Cliente</span>
+                      <span className="font-bold text-slate-900 text-xs block mt-0.5">{modalLiq.cliente}</span>
+                      <span className="text-slate-600 text-[11px] block mt-0.5 flex items-center gap-1">
+                        <MapPin size={11} className="text-slate-400 shrink-0" />
+                        {modalLiq.direccion}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 font-bold block text-[10px] uppercase">Técnico Responsable</span>
+                      <span className="font-bold text-indigo-700 text-xs block mt-0.5">{modalLiq.tecnico}</span>
+                      <span className="text-slate-600 font-semibold text-[11px] block mt-0.5">
+                        {modalLiq.cuadrilla || "Sin Cuadrilla"}
+                      </span>
+                    </div>
+
+                    {/* Tipo de Trabajo / Liquidación */}
+                    <div className="sm:col-span-2 pt-2 border-t border-slate-200/60 flex items-center justify-between flex-wrap gap-2 text-[11px]">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-slate-500 font-bold uppercase text-[10px]">Tipo de Liquidación:</span>
+                        <span className="font-extrabold text-indigo-900 bg-indigo-50 border border-indigo-200/80 px-2 py-0.5 rounded-md uppercase">
+                          {modalLiq.tipo_trabajo_acta || modalLiq.tipo_trabajo || "Liquidación Técnica"}
+                        </span>
                       </div>
-                    ) : (
-                      /* Vista para Bobina Continua */
-                      <div className="grid grid-cols-3 gap-2 text-center pt-1">
-                        <div className="p-2 rounded-xl bg-white/5 border border-white/10">
-                          <span className="text-[10px] text-slate-400 block font-medium">Carrete Inicio</span>
-                          <span className="font-mono font-black text-sm text-white">{modalLiq.drop_metro_inicio || "-"}m</span>
-                        </div>
-                        <div className="p-2 rounded-xl bg-white/5 border border-white/10">
-                          <span className="text-[10px] text-slate-400 block font-medium">Carrete Fin</span>
-                          <span className="font-mono font-black text-sm text-white">{modalLiq.drop_metro_fin || "-"}m</span>
-                        </div>
-                        <div className="p-2 rounded-xl bg-indigo-500/20 border border-indigo-400/40">
-                          <span className="text-[10px] text-indigo-300 block font-bold">Total Consumido</span>
-                          <span className="font-mono font-black text-sm text-indigo-200">{modalLiq.drop_total_metros}m</span>
-                        </div>
+                      {modalLiq.tipo_conexion && (
+                        <span className="text-slate-500">
+                          Conexión: <strong className="text-slate-800 font-semibold">{modalLiq.tipo_conexion}</strong>
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Fechas de Orden y Liquidación */}
+                    <div className="sm:col-span-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-600 font-mono">
+                      <span>
+                        📅 Fecha Orden: <strong className="text-slate-900">{modalLiq.fecha_orden ? modalLiq.fecha_orden.slice(0, 10) : "-"}</strong>
+                      </span>
+                      <span>
+                        ⏱️ Liquidado: <strong className="text-indigo-700">{modalLiq.fecha_liquidacion || "-"}</strong>
+                      </span>
+                    </div>
+                    {modalLiq.cto && (
+                      <div className="sm:col-span-2 pt-1 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+                        <span>CTO: <strong className="text-slate-800 font-mono">{modalLiq.cto}</strong></span>
+                        <span>Puerto: <strong className="text-slate-800 font-mono">{modalLiq.puerto || "-"}</strong></span>
                       </div>
                     )}
-
-                    {modalLiq.cto && (
-                      <div className="text-[11px] text-slate-400 pt-1 flex items-center justify-between border-t border-white/10">
-                        <span>CTO: <strong className="text-white font-mono">{modalLiq.cto}</strong></span>
-                        <span>Puerto: <strong className="text-white font-mono">{modalLiq.puerto || "-"}</strong></span>
+                    {modalLiq.observaciones_tecnico && (
+                      <div className="sm:col-span-2 pt-1.5 border-t border-slate-200/60 text-[11px] bg-slate-100/70 p-2.5 rounded-xl">
+                        <span className="text-slate-500 font-bold text-[10px] uppercase block mb-0.5">Observación del Técnico:</span>
+                        <span className="italic text-slate-800 font-medium leading-relaxed">"{modalLiq.observaciones_tecnico}"</span>
                       </div>
                     )}
                   </div>
-                );
-              })()}
 
-              {/* Desglose de Materiales y Equipos */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-extrabold text-xs text-slate-900 uppercase tracking-wider">
-                    Materiales e Insumos Declarados ({modalLiq.materiales?.length || 0})
-                  </span>
-                  <span className="font-mono font-black text-xs text-indigo-700">
-                    Total: S/ {parseFloat(String(modalLiq.total_costo)).toFixed(2)}
-                  </span>
-                </div>
+                  {/* Tarjeta de Fibra Drop y Mediciones (SOLO si realmente se usó Drop: Conectorizado o Bobina) */}
+                  {(() => {
+                    const modalConecInfo = getDropConectorizadoInfo(modalLiq.materiales);
+                    const hasBobinaDrop = Number(modalLiq.drop_total_metros || 0) > 0 || Number(modalLiq.drop_metro_inicio || 0) > 0 || Number(modalLiq.drop_metro_fin || 0) > 0;
+                    
+                    if (!modalConecInfo && !hasBobinaDrop) {
+                      return null;
+                    }
 
-                {ajusteFeedback && (
-                  <div
-                    className={`p-3 rounded-xl text-xs font-semibold flex items-center justify-between animate-fade-in ${
-                      ajusteFeedback.tipo === "success"
-                        ? "bg-emerald-50 text-emerald-900 border border-emerald-300"
-                        : "bg-rose-50 text-rose-900 border border-rose-300"
-                    }`}
-                  >
-                    <span>{ajusteFeedback.msg}</span>
+                    return (
+                      <div className="p-4 rounded-2xl bg-slate-900 text-white space-y-2.5">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                            <Package size={14} className="text-indigo-400" />
+                            {modalConecInfo
+                              ? "Cable Drop Pre-Conectorizado"
+                              : "Medición de Bobina Drop Continua"}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            {modalConecInfo && (
+                              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold">
+                                ✓ Pre-Conectorizado ({modalConecInfo.totalMetros}m)
+                              </span>
+                            )}
+                            {hasBobinaDrop && (
+                              <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 text-[10px] font-bold">
+                                ✓ Bobina Continua ({modalLiq.drop_total_metros}m)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {modalConecInfo ? (
+                          <div className="space-y-2 pt-1">
+                            <div className="p-2.5 rounded-xl bg-emerald-950/60 border border-emerald-500/40 flex items-center justify-between text-xs">
+                              <span className="text-emerald-300 font-medium">Rollo Pre-Conectorizado:</span>
+                              <span className="font-mono font-black text-emerald-100">{modalConecInfo.nombre}</span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 text-center pt-0.5">
+                              <div className="p-2 rounded-xl bg-white/5 border border-white/10">
+                                <span className="text-[10px] text-slate-400 block font-medium">Metraje Rollo</span>
+                                <span className="font-mono font-black text-sm text-white">{modalConecInfo.metrosRollo}m</span>
+                              </div>
+                              <div className="p-2 rounded-xl bg-white/5 border border-white/10">
+                                <span className="text-[10px] text-slate-400 block font-medium">Cantidad Usada</span>
+                                <span className="font-mono font-black text-sm text-white">{modalConecInfo.cantidad} UND</span>
+                              </div>
+                              <div className="p-2 rounded-xl bg-emerald-500/20 border border-emerald-400/40">
+                                <span className="text-[10px] text-emerald-300 block font-bold">Total Fibra</span>
+                                <span className="font-mono font-black text-sm text-emerald-200">{modalConecInfo.totalMetros}m</span>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-3 gap-2 text-center pt-1">
+                            <div className="p-2 rounded-xl bg-white/5 border border-white/10">
+                              <span className="text-[10px] text-slate-400 block font-medium">Carrete Inicio</span>
+                              <span className="font-mono font-black text-sm text-white">{modalLiq.drop_metro_inicio || "-"}m</span>
+                            </div>
+                            <div className="p-2 rounded-xl bg-white/5 border border-white/10">
+                              <span className="text-[10px] text-slate-400 block font-medium">Carrete Fin</span>
+                              <span className="font-mono font-black text-sm text-white">{modalLiq.drop_metro_fin || "-"}m</span>
+                            </div>
+                            <div className="p-2 rounded-xl bg-indigo-500/20 border border-indigo-400/40">
+                              <span className="text-[10px] text-indigo-300 block font-bold">Total Consumido</span>
+                              <span className="font-mono font-black text-sm text-indigo-200">{modalLiq.drop_total_metros}m</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Desglose de Materiales y Equipos */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-extrabold text-xs text-slate-900 uppercase tracking-wider">
+                          Materiales e Insumos Declarados ({modalLiq.materiales?.length || 0})
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNuevoMatProdId("");
+                            setNuevoMatCant("1");
+                            setNuevoMatSerie("");
+                            setNuevoMatMotivo("");
+                            setModalAgregarAbierto(true);
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] transition-all shadow-xs cursor-pointer"
+                          title="Agregar producto o material olvidado desde el vehículo o catálogo"
+                        >
+                          <Plus size={13} />
+                          <span>Agregar Material</span>
+                        </button>
+                      </div>
+                      <span className="font-mono font-black text-xs text-indigo-700">
+                        Total: S/ {parseFloat(String(modalLiq.total_costo)).toFixed(2)}
+                      </span>
+                    </div>
+
+                    {ajusteFeedback && (
+                      <div
+                        className={`p-3 rounded-xl text-xs font-semibold flex items-center justify-between animate-fade-in ${
+                          ajusteFeedback.tipo === "success"
+                            ? "bg-emerald-50 text-emerald-900 border border-emerald-300"
+                            : "bg-rose-50 text-rose-900 border border-rose-300"
+                        }`}
+                      >
+                        <span>{ajusteFeedback.msg}</span>
+                        <button
+                          type="button"
+                          onClick={() => setAjusteFeedback(null)}
+                          className="text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="overflow-x-auto rounded-2xl border border-slate-200 shadow-2xs">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-[10px]">
+                          <tr>
+                            <th className="py-2.5 px-3">Producto / Equipo</th>
+                            <th className="py-2.5 px-3">Serie / Metraje</th>
+                            <th className="py-2.5 px-3 text-center">Cant.</th>
+                            <th className="py-2.5 px-3 text-right">P. Unit</th>
+                            <th className="py-2.5 px-3 text-right">Subtotal</th>
+                            <th className="py-2.5 px-3 text-center min-w-[120px]">Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 bg-white">
+                          {modalLiq.materiales?.map((mat, mIdx) => {
+                            const isEditing = editingMatId === mat.id_detalle_liq;
+                            return (
+                              <tr key={mat.id_detalle_liq || mIdx} className={isEditing ? "bg-indigo-50/70" : "hover:bg-slate-50/50"}>
+                                <td className="py-2.5 px-3 font-semibold text-slate-900">
+                                  {mat.nombre_producto}
+                                </td>
+                                <td className="py-2.5 px-3 font-mono text-slate-600 text-[11px]">
+                                  {mat.numero_serie ? (
+                                    <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-bold">
+                                      {mat.numero_serie}
+                                    </span>
+                                  ) : mat.drop_inicio ? (
+                                    <span>{mat.drop_inicio} → {mat.drop_fin}</span>
+                                  ) : (
+                                    "—"
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3 text-center font-bold text-slate-900">
+                                  {isEditing ? (
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={editingMatCant}
+                                      onChange={(e) => setEditingMatCant(e.target.value)}
+                                      className="w-16 px-1.5 py-0.5 border-2 border-indigo-500 rounded-md font-black text-center text-xs bg-white text-indigo-950 focus:outline-hidden"
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    mat.cantidad
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3 text-right text-slate-500 font-mono">
+                                  S/ {parseFloat(String(mat.precio_compra)).toFixed(2)}
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-bold text-slate-900 font-mono">
+                                  S/ {parseFloat(String(mat.costo)).toFixed(2)}
+                                </td>
+                                <td className="py-2.5 px-3 text-center">
+                                  {isEditing ? (
+                                    <div className="flex items-center justify-center gap-1">
+                                      <button
+                                        type="button"
+                                        title="Guardar y recalibrar stock del técnico"
+                                        disabled={procesandoAccion}
+                                        onClick={() => handleGuardarAjusteMaterial(mat)}
+                                        className="p-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-xs transition-colors"
+                                      >
+                                        <Check size={12} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        title="Cancelar"
+                                        onClick={() => setEditingMatId(null)}
+                                        className="p-1 rounded-md bg-slate-200 hover:bg-slate-300 text-slate-700 cursor-pointer transition-colors"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center justify-center gap-1">
+                                      {/* Editar Cantidad */}
+                                      <button
+                                        type="button"
+                                        title="Corregir cantidad (recalibra el stock del técnico)"
+                                        onClick={() => {
+                                          setEditingMatId(mat.id_detalle_liq);
+                                          setEditingMatCant(String(mat.cantidad));
+                                        }}
+                                        className="p-1.5 rounded-lg text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition-colors cursor-pointer"
+                                      >
+                                        <Edit2 size={12} />
+                                      </button>
+
+                                      {/* Cambiar Producto */}
+                                      <button
+                                        type="button"
+                                        title="Cambiar por otro producto (retorna este al stock y descuenta el nuevo)"
+                                        onClick={() => {
+                                          setMaterialACambiar(mat);
+                                          setCambioProdId("");
+                                          setCambioCant(String(mat.cantidad || 1));
+                                          setCambioSerie("");
+                                          setCambioMotivo("");
+                                        }}
+                                        className="p-1.5 rounded-lg text-amber-700 hover:bg-amber-100 border border-amber-200 transition-colors cursor-pointer"
+                                      >
+                                        <ArrowLeftRight size={12} />
+                                      </button>
+
+                                      {/* Eliminar Ítem */}
+                                      <button
+                                        type="button"
+                                        title="Eliminar de la liquidación (reintegra el stock al técnico)"
+                                        onClick={() => handleEliminarMaterial(mat)}
+                                        disabled={procesandoAccion}
+                                        className="p-1.5 rounded-lg text-rose-700 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer"
+                                      >
+                                        <Trash2 size={12} />
+                                      </button>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Cuadro de texto para motivo de rechazo */}
+                  {mostrandoRechazoInput && (
+                    <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 space-y-2 animate-fade-in">
+                      <span className="font-extrabold text-xs text-rose-900 block">
+                        Motivo del Rechazo de la Liquidación:
+                      </span>
+                      <textarea
+                        rows={2}
+                        placeholder="Escriba la razón del rechazo (ej. metraje excesivo sin justificación, falta serie de ONT)..."
+                        value={motivoRechazo}
+                        onChange={(e) => setMotivoRechazo(e.target.value)}
+                        className="w-full p-2 rounded-xl border border-rose-300 text-xs text-slate-900 bg-white"
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setMostrandoRechazoInput(false)}
+                          className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRechazar(modalLiq.id_liquidacion)}
+                          disabled={procesandoAccion}
+                          className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs cursor-pointer"
+                        >
+                          Confirmar Rechazo
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Acciones de Liquidación */}
+                  <div className="pt-3 border-t border-slate-200 flex items-center justify-between gap-3">
                     <button
                       type="button"
-                      onClick={() => setAjusteFeedback(null)}
-                      className="text-slate-400 hover:text-slate-600 p-0.5"
+                      onClick={() => setModalLiq(null)}
+                      className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-100 cursor-pointer"
                     >
-                      <X size={14} />
+                      Cerrar
                     </button>
-                  </div>
-                )}
 
-                <div className="overflow-x-auto rounded-2xl border border-slate-200">
-                  <table className="w-full text-xs text-left">
-                    <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-[10px]">
-                      <tr>
-                        <th className="py-2 px-3">Producto / Equipo</th>
-                        <th className="py-2 px-3">Serie / Metraje</th>
-                        <th className="py-2 px-3 text-center">Cant.</th>
-                        <th className="py-2 px-3 text-right">P. Unit</th>
-                        <th className="py-2 px-3 text-right">Subtotal</th>
-                        <th className="py-2 px-3 text-center">Ajustar</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {modalLiq.materiales?.map((mat, mIdx) => {
-                        const isEditing = editingMatId === mat.id_detalle_liq;
-                        return (
-                          <tr key={mat.id_detalle_liq || mIdx} className={isEditing ? "bg-indigo-50/70" : "hover:bg-slate-50/50"}>
-                            <td className="py-2.5 px-3 font-semibold text-slate-900">
-                              {mat.nombre_producto}
-                            </td>
-                            <td className="py-2.5 px-3 font-mono text-slate-600 text-[11px]">
-                              {mat.numero_serie ? (
-                                <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-bold">
-                                  {mat.numero_serie}
-                                </span>
-                              ) : mat.drop_inicio ? (
-                                <span>{mat.drop_inicio} → {mat.drop_fin}</span>
-                              ) : (
-                                "—"
-                              )}
-                            </td>
-                            <td className="py-2.5 px-3 text-center font-bold text-slate-900">
-                              {isEditing ? (
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={editingMatCant}
-                                  onChange={(e) => setEditingMatCant(e.target.value)}
-                                  className="w-16 px-1.5 py-0.5 border-2 border-indigo-500 rounded-md font-black text-center text-xs bg-white text-indigo-950 focus:outline-hidden"
-                                  autoFocus
-                                />
-                              ) : (
-                                mat.cantidad
-                              )}
-                            </td>
-                            <td className="py-2.5 px-3 text-right text-slate-500 font-mono">
-                              S/ {parseFloat(String(mat.precio_compra)).toFixed(2)}
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-bold text-slate-900 font-mono">
-                              S/ {parseFloat(String(mat.costo)).toFixed(2)}
-                            </td>
-                            <td className="py-2.5 px-3 text-center">
-                              {isEditing ? (
-                                <div className="flex items-center justify-center gap-1">
-                                  <button
-                                    type="button"
-                                    title="Guardar y recalibrar stock del técnico"
-                                    disabled={procesandoAccion}
-                                    onClick={() => handleGuardarAjusteMaterial(mat)}
-                                    className="p-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-xs transition-colors"
-                                  >
-                                    <Check size={12} />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    title="Cancelar"
-                                    onClick={() => setEditingMatId(null)}
-                                    className="p-1 rounded-md bg-slate-200 hover:bg-slate-300 text-slate-700 cursor-pointer transition-colors"
-                                  >
-                                    <X size={12} />
-                                  </button>
-                                </div>
-                              ) : (
-                                <button
-                                  type="button"
-                                  title="Corregir cantidad (recalibra automáticamente el stock del técnico)"
-                                  onClick={() => {
-                                    setEditingMatId(mat.id_detalle_liq);
-                                    setEditingMatCant(String(mat.cantidad));
-                                  }}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold text-indigo-700 hover:bg-indigo-100/70 border border-indigo-200/80 transition-colors cursor-pointer"
-                                >
-                                  <Edit2 size={11} />
-                                  <span>Editar</span>
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                    <div className="flex items-center gap-2">
+                      {!mostrandoRechazoInput && modalLiq.estado_liquidacion !== "Rechazada" && (
+                        <button
+                          type="button"
+                          onClick={() => setMostrandoRechazoInput(true)}
+                          disabled={procesandoAccion}
+                          className="px-4 py-2 rounded-xl border border-rose-300 hover:bg-rose-50 text-rose-700 font-bold text-xs transition-all cursor-pointer"
+                        >
+                          Rechazar
+                        </button>
+                      )}
+
+                      {modalLiq.estado_liquidacion !== "Aprobada" && (
+                        <button
+                          type="button"
+                          onClick={() => handleAprobar(modalLiq.id_liquidacion)}
+                          disabled={procesandoAccion}
+                          className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs inline-flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                        >
+                          <Check size={14} />
+                          <span>Aprobar Liquidación</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* ══════════════════════════════════════════════════════════
+                    COLUMNA DERECHA: VISOR HD INTERACTIVO DEL ACTA DE CONFORMIDAD (5 Cols)
+                ══════════════════════════════════════════════════════════ */}
+                <div className="lg:col-span-5 flex flex-col space-y-2 bg-slate-900/5 rounded-3xl p-3 border border-slate-200/90 self-start lg:sticky lg:top-0">
+                  
+                  {/* Toolbar de Controles Interactivos Elevada al Máximo */}
+                  <div className="flex items-center justify-between gap-1 p-2 bg-slate-900 text-white rounded-2xl shadow-md text-xs">
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                        <ImageIcon size={13} />
+                      </div>
+                      <span className="font-extrabold text-[11px] text-slate-100 hidden sm:inline tracking-tight">
+                        Acta de Conformidad
+                      </span>
+                      <span className="px-1.5 py-0.2 rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-mono font-bold text-[9px]">
+                        HD
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-0.5 sm:gap-1">
+                      {/* Zoom Controls */}
+                      <button
+                        type="button"
+                        onClick={handleZoomIn}
+                        disabled={!fotoActaUrl}
+                        title="Acercar (+25%)"
+                        className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-200 hover:text-white transition-colors cursor-pointer disabled:opacity-40"
+                      >
+                        <ZoomIn size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleZoomOut}
+                        disabled={!fotoActaUrl}
+                        title="Alejar (-25%)"
+                        className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-200 hover:text-white transition-colors cursor-pointer disabled:opacity-40"
+                      >
+                        <ZoomOut size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleResetZoom}
+                        disabled={!fotoActaUrl}
+                        title="Restablecer tamaño (100%)"
+                        className="px-1.5 py-1 rounded-xl hover:bg-slate-800 text-[11px] font-mono font-bold text-indigo-300 transition-colors cursor-pointer disabled:opacity-40"
+                      >
+                        {Math.round(zoomLevel * 100)}%
+                      </button>
+
+                      <div className="h-3.5 w-px bg-slate-700/80 mx-0.5"></div>
+
+                      {/* Modo Lupa */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLupaActiva(!lupaActiva);
+                          if (!lupaActiva) {
+                            setZoomLevel(1);
+                            setPanPos({ x: 0, y: 0 });
+                          }
+                        }}
+                        disabled={!fotoActaUrl}
+                        title={lupaActiva ? "Desactivar Lente Lupa" : "Activar Lente Lupa (Aumento 2.5x al mover el cursor)"}
+                        className={`px-2 py-1 rounded-xl text-[11px] font-bold inline-flex items-center gap-1 transition-all cursor-pointer disabled:opacity-40 ${
+                          lupaActiva
+                            ? "bg-indigo-500 text-white shadow-xs font-black ring-1 ring-white/50"
+                            : "bg-slate-800 hover:bg-slate-700 text-slate-300"
+                        }`}
+                      >
+                        <Search size={12} />
+                        <span>{lupaActiva ? "Lupa ON" : "Lupa"}</span>
+                      </button>
+
+                      {/* Girar */}
+                      <button
+                        type="button"
+                        onClick={handleRotate}
+                        disabled={!fotoActaUrl}
+                        title="Girar 90 grados"
+                        className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-200 hover:text-white transition-colors cursor-pointer disabled:opacity-40"
+                      >
+                        <RotateCw size={14} />
+                      </button>
+
+                      {/* Descargar */}
+                      <button
+                        type="button"
+                        onClick={handleDownloadFoto}
+                        disabled={!fotoActaUrl}
+                        title="Descargar fotografía en alta resolución"
+                        className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-200 hover:text-white transition-colors cursor-pointer disabled:opacity-40"
+                      >
+                        <Download size={14} />
+                      </button>
+
+                      {/* Pantalla Completa */}
+                      <button
+                        type="button"
+                        onClick={() => setFotoFullscreen(true)}
+                        disabled={!fotoActaUrl}
+                        title="Expandir a Pantalla Completa"
+                        className="p-1.5 rounded-xl hover:bg-slate-800 text-indigo-300 hover:text-white transition-colors cursor-pointer disabled:opacity-40"
+                      >
+                        <Maximize2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Viewport Interactivo de la Fotografía (Maximizando Altura Vertical) */}
+                  <div
+                    ref={imgWrapperRef}
+                    onWheel={handleWheel}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onMouseLeave={handleMouseUp}
+                    onDoubleClick={() => setZoomLevel((z) => (z > 1 ? 1 : 2))}
+                    className={`relative w-full h-[580px] sm:h-[640px] xl:h-[680px] bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 select-none flex items-center justify-center ${
+                      lupaActiva ? "cursor-crosshair" : zoomLevel > 1 ? (isDragging ? "cursor-grabbing" : "cursor-grab") : "cursor-default"
+                    }`}
+                  >
+                    {fotoActaLoading ? (
+                      /* Estado de Carga / Descarga de Fénix */
+                      <div className="flex flex-col items-center justify-center p-6 text-center space-y-3">
+                        <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-400/30 flex items-center justify-center animate-pulse">
+                          <Loader2 size={24} className="animate-spin text-indigo-400" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-bold text-white">
+                            Descargando Acta Original en Alta Resolución...
+                          </p>
+                          <p className="text-[11px] text-slate-400 max-w-xs">
+                            Conectando con el servidor oficial de Fénix (WIN) para obtener la fotografía nítida con sello y firmas.
+                          </p>
+                        </div>
+                      </div>
+                    ) : fotoActaError ? (
+                      /* Estado de Error o Sin Foto */
+                      <div className="flex flex-col items-center justify-center p-6 text-center space-y-3">
+                        <div className="w-12 h-12 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-400/30 flex items-center justify-center">
+                          <AlertTriangle size={24} />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-bold text-rose-300">
+                            {fotoActaError}
+                          </p>
+                          <p className="text-[11px] text-slate-400 max-w-xs">
+                            Verifique si el técnico ya subió la fotografía del acta de cierre en la tarea finalizada.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (modalLiq) abrirAuditoria(modalLiq);
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <RefreshCw size={13} />
+                          <span>Reintentar</span>
+                        </button>
+                      </div>
+                    ) : fotoActaUrl ? (
+                      <>
+                        {/* Imagen Principal con Zoom y Pan */}
+                        <img
+                          ref={imgRef}
+                          src={fotoActaUrl}
+                          alt="Acta de Conformidad"
+                          draggable={false}
+                          style={{
+                            transform: `translate(${panPos.x}px, ${panPos.y}px) scale(${zoomLevel}) rotate(${rotation}deg)`,
+                            transition: isDragging ? "none" : "transform 0.15s ease-out",
+                            maxWidth: "92%",
+                            maxHeight: "92%",
+                            objectFit: "contain"
+                          }}
+                          className="shadow-2xl pointer-events-none rounded-lg"
+                        />
+
+                        {/* Lente Lupa Flotante (Magnifier Lens 2.5x) */}
+                        {lupaActiva && (
+                          <div
+                            style={{
+                              left: `${lupaPos.x - 90}px`,
+                              top: `${lupaPos.y - 90}px`,
+                              backgroundImage: `url(${fotoActaUrl})`,
+                              backgroundPosition: `${lupaPos.relX}% ${lupaPos.relY}%`,
+                              backgroundSize: "280%",
+                              backgroundRepeat: "no-repeat"
+                            }}
+                            className="w-44 h-44 rounded-full border-3 border-indigo-400 shadow-[0_0_25px_rgba(99,102,241,0.6)] pointer-events-none absolute overflow-hidden z-30 ring-4 ring-black/40"
+                          >
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <div className="w-3 h-3 border border-indigo-300/60 rounded-full"></div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Barra Inferior de Ayuda y Tips */}
+                        <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between px-3 py-1.5 bg-slate-900/80 backdrop-blur-xs text-white rounded-xl border border-white/10 text-[10px] pointer-events-none">
+                          <span className="font-mono font-bold text-indigo-300">
+                            Zoom: {Math.round(zoomLevel * 100)}% {rotation !== 0 ? `• Giro: ${rotation}°` : ""}
+                          </span>
+                          <span className="text-slate-300">
+                            {lupaActiva
+                              ? "🔍 Mueve el cursor para ampliar con la lupa"
+                              : zoomLevel > 1
+                              ? "✋ Arrastra para explorar • Doble clic para 100%"
+                              : "💡 Rueda para zoom • Doble clic para 200%"}
+                          </span>
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          4.0.1 MODAL DE FOTOGRAFÍA EN PANTALLA COMPLETA
+      ───────────────────────────────────────────────────────────── */}
+      {fotoFullscreen && fotoActaUrl && (
+        <div className="fixed inset-0 z-70 flex flex-col bg-slate-950/95 backdrop-blur-md animate-fade-in">
+          {/* Header Fullscreen */}
+          <div className="p-4 bg-slate-900 border-b border-slate-800 text-white flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-0.5 rounded-lg bg-indigo-500/30 text-indigo-300 border border-indigo-400/30 text-xs font-mono font-bold">
+                Orden #{modalLiq?.numero_orden}
+              </span>
+              <h4 className="text-sm font-black text-white">
+                Visor Pantalla Completa • Acta de Conformidad WIN
+              </h4>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleZoomIn}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs cursor-pointer"
+                title="Acercar"
+              >
+                <ZoomIn size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={handleZoomOut}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs cursor-pointer"
+                title="Alejar"
+              >
+                <ZoomOut size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={handleResetZoom}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-indigo-300 font-mono text-xs font-bold cursor-pointer"
+              >
+                {Math.round(zoomLevel * 100)}%
+              </button>
+              <button
+                type="button"
+                onClick={handleRotate}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs cursor-pointer"
+                title="Girar"
+              >
+                <RotateCw size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={handleDownloadFoto}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs cursor-pointer"
+                title="Descargar"
+              >
+                <Download size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setFotoFullscreen(false)}
+                className="p-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs cursor-pointer ml-2"
+                title="Salir de pantalla completa"
+              >
+                <Minimize2 size={16} />
+              </button>
+            </div>
+          </div>
+
+          {/* Body Fullscreen */}
+          <div
+            onWheel={handleWheel}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+            className={`flex-1 overflow-hidden flex items-center justify-center select-none ${
+              zoomLevel > 1 ? (isDragging ? "cursor-grabbing" : "cursor-grab") : "cursor-default"
+            }`}
+          >
+            <img
+              src={fotoActaUrl}
+              alt="Acta Fullscreen"
+              draggable={false}
+              style={{
+                transform: `translate(${panPos.x}px, ${panPos.y}px) scale(${zoomLevel}) rotate(${rotation}deg)`,
+                transition: isDragging ? "none" : "transform 0.15s ease-out",
+                maxHeight: "92vh",
+                maxWidth: "92vw",
+                objectFit: "contain"
+              }}
+              className="shadow-2xl pointer-events-none rounded-xl"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          4.1 SUBMODAL: AGREGAR MATERIAL OLVIDADO
+      ───────────────────────────────────────────────────────────── */}
+      {modalAgregarAbierto && modalLiq && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+            
+            <div className="bg-gradient-to-r from-indigo-900 to-indigo-950 text-white p-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Plus size={18} className="text-indigo-400" />
+                <h4 className="text-sm font-black text-white">
+                  Agregar Material Olvidado a la Liquidación
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalAgregarAbierto(false)}
+                className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 overflow-y-auto text-xs">
+              
+              <div className="p-3 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center gap-2">
+                <Truck size={16} className="text-indigo-700 shrink-0" />
+                <span className="text-slate-700">
+                  Técnico: <strong className="text-indigo-900">{modalLiq.tecnico}</strong> (Acta #{modalLiq.numero_acta || modalLiq.numero_orden})
+                </span>
+              </div>
+
+              {/* Selector de Origen: Camioneta vs Catálogo */}
+              <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+                <button
+                  type="button"
+                  onClick={() => setOrigenStockAgregar("camioneta")}
+                  className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+                    origenStockAgregar === "camioneta"
+                      ? "bg-indigo-600 text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  🚚 En Camioneta ({stockTecnico?.materiales?.length || 0})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOrigenStockAgregar("catalogo")}
+                  className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+                    origenStockAgregar === "catalogo"
+                      ? "bg-indigo-600 text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  📦 Catálogo General ({catalogoGeneral.length})
+                </button>
+              </div>
+
+              {/* Selector de Producto */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700 block">
+                  Seleccionar Producto a Agregar:
+                </label>
+                <select
+                  value={nuevoMatProdId}
+                  onChange={(e) => setNuevoMatProdId(e.target.value ? Number(e.target.value) : "")}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 bg-white font-semibold text-slate-800 focus:border-indigo-500"
+                >
+                  <option value="">-- Seleccionar producto --</option>
+                  {origenStockAgregar === "camioneta" ? (
+                    stockTecnico?.materiales && stockTecnico.materiales.length > 0 ? (
+                      stockTecnico.materiales.map((m: any) => (
+                        <option key={m.id_producto} value={m.id_producto}>
+                          {m.nombre} (Stock Vehículo: {m.stock} UND)
+                        </option>
+                      ))
+                    ) : (
+                      <option disabled value="">No hay stock registrado en el vehículo</option>
+                    )
+                  ) : (
+                    catalogoGeneral.map((p) => (
+                      <option key={p.id_producto} value={p.id_producto}>
+                        {p.nombre} {p.codigo ? `[${p.codigo}]` : ""}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              {/* Cantidad */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 block">Cantidad a Liquidar:</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={nuevoMatCant}
+                    onChange={(e) => setNuevoMatCant(e.target.value)}
+                    className="w-full p-2 rounded-xl border border-slate-300 font-mono font-bold text-slate-900 bg-white"
+                  />
+                </div>
+
+                {/* Serie si aplica */}
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 block">N° Serie (Opcional):</label>
+                  <input
+                    type="text"
+                    placeholder="Ej. HWTC123456"
+                    value={nuevoMatSerie}
+                    onChange={(e) => setNuevoMatSerie(e.target.value)}
+                    className="w-full p-2 rounded-xl border border-slate-300 font-mono text-slate-900 bg-white uppercase"
+                  />
                 </div>
               </div>
 
-              {/* Observaciones del técnico */}
-              {modalLiq.observaciones_tecnico && (
-                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
-                  <span className="font-bold text-slate-700 block text-[10px] uppercase">Nota del Técnico</span>
-                  <p className="text-slate-600 mt-0.5 italic">{modalLiq.observaciones_tecnico}</p>
-                </div>
-              )}
-
-              {/* Cuadro de texto para motivo de rechazo */}
-              {mostrandoRechazoInput && (
-                <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 space-y-2 animate-fade-in">
-                  <span className="font-extrabold text-xs text-rose-900 block">
-                    Motivo del Rechazo de la Liquidación:
+              {/* Series disponibles en camioneta si es equipo */}
+              {stockTecnico?.seriesAsignadas && stockTecnico.seriesAsignadas.length > 0 && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 space-y-1">
+                  <span className="font-bold text-amber-900 block text-[11px]">
+                    Series Asignadas al Técnico en Campo:
                   </span>
-                  <textarea
-                    rows={2}
-                    placeholder="Escriba la razón del rechazo (ej. metraje excesivo sin justificación, falta serie de ONT)..."
-                    value={motivoRechazo}
-                    onChange={(e) => setMotivoRechazo(e.target.value)}
-                    className="w-full p-2 rounded-xl border border-rose-300 text-xs text-slate-900 bg-white"
-                  />
-                  <div className="flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setMostrandoRechazoInput(false)}
-                      className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleRechazar(modalLiq.id_liquidacion)}
-                      disabled={procesandoAccion}
-                      className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs cursor-pointer"
-                    >
-                      Confirmar Rechazo
-                    </button>
+                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                    {stockTecnico.seriesAsignadas.map((s: any) => (
+                      <button
+                        type="button"
+                        key={s.id_trabajador_serie || s.numero_serie}
+                        onClick={() => {
+                          setNuevoMatSerie(s.numero_serie);
+                          if (s.id_producto) setNuevoMatProdId(s.id_producto);
+                        }}
+                        className="px-2 py-0.5 rounded-md bg-white border border-amber-300 font-mono text-[10px] font-bold text-amber-900 hover:bg-amber-100 cursor-pointer"
+                      >
+                        {s.numero_serie} ({s.equipo_nombre})
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}
+
+              {/* Motivo */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700 block">Motivo / Justificación:</label>
+                <input
+                  type="text"
+                  placeholder="Ej. Material no marcado por error en aplicativo de campo..."
+                  value={nuevoMatMotivo}
+                  onChange={(e) => setNuevoMatMotivo(e.target.value)}
+                  className="w-full p-2 rounded-xl border border-slate-300 text-slate-800 bg-white"
+                />
+              </div>
 
             </div>
 
-            {/* Footer con Acciones */}
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0">
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setModalLiq(null)}
-                className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-100 cursor-pointer"
+                onClick={() => setModalAgregarAbierto(false)}
+                className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs cursor-pointer"
               >
-                Cerrar
+                Cancelar
               </button>
+              <button
+                type="button"
+                onClick={handleGuardarNuevoMaterial}
+                disabled={procesandoAccion || !nuevoMatProdId}
+                className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs cursor-pointer shadow-sm disabled:bg-slate-300"
+              >
+                Agregar y Descontar Stock
+              </button>
+            </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          4.2 SUBMODAL: CAMBIAR / SUSTITUIR PRODUCTO
+      ───────────────────────────────────────────────────────────── */}
+      {materialACambiar && modalLiq && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+            
+            <div className="bg-gradient-to-r from-amber-700 to-amber-900 text-white p-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                {!mostrandoRechazoInput && modalLiq.estado_liquidacion !== "Rechazada" && (
-                  <button
-                    type="button"
-                    onClick={() => setMostrandoRechazoInput(true)}
-                    disabled={procesandoAccion}
-                    className="px-4 py-2 rounded-xl border border-rose-300 hover:bg-rose-50 text-rose-700 font-bold text-xs transition-all cursor-pointer"
-                  >
-                    Rechazar
-                  </button>
-                )}
+                <ArrowLeftRight size={18} className="text-amber-300" />
+                <h4 className="text-sm font-black text-white">
+                  Cambiar / Sustituir Producto en Liquidación
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMaterialACambiar(null)}
+                className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer"
+              >
+                <X size={14} />
+              </button>
+            </div>
 
-                {modalLiq.estado_liquidacion !== "Aprobada" && (
-                  <button
-                    type="button"
-                    onClick={() => handleAprobar(modalLiq.id_liquidacion)}
-                    disabled={procesandoAccion}
-                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs inline-flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
-                  >
-                    <Check size={14} />
-                    <span>Aprobar Liquidación</span>
-                  </button>
+            <div className="p-5 space-y-4 overflow-y-auto text-xs">
+              
+              {/* Producto a Reemplazar */}
+              <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 space-y-1">
+                <span className="text-[10px] font-bold text-rose-800 uppercase block">
+                  Producto a Retornar al Técnico:
+                </span>
+                <div className="flex items-center justify-between">
+                  <strong className="text-xs text-rose-950">{materialACambiar.nombre_producto}</strong>
+                  <span className="font-mono font-bold text-rose-800 bg-rose-100 px-2 py-0.5 rounded-md">
+                    {materialACambiar.cantidad} UND
+                  </span>
+                </div>
+                {materialACambiar.numero_serie && (
+                  <span className="text-[10px] text-rose-700 font-mono block">
+                    Serie: {materialACambiar.numero_serie}
+                  </span>
                 )}
               </div>
+
+              {/* Selector de Origen para Nuevo Producto */}
+              <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+                <button
+                  type="button"
+                  onClick={() => setOrigenStockCambio("camioneta")}
+                  className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+                    origenStockCambio === "camioneta"
+                      ? "bg-amber-600 text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  🚚 En Camioneta ({stockTecnico?.materiales?.length || 0})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOrigenStockCambio("catalogo")}
+                  className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+                    origenStockCambio === "catalogo"
+                      ? "bg-amber-600 text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  📦 Catálogo General ({catalogoGeneral.length})
+                </button>
+              </div>
+
+              {/* Nuevo Producto */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700 block">
+                  Seleccionar Producto Correcto (Nuevo):
+                </label>
+                <select
+                  value={cambioProdId}
+                  onChange={(e) => setCambioProdId(e.target.value ? Number(e.target.value) : "")}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 bg-white font-semibold text-slate-800 focus:border-amber-500"
+                >
+                  <option value="">-- Seleccionar producto de reemplazo --</option>
+                  {origenStockCambio === "camioneta" ? (
+                    stockTecnico?.materiales && stockTecnico.materiales.length > 0 ? (
+                      stockTecnico.materiales.map((m: any) => (
+                        <option key={m.id_producto} value={m.id_producto}>
+                          {m.nombre} (Stock Vehículo: {m.stock} UND)
+                        </option>
+                      ))
+                    ) : (
+                      <option disabled value="">No hay stock registrado en el vehículo</option>
+                    )
+                  ) : (
+                    catalogoGeneral.map((p) => (
+                      <option key={p.id_producto} value={p.id_producto}>
+                        {p.nombre} {p.codigo ? `[${p.codigo}]` : ""}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              {/* Cantidad y Serie */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 block">Nueva Cantidad:</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={cambioCant}
+                    onChange={(e) => setCambioCant(e.target.value)}
+                    className="w-full p-2 rounded-xl border border-slate-300 font-mono font-bold text-slate-900 bg-white"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 block">Nueva Serie (Opcional):</label>
+                  <input
+                    type="text"
+                    placeholder="Ej. HWTC789012"
+                    value={cambioSerie}
+                    onChange={(e) => setCambioSerie(e.target.value)}
+                    className="w-full p-2 rounded-xl border border-slate-300 font-mono text-slate-900 bg-white uppercase"
+                  />
+                </div>
+              </div>
+
+              {/* Motivo */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700 block">Motivo del Cambio:</label>
+                <input
+                  type="text"
+                  placeholder="Ej. Error de tipificación del técnico al seleccionar modelo..."
+                  value={cambioMotivo}
+                  onChange={(e) => setCambioMotivo(e.target.value)}
+                  className="w-full p-2 rounded-xl border border-slate-300 text-slate-800 bg-white"
+                />
+              </div>
+
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setMaterialACambiar(null)}
+                className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleGuardarCambioProducto}
+                disabled={procesandoAccion || !cambioProdId}
+                className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs cursor-pointer shadow-sm disabled:bg-slate-300"
+              >
+                Cambiar y Recalibrar Stock
+              </button>
             </div>
 
           </div>

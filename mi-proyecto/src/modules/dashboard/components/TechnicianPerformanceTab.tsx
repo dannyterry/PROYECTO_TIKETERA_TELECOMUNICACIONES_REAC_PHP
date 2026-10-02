@@ -94,8 +94,8 @@ export interface PerformanceData {
 }
 
 interface TechnicianPerformanceTabProps {
-  activeMainTab?: "resumen" | "tecnicos" | "latencia" | "recableados_drop" | "auditoria";
-  setActiveMainTab?: (tab: "resumen" | "tecnicos" | "latencia" | "recableados_drop" | "auditoria") => void;
+  activeMainTab?: "resumen" | "tecnicos" | "latencia" | "recableados_drop" | "auditoria" | "exportar_data" | "supervision_calidad";
+  setActiveMainTab?: (tab: "resumen" | "tecnicos" | "latencia" | "recableados_drop" | "auditoria" | "exportar_data" | "supervision_calidad") => void;
   totalGestoresOnline?: number;
 }
 
@@ -748,6 +748,22 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
                     <span>Auditoría & Personal</span>
                     <span className="px-1 py-0.2 rounded-full text-[8px] font-bold bg-sky-100 text-sky-700">
                       {totalGestoresOnline} online
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveMainTab("exportar_data")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      activeMainTab === "exportar_data"
+                        ? "bg-white text-emerald-950 shadow-xs border border-emerald-300 font-black"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+                    }`}
+                  >
+                    <FileSpreadsheet size={13} className={activeMainTab === "exportar_data" ? "text-emerald-600" : "text-slate-400"} />
+                    <span>Data & Exportación</span>
+                    <span className="px-1 py-0.2 rounded-full text-[8px] font-black uppercase tracking-wider bg-emerald-600 text-white shadow-2xs">
+                      Excel
                     </span>
                   </button>
                 </div>

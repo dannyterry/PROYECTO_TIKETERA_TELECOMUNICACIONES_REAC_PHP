@@ -33,6 +33,11 @@ export const getRowColorByStatus = (status?: string): string => {
     return "bg-[#70ad47] hover:bg-[#649e3d] text-slate-950 border-l-4 border-l-[#486f2c] font-semibold";
   }
 
+  // 🟣 1. PÚRPURA: FINALIZADA EXTERNA, EXTERNA, EXTERNO (#e9d5ff)
+  if (s.includes("EXTERN")) {
+    return "bg-[#e9d5ff] hover:bg-[#dfc2fe] text-purple-950 border-l-4 border-l-purple-600 font-medium";
+  }
+
   // 🔵 2. CELESTE PROFUNDO: FINALIZADA, FINALIZADO, LIQUIDADA, LIQUIDADO, TERMINADA, CERRADA, FENIX (#5b9bd5)
   if (
     s.includes("FINALIZ") ||
@@ -81,6 +86,11 @@ export const getBadgeColorByStatus = (status?: string): string => {
     s.includes("PROCESO")
   ) {
     return "bg-[#5a8d36] text-white border-[#477329] shadow-xs font-bold";
+  }
+
+  // 🟣 PÚRPURA (FINALIZADA EXTERNA)
+  if (s.includes("EXTERN")) {
+    return "bg-purple-700 text-white border-purple-800 shadow-xs font-black";
   }
 
   // 🔵 CELESTE (FINALIZADA)

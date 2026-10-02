@@ -169,6 +169,15 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
       fd.append("observaciones_tecnico", observaciones);
       fd.append("nivel_combustible", nivelCombustible);
 
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, "0");
+      const day = String(now.getDate()).padStart(2, "0");
+      const fechaLocal = `${year}-${month}-${day}`;
+      const horaLocal = now.toTimeString().slice(0, 8);
+
+      fd.append("fecha", fechaLocal);
+
       // Capturar GPS en segundo plano
       const gps = await obtenerGpsActual();
 
@@ -179,6 +188,7 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
           return;
         }
         fd.append("km_inicio", kmInicio);
+        fd.append("hora_inicio", horaLocal);
         if (gps) {
           fd.append("lat_inicio", String(gps.lat));
           fd.append("lng_inicio", String(gps.lng));
@@ -197,6 +207,7 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
           return;
         }
         fd.append("km_fin", kmFin);
+        fd.append("hora_fin", horaLocal);
         if (gps) {
           fd.append("lat_fin", String(gps.lat));
           fd.append("lng_fin", String(gps.lng));
@@ -503,13 +514,13 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
                   ? "bg-sky-100 text-sky-800 border border-sky-300"
                   : "bg-emerald-100 text-emerald-800 border border-emerald-300"
               }`}>
-                {nivelCombustible === "Bajo" ? "⚠️ Reserva / Bajo" : nivelCombustible === "Medio" ? "🟡 Medio (1/2)" : nivelCombustible === "3/4" ? "🔵 Tres Cuartos (3/4)" : "🟢 Lleno (Full)"}
+                {nivelCombustible === "Bajo" ? "⚠️ Bajo (1/4)" : nivelCombustible === "Medio" ? "🟡 Medio (1/2)" : nivelCombustible === "3/4" ? "🔵 Tres Cuartos (3/4)" : "🟢 Lleno (Full)"}
               </span>
             </div>
 
             <div className="grid grid-cols-4 gap-1.5 pt-0.5">
               {[
-                { id: "Bajo", label: "Reserva (1/4)", icon: "🔴", activeClass: "bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-600/30 scale-[1.02]" },
+                { id: "Bajo", label: "Bajo (1/4)", icon: "🔴", activeClass: "bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-600/30 scale-[1.02]" },
                 { id: "Medio", label: "Medio (1/2)", icon: "🟡", activeClass: "bg-amber-500 text-white border-amber-500 shadow-md shadow-amber-500/30 scale-[1.02]" },
                 { id: "3/4", label: "3/4", icon: "🔵", activeClass: "bg-sky-600 text-white border-sky-600 shadow-md shadow-sky-600/30 scale-[1.02]" },
                 { id: "Lleno", label: "Full / Lleno", icon: "🟢", activeClass: "bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-600/30 scale-[1.02]" },

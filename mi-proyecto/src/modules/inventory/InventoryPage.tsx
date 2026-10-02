@@ -45,28 +45,28 @@ export const InventoryPage: React.FC = () => {
 
   type InventoryTabType =
     | "stock"
-    | "kardex"
-    | "transferencias_tecnicos"
     | "compras"
     | "despacho"
-    | "recogidos"
-    | "devoluciones"
     | "liquidaciones_ordenes"
-    | "categorias"
-    | "proveedores";
+    | "recogidos"
+    | "transferencias_tecnicos"
+    | "kardex"
+    | "devoluciones"
+    | "proveedores"
+    | "categorias";
 
   const tabsConfig = useMemo(() => [
     { id: "stock" as InventoryTabType, label: "Control de Stock & Almacenes", icon: Layers, allowed: canStock },
-    { id: "kardex" as InventoryTabType, label: "Kardex & Movimientos", badge: "General", icon: ArrowLeftRight, allowed: canKardex },
-    { id: "transferencias_tecnicos" as InventoryTabType, label: "Traspasos entre Técnicos", badge: "Campo", icon: ArrowLeftRight, allowed: canTraspasos },
     { id: "compras" as InventoryTabType, label: "Compras & Entrada (Series)", icon: ShoppingCart, allowed: canCompras },
     { id: "despacho" as InventoryTabType, label: "Despacho a Técnicos", icon: Truck, allowed: canDespacho },
-    { id: "recogidos" as InventoryTabType, label: "Equipos Recogidos", icon: RotateCcw, allowed: canRecogidos },
-    { id: "devoluciones" as InventoryTabType, label: "Devoluciones de Dotación", icon: ClipboardCheck, allowed: canDevoluciones },
     { id: "liquidaciones_ordenes" as InventoryTabType, label: "Liquidaciones de Técnicos", badge: "Actas", icon: FileCheck, allowed: canLiquidaciones },
-    { id: "categorias" as InventoryTabType, label: "Categorías", icon: Tag, allowed: canCategorias },
+    { id: "recogidos" as InventoryTabType, label: "Equipos Recogidos", icon: RotateCcw, allowed: canRecogidos },
+    { id: "transferencias_tecnicos" as InventoryTabType, label: "Traspasos entre Técnicos", badge: "Campo", icon: ArrowLeftRight, allowed: canTraspasos },
+    { id: "kardex" as InventoryTabType, label: "Kardex & Movimientos", badge: "General", icon: ArrowLeftRight, allowed: canKardex },
+    { id: "devoluciones" as InventoryTabType, label: "Devoluciones de Dotación", icon: ClipboardCheck, allowed: canDevoluciones },
     { id: "proveedores" as InventoryTabType, label: "Proveedores", icon: Building2, allowed: canProveedores },
-  ], [canStock, canKardex, canTraspasos, canCompras, canDespacho, canRecogidos, canDevoluciones, canLiquidaciones, canCategorias, canProveedores]);
+    { id: "categorias" as InventoryTabType, label: "Categorías", icon: Tag, allowed: canCategorias },
+  ], [canStock, canCompras, canDespacho, canLiquidaciones, canRecogidos, canTraspasos, canKardex, canDevoluciones, canProveedores, canCategorias]);
 
   const tabsDisponibles = useMemo(() => tabsConfig.filter((t) => t.allowed), [tabsConfig]);
 
@@ -92,10 +92,11 @@ export const InventoryPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const isFetchingRef = useRef(false);
 
-  const cargarDatos = useCallback(() => {
+  const cargarDatos = useCallback((silent: boolean | unknown = false) => {
+    const isSilent = typeof silent === "boolean" && silent;
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
-    setLoading(true);
+    if (!isSilent) setLoading(true);
     getStockGeneral()
       .then((res) => {
         setProductos(res.productos || []);
@@ -105,13 +106,47 @@ export const InventoryPage: React.FC = () => {
       .catch(console.error)
       .finally(() => {
         isFetchingRef.current = false;
-        setLoading(false);
+        if (!silent) setLoading(false);
       });
   }, []);
 
-  // Carga inicial controlada (solo 1 vez al montar)
+  // Carga inicial y refresco automático controlado sin parpadeo
   useEffect(() => {
     cargarDatos();
+
+    // ⚡ 1. Polling cada 25s solo si la pestaña está visible
+    const timer = setInterval(() => {
+      if (!document.hidden) {
+        cargarDatos(true);
+      }
+    }, 25000);
+
+    // ⚡ 2. Sincronización instantánea con traspasos o movimientos entre pestañas
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel("stock_transfers_sync");
+      bc.onmessage = (ev) => {
+        if (ev?.data?.type === "TRANSFER_UPDATED") {
+          cargarDatos(true);
+        }
+      };
+    } catch {}
+
+    // ⚡ 3. Refrescar al regresar al navegador o pestaña
+    const handleFocus = () => {
+      if (document.visibilityState === "visible") {
+        cargarDatos(true);
+      }
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleFocus);
+
+    return () => {
+      clearInterval(timer);
+      if (bc) bc.close();
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleFocus);
+    };
   }, [cargarDatos]);
 
   // Sincronización con el hash de la URL

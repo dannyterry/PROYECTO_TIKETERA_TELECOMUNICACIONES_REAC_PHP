@@ -53,6 +53,8 @@ export const getEmpleados = async (): Promise<Employee[]> => {
       tipo_servicio: emp.tipo_servicio || "",
       fechaIngreso: formatFecha(emp.fecha_ingreso),
       opcionPersonal: emp.opcion_personal || "",
+      subcontrata_codigo: emp.subcontrata_codigo || "",
+      subcontrataCodigo: emp.subcontrata_codigo || "",
       cuadrilla: emp.cuadrilla || "",
       regimenPensionario: emp.regimen_pensionario || "",
       tipoComision: emp.tipo_comision_afp || "",
@@ -73,6 +75,18 @@ export const getEmpleados = async (): Promise<Employee[]> => {
       numeroBrevete: emp.numero_brevete || "",
       fechaEmisionLicencia: formatFecha(emp.emision_brevete),
       fechaVencimientoLicencia: formatFecha(emp.fecha_vencimiento_brevete),
+      numeroRevisionTecnica: emp.numero_revision_tecnica || "",
+      fechaEmisionRevisionTecnica: formatFecha(emp.emision_revision_tecnica),
+      fechaVencimientoRevisionTecnica: formatFecha(emp.vencimiento_revision_tecnica),
+      numero_revision_tecnica: emp.numero_revision_tecnica || "",
+      emision_revision_tecnica: formatFecha(emp.emision_revision_tecnica),
+      vencimiento_revision_tecnica: formatFecha(emp.vencimiento_revision_tecnica),
+      numeroSoat: emp.numero_soat || "",
+      fechaEmisionSoat: formatFecha(emp.emision_soat),
+      fechaVencimientoSoat: formatFecha(emp.vencimiento_soat),
+      numero_soat: emp.numero_soat || "",
+      emision_soat: formatFecha(emp.emision_soat),
+      vencimiento_soat: formatFecha(emp.vencimiento_soat),
       tallaPolo: emp.talla_polo || "",
       tallaPantalon: emp.talla_pantalon || "",
       tallaCalzado: emp.talla_calzado || "",
@@ -340,6 +354,29 @@ export const programarDescanso = async (data: {
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || "Error al programar descanso");
+  }
+  return res.json();
+};
+
+export const actualizarDescanso = async (
+  id: number,
+  data: {
+    id_trabajador?: number;
+    id_usuario?: number;
+    fecha_inicio?: string;
+    fecha_fin?: string;
+    motivo?: string;
+    estado?: string;
+  }
+) => {
+  const res = await fetch(`${API_URL}/api/asistencias/descansos/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Error al actualizar descanso");
   }
   return res.json();
 };

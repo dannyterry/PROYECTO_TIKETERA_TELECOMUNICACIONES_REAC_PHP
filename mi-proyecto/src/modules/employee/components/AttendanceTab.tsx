@@ -18,6 +18,7 @@ import {
   Check,
   Plus,
   Trash2,
+  Edit2,
   AlertCircle,
   FileSpreadsheet,
   Zap,
@@ -31,6 +32,7 @@ import {
   getMatrizAsistencias,
   getDescansos,
   programarDescanso,
+  actualizarDescanso,
   cancelarDescanso,
   getRoles,
   RolItem,
@@ -107,6 +109,7 @@ export const AttendanceTab: React.FC = () => {
 
   // --- SubTab 3: Descansos Programados ---
   const [descansos, setDescansos] = useState<any[]>([]);
+  const [descansoAEditar, setDescansoAEditar] = useState<any | null>(null);
   const [personalParaDescansos, setPersonalParaDescansos] = useState<AsistenciaDiariaItem[]>([]);
   const [modalDescanso, setModalDescanso] = useState(false);
   const [guardandoDescanso, setGuardandoDescanso] = useState(false);
@@ -551,12 +554,66 @@ export const AttendanceTab: React.FC = () => {
     setMesDescanso(new Date());
   };
 
+  // Función para cargar automáticamente los días de descanso existentes del trabajador
+  const cargarDiasDescansoDelTrabajador = (idUsuarioOTrabajador: string | number, fechaRef?: Date) => {
+    const idNum = Number(idUsuarioOTrabajador);
+    if (!idNum) return;
+
+    // Buscar todos los descansos activos del trabajador en `descansos`
+    const descansosTrabajador = descansos.filter(
+      (d) =>
+        d.estado !== "Cancelado" &&
+        (Number(d.id_usuario) === idNum || Number(d.id_trabajador) === idNum)
+    );
+
+    const dias: string[] = [];
+    let primeraFecha: Date | null = null;
+
+    descansosTrabajador.forEach((d) => {
+      const fIniStr = (d.fecha_inicio || "").slice(0, 10);
+      const fFinStr = (d.fecha_fin || "").slice(0, 10);
+      if (fIniStr && fFinStr) {
+        const ini = parseLocalDate(fIniStr);
+        const fin = parseLocalDate(fFinStr);
+        if (!primeraFecha) primeraFecha = ini;
+
+        const cur = new Date(ini);
+        while (cur <= fin) {
+          const str = formatLocalDate(cur);
+          if (!dias.includes(str)) {
+            dias.push(str);
+          }
+          cur.setDate(cur.getDate() + 1);
+        }
+      }
+    });
+
+    if (dias.length > 0) {
+      setDiasSeleccionados(dias);
+      const targetDate = fechaRef || primeraFecha || new Date();
+      setMesDescanso(targetDate);
+      setSemanaDescanso(targetDate);
+    } else {
+      const targetDate = fechaRef || new Date();
+      setMesDescanso(targetDate);
+      setSemanaDescanso(targetDate);
+      if (modoDescansoModal === "mes") {
+        const infoMes = calcularDiasMesDescanso(targetDate);
+        const domingos = infoMes.dias.filter((d) => d.esDomingo).map((d) => d.fechaStr);
+        setDiasSeleccionados(domingos);
+      } else {
+        const infoSemana = calcularDiasSemana(targetDate);
+        setDiasSeleccionados([infoSemana.dias[6].fechaStr]);
+      }
+    }
+  };
+
   const handleAbrirModalDescanso = async () => {
+    setDescansoAEditar(null);
     const hoy = new Date();
     setSemanaDescanso(hoy);
     setMesDescanso(hoy);
-    const info = calcularDiasSemana(hoy);
-    setDiasSeleccionados([info.dias[6].fechaStr]); // Por defecto Domingo de la semana actual
+    setDiasSeleccionados([]);
     setDescansoForm({
       id_trabajador: "",
       motivo: "Descanso semanal",
@@ -564,10 +621,15 @@ export const AttendanceTab: React.FC = () => {
     setBusquedaTrabajadorModal("");
     setDropdownTrabajadorAbierto(false);
 
-    if (personalParaDescansos.length === 0) {
+    if (personalParaDescansos.length === 0 || descansos.length === 0) {
       try {
         const rolParam = !canVerTodosRoles ? rolTecnicoId : (filtroRol !== "Todos" ? filtroRol : undefined);
-        const res = await getAsistenciaDiaria(hoy.toISOString().slice(0, 10), rolParam);
+        const hoyStr = new Date().toISOString().slice(0, 10);
+        const [dataDesc, res] = await Promise.all([
+          getDescansos(rolParam),
+          getAsistenciaDiaria(hoyStr, rolParam),
+        ]);
+        if (dataDesc) setDescansos(dataDesc);
         if (res && Array.isArray(res.asistencias)) {
           setPersonalParaDescansos(res.asistencias);
         }
@@ -578,7 +640,45 @@ export const AttendanceTab: React.FC = () => {
     setModalDescanso(true);
   };
 
-  // Programar Descanso Form Submit
+  const handleAbrirModalEditarDescanso = async (d: any) => {
+    setDescansoAEditar(d);
+    const fIniStr = (d.fecha_inicio || "").slice(0, 10);
+    const ini = parseLocalDate(fIniStr);
+
+    setSemanaDescanso(ini);
+    setMesDescanso(ini);
+
+    const targetId = String(d.id_usuario || d.id_trabajador || "");
+    setDescansoForm({
+      id_trabajador: targetId,
+      motivo: d.motivo || "Descanso semanal",
+    });
+    setBusquedaTrabajadorModal(d.nombre_completo || "");
+    setDropdownTrabajadorAbierto(false);
+
+    // Cargar todos los descansos activos de este trabajador
+    cargarDiasDescansoDelTrabajador(targetId, ini);
+
+    if (personalParaDescansos.length === 0 || descansos.length === 0) {
+      try {
+        const rolParam = !canVerTodosRoles ? rolTecnicoId : (filtroRol !== "Todos" ? filtroRol : undefined);
+        const hoyStr = new Date().toISOString().slice(0, 10);
+        const [dataDesc, res] = await Promise.all([
+          getDescansos(rolParam),
+          getAsistenciaDiaria(hoyStr, rolParam),
+        ]);
+        if (dataDesc) setDescansos(dataDesc);
+        if (res && Array.isArray(res.asistencias)) {
+          setPersonalParaDescansos(res.asistencias);
+        }
+      } catch (e) {
+        console.error("Error al cargar lista de personal:", e);
+      }
+    }
+    setModalDescanso(true);
+  };
+
+  // Programar o Modificar Descanso Form Submit
   const handleGuardarDescanso = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!descansoForm.id_trabajador) {
@@ -605,8 +705,9 @@ export const AttendanceTab: React.FC = () => {
     try {
       setGuardandoDescanso(true);
 
-      // Agrupar fechas consecutivas en rangos para optimizar registros
       const fechasOrdenadas = [...diasSeleccionados].sort();
+
+      // Convertir fechas seleccionadas en rangos consecutivos
       const rangos: Array<{ fecha_inicio: string; fecha_fin: string }> = [];
       let actual: { fecha_inicio: string; fecha_fin: string } | null = null;
 
@@ -629,22 +730,36 @@ export const AttendanceTab: React.FC = () => {
         rangos.push(actual);
       }
 
+      // Si estamos editando o actualizando descansos de este trabajador, reemplazar sus descansos previos activos
+      const idTarget = selectedTrabajador ? selectedTrabajador.id_usuario : idUsuarioNum;
+      const descansosPrevios = descansos.filter(
+        (d) =>
+          d.estado !== "Cancelado" &&
+          (Number(d.id_usuario) === Number(idTarget) || Number(d.id_trabajador) === Number(idTarget))
+      );
+
+      for (const dPrev of descansosPrevios) {
+        await cancelarDescanso(dPrev.id_descanso).catch(() => {});
+      }
+
       for (const r of rangos) {
         await programarDescanso({
           id_usuario: selectedTrabajador ? selectedTrabajador.id_usuario : idUsuarioNum,
-          id_trabajador: selectedTrabajador?.id_trabajador,
+          id_trabajador: selectedTrabajador?.id_trabajador || idUsuarioNum,
           fecha_inicio: r.fecha_inicio,
           fecha_fin: r.fecha_fin,
           motivo: descansoForm.motivo?.trim() || "Descanso semanal",
         });
       }
 
+      alert("✅ Descanso guardado con éxito.");
       setModalDescanso(false);
+      setDescansoAEditar(null);
       cargarDescansos();
       if (subTab === "diario") cargarPaseDiario();
       if (subTab === "matriz") cargarMatriz();
     } catch (err: any) {
-      alert("Error al programar descanso: " + err.message);
+      alert("Error al guardar descanso: " + err.message);
     } finally {
       setGuardandoDescanso(false);
     }
@@ -1762,14 +1877,24 @@ export const AttendanceTab: React.FC = () => {
                       </td>
                       <td className="py-3.5 px-5 text-right">
                         {d.estado !== "Cancelado" && (
-                          <button
-                            type="button"
-                            onClick={() => handleCancelarDescanso(d.id_descanso)}
-                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all cursor-pointer"
-                            title="Cancelar descanso"
-                          >
-                            <Trash2 size={15} />
-                          </button>
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleAbrirModalEditarDescanso(d)}
+                              className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-all cursor-pointer"
+                              title="Modificar descanso"
+                            >
+                              <Edit2 size={15} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleCancelarDescanso(d.id_descanso)}
+                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all cursor-pointer"
+                              title="Cancelar descanso"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -1794,10 +1919,16 @@ export const AttendanceTab: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-base font-black text-slate-900">
-                    {modoDescansoModal === "semana" ? "Programar Descanso Semanal" : "Programar Descanso Mensual"}
+                    {descansoAEditar
+                      ? "Modificar Descanso Programado"
+                      : modoDescansoModal === "semana"
+                      ? "Programar Descanso Semanal"
+                      : "Programar Descanso Mensual"}
                   </h3>
                   <p className="text-xs text-slate-500 font-medium">
-                    {modoDescansoModal === "semana"
+                    {descansoAEditar
+                      ? "Actualiza el trabajador, los días o el motivo del descanso"
+                      : modoDescansoModal === "semana"
                       ? "Marca los días de descanso en la semana"
                       : "Asigna los descansos de todo el mes de forma rápida"}
                   </p>
@@ -1897,9 +2028,11 @@ export const AttendanceTab: React.FC = () => {
                           <div
                             key={`dropdown-worker-${a.id_usuario}`}
                             onClick={() => {
-                              setDescansoForm((prev) => ({ ...prev, id_trabajador: String(a.id_usuario) }));
+                              const wId = String(a.id_usuario);
+                              setDescansoForm((prev) => ({ ...prev, id_trabajador: wId }));
                               setBusquedaTrabajadorModal(a.nombre_completo);
                               setDropdownTrabajadorAbierto(false);
+                              cargarDiasDescansoDelTrabajador(wId);
                             }}
                             className={`p-2 rounded-xl cursor-pointer flex items-center justify-between transition-colors text-xs ${
                               isSelected
@@ -2290,7 +2423,9 @@ export const AttendanceTab: React.FC = () => {
                   ) : (
                     <>
                       <Check size={14} />
-                      <span>Guardar Descanso ({diasSeleccionados.length})</span>
+                      <span>
+                        {descansoAEditar ? "Guardar Cambios de Descanso" : `Guardar Descanso (${diasSeleccionados.length})`}
+                      </span>
                     </>
                   )}
                 </button>

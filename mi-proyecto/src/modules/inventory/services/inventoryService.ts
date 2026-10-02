@@ -394,6 +394,55 @@ export const ajustarMaterialLiquidacion = async (
   return res.data;
 };
 
+export const cambiarProductoLiquidacion = async (
+  idLiquidacion: number | string,
+  payload: {
+    id_detalle_liq: number;
+    nuevo_id_producto: number;
+    nueva_cantidad: number;
+    nuevo_numero_serie?: string;
+    motivo?: string;
+  }
+) => {
+  const res = await api.put(`/almacen/orden-liquidaciones/${idLiquidacion}/cambiar-producto`, payload);
+  return res.data;
+};
+
+export const agregarMaterialLiquidacion = async (
+  idLiquidacion: number | string,
+  payload: {
+    id_producto: number;
+    cantidad: number;
+    numero_serie?: string;
+    motivo?: string;
+  }
+) => {
+  const res = await api.post(`/almacen/orden-liquidaciones/${idLiquidacion}/agregar-material`, payload);
+  return res.data;
+};
+
+export const eliminarMaterialLiquidacion = async (
+  idLiquidacion: number | string,
+  idDetalleLiq: number | string,
+  motivo?: string
+) => {
+  const res = await api.delete(`/almacen/orden-liquidaciones/${idLiquidacion}/eliminar-material/${idDetalleLiq}`, {
+    data: { motivo },
+  });
+  return res.data;
+};
+
+export const editarNumeroActaLiquidacion = async (
+  idLiquidacion: number | string,
+  payload: {
+    nuevo_numero_acta: string;
+    motivo?: string;
+  }
+) => {
+  const res = await api.put(`/almacen/orden-liquidaciones/${idLiquidacion}/editar-acta`, payload);
+  return res.data;
+};
+
 export const getDescargasTecnicoDetalle = async (
   idTrabajador: number,
   idProducto?: number
@@ -411,5 +460,21 @@ export const getDescargasTecnicoDetalle = async (
 export const getTecnicosDisponibles = async (): Promise<any[]> => {
   const res = await api.get("/almacen/tecnicos-disponibles");
   return res.data?.tecnicos || [];
+};
+
+export const getFotoActaLiquidacion = async (
+  numeroOrden: string
+): Promise<{
+  success: boolean;
+  foto_url?: string;
+  dataId?: string;
+  titulo?: string;
+  tiempos?: any;
+  coordenadas?: any;
+  origen?: string;
+  error?: string;
+}> => {
+  const res = await api.get(`/almacen/orden-liquidaciones/${encodeURIComponent(numeroOrden)}/foto-acta`);
+  return res.data;
 };
 

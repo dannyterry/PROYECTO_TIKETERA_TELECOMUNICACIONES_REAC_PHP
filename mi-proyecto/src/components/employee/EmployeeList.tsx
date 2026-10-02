@@ -41,6 +41,8 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
   const [searchTerm, setSearchTerm] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("Activo"); // Por defecto, es mejor ver a los activos
   const [filtroOpcionPersonal, setFiltroOpcionPersonal] = useState("Todos");
+  const [filtroSubcontrata, setFiltroSubcontrata] = useState("Todos");
+  const [filtroAlertaDoc, setFiltroAlertaDoc] = useState("Todos");
   const [filtroSCTR, setFiltroSCTR] = useState("Todos");
   const [mesVencimiento, setMesVencimiento] = useState(""); // Filtro por Mes
   const [copiadoId, setCopiadoId] = useState<number | null>(null);
@@ -233,13 +235,60 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
     }
   };
 
-  // Función para calcular si el SCTR está vencido o vence en 30 días
+  // Helper para verificar estado de vigencia y alertas de vencimiento (1 semana = <= 7 días)
+  const getDocumentStatus = (fecha?: string) => {
+    if (!fecha) return { status: "SIN_REGISTRO", label: "Sin registrar", diffDays: null, badgeClass: "bg-gray-100 text-gray-400 border-gray-200" };
+    
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    
+    const cleanFecha = fecha.split("T")[0];
+    const parts = cleanFecha.split("-").map(Number);
+    if (parts.length !== 3 || isNaN(parts[0])) {
+      return { status: "SIN_REGISTRO", label: "Sin registrar", diffDays: null, badgeClass: "bg-gray-100 text-gray-400 border-gray-200" };
+    }
+    
+    const fVenc = new Date(parts[0], parts[1] - 1, parts[2]);
+    fVenc.setHours(0, 0, 0, 0);
+
+    const diffDays = Math.round((fVenc.getTime() - hoy.getTime()) / (1000 * 3600 * 24));
+
+    if (diffDays < 0) {
+      return { 
+        status: "VENCIDO", 
+        label: `🔴 Vencido (${Math.abs(diffDays)}d)`, 
+        diffDays, 
+        badgeClass: "bg-red-100 text-red-700 border-red-200 font-bold" 
+      };
+    } else if (diffDays <= 7) {
+      return { 
+        status: "POR_VENCER_7", 
+        label: diffDays === 0 ? "⚠️ ¡VENCE HOY!" : `⚠️ Vence en ${diffDays}d`, 
+        diffDays, 
+        badgeClass: "bg-amber-100 text-amber-900 border-amber-300 font-bold" 
+      };
+    } else if (diffDays <= 30) {
+      return { 
+        status: "POR_VENCER_30", 
+        label: `🟡 Vence en ${diffDays}d`, 
+        diffDays, 
+        badgeClass: "bg-yellow-50 text-yellow-800 border-yellow-200 font-semibold" 
+      };
+    } else {
+      return { 
+        status: "VIGENTE", 
+        label: `🟢 Vigente`, 
+        diffDays, 
+        badgeClass: "bg-emerald-50 text-emerald-700 border-emerald-200 font-medium" 
+      };
+    }
+  };
+
+  // Función para compatibilidad con filtro SCTR legacy
   const isVencidoOPorVencer = (fecha?: string) => {
     if (!fecha) return false;
-    const hoy = new Date();
-    const fVenc = new Date(fecha);
-    const diffDias = (fVenc.getTime() - hoy.getTime()) / (1000 * 3600 * 24);
-    return diffDias <= 30; // Vencido o por vencer en 30 días
+    const st = getDocumentStatus(fecha);
+    return st.status === "VENCIDO" || st.status === "POR_VENCER_7" || st.status === "POR_VENCER_30";
   };
 
   // 1. LÓGICA DE FILTRADO AVANZADO MULTIPLE
@@ -258,7 +307,12 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
         emp.correo || "",
         emp.rolNombre || "",
         emp.area || "",
-        emp.telefono || ""
+        emp.telefono || "",
+        emp.opcionPersonal || "",
+        emp.subcontrata_codigo || emp.subcontrataCodigo || "",
+        emp.cuadrilla || "",
+        emp.licencia || "",
+        emp.numeroBrevete || ""
       ].join(" ").toLowerCase();
 
       // Permite buscar por nombre completo, apellidos primero, o cualquier combinación de palabras
@@ -282,20 +336,69 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
       matchOpcionPersonal = (emp.opcionPersonal || "").trim().toLowerCase() === filtroOpcionPersonal.trim().toLowerCase();
     }
 
-    // D) Filtro por Estado SCTR
+    // Filtro por Subcontrata / Cuadrilla
+    let matchSubcontrata = true;
+    if (filtroSubcontrata !== "Todos") {
+      const cod = (emp.subcontrata_codigo || emp.subcontrataCodigo || "").trim().toLowerCase();
+      matchSubcontrata = cod.includes(filtroSubcontrata.trim().toLowerCase());
+    }
+
+    // D) Filtro por Alertas y Vencimientos de Documentos (Brevete, Rev. Técnica, SOAT, SCTR)
+    let matchAlertaDoc = true;
+    const stBrevete = getDocumentStatus(emp.fechaVencimientoLicencia);
+    const stRevTec = getDocumentStatus(emp.fechaVencimientoRevisionTecnica || emp.vencimiento_revision_tecnica);
+    const stSoat = getDocumentStatus(emp.fechaVencimientoSoat || emp.vencimiento_soat);
+    const stSctr = getDocumentStatus(emp.sctrVencimiento);
+
+    if (filtroAlertaDoc === "Alerta_7_dias") {
+      matchAlertaDoc = [stBrevete, stRevTec, stSoat, stSctr].some(s => s.status === "POR_VENCER_7");
+    } else if (filtroAlertaDoc === "Alerta_Vencidos") {
+      matchAlertaDoc = [stBrevete, stRevTec, stSoat, stSctr].some(s => s.status === "VENCIDO");
+    } else if (filtroAlertaDoc === "Brevete_7") {
+      matchAlertaDoc = stBrevete.status === "POR_VENCER_7";
+    } else if (filtroAlertaDoc === "Brevete_Vencido") {
+      matchAlertaDoc = stBrevete.status === "VENCIDO";
+    } else if (filtroAlertaDoc === "RevTec_7") {
+      matchAlertaDoc = stRevTec.status === "POR_VENCER_7";
+    } else if (filtroAlertaDoc === "RevTec_Vencido") {
+      matchAlertaDoc = stRevTec.status === "VENCIDO";
+    } else if (filtroAlertaDoc === "SOAT_7") {
+      matchAlertaDoc = stSoat.status === "POR_VENCER_7";
+    } else if (filtroAlertaDoc === "SOAT_Vencido") {
+      matchAlertaDoc = stSoat.status === "VENCIDO";
+    } else if (filtroAlertaDoc === "SCTR_7") {
+      matchAlertaDoc = stSctr.status === "POR_VENCER_7";
+    } else if (filtroAlertaDoc === "SCTR_Vencido") {
+      matchAlertaDoc = stSctr.status === "VENCIDO";
+    }
+
+    // E) Filtro por Estado SCTR legacy
     let matchSCTR = true;
     if (filtroSCTR === "Sin SCTR") matchSCTR = !emp.sctrVencimiento;
     if (filtroSCTR === "Con SCTR") matchSCTR = !!emp.sctrVencimiento;
     if (filtroSCTR === "Por Vencer / Vencido") matchSCTR = !!emp.sctrVencimiento && isVencidoOPorVencer(emp.sctrVencimiento);
 
-    // E) Filtro por Mes de Vencimiento SCTR
+    // F) Filtro por Mes de Vencimiento SCTR
     let matchMes = true;
     if (mesVencimiento) {
       matchMes = !!emp.sctrVencimiento && emp.sctrVencimiento.startsWith(mesVencimiento);
     }
 
-    return matchSearch && matchEstado && matchRol && matchOpcionPersonal && matchSCTR && matchMes;
+    return matchSearch && matchEstado && matchRol && matchOpcionPersonal && matchSubcontrata && matchAlertaDoc && matchSCTR && matchMes;
   });
+
+  // Lista dinámica para filtro de Subcontratas
+  const subcontratasDisponibles = useMemo(() => {
+    const set = new Set<string>();
+    listaLocal.forEach((e) => {
+      const code = e.subcontrata_codigo || e.subcontrataCodigo;
+      if (code && code.trim()) set.add(code.trim());
+    });
+    for (let i = 1; i <= 10; i++) {
+      set.add(`Subcontrata C${i}`);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [listaLocal]);
 
   // Lista dinámica para filtro de Opción de Personal
   const opcionesPersonalDisponibles = useMemo(() => {
@@ -327,9 +430,12 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
     if (filteredEmpleados.length === 0) return alert("No hay registros.");
     const headers = [
       "TIPO DOCUMENTO", "DOCUMENTO / DNI", "NOMBRES", "PRIMER APELLIDO", "SEGUNDO APELLIDO", "FECHA DE NACIMIENTO",
-      "ESTADO", "ÁREA", "ROL", "CORREO ELECTRÓNICO", 
+      "ESTADO", "ÁREA", "ROL", "OPCIÓN PERSONAL", "SUBCONTRATA / CUADRILLA", "CORREO ELECTRÓNICO", 
       "TELÉFONO", "SUELDO (S/)", "BANCO", "CUENTA", "CCI", 
-      "FECHA INGRESO", "VENC. SCTR"
+      "FECHA INGRESO", "VENC. SCTR", 
+      "LICENCIA CONDUCIR", "N° BREVETE", "VENC. BREVETE",
+      "N° REV. TÉCNICA", "VENC. REV. TÉCNICA",
+      "N° SOAT", "VENC. SOAT"
     ];
     
     const rows = filteredEmpleados.map((emp) => [
@@ -342,6 +448,8 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
       `"${emp.estado || "Activo"}"`,
       `"${emp.area || "Sin área"}"`,
       `"${emp.rolNombre || emp.id_rol || "Sin rol"}"`,
+      `"${emp.opcionPersonal || ""}"`,
+      `"${emp.subcontrata_codigo || emp.subcontrataCodigo || emp.cuadrilla || ""}"`,
       `"${emp.correo || ""}"`,
       `="${emp.telefono || ""}"`,
       `"${emp.sueldo || ""}"`,
@@ -349,10 +457,17 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
       `="${emp.cuenta || ""}"`,
       `="${emp.cci || ""}"`,
       `"${formatoFechaExcel(emp.fechaIngreso)}"`,
-      `"${formatoFechaExcel(emp.sctrVencimiento)}"`
+      `"${formatoFechaExcel(emp.sctrVencimiento)}"`,
+      `"${emp.licencia || "Sin Licencia"}"`,
+      `"${emp.numeroBrevete || ""}"`,
+      `"${formatoFechaExcel(emp.fechaVencimientoLicencia)}"`,
+      `"${emp.numeroRevisionTecnica || emp.numero_revision_tecnica || ""}"`,
+      `"${formatoFechaExcel(emp.fechaVencimientoRevisionTecnica || emp.vencimiento_revision_tecnica)}"`,
+      `"${emp.numeroSoat || emp.numero_soat || ""}"`,
+      `"${formatoFechaExcel(emp.fechaVencimientoSoat || emp.vencimiento_soat)}"`
     ]);
 
-    descargarCSV("Reporte_RRHH", headers, rows);
+    descargarCSV("Reporte_RRHH_Personal", headers, rows);
   };
 
   // EXPORTACIÓN 2: TRAMA SCTR 
@@ -565,22 +680,94 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
             )}
           </div>
 
-          {/* 4. Filtro SCTR Status */}
+          {/* 4. Filtro Alerta Documentos y Vencimientos */}
           <div className="w-full">
-            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">Estado SCTR</label>
+            <label className="text-[10px] font-bold text-rose-700 uppercase tracking-wider mb-1 block flex items-center gap-1">
+              <span>⚠️</span> Alertas & Vencimientos
+            </label>
             <select 
-              value={filtroSCTR} 
-              onChange={(e) => setFiltroSCTR(e.target.value)}
-              className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer"
+              value={filtroAlertaDoc} 
+              onChange={(e) => setFiltroAlertaDoc(e.target.value)}
+              className={`w-full h-10 rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 cursor-pointer transition-colors ${
+                filtroAlertaDoc.includes("7") 
+                  ? "bg-amber-50 text-amber-900 border-amber-300 font-bold focus:ring-amber-500" 
+                  : filtroAlertaDoc.includes("Vencid") 
+                  ? "bg-red-50 text-red-900 border-red-300 font-bold focus:ring-red-500" 
+                  : "border-input bg-background focus:ring-rose-500"
+              }`}
             >
-              <option value="Todos">🛡️ Todos los estados SCTR</option>
-              <option value="Sin SCTR">❌ Sin SCTR asignado</option>
-              <option value="Con SCTR">✅ Con SCTR activo</option>
-              <option value="Por Vencer / Vencido">⚠️ Por Vencer o Vencido</option>
+              <option value="Todos">📑 Todos los Documentos</option>
+              <optgroup label="⚡ Alertas Generales de Emergencia">
+                <option value="Alerta_7_dias">🚨 ¡ALERTA! Vence en ≤ 7 días (Cualquier Doc)</option>
+                <option value="Alerta_Vencidos">🔴 Documentos Vencidos (Cualquiera)</option>
+              </optgroup>
+              <optgroup label="🚗 Licencia / Brevete">
+                <option value="Brevete_7">⚠️ Brevete por vencer (≤ 7 días)</option>
+                <option value="Brevete_Vencido">🔴 Brevete Vencido</option>
+              </optgroup>
+              <optgroup label="🛠️ Revisión Técnica Vehicular">
+                <option value="RevTec_7">⚠️ Rev. Técnica por vencer (≤ 7 días)</option>
+                <option value="RevTec_Vencido">🔴 Rev. Técnica Vencida</option>
+              </optgroup>
+              <optgroup label="📑 SOAT Vehicular">
+                <option value="SOAT_7">⚠️ SOAT por vencer (≤ 7 días)</option>
+                <option value="SOAT_Vencido">🔴 SOAT Vencido</option>
+              </optgroup>
+              <optgroup label="🛡️ Seguro SCTR">
+                <option value="SCTR_7">⚠️ SCTR por vencer (≤ 7 días)</option>
+                <option value="SCTR_Vencido">🔴 SCTR Vencido</option>
+              </optgroup>
             </select>
           </div>
 
-          {/* 5. Filtro por Mes de Vencimiento */}
+          {/* 5. Filtro por Opción de Personal */}
+          {opcionesPersonalDisponibles.length > 0 && (
+            <div className="w-full">
+              <label className="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-1 block">Opción Personal</label>
+              <select 
+                value={filtroOpcionPersonal} 
+                onChange={(e) => {
+                  setFiltroOpcionPersonal(e.target.value);
+                  if (e.target.value !== "Subcontrata" && e.target.value !== "subcontrata") {
+                    setFiltroSubcontrata("Todos");
+                  }
+                }}
+                className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
+              >
+                <option value="Todos">📋 Toda opción</option>
+                {opcionesPersonalDisponibles.map((op: string) => (
+                  <option key={op} value={op}>
+                    {op}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* 6. Filtro por Subcontrata / Cuadrilla */}
+          <div className="w-full">
+            <label className="text-[10px] font-bold text-purple-700 uppercase tracking-wider mb-1 block flex items-center gap-1">
+              <span>🏢</span> Subcontrata / Cuadrilla
+            </label>
+            <select 
+              value={filtroSubcontrata} 
+              onChange={(e) => setFiltroSubcontrata(e.target.value)}
+              className={`w-full h-10 rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 cursor-pointer transition-colors ${
+                filtroSubcontrata !== "Todos" 
+                  ? "bg-purple-50 text-purple-900 border-purple-300 font-bold focus:ring-purple-500" 
+                  : "border-input bg-background focus:ring-purple-500"
+              }`}
+            >
+              <option value="Todos">🏢 Todas las Subcontratas</option>
+              {subcontratasDisponibles.map((sub: string) => (
+                <option key={sub} value={sub}>
+                  {sub}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* 7. Filtro por Mes de Vencimiento SCTR */}
           <div className="w-full">
             <div className="flex items-center justify-between mb-1">
               <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">Mes Venc. SCTR</label>
@@ -601,25 +788,6 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
               className="w-full bg-white border-gray-300 focus:ring-sky-500" 
             />
           </div>
-
-          {/* 6. Filtro por Opción de Personal */}
-          {opcionesPersonalDisponibles.length > 0 && (
-            <div className="w-full">
-              <label className="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-1 block">Opción Personal</label>
-              <select 
-                value={filtroOpcionPersonal} 
-                onChange={(e) => setFiltroOpcionPersonal(e.target.value)}
-                className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
-              >
-                <option value="Todos">📋 Toda opción</option>
-                {opcionesPersonalDisponibles.map((op: string) => (
-                  <option key={op} value={op}>
-                    {op}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
 
         </div>
 
@@ -665,10 +833,6 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
             <Button variant="outline" size="sm" onClick={exportarExcelSCTR} className="bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100 shadow-sm font-bold">
               🟧 Trama SCTR
             </Button>
-            
-            <Button variant="outline" size="sm" onClick={() => alert("Función PDF en desarrollo...")} className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100 shadow-sm font-bold">
-              🟥 PDF General
-            </Button>
           </div>
 
           <div className="bg-sky-50 border border-sky-200 px-3 py-1 rounded-xl text-sky-800 text-xs font-bold shadow-2xs flex items-center gap-2">
@@ -684,23 +848,28 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
           <table className="w-full text-sm border-separate border-spacing-0">
             <thead className="sticky top-0 z-30 bg-slate-100 shadow-xs">
               <tr className="bg-slate-100">
-                <th className="sticky top-0 z-30 bg-slate-100 font-bold text-gray-700 uppercase text-[11px] tracking-wider py-3.5 px-6 border-b border-gray-200 text-left">
-                  Área / Rol
+                <th className="sticky top-0 z-30 bg-slate-100 font-bold text-gray-700 uppercase text-[11px] tracking-wider py-3.5 px-5 border-b border-gray-200 text-left">
+                  Área / Rol / Cuadrilla
                 </th>
-                <th className="sticky top-0 z-30 bg-slate-100 font-bold text-gray-700 uppercase text-[11px] tracking-wider py-3.5 px-6 border-b border-gray-200 text-left">
+                <th className="sticky top-0 z-30 bg-slate-100 font-bold text-gray-700 uppercase text-[11px] tracking-wider py-3.5 px-5 border-b border-gray-200 text-left">
                   Nombres y Apellidos
                 </th>
-                <th className="sticky top-0 z-30 bg-slate-100 font-bold text-gray-700 uppercase text-[11px] tracking-wider py-3.5 px-6 border-b border-gray-200 text-left">
+                <th className="sticky top-0 z-30 bg-slate-100 font-bold text-gray-700 uppercase text-[11px] tracking-wider py-3.5 px-5 border-b border-gray-200 text-left">
                   Credenciales de Acceso
                 </th>
-                <th className="sticky top-0 z-30 bg-slate-100 font-bold text-gray-700 uppercase text-[11px] tracking-wider py-3.5 px-6 text-center border-b border-gray-200">
-                  Venc. SCTR
+                <th className="sticky top-0 z-30 bg-slate-100 font-bold text-gray-700 uppercase text-[11px] tracking-wider py-3.5 px-5 text-left border-b border-gray-200">
+                  <div className="flex items-center gap-1.5">
+                    <span>Vigencia Documentos & Alertas</span>
+                    <span className="text-[9px] text-amber-700 font-semibold normal-case bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md hidden sm:inline-block">
+                      ⚠️ ≤ 7d alerta
+                    </span>
+                  </div>
                 </th>
-                <th className="sticky top-0 z-30 bg-slate-100 font-bold text-gray-700 uppercase text-[11px] tracking-wider py-3.5 px-6 text-center border-b border-gray-200">
+                <th className="sticky top-0 z-30 bg-slate-100 font-bold text-gray-700 uppercase text-[11px] tracking-wider py-3.5 px-5 text-center border-b border-gray-200">
                   <div className="flex items-center justify-center gap-1.5">
                     <span>Estado</span>
                     <span className="text-[9px] text-sky-700 font-semibold normal-case bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded-md hidden sm:inline-block">
-                      ⚡ Clic para cambiar
+                      ⚡ Clic
                     </span>
                   </div>
                 </th>
@@ -709,141 +878,229 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
 
             <tbody className="bg-white">
               {filteredEmpleados.length > 0 ? (
-                filteredEmpleados.map((emp) => (
-                  <tr key={emp.id} onClick={() => onSelectEmployee(emp)} className="cursor-pointer hover:bg-sky-50/50 transition-colors border-b border-gray-100">
-                    
-                    <td className="py-4 px-6 border-b border-gray-100">
-                      <div className="flex flex-col gap-1 items-start">
-                        <span className="inline-block bg-slate-100 text-slate-700 text-xs px-2.5 py-0.5 rounded-md font-semibold border border-slate-200">
-                          {emp.area || "Sin área"}
-                        </span>
-                        {emp.rolNombre ? (
-                          <span className="inline-flex items-center gap-1 bg-sky-50 text-sky-700 text-[11px] px-2 py-0.5 rounded-md font-bold border border-sky-200">
-                            <span className="text-[10px]">🎭</span> {emp.rolNombre}
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-gray-400 italic px-1">Sin rol</span>
-                        )}
-                        {emp.opcionPersonal && (
-                          <span
-                            className={`inline-block text-[10px] px-2 py-0.5 rounded-md font-bold capitalize ${
-                              emp.opcionPersonal.toLowerCase().includes("subcontrat")
-                                ? "bg-purple-50 text-purple-700 border border-purple-200"
-                                : emp.opcionPersonal.toLowerCase().includes("autonom")
-                                ? "bg-amber-50 text-amber-700 border border-amber-200"
-                                : "bg-slate-100 text-slate-700 border border-slate-200"
-                            }`}
-                          >
-                            {emp.opcionPersonal}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    
-                    <td className="py-4 px-6 font-bold text-gray-900 border-b border-gray-100">
-                      <div className="flex flex-col">
-                        <span>{`${emp.nombres || ""} ${emp.primerApellido || ""} ${emp.segundoApellido || ""}`}</span>
-                        <span className="text-[11px] font-normal text-gray-400 mt-0.5 font-mono">{emp.dni}</span>
-                      </div>
-                    </td>
+                filteredEmpleados.map((emp) => {
+                  const stBrev = getDocumentStatus(emp.fechaVencimientoLicencia);
+                  const stRev = getDocumentStatus(emp.fechaVencimientoRevisionTecnica || emp.vencimiento_revision_tecnica);
+                  const stSoat = getDocumentStatus(emp.fechaVencimientoSoat || emp.vencimiento_soat);
+                  const stSctr = getDocumentStatus(emp.sctrVencimiento);
 
-                    <td className="py-4 px-6 border-b border-gray-100" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center justify-between gap-2.5 bg-slate-50 border border-slate-200/90 rounded-xl px-3 py-2 min-w-[220px] max-w-[270px] shadow-2xs hover:border-slate-300 transition-all">
-                        <div className="flex flex-col text-xs font-mono min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5 text-gray-700">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-sans shrink-0">User:</span>
-                            <span className="font-semibold text-slate-900 truncate" title={emp.usuario || "N/A"}>{emp.usuario || "N/A"}</span>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-gray-700 mt-1">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-sans shrink-0">Pass:</span>
-                            <span className="font-bold text-indigo-700 truncate tracking-wide" title={revelarPass[emp.id] ? (emp.password || "N/A") : "••••••••"}>
-                              {revelarPass[emp.id] ? (emp.password || "N/A") : "••••••••"}
+                  const tieneAlertaUrgente = [stBrev, stRev, stSoat, stSctr].some(s => s.status === "POR_VENCER_7");
+                  const tieneVencido = [stBrev, stRev, stSoat, stSctr].some(s => s.status === "VENCIDO");
+
+                  return (
+                    <tr 
+                      key={emp.id} 
+                      onClick={() => onSelectEmployee(emp)} 
+                      className={`cursor-pointer transition-colors border-b border-gray-100 ${
+                        tieneVencido ? "bg-red-50/20 hover:bg-red-50/40" : 
+                        tieneAlertaUrgente ? "bg-amber-50/25 hover:bg-amber-50/50" : 
+                        "hover:bg-sky-50/50"
+                      }`}
+                    >
+                      
+                      <td className="py-3.5 px-5 border-b border-gray-100">
+                        <div className="flex flex-col gap-1 items-start">
+                          <span className="inline-block bg-slate-100 text-slate-700 text-xs px-2.5 py-0.5 rounded-md font-semibold border border-slate-200">
+                            {emp.area || "Sin área"}
+                          </span>
+                          {emp.rolNombre ? (
+                            <span className="inline-flex items-center gap-1 bg-sky-50 text-sky-700 text-[11px] px-2 py-0.5 rounded-md font-bold border border-sky-200">
+                              <span className="text-[10px]">🎭</span> {emp.rolNombre}
                             </span>
+                          ) : (
+                            <span className="text-[10px] text-gray-400 italic px-1">Sin rol</span>
+                          )}
+                          
+                          <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                            {emp.opcionPersonal && (
+                              <span
+                                className={`inline-block text-[10px] px-2 py-0.5 rounded-md font-bold capitalize ${
+                                  emp.opcionPersonal.toLowerCase().includes("subcontrat")
+                                    ? "bg-purple-50 text-purple-700 border border-purple-200"
+                                    : emp.opcionPersonal.toLowerCase().includes("autonom")
+                                    ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                    : "bg-slate-100 text-slate-700 border border-slate-200"
+                                }`}
+                              >
+                                {emp.opcionPersonal}
+                              </span>
+                            )}
+
+                            {(emp.subcontrata_codigo || emp.subcontrataCodigo) && (
+                              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-bold bg-purple-100 text-purple-900 border border-purple-300 shadow-2xs">
+                                <span>🏢</span> {emp.subcontrata_codigo || emp.subcontrataCodigo}
+                              </span>
+                            )}
                           </div>
                         </div>
-
-                        <div className="flex items-center gap-1 shrink-0">
-                          {/* Botón Ver/Ocultar Contraseña */}
-                          <button
-                            type="button"
-                            onClick={(e) => toggleRevelarPass(e, emp.id)}
-                            title={revelarPass[emp.id] ? "Ocultar contraseña" : "Ver contraseña"}
-                            className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-all cursor-pointer shadow-2xs"
-                          >
-                            {revelarPass[emp.id] ? <EyeOff size={13} /> : <Eye size={13} />}
-                          </button>
-
-                          {/* Botón Copiar Credenciales */}
-                          <button
-                            type="button"
-                            onClick={(e) => copiarCredenciales(e, emp.usuario, emp.password, emp.id)}
-                            title="Copiar usuario y contraseña para enviar al técnico"
-                            className={`p-1.5 rounded-lg border transition-all flex items-center justify-center cursor-pointer ${
-                              copiadoId === emp.id
-                                ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
-                                : "bg-white text-slate-600 border-slate-200 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 shadow-2xs"
-                            }`}
-                          >
-                            {copiadoId === emp.id ? (
-                              <span className="text-[10px] font-sans font-bold px-0.5 text-white">✓</span>
-                            ) : (
-                              <Copy size={13} />
-                            )}
-                          </button>
-
-                          {/* Botón Cambiar / Restablecer Contraseña */}
-                          <button
-                            type="button"
-                            onClick={(e) => abrirModalPass(e, emp)}
-                            title="Cambiar o autogenerar nueva contraseña"
-                            className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200 transition-all cursor-pointer shadow-2xs"
-                          >
-                            <KeyRound size={13} />
-                          </button>
+                      </td>
+                      
+                      <td className="py-3.5 px-5 font-bold text-gray-900 border-b border-gray-100">
+                        <div className="flex flex-col">
+                          <span>{`${emp.nombres || ""} ${emp.primerApellido || ""} ${emp.segundoApellido || ""}`}</span>
+                          <span className="text-[11px] font-normal text-gray-400 mt-0.5 font-mono">{emp.dni}</span>
                         </div>
-                      </div>
-                    </td>
-                    
-                    <td className="py-4 px-6 text-center border-b border-gray-100">
-                      {emp.sctrVencimiento ? (
-                        <span className={`text-xs font-bold px-2 py-1 rounded-md ${
-                          isVencidoOPorVencer(emp.sctrVencimiento) ? "bg-red-100 text-red-700" : "text-gray-600"
-                        }`}>
-                          {emp.sctrVencimiento.substring(0, 10)}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400 italic text-xs">Sin asignar</span>
-                      )}
-                    </td>
-                    
-                    <td className="py-4 px-6 text-center border-b border-gray-100" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        onClick={(e) => handleAbrirModalEstado(e, emp)}
-                        title="Clic para cambiar estado rápidamente con todos sus detalles"
-                        className={`group inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold tracking-wide border shadow-2xs transition-all hover:scale-105 hover:shadow-md cursor-pointer ${
-                          emp.estado === "Activo" ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 ring-emerald-400/20 hover:ring-2" : 
-                          emp.estado === "Inactivo" ? "bg-red-50 text-red-700 border-red-200 hover:bg-red-100 hover:border-red-300 ring-red-400/20 hover:ring-2" : 
-                          emp.estado === "Vacaciones" ? "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 hover:border-blue-300 ring-blue-400/20 hover:ring-2" : 
-                          emp.estado === "Descanso Médico" ? "bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100 hover:border-yellow-300 ring-yellow-400/20 hover:ring-2" : 
-                          emp.estado === "Cesado" ? "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200 hover:border-gray-400 ring-gray-400/20 hover:ring-2" : 
-                          "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
-                        }`}
-                      >
-                        <span className={`w-2 h-2 rounded-full ${
-                          emp.estado === "Activo" ? "bg-emerald-500 animate-pulse" : 
-                          emp.estado === "Inactivo" ? "bg-red-500" : 
-                          emp.estado === "Vacaciones" ? "bg-blue-500" : 
-                          emp.estado === "Descanso Médico" ? "bg-yellow-500" : 
-                          "bg-gray-400"
-                        }`} />
-                        <span>{emp.estado || "Activo"}</span>
-                        <Edit3 size={11} className="opacity-40 group-hover:opacity-100 transition-opacity ml-0.5 text-current" />
-                      </button>
-                    </td>
+                      </td>
 
-                  </tr>
-                ))
+                      <td className="py-3.5 px-5 border-b border-gray-100" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-between gap-2.5 bg-slate-50 border border-slate-200/90 rounded-xl px-3 py-2 min-w-[210px] max-w-[250px] shadow-2xs hover:border-slate-300 transition-all">
+                          <div className="flex flex-col text-xs font-mono min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 text-gray-700">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-sans shrink-0">User:</span>
+                              <span className="font-semibold text-slate-900 truncate" title={emp.usuario || "N/A"}>{emp.usuario || "N/A"}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-gray-700 mt-1">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-sans shrink-0">Pass:</span>
+                              <span className="font-bold text-indigo-700 truncate tracking-wide" title={revelarPass[emp.id] ? (emp.password || "N/A") : "••••••••"}>
+                                {revelarPass[emp.id] ? (emp.password || "N/A") : "••••••••"}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            {/* Botón Ver/Ocultar Contraseña */}
+                            <button
+                              type="button"
+                              onClick={(e) => toggleRevelarPass(e, emp.id)}
+                              title={revelarPass[emp.id] ? "Ocultar contraseña" : "Ver contraseña"}
+                              className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-all cursor-pointer shadow-2xs"
+                            >
+                              {revelarPass[emp.id] ? <EyeOff size={13} /> : <Eye size={13} />}
+                            </button>
+
+                            {/* Botón Copiar Credenciales */}
+                            <button
+                              type="button"
+                              onClick={(e) => copiarCredenciales(e, emp.usuario, emp.password, emp.id)}
+                              title="Copiar usuario y contraseña para enviar al técnico"
+                              className={`p-1.5 rounded-lg border transition-all flex items-center justify-center cursor-pointer ${
+                                copiadoId === emp.id
+                                  ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
+                                  : "bg-white text-slate-600 border-slate-200 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 shadow-2xs"
+                              }`}
+                            >
+                              {copiadoId === emp.id ? (
+                                <span className="text-[10px] font-sans font-bold px-0.5 text-white">✓</span>
+                              ) : (
+                                <Copy size={13} />
+                              )}
+                            </button>
+
+                            {/* Botón Cambiar / Restablecer Contraseña */}
+                            <button
+                              type="button"
+                              onClick={(e) => abrirModalPass(e, emp)}
+                              title="Cambiar o autogenerar nueva contraseña"
+                              className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200 transition-all cursor-pointer shadow-2xs"
+                            >
+                              <KeyRound size={13} />
+                            </button>
+                          </div>
+                        </div>
+                      </td>
+                      
+                      {/* COLUMNA VIGENCIA DOCUMENTOS & ALERTAS */}
+                      <td className="py-3 px-4 border-b border-gray-100" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex flex-col gap-1.5 min-w-[260px] max-w-[340px]">
+                          
+                          {/* Banner de alerta si vence en <= 7 días o ya venció */}
+                          {tieneVencido && (
+                            <div className="flex items-center gap-1.5 text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-md">
+                              <span>🔴</span>
+                              <span>¡URGENTE! Documento Vencido</span>
+                            </div>
+                          )}
+                          {!tieneVencido && tieneAlertaUrgente && (
+                            <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-300 px-2 py-0.5 rounded-md animate-pulse">
+                              <span>⚠️</span>
+                              <span>¡ALERTA! Vence en ≤ 7 días</span>
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                            {/* Brevete */}
+                            <div className={`flex items-center justify-between gap-1 text-[10px] px-2 py-1 rounded-md border ${
+                              stBrev.status === "POR_VENCER_7" ? "bg-amber-50/90 border-amber-300 ring-1 ring-amber-400" :
+                              stBrev.status === "VENCIDO" ? "bg-red-50/90 border-red-300 ring-1 ring-red-400" :
+                              "bg-slate-50 border-slate-200"
+                            }`}>
+                              <span className="font-semibold text-slate-700 truncate" title={emp.licencia || "Licencia"}>
+                                🚗 {emp.licencia && emp.licencia !== "Sin Licencia" ? emp.licencia : "Brevete"}
+                              </span>
+                              <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold shrink-0 border ${stBrev.badgeClass}`}>
+                                {emp.fechaVencimientoLicencia ? emp.fechaVencimientoLicencia.substring(0, 10) : "S/R"}
+                              </span>
+                            </div>
+
+                            {/* Rev. Técnica */}
+                            <div className={`flex items-center justify-between gap-1 text-[10px] px-2 py-1 rounded-md border ${
+                              stRev.status === "POR_VENCER_7" ? "bg-amber-50/90 border-amber-300 ring-1 ring-amber-400" :
+                              stRev.status === "VENCIDO" ? "bg-red-50/90 border-red-300 ring-1 ring-red-400" :
+                              "bg-slate-50 border-slate-200"
+                            }`}>
+                              <span className="font-semibold text-slate-700">🛠️ Rev. Téc</span>
+                              <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold shrink-0 border ${stRev.badgeClass}`}>
+                                {(emp.fechaVencimientoRevisionTecnica || emp.vencimiento_revision_tecnica) ? (emp.fechaVencimientoRevisionTecnica || emp.vencimiento_revision_tecnica)!.substring(0, 10) : "S/R"}
+                              </span>
+                            </div>
+
+                            {/* SOAT */}
+                            <div className={`flex items-center justify-between gap-1 text-[10px] px-2 py-1 rounded-md border ${
+                              stSoat.status === "POR_VENCER_7" ? "bg-amber-50/90 border-amber-300 ring-1 ring-amber-400" :
+                              stSoat.status === "VENCIDO" ? "bg-red-50/90 border-red-300 ring-1 ring-red-400" :
+                              "bg-slate-50 border-slate-200"
+                            }`}>
+                              <span className="font-semibold text-slate-700">📑 SOAT</span>
+                              <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold shrink-0 border ${stSoat.badgeClass}`}>
+                                {(emp.fechaVencimientoSoat || emp.vencimiento_soat) ? (emp.fechaVencimientoSoat || emp.vencimiento_soat)!.substring(0, 10) : "S/R"}
+                              </span>
+                            </div>
+
+                            {/* SCTR */}
+                            <div className={`flex items-center justify-between gap-1 text-[10px] px-2 py-1 rounded-md border ${
+                              stSctr.status === "POR_VENCER_7" ? "bg-amber-50/90 border-amber-300 ring-1 ring-amber-400" :
+                              stSctr.status === "VENCIDO" ? "bg-red-50/90 border-red-300 ring-1 ring-red-400" :
+                              "bg-slate-50 border-slate-200"
+                            }`}>
+                              <span className="font-semibold text-slate-700">🛡️ SCTR</span>
+                              <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold shrink-0 border ${stSctr.badgeClass}`}>
+                                {emp.sctrVencimiento ? emp.sctrVencimiento.substring(0, 10) : "S/R"}
+                              </span>
+                            </div>
+                          </div>
+
+                        </div>
+                      </td>
+                      
+                      <td className="py-3.5 px-5 text-center border-b border-gray-100" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={(e) => handleAbrirModalEstado(e, emp)}
+                          title="Clic para cambiar estado rápidamente con todos sus detalles"
+                          className={`group inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold tracking-wide border shadow-2xs transition-all hover:scale-105 hover:shadow-md cursor-pointer ${
+                            emp.estado === "Activo" ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 ring-emerald-400/20 hover:ring-2" : 
+                            emp.estado === "Inactivo" ? "bg-red-50 text-red-700 border-red-200 hover:bg-red-100 hover:border-red-300 ring-red-400/20 hover:ring-2" : 
+                            emp.estado === "Vacaciones" ? "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 hover:border-blue-300 ring-blue-400/20 hover:ring-2" : 
+                            emp.estado === "Descanso Médico" ? "bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100 hover:border-yellow-300 ring-yellow-400/20 hover:ring-2" : 
+                            emp.estado === "Cesado" ? "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200 hover:border-gray-400 ring-gray-400/20 hover:ring-2" : 
+                            "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
+                          }`}
+                        >
+                          <span className={`w-2 h-2 rounded-full ${
+                            emp.estado === "Activo" ? "bg-emerald-500 animate-pulse" : 
+                            emp.estado === "Inactivo" ? "bg-red-500" : 
+                            emp.estado === "Vacaciones" ? "bg-blue-500" : 
+                            emp.estado === "Descanso Médico" ? "bg-yellow-500" : 
+                            "bg-gray-400"
+                          }`} />
+                          <span>{emp.estado || "Activo"}</span>
+                          <Edit3 size={11} className="opacity-40 group-hover:opacity-100 transition-opacity ml-0.5 text-current" />
+                        </button>
+                      </td>
+
+                    </tr>
+                  );
+                })
               ) : (
                 <tr>
                   <td colSpan={5} className="text-center py-16 text-gray-400">

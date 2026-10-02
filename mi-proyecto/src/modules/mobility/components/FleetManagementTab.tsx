@@ -349,20 +349,29 @@ export const FleetManagementTab: React.FC<Props> = ({
                       {v.ultimo_km ? `${v.ultimo_km.toLocaleString()} km` : "N/D"}
                     </span>
                   </div>
-                  <div className={`p-2 rounded-2xl border transition-all ${
-                    v.ultimo_nivel_combustible === "Bajo"
-                      ? "bg-rose-50 border-rose-300 text-rose-800 animate-pulse shadow-2xs"
-                      : v.ultimo_nivel_combustible === "Medio"
-                      ? "bg-amber-50 border-amber-200 text-amber-800"
-                      : v.ultimo_nivel_combustible === "3/4"
-                      ? "bg-sky-50 border-sky-200 text-sky-800"
-                      : "bg-emerald-50 border-emerald-200 text-emerald-800"
-                  }`}>
-                    <span className="text-[10px] font-bold uppercase block opacity-75">Nivel Gas</span>
-                    <span className="text-[11px] font-black truncate block">
-                      {v.ultimo_nivel_combustible === "Bajo" ? "🔴 Reserva" : v.ultimo_nivel_combustible === "Medio" ? "🟡 Medio" : v.ultimo_nivel_combustible === "3/4" ? "🔵 3/4" : "🟢 Full"}
-                    </span>
-                  </div>
+                  {(() => {
+                    const combNorm = String(v.combustible || "").toUpperCase();
+                    const esGas = combNorm.includes("GLP") || combNorm.includes("GNV");
+                    const labelHeader = esGas ? "Nivel Gas" : "Combustible";
+                    const bajoLabel = esGas ? "🔴 Reserva" : "🔴 Bajo (1/4)";
+
+                    return (
+                      <div className={`p-2 rounded-2xl border transition-all ${
+                        v.ultimo_nivel_combustible === "Bajo"
+                          ? "bg-rose-50 border-rose-300 text-rose-800 animate-pulse shadow-2xs"
+                          : v.ultimo_nivel_combustible === "Medio"
+                          ? "bg-amber-50 border-amber-200 text-amber-800"
+                          : v.ultimo_nivel_combustible === "3/4"
+                          ? "bg-sky-50 border-sky-200 text-sky-800"
+                          : "bg-emerald-50 border-emerald-200 text-emerald-800"
+                      }`}>
+                        <span className="text-[10px] font-bold uppercase block opacity-75">{labelHeader}</span>
+                        <span className="text-[11px] font-black truncate block">
+                          {v.ultimo_nivel_combustible === "Bajo" ? bajoLabel : v.ultimo_nivel_combustible === "Medio" ? "🟡 Medio" : v.ultimo_nivel_combustible === "3/4" ? "🔵 3/4" : "🟢 Full"}
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Técnico Asignado */}

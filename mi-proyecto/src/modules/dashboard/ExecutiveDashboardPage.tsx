@@ -44,7 +44,8 @@ import { ClassificationOrdersModal } from "./components/ClassificationOrdersModa
 import { LatencyFirstLegTab } from "./components/LatencyFirstLegTab";
 import { RecableadosDropMatrixTab } from "./components/RecableadosDropMatrixTab";
 import { SupervisorDashboardTab } from "./components/SupervisorDashboardTab";
-import { Cable } from "lucide-react";
+import { DataExportViewerTab } from "./components/DataExportViewerTab";
+import { Cable, FileSpreadsheet } from "lucide-react";
 interface OnlineUser {
   id_usuario: number;
   documento: string;
@@ -136,9 +137,11 @@ interface DashboardStats {
 // Colores oficiales para los estados de órdenes (Paleta corporativa suave institucional)
 const COLOR_ESTADOS: Record<string, string> = {
   Finalizada: "#5b9bd5", // Azul pastel institucional
+  Liquidada: "#0284c7", // Azul profundo institucional
+  "Finalizada Externa": "#8b5cf6", // Púrpura institucional
   Iniciada: "#70ad47", // Verde pastel institucional
   "En proceso": "#70ad47",
-  "En camino": "#ffc000", // Ámbar pastel institucional
+  "En camino": "#f59e0b", // Ámbar pastel institucional
   Agendada: "#64748b", // Slate
   Cancelada: "#ef4444", // Rojo
   Regestión: "#ffc000", // Ámbar pastel institucional
@@ -223,8 +226,8 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export const ExecutiveDashboardPage: React.FC = () => {
-  // Pestaña principal activa: Resumen Ejecutivo | Rendimiento Técnicos | Latencia 1er Tramo | Matriz Drop & Recableados | Supervisión & Calidad | Auditoría & Personal
-  const [activeMainTab, setActiveMainTab] = useState<"resumen" | "tecnicos" | "latencia" | "recableados_drop" | "supervision_calidad" | "auditoria">("resumen");
+  // Pestaña principal activa: Resumen Ejecutivo | Rendimiento Técnicos | Latencia 1er Tramo | Matriz Drop & Recableados | Supervisión & Calidad | Auditoría & Personal | Data & Exportación
+  const [activeMainTab, setActiveMainTab] = useState<"resumen" | "tecnicos" | "latencia" | "recableados_drop" | "supervision_calidad" | "auditoria" | "exportar_data">("resumen");
 
   // 1. Selector inteligente de período (Días, Semanas, Meses, Año)
   const [periodMode, setPeriodMode] = useState<"dia" | "semana" | "mes" | "anio">("mes");
@@ -691,6 +694,21 @@ export const ExecutiveDashboardPage: React.FC = () => {
                 >
                   <ShieldCheck size={13} className={activeMainTab === "auditoria" ? "text-sky-600" : "text-slate-400"} />
                   <span>Auditoría</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveMainTab("exportar_data")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${activeMainTab === "exportar_data"
+                    ? "bg-white text-emerald-950 shadow-xs border border-emerald-300 font-black"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+                    }`}
+                >
+                  <FileSpreadsheet size={13} className={activeMainTab === "exportar_data" ? "text-emerald-600" : "text-slate-400"} />
+                  <span>Data & Exportación</span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[8.5px] font-black uppercase tracking-wider bg-emerald-600 text-white shadow-2xs">
+                    Excel
+                  </span>
                 </button>
               </div>
 
@@ -1422,6 +1440,9 @@ export const ExecutiveDashboardPage: React.FC = () => {
 
       {/* 📋 PESTAÑA: SUPERVISIÓN & CALIDAD (AVANCE 6+2, CRUCE STOCK, HISTORIAL & RANKING) */}
       {activeMainTab === "supervision_calidad" && <SupervisorDashboardTab />}
+
+      {/* 📥 PESTAÑA: DATA & EXPORTACIÓN A EXCEL / CSV */}
+      {activeMainTab === "exportar_data" && <DataExportViewerTab />}
 
       {/* 🛡️ PESTAÑA 3: AUDITORÍA & PERSONAL (EN VIVO 24/7) */}
       {activeMainTab === "auditoria" && (

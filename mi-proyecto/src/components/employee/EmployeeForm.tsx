@@ -72,6 +72,7 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
     tipo_servicio: "",
     fechaIngreso: "",
     opcionPersonal: "", 
+    subcontrataCodigo: "",
     cuadrilla: "",      
     regimenPensionario: "", 
     tipoComision: "", 
@@ -87,11 +88,17 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
     esposaNacimiento: "",
     hijos: [{ nombres: "", primerApellido: "", segundoApellido: "", nacimiento: "" }], 
 
-    // Licencia
+    // Licencia y Control Vehicular
     licencia: "Sin Licencia", 
     numeroBrevete: "",
     fechaEmisionLicencia: "", 
     fechaVencimientoLicencia: "",
+    numeroRevisionTecnica: "",
+    fechaEmisionRevisionTecnica: "",
+    fechaVencimientoRevisionTecnica: "",
+    numeroSoat: "",
+    fechaEmisionSoat: "",
+    fechaVencimientoSoat: "",
     
     // SSOMA / Logística
     sctrVencimiento: "", 
@@ -319,6 +326,7 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
         tipo_servicio: e.tipo_servicio || "",
         fechaIngreso: e.fechaIngreso || "",
         opcionPersonal: e.opcionPersonal || "", 
+        subcontrataCodigo: e.subcontrata_codigo || e.subcontrataCodigo || "",
         cuadrilla: e.cuadrilla || "",            
         regimenPensionario: e.regimenPensionario || "",
         tipoComision: e.tipoComision || "",
@@ -331,6 +339,12 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
         numeroBrevete: e.numeroBrevete || "", 
         fechaEmisionLicencia: e.fechaEmisionLicencia || "",
         fechaVencimientoLicencia: e.fechaVencimientoLicencia || "",
+        numeroRevisionTecnica: e.numeroRevisionTecnica || e.numero_revision_tecnica || "",
+        fechaEmisionRevisionTecnica: e.fechaEmisionRevisionTecnica || e.emision_revision_tecnica || "",
+        fechaVencimientoRevisionTecnica: e.fechaVencimientoRevisionTecnica || e.vencimiento_revision_tecnica || "",
+        numeroSoat: e.numeroSoat || e.numero_soat || "",
+        fechaEmisionSoat: e.fechaEmisionSoat || e.emision_soat || "",
+        fechaVencimientoSoat: e.fechaVencimientoSoat || e.vencimiento_soat || "",
         sctrVencimiento: e.sctrVencimiento || "",
         emoVencimiento: e.emoVencimiento || "",
         tallaPolo: e.tallaPolo || "",
@@ -409,7 +423,8 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
       "nombres", "primerApellido", "segundoApellido", "paisNacimiento",
       "esposaNombres", "esposaPrimerApellido", "esposaSegundoApellido",
       "direccion", "distrito", "direccionEmergencia", "contactoEmergencia",
-      "ultimoEmpleo1", "ultimoEmpleo2", "ultimoEmpleo3", "cuspp", "cuadrilla", "numeroBrevete"
+      "ultimoEmpleo1", "ultimoEmpleo2", "ultimoEmpleo3", "cuspp", "cuadrilla", 
+      "numeroBrevete", "numeroRevisionTecnica", "numeroSoat", "subcontrataCodigo"
     ];
     if (camposMayusculas.includes(name)) {
       value = value.toUpperCase();
@@ -707,7 +722,12 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
         <select
           name="opcionPersonal"
           value={formData.opcionPersonal?.toLowerCase() || ""}
-          onChange={handleChange}
+          onChange={(e) => {
+            handleChange(e);
+            if (e.target.value !== "subcontrata") {
+              setFormData(prev => ({ ...prev, opcionPersonal: e.target.value, subcontrataCodigo: "" }));
+            }
+          }}
           className={selectClass}
         >
           <option value="">Seleccione Opción...</option>
@@ -716,6 +736,33 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
           <option value="subcontrata">Subcontrata</option>
         </select>
       </div>
+
+      {formData.opcionPersonal?.toLowerCase() === "subcontrata" && (
+        <div className="flex flex-col gap-1.5 animate-in fade-in zoom-in-95 duration-200">
+          <label className="text-xs font-bold text-purple-700 flex items-center gap-1">
+            <span>🏢</span> Código Subcontrata / Cuadrilla *
+          </label>
+          <select
+            name="subcontrataCodigo"
+            value={formData.subcontrataCodigo || ""}
+            onChange={handleChange}
+            className={`${selectClass} border-purple-300 bg-purple-50/50 font-semibold text-purple-900 focus:ring-purple-500`}
+            required
+          >
+            <option value="">Seleccionar Subcontrata...</option>
+            <option value="Subcontrata C1">Subcontrata C1 (Cuadrilla 1)</option>
+            <option value="Subcontrata C2">Subcontrata C2 (Cuadrilla 2)</option>
+            <option value="Subcontrata C3">Subcontrata C3 (Cuadrilla 3)</option>
+            <option value="Subcontrata C4">Subcontrata C4 (Cuadrilla 4)</option>
+            <option value="Subcontrata C5">Subcontrata C5 (Cuadrilla 5)</option>
+            <option value="Subcontrata C6">Subcontrata C6 (Cuadrilla 6)</option>
+            <option value="Subcontrata C7">Subcontrata C7 (Cuadrilla 7)</option>
+            <option value="Subcontrata C8">Subcontrata C8 (Cuadrilla 8)</option>
+            <option value="Subcontrata C9">Subcontrata C9 (Cuadrilla 9)</option>
+            <option value="Subcontrata C10">Subcontrata C10 (Cuadrilla 10)</option>
+          </select>
+        </div>
+      )}
 
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-medium text-gray-700">N° Documento (DNI) *</label>
@@ -911,16 +958,85 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
         <div className="flex flex-col gap-1.5"><label className="text-xs font-medium text-gray-700">CCI</label><Input name="cci" value={formData.cci} onChange={handleChange} placeholder="Código CCI" className="w-full" /></div>
       </div>
 
-      {/* --- 3. SSOMA --- */}
-      <div className="col-span-full border-t pt-4 mb-1 mt-2"><h3 className="text-sm font-bold text-emerald-700 uppercase">3. Seguridad (SSOMA)</h3></div>
+      {/* --- 3. SSOMA Y CONTROL VEHICULAR --- */}
+      <div className="col-span-full border-t pt-4 mb-1 mt-2">
+        <h3 className="text-sm font-bold text-emerald-700 uppercase flex items-center gap-2">
+          <span>🛡️</span> 3. Seguridad (SSOMA) y Control Vehicular
+        </h3>
+      </div>
       <div className="flex flex-col gap-1.5"><label className="text-xs font-medium text-gray-700">Vencimiento SCTR</label><Input name="sctrVencimiento" value={formData.sctrVencimiento} onChange={handleChange} type="date" className="w-full" /></div>
       <div className="flex flex-col gap-1.5"><label className="text-xs font-medium text-gray-700">Vencimiento EMO (Médico)</label><Input name="emoVencimiento" value={formData.emoVencimiento} onChange={handleChange} type="date" className="w-full" /></div>
 
-      <div className="col-span-full grid grid-cols-1 md:grid-cols-4 gap-5 bg-gray-50 p-3 rounded-lg border border-gray-200 mt-2 mb-2">
-        <div className="flex flex-col gap-1.5"><label className="text-xs font-medium text-gray-700">Licencia de Conducir</label><select name="licencia" value={formData.licencia} onChange={handleChange} className={selectClass}><option value="Sin Licencia">Sin Licencia</option><option value="A-I">A-I</option><option value="A-IIA">A-IIA</option><option value="A-IIB">A-IIB</option><option value="A-IIIA">A-IIIA</option></select></div>
-        <div className="flex flex-col gap-1.5"><label className="text-xs font-medium text-gray-700">Número Brevete</label><Input name="numeroBrevete" value={formData.numeroBrevete} onChange={handleChange} placeholder="Ej. Q12345678" /></div>
-        <div className="flex flex-col gap-1.5"><label className="text-xs font-medium text-gray-700">Emisión Licencia</label><Input name="fechaEmisionLicencia" value={formData.fechaEmisionLicencia} onChange={handleChange} type="date" className="w-full" /></div>
-        <div className="flex flex-col gap-1.5"><label className="text-xs font-medium text-gray-700">Venc. Licencia</label><Input name="fechaVencimientoLicencia" value={formData.fechaVencimientoLicencia} onChange={handleChange} type="date" className="w-full" /></div>
+      {/* BLOQUE LICENCIA DE CONDUCIR (AUTO / MOTO) */}
+      <div className="col-span-full grid grid-cols-1 md:grid-cols-4 gap-5 bg-slate-50 p-3.5 rounded-xl border border-slate-200 mt-2">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-bold text-slate-800 flex items-center gap-1">
+            <span>🚗</span> Licencia de Conducir
+          </label>
+          <select name="licencia" value={formData.licencia} onChange={handleChange} className={selectClass}>
+            <option value="Sin Licencia">Sin Licencia</option>
+            <optgroup label="Motos y Mototaxis (Clase B)">
+              <option value="B-IIb">B-IIb (Moto Lineal)</option>
+              <option value="B-IIc">B-IIc (Mototaxi / Trimóvil)</option>
+            </optgroup>
+            <optgroup label="Autos y Camionetas (Clase A)">
+              <option value="A-I">A-I (Particular)</option>
+              <option value="A-IIA">A-IIA (Taxi / Particular Especial)</option>
+              <option value="A-IIB">A-IIB (Cúster / Camioneta)</option>
+              <option value="A-IIIA">A-IIIA (Ómnibus / Bus)</option>
+              <option value="A-IIIB">A-IIIB (Camión / Remolque)</option>
+              <option value="A-IIIC">A-IIIC (Profesional Especial)</option>
+            </optgroup>
+          </select>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-medium text-gray-700">Número Brevete</label>
+          <Input name="numeroBrevete" value={formData.numeroBrevete} onChange={handleChange} placeholder="Ej. Q12345678" />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-medium text-gray-700">Emisión Licencia</label>
+          <Input name="fechaEmisionLicencia" value={formData.fechaEmisionLicencia} onChange={handleChange} type="date" className="w-full bg-white" />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-medium text-gray-700">Venc. Licencia</label>
+          <Input name="fechaVencimientoLicencia" value={formData.fechaVencimientoLicencia} onChange={handleChange} type="date" className="w-full bg-white" />
+        </div>
+      </div>
+
+      {/* BLOQUE REVISIÓN TÉCNICA VEHICULAR */}
+      <div className="col-span-full grid grid-cols-1 md:grid-cols-3 gap-5 bg-amber-50/50 p-3.5 rounded-xl border border-amber-200 mt-2">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-bold text-amber-900 flex items-center gap-1">
+            <span>🛠️</span> N° Certificado Revisión Técnica
+          </label>
+          <Input name="numeroRevisionTecnica" value={formData.numeroRevisionTecnica} onChange={handleChange} placeholder="Ej. CRT-2024-99881" className="bg-white" />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-amber-800">Emisión Revisión Técnica</label>
+          <Input name="fechaEmisionRevisionTecnica" value={formData.fechaEmisionRevisionTecnica} onChange={handleChange} type="date" className="w-full bg-white" />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-amber-800">Vencimiento Revisión Técnica</label>
+          <Input name="fechaVencimientoRevisionTecnica" value={formData.fechaVencimientoRevisionTecnica} onChange={handleChange} type="date" className="w-full bg-white" />
+        </div>
+      </div>
+
+      {/* BLOQUE SOAT VEHICULAR */}
+      <div className="col-span-full grid grid-cols-1 md:grid-cols-3 gap-5 bg-blue-50/50 p-3.5 rounded-xl border border-blue-200 mt-2 mb-2">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-bold text-blue-900 flex items-center gap-1">
+            <span>📑</span> N° Póliza SOAT
+          </label>
+          <Input name="numeroSoat" value={formData.numeroSoat} onChange={handleChange} placeholder="Ej. SOAT-9981240" className="bg-white" />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-blue-800">Emisión SOAT</label>
+          <Input name="fechaEmisionSoat" value={formData.fechaEmisionSoat} onChange={handleChange} type="date" className="w-full bg-white" />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-blue-800">Vencimiento SOAT</label>
+          <Input name="fechaVencimientoSoat" value={formData.fechaVencimientoSoat} onChange={handleChange} type="date" className="w-full bg-white" />
+        </div>
       </div>
 
       {/* --- 4. EXPERIENCIA --- */}

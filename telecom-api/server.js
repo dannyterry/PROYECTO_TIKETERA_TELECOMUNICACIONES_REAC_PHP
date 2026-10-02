@@ -12,7 +12,32 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+const { uploadFileToS3, getS3ObjectStream, checkS3ObjectExists } = require('./services/s3Service');
+
+// 1. Primero intentar servir desde disco local
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// 2. Si el archivo no está en disco local (o fue migrado a S3 para ahorrar espacio en servidor de 2GB), transmitirlo desde AWS S3
+app.get('/uploads/:filename', async (req, res) => {
+  try {
+    const filename = req.params.filename;
+    const s3Key = `uploads/${filename}`;
+    const s3Obj = await getS3ObjectStream(s3Key);
+    if (!s3Obj) {
+      return res.status(404).send('Archivo no encontrado');
+    }
+    res.setHeader('Content-Type', s3Obj.contentType);
+    if (s3Obj.contentLength) {
+      res.setHeader('Content-Length', s3Obj.contentLength);
+    }
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    s3Obj.stream.pipe(res);
+  } catch (err) {
+    console.error('Error sirviendo archivo desde S3:', err.message);
+    res.status(500).send('Error al obtener archivo');
+  }
+});
 
 const { sincronizarTareasOrdenSeguro, getTareasDeBD, sincronizarTareasOrdenesActivas, guardarDetalleTareaEnBD, getMetrajeDeclaradoFenix } = require('./services/taskSyncService');
 const { getMotivosCatalogo, resolverTipoTrabajoConCatalogo, resolverTipoTrabajoOficial } = require('./services/tipoTrabajoHelper');
@@ -49,7 +74,155 @@ const upload = multer({ storage: storage }).fields([
   { name: 'licencia_pdf', maxCount: 1 }
 ]);
 
-app.get("/", (req, res) => { res.send("API Telecom funcionando con MySQL y Multer"); });
+// ☁️ Sincronizador automático a AWS S3 para cualquier archivo subido por Multer
+async function syncUploadedFilesToS3(req) {
+  try {
+    const filesList = [];
+    if (req.file) filesList.push(req.file);
+    if (req.files) {
+      if (Array.isArray(req.files)) {
+        filesList.push(...req.files);
+      } else if (typeof req.files === "object") {
+        Object.values(req.files).forEach((arr) => {
+          if (Array.isArray(arr)) filesList.push(...arr);
+          else if (arr && arr.path) filesList.push(arr);
+        });
+      }
+    }
+
+    for (const f of filesList) {
+      if (f && f.path && f.filename) {
+        const s3Key = `uploads/${f.filename}`;
+        uploadFileToS3(f.path, s3Key)
+          .then(() => {
+            console.log(`☁️ [Auto-S3] Archivo '${f.filename}' respaldado exitosamente en AWS S3.`);
+            const isLinuxHosting = process.platform === "linux" || __dirname.includes("corporacioncespe");
+            if (isLinuxHosting) {
+              fs.unlink(f.path, (err) => {
+                if (!err) console.log(`🧹 [Disk Space] Archivo local '${f.filename}' liberado del disco cPanel.`);
+              });
+            }
+          })
+          .catch((err) => {
+            console.warn(`⚠️ [Auto-S3] Error respaldando '${f.filename}' en S3:`, err.message);
+          });
+      }
+    }
+  } catch (errSync) {
+    console.warn("⚠️ [Auto-S3] Error en sincronización de archivos:", errSync.message);
+  }
+}
+
+// Hook global para subir a S3 en segundo plano al terminar cualquier carga de archivo
+app.use((req, res, next) => {
+  res.on("finish", () => {
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      if (req.file || req.files) {
+        syncUploadedFilesToS3(req);
+      }
+    }
+  });
+  next();
+});
+
+app.get("/", (req, res) => { res.send("API Telecom funcionando con MySQL, Multer y AWS S3"); });
+
+// 🚀 Endpoint de un solo clic para migrar fotos de cPanel a AWS S3 y liberar los 2GB de espacio
+app.get('/api/admin/migrar-uploads-a-s3', async (req, res) => {
+  const secretKey = req.query.key;
+  if (secretKey !== 'cespedes2026') {
+    return res.status(403).json({ success: false, error: 'Acceso no autorizado. Clave requerida.' });
+  }
+
+  try {
+    if (!fs.existsSync(uploadDir)) {
+      return res.json({ success: true, mensaje: 'La carpeta uploads no existe.', archivos: 0 });
+    }
+
+    const files = fs.readdirSync(uploadDir).filter(f => !f.startsWith('.') && fs.statSync(path.join(uploadDir, f)).isFile());
+    console.log(`🚀 [S3 Migration API] Iniciando migración de ${files.length} archivos a S3...`);
+
+    let subidos = 0;
+    let yaExistian = 0;
+    let errores = 0;
+    let bytesLiberados = 0;
+
+    for (const file of files) {
+      const filePath = path.join(uploadDir, file);
+      const s3Key = `uploads/${file}`;
+
+      try {
+        const stats = fs.statSync(filePath);
+        const fileSize = stats.size;
+        const exists = await checkS3ObjectExists(s3Key);
+
+        if (exists) {
+          yaExistian++;
+        } else {
+          await uploadFileToS3(filePath, s3Key);
+          subidos++;
+        }
+
+        // Si se pasa ?borrarLocal=true o por defecto en hosting, liberar el archivo de disco
+        if (req.query.borrarLocal === 'true' || req.query.borrarLocal === '1') {
+          fs.unlinkSync(filePath);
+          bytesLiberados += fileSize;
+        }
+      } catch (errFile) {
+        console.error(`❌ [S3 Migration API] Error con ${file}:`, errFile.message);
+        errores++;
+      }
+    }
+
+    const mbLiberados = (bytesLiberados / (1024 * 1024)).toFixed(2);
+    res.json({
+      success: true,
+      mensaje: 'Proceso de migración completado',
+      totalArchivos: files.length,
+      subidosAS3: subidos,
+      yaExistianEnS3: yaExistian,
+      errores: errores,
+      espacioLiberadoMB: mbLiberados
+    });
+  } catch (err) {
+    console.error('❌ [S3 Migration API] Error general:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 🧹 Endpoint para forzar borrado de carpetas rebeldes como corporacioncespe en public_html
+app.get(['/limpiar-carpeta-basura', '/api/admin/limpiar-carpeta-basura'], async (req, res) => {
+  const secretKey = req.query.key;
+  if (secretKey !== 'cespedes2026') {
+    return res.status(403).json({ success: false, error: 'Acceso no autorizado. Clave requerida.' });
+  }
+
+  try {
+    const targets = [
+      path.join(__dirname, '..', 'public_html', 'corporacioncespe'),
+      path.join(__dirname, '..', 'public_html', '.git'),
+      path.join(__dirname, 'corporacioncespe')
+    ];
+
+    let borradas = [];
+    for (const t of targets) {
+      if (fs.existsSync(t)) {
+        fs.rmSync(t, { recursive: true, force: true });
+        borradas.push(t);
+        console.log(`🧹 [Clean] Carpeta eliminada de raíz: ${t}`);
+      }
+    }
+
+    res.json({
+      success: true,
+      mensaje: borradas.length > 0 ? 'Carpetas innecesarias eliminadas con éxito' : 'No se encontraron carpetas pendientes por eliminar',
+      rutasBorradas: borradas
+    });
+  } catch (err) {
+    console.error('❌ [Clean] Error eliminando carpeta:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 // --- 🔐 AUTENTICACIÓN / LOGIN DIRECTO EN API ---
 app.post(['/login', '/api/login'], async (req, res) => {
@@ -618,17 +791,19 @@ app.post(['/empleados', '/api/empleados'], upload, async (req, res) => {
 
     const [r] = await connection.query(`
       INSERT INTO usuarios (
-        id_rol, tipo_documento, documento, ruc, sunat_estado, sunat_condicion, sunat_actividad, nombres, apellidos, primer_apellido, segundo_apellido, email, usuario, password, password_plano, estado, telefono, fecha_ingreso, fecha_nacimiento, sexo, estado_civil, pais_nacimiento, direccion, distrito, sueldo, numero_emergencia, banco, cuenta_bancaria, cci, area, tipo_servicio, opcion_personal, cuadrilla, regimen_pensionario, tipo_comision_afp, cuspp, vencimiento_sctr, vencimiento_emo, categoria_licencia, numero_brevete, emision_brevete, fecha_vencimiento_brevete, talla_polo, talla_pantalon, talla_calzado, ultimo_empleo_1, ultimo_empleo_2, ultimo_empleo_3, emergencia_nombre, emergencia_parentesco, emergencia_telefono_2, emergencia_direccion, conyuge_nombres, conyuge_apellido1, conyuge_apellido2, conyuge_fecha_nacimiento,
+        id_rol, tipo_documento, documento, ruc, sunat_estado, sunat_condicion, sunat_actividad, nombres, apellidos, primer_apellido, segundo_apellido, email, usuario, password, password_plano, estado, telefono, fecha_ingreso, fecha_nacimiento, sexo, estado_civil, pais_nacimiento, direccion, distrito, sueldo, numero_emergencia, banco, cuenta_bancaria, cci, area, tipo_servicio, opcion_personal, subcontrata_codigo, cuadrilla, regimen_pensionario, tipo_comision_afp, cuspp, vencimiento_sctr, vencimiento_emo, categoria_licencia, numero_brevete, emision_brevete, fecha_vencimiento_brevete, numero_revision_tecnica, emision_revision_tecnica, vencimiento_revision_tecnica, numero_soat, emision_soat, vencimiento_soat, talla_polo, talla_pantalon, talla_calzado, ultimo_empleo_1, ultimo_empleo_2, ultimo_empleo_3, emergencia_nombre, emergencia_parentesco, emergencia_telefono_2, emergencia_direccion, conyuge_nombres, conyuge_apellido1, conyuge_apellido2, conyuge_fecha_nacimiento,
         foto_personal, doc_delantera, doc_trasera, brevete_delantera, brevete_trasera, revision_tecnica_frontal, revision_tecnica_posterior, tarjeta_propiedad_frontal, tarjeta_propiedad_posterior, recibo_servicio_pdf, cv_pdf, certificado_pdf, otro_documento_pdf, dni_pdf, licencia_pdf
       ) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       d.id_rol || null, d.tipoDocumento || "DNI", d.dni || "", d.ruc || "", d.estadoContribuyente || "", d.condicionContribuyente || "", d.actividadEconomica || "",
       d.nombres || "", d.apellidos || `${d.primerApellido || ""} ${d.segundoApellido || ""}`.trim(), d.primerApellido || "", d.segundoApellido || "", emailOrNull(d.correo), d.usuario || "", passHash, passPlano,
       d.estado || "Activo", d.telefono || "", dateOrNull(d.fechaIngreso), dateOrNull(d.fechaNacimiento), d.sexo || null, d.estadoCivil || null, d.paisNacimiento || "Perú", d.direccion || "", d.distrito || "",d.sueldo || null,
-      d.telefonoEmergencia || "", d.banco || "", d.cuenta || "", d.cci || "", d.area || "", d.tipo_servicio || null, d.opcionPersonal || "", d.cuadrilla || "",
+      d.telefonoEmergencia || "", d.banco || "", d.cuenta || "", d.cci || "", d.area || "", d.tipo_servicio || null, d.opcionPersonal || "", d.subcontrata_codigo || d.subcontrataCodigo || null, d.cuadrilla || "",
       d.regimenPensionario || "", d.tipoComision || "", d.cuspp || "", dateOrNull(d.sctrVencimiento), dateOrNull(d.emoVencimiento),
       d.licencia || "Sin Licencia", d.numeroBrevete || "", dateOrNull(d.fechaEmisionLicencia), dateOrNull(d.fechaVencimientoLicencia),
+      d.numeroRevisionTecnica || d.numero_revision_tecnica || "", dateOrNull(d.fechaEmisionRevisionTecnica || d.emision_revision_tecnica), dateOrNull(d.fechaVencimientoRevisionTecnica || d.vencimiento_revision_tecnica),
+      d.numeroSoat || d.numero_soat || "", dateOrNull(d.fechaEmisionSoat || d.emision_soat), dateOrNull(d.fechaVencimientoSoat || d.vencimiento_soat),
       d.tallaPolo || "", d.tallaPantalon || "", d.tallaCalzado || "", d.ultimoEmpleo1 || "", d.ultimoEmpleo2 || "", d.ultimoEmpleo3 || "",
       d.contactoEmergencia || "", d.parentesco || "", d.telefonoAlternativo || "", d.direccionEmergencia || "", cn, ca1, ca2, cfn,
       foto, docDelantera, docTrasera, breveteDelantera, breveteTrasera, revTecFrontal, revTecPosterior, tarjPropFrontal, tarjPropPosterior, reciboPdf, cv, certPdf, otroDoc, dniPdf, licenciaPdf
@@ -720,8 +895,20 @@ app.put(['/empleados/:id', '/api/empleados/:id'], upload, async (req, res) => {
       } catch(e) {}
     }
 
-    let q = `UPDATE usuarios SET id_rol=?, tipo_documento=?, documento=?, ruc=?, sunat_estado=?, sunat_condicion=?, sunat_actividad=?, nombres=?, apellidos=?, primer_apellido=?, segundo_apellido=?, email=?, usuario=?, estado=?, telefono=?, fecha_ingreso=?, fecha_nacimiento=?, sexo=?, estado_civil=?, pais_nacimiento=?, direccion=?, distrito=?, sueldo=?, numero_emergencia=?, banco=?, cuenta_bancaria=?, cci=?, area=?, tipo_servicio=?, opcion_personal=?, cuadrilla=?, regimen_pensionario=?, tipo_comision_afp=?, cuspp=?, vencimiento_sctr=?, vencimiento_emo=?, categoria_licencia=?, numero_brevete=?, emision_brevete=?, fecha_vencimiento_brevete=?, talla_polo=?, talla_pantalon=?, talla_calzado=?, ultimo_empleo_1=?, ultimo_empleo_2=?, ultimo_empleo_3=?, emergencia_nombre=?, emergencia_parentesco=?, emergencia_telefono_2=?, emergencia_direccion=?, conyuge_nombres=?, conyuge_apellido1=?, conyuge_apellido2=?, conyuge_fecha_nacimiento=?`;
-    const v = [d.id_rol||null, d.tipoDocumento||"DNI", d.dni||"", d.ruc||"", d.estadoContribuyente||"", d.condicionContribuyente||"", d.actividadEconomica||"", d.nombres||"", d.apellidos||`${d.primerApellido || ""} ${d.segundoApellido || ""}`.trim(), d.primerApellido||"", d.segundoApellido||"", emailOrNull(d.correo), d.usuario||"", d.estado||"Activo", d.telefono||"", dateOrNull(d.fechaIngreso), dateOrNull(d.fechaNacimiento), d.sexo||null, d.estadoCivil||null, d.paisNacimiento||"Perú", d.direccion||"", d.distrito||"", d.sueldo || null, d.telefonoEmergencia||"", d.banco||"", d.cuenta||"", d.cci||"", d.area||"", d.tipo_servicio||null, d.opcionPersonal||"", d.cuadrilla||"", d.regimenPensionario||"", d.tipoComision||"", d.cuspp||"", dateOrNull(d.sctrVencimiento), dateOrNull(d.emoVencimiento), d.licencia||"Sin Licencia", d.numeroBrevete||"", dateOrNull(d.fechaEmisionLicencia), dateOrNull(d.fechaVencimientoLicencia), d.tallaPolo||"", d.tallaPantalon||"", d.tallaCalzado||"", d.ultimoEmpleo1||"", d.ultimoEmpleo2||"", d.ultimoEmpleo3||"", d.contactoEmergencia||"", d.parentesco||"", d.telefonoAlternativo||"", d.direccionEmergencia||"", cn, ca1, ca2, cfn];
+    let q = `UPDATE usuarios SET id_rol=?, tipo_documento=?, documento=?, ruc=?, sunat_estado=?, sunat_condicion=?, sunat_actividad=?, nombres=?, apellidos=?, primer_apellido=?, segundo_apellido=?, email=?, usuario=?, estado=?, telefono=?, fecha_ingreso=?, fecha_nacimiento=?, sexo=?, estado_civil=?, pais_nacimiento=?, direccion=?, distrito=?, sueldo=?, numero_emergencia=?, banco=?, cuenta_bancaria=?, cci=?, area=?, tipo_servicio=?, opcion_personal=?, subcontrata_codigo=?, cuadrilla=?, regimen_pensionario=?, tipo_comision_afp=?, cuspp=?, vencimiento_sctr=?, vencimiento_emo=?, categoria_licencia=?, numero_brevete=?, emision_brevete=?, fecha_vencimiento_brevete=?, numero_revision_tecnica=?, emision_revision_tecnica=?, vencimiento_revision_tecnica=?, numero_soat=?, emision_soat=?, vencimiento_soat=?, talla_polo=?, talla_pantalon=?, talla_calzado=?, ultimo_empleo_1=?, ultimo_empleo_2=?, ultimo_empleo_3=?, emergencia_nombre=?, emergencia_parentesco=?, emergencia_telefono_2=?, emergencia_direccion=?, conyuge_nombres=?, conyuge_apellido1=?, conyuge_apellido2=?, conyuge_fecha_nacimiento=?`;
+    const v = [
+      d.id_rol||null, d.tipoDocumento||"DNI", d.dni||"", d.ruc||"", d.estadoContribuyente||"", d.condicionContribuyente||"", d.actividadEconomica||"", 
+      d.nombres||"", d.apellidos||`${d.primerApellido || ""} ${d.segundoApellido || ""}`.trim(), d.primerApellido||"", d.segundoApellido||"", 
+      emailOrNull(d.correo), d.usuario||"", d.estado||"Activo", d.telefono||"", dateOrNull(d.fechaIngreso), dateOrNull(d.fechaNacimiento), 
+      d.sexo||null, d.estadoCivil||null, d.paisNacimiento||"Perú", d.direccion||"", d.distrito||"", d.sueldo || null, d.telefonoEmergencia||"", 
+      d.banco||"", d.cuenta||"", d.cci||"", d.area||"", d.tipo_servicio||null, d.opcionPersonal||"", d.subcontrata_codigo || d.subcontrataCodigo || null, d.cuadrilla||"", 
+      d.regimenPensionario||"", d.tipoComision||"", d.cuspp||"", dateOrNull(d.sctrVencimiento), dateOrNull(d.emoVencimiento), 
+      d.licencia||"Sin Licencia", d.numeroBrevete||"", dateOrNull(d.fechaEmisionLicencia), dateOrNull(d.fechaVencimientoLicencia), 
+      d.numeroRevisionTecnica || d.numero_revision_tecnica || "", dateOrNull(d.fechaEmisionRevisionTecnica || d.emision_revision_tecnica), dateOrNull(d.fechaVencimientoRevisionTecnica || d.vencimiento_revision_tecnica),
+      d.numeroSoat || d.numero_soat || "", dateOrNull(d.fechaEmisionSoat || d.emision_soat), dateOrNull(d.fechaVencimientoSoat || d.vencimiento_soat),
+      d.tallaPolo||"", d.tallaPantalon||"", d.tallaCalzado||"", d.ultimoEmpleo1||"", d.ultimoEmpleo2||"", d.ultimoEmpleo3||"", 
+      d.contactoEmergencia||"", d.parentesco||"", d.telefonoAlternativo||"", d.direccionEmergencia||"", cn, ca1, ca2, cfn
+    ];
     
     if (d.password && d.password.trim() !== "") { 
       q += `, password=?, password_plano=?`; 
@@ -2341,6 +2528,60 @@ app.delete('/api/asistencias/descansos/:id', async (req, res) => {
   }
 });
 
+app.put('/api/asistencias/descansos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { id_trabajador, id_usuario, fecha_inicio, fecha_fin, motivo, estado } = req.body;
+
+    let targetTrabajadorId = null;
+    if (id_usuario) {
+      const [tRows] = await pool.query("SELECT id_trabajador FROM trabajadores WHERE id_usuario = ? LIMIT 1", [id_usuario]);
+      if (tRows.length > 0) {
+        targetTrabajadorId = tRows[0].id_trabajador;
+      } else {
+        targetTrabajadorId = id_usuario;
+      }
+    } else if (id_trabajador) {
+      targetTrabajadorId = id_trabajador;
+    }
+
+    const updates = [];
+    const params = [];
+
+    if (targetTrabajadorId) {
+      updates.push("id_trabajador = ?");
+      params.push(targetTrabajadorId);
+    }
+    if (fecha_inicio) {
+      updates.push("fecha_inicio = ?");
+      params.push(fecha_inicio);
+    }
+    if (fecha_fin) {
+      updates.push("fecha_fin = ?");
+      params.push(fecha_fin);
+    }
+    if (motivo !== undefined) {
+      updates.push("motivo = ?");
+      params.push(motivo?.trim() || null);
+    }
+    if (estado) {
+      updates.push("estado = ?");
+      params.push(estado);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: "No hay campos para actualizar." });
+    }
+
+    params.push(id);
+    await pool.query(`UPDATE trabajador_descansos SET ${updates.join(', ')} WHERE id_descanso = ?`, params);
+
+    res.json({ success: true, message: "Descanso actualizado con éxito." });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ============================================================
 // 📦 ENDPOINTS DEL MÓDULO DE ÓRDENES (TABLERO / GRID EN TIEMPO REAL)
 // ============================================================
@@ -3217,13 +3458,16 @@ app.get('/ordenes/:numero/historial-estados', async (req, res) => {
           if (esFinLiq) {
             autoIdTecnico = null;
             autoNombreTecnico = 'EXTERNO: ' + tiempos.usuarioEjecutor;
+            if (/finalizad/i.test(ultimoEstadoFenix)) {
+              ultimoEstadoFenix = 'Finalizada Externa';
+            }
           }
         }
       }
 
       // Lista de estados oficiales de Fénix
       const esEstadoFenixSolido = ultimoEstadoFenix && [
-        'Finalizada', 'Liquidada', 'Cancelada', 'Anulada', 'Regestión', 'Regestion', 'Iniciada', 'En camino', 'Agendada'
+        'Finalizada', 'Finalizada Externa', 'Liquidada', 'Cancelada', 'Anulada', 'Regestión', 'Regestion', 'Iniciada', 'En camino', 'Agendada'
       ].includes(ultimoEstadoFenix);
 
       const [updateRes] = await pool.query(
@@ -3823,33 +4067,30 @@ app.get('/api/movilidad/vehiculos', async (req, res) => {
         mo.nombre AS modelo,
         tv.nombre AS tipo_vehiculo,
         c.nombre AS combustible,
-        t.id_trabajador,
-        u.id_usuario,
+        COALESCE(t_act.id_trabajador, t.id_trabajador) AS id_trabajador,
+        COALESCE(u_act.id_usuario, u.id_usuario) AS id_usuario,
         COALESCE(
-          NULLIF(TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))), ''),
+          NULLIF(TRIM(CONCAT(COALESCE(u_act.nombres, u.nombres, ''), ' ', COALESCE(u_act.primer_apellido, u_act.apellidos, u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u_act.segundo_apellido, u.segundo_apellido, ''))), ''),
           'Sin asignar'
         ) AS tecnico_asignado,
-        COALESCE(u.cuadrilla, '') AS cuadrilla,
+        COALESCE(u_act.cuadrilla, u.cuadrilla, '') AS cuadrilla,
         (SELECT MAX(km_fin) FROM vehiculo_inspecciones WHERE id_vehiculo = v.id_vehiculo) AS ultimo_km,
-        (
-          SELECT va.fecha_inicio 
-          FROM vehiculo_asignaciones va 
-          WHERE va.id_vehiculo = v.id_vehiculo AND va.estado = 'Activa'
-          ORDER BY va.id_asignacion DESC 
-          LIMIT 1
+        COALESCE(
+          va.fecha_inicio,
+          (SELECT va2.fecha_inicio FROM vehiculo_asignaciones va2 WHERE va2.id_vehiculo = v.id_vehiculo ORDER BY va2.id_asignacion DESC LIMIT 1)
         ) AS fecha_asignacion,
-        (
-          SELECT va.motivo_cambio 
-          FROM vehiculo_asignaciones va 
-          WHERE va.id_vehiculo = v.id_vehiculo AND va.estado = 'Activa'
-          ORDER BY va.id_asignacion DESC 
-          LIMIT 1
+        COALESCE(
+          va.motivo_cambio,
+          (SELECT va2.motivo_cambio FROM vehiculo_asignaciones va2 WHERE va2.id_vehiculo = v.id_vehiculo ORDER BY va2.id_asignacion DESC LIMIT 1)
         ) AS motivo_asignacion
       FROM vehiculos v
       LEFT JOIN marcas m ON v.id_marca = m.id_marca
       LEFT JOIN modelos mo ON v.id_modelo = mo.id_modelo
       LEFT JOIN tipos_vehiculo tv ON v.id_tipo_vehiculo = tv.id_tipo_vehiculo
       LEFT JOIN combustibles c ON v.id_combustible = c.id_combustible
+      LEFT JOIN vehiculo_asignaciones va ON va.id_vehiculo = v.id_vehiculo AND va.estado = 'Activa'
+      LEFT JOIN trabajadores t_act ON va.id_trabajador = t_act.id_trabajador
+      LEFT JOIN usuarios u_act ON t_act.id_usuario = u_act.id_usuario
       LEFT JOIN trabajadores t ON v.id_vehiculo = t.id_vehiculo
         AND (t.estado = 'Activo' OR t.estado IS NULL)
         AND EXISTS (
@@ -4243,6 +4484,10 @@ app.get('/api/movilidad/vehiculos/:id/asignaciones', async (req, res) => {
   }
 });
 
+// Helpers para fecha y hora oficial de Perú (UTC-5)
+const getPeruDateStr = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima" }).format(new Date());
+const getPeruTimeStr = () => new Intl.DateTimeFormat("en-GB", { timeZone: "America/Lima", hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date());
+
 // --- 🚗 4. REGISTRAR CHECKLIST INICIO JORNADA (TÉCNICO 7:00 AM) ---
 app.post('/api/movilidad/inspeccion/inicio', uploadInspeccion, async (req, res) => {
   try {
@@ -4252,8 +4497,8 @@ app.post('/api/movilidad/inspeccion/inicio', uploadInspeccion, async (req, res) 
       return res.status(400).json({ error: "id_vehiculo y id_trabajador son requeridos" });
     }
 
-    const fechaInspeccion = fecha || new Date().toISOString().slice(0, 10);
-    const horaInicio = hora_inicio || new Date().toTimeString().slice(0, 8);
+    const fechaInspeccion = (fecha && fecha.length === 10) ? fecha : getPeruDateStr();
+    const horaInicio = hora_inicio || getPeruTimeStr();
     const nivelComb = nivel_combustible || 'Medio';
 
     const foto_tablero_inicio = req.files && req.files['foto_tablero_inicio'] ? req.files['foto_tablero_inicio'][0].filename : null;
@@ -4268,7 +4513,7 @@ app.post('/api/movilidad/inspeccion/inicio', uploadInspeccion, async (req, res) 
     );
 
     if (existente.length > 0) {
-      // Actualizar registro del día
+      // Actualizar registro del día sin sobreescribir fotos de fin
       await pool.query(`
         UPDATE vehiculo_inspecciones SET
           id_trabajador = ?,
@@ -4320,15 +4565,21 @@ app.post('/api/movilidad/inspeccion/fin', uploadInspeccion, async (req, res) => 
   try {
     const { id_inspeccion, id_vehiculo, id_trabajador, fecha, km_fin, hora_fin, observaciones_tecnico, lat_fin, lng_fin, nivel_combustible } = req.body;
 
-    const horaFin = hora_fin || new Date().toTimeString().slice(0, 8);
+    const horaFin = hora_fin || getPeruTimeStr();
+    const fechaHoy = (fecha && fecha.length === 10) ? fecha : getPeruDateStr();
     const foto_tablero_fin = req.files && req.files['foto_tablero_fin'] ? req.files['foto_tablero_fin'][0].filename : null;
     const nivelComb = nivel_combustible || null;
 
     let targetId = id_inspeccion;
     if (!targetId) {
-      const fechaHoy = fecha || new Date().toISOString().slice(0, 10);
+      // Priorizar la inspección ABIERTA (km_fin IS NULL) más reciente de ese vehículo o trabajador
       const [found] = await pool.query(
-        "SELECT id_inspeccion, km_inicio FROM vehiculo_inspecciones WHERE (id_vehiculo = ? OR id_trabajador = ?) AND fecha = ? ORDER BY id_inspeccion DESC LIMIT 1",
+        `SELECT id_inspeccion, km_inicio, fecha 
+         FROM vehiculo_inspecciones 
+         WHERE (id_vehiculo = ? OR id_trabajador = ?) 
+           AND (km_fin IS NULL OR fecha = ?)
+         ORDER BY (km_fin IS NULL) DESC, fecha DESC, id_inspeccion DESC 
+         LIMIT 1`,
         [id_vehiculo, id_trabajador, fechaHoy]
       );
       if (found.length > 0) {
@@ -4730,10 +4981,9 @@ let cacheDashboardKm = { data: null, timestamp: 0, queryKey: '' };
 app.get('/api/movilidad/dashboard-km', async (req, res) => {
   try {
     const { fecha_desde, fecha_hasta } = req.query;
-
-    const fDesde = fecha_desde || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const fHasta = fecha_hasta || new Date().toISOString().slice(0, 10);
-    const hoyStr = new Date().toISOString().slice(0, 10);
+    const hoyStr = getPeruDateStr();
+    const fDesde = fecha_desde || new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima" }).format(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
+    const fHasta = fecha_hasta || hoyStr;
     const ahoraMinutos = new Date().getHours() * 60 + new Date().getMinutes();
 
     // Verificación de Caché en memoria (15 segundos)
@@ -8939,6 +9189,7 @@ app.post('/api/almacen/orden-liquidaciones/:id/rechazar', async (req, res) => {
 
 // --- 📋 5.3.1 AJUSTAR / CORREGIR CANTIDAD DE MATERIAL EN LIQUIDACIÓN CON RETORNO DE STOCK ---
 app.put('/api/almacen/orden-liquidaciones/:id/ajustar-material', async (req, res) => {
+  const connection = await pool.getConnection();
   try {
     const idLiquidacion = req.params.id;
     const { id_detalle_liq, nueva_cantidad, motivo } = req.body || {};
@@ -8952,8 +9203,10 @@ app.put('/api/almacen/orden-liquidaciones/:id/ajustar-material', async (req, res
       return res.status(400).json({ success: false, error: 'La cantidad debe ser un número entero mayor o igual a 0.' });
     }
 
+    await connection.beginTransaction();
+
     // 1. Obtener detalle actual y liquidación
-    const [detRows] = await pool.query(`
+    const [detRows] = await connection.query(`
       SELECT d.*, p.nombre as nombre_producto, ol.id_trabajador, ol.id_orden, ol.numero_acta
       FROM orden_liquidacion_detalle d
       JOIN orden_liquidaciones ol ON d.id_liquidacion = ol.id_liquidacion
@@ -8962,27 +9215,51 @@ app.put('/api/almacen/orden-liquidaciones/:id/ajustar-material', async (req, res
     `, [id_detalle_liq, idLiquidacion]);
 
     if (detRows.length === 0) {
+      await connection.rollback();
       return res.status(404).json({ success: false, error: 'Detalle de liquidación no encontrado.' });
     }
 
     const det = detRows[0];
     const cantAnterior = Number(det.cantidad) || 0;
-    const idTrabajador = det.id_trabajador;
+    let idTrabajador = det.id_trabajador;
     const idProducto = det.id_producto;
     const diff = cantAnterior - nCant; // Si es positivo, se declaró de más y se devuelve stock al técnico
 
+    // Si id_trabajador no está en orden_liquidaciones, buscarlo en la orden
+    if (!idTrabajador && det.id_orden) {
+      const [ordRows] = await connection.query(`
+        SELECT t.id_trabajador 
+        FROM ordenes o 
+        LEFT JOIN trabajadores t ON t.id_usuario = o.id_tecnico 
+        WHERE o.id_orden = ? LIMIT 1
+      `, [det.id_orden]);
+      if (ordRows.length > 0) idTrabajador = ordRows[0].id_trabajador;
+    }
+
     // 2. Si nueva cantidad es 0, eliminar o poner 0
     if (nCant === 0) {
-      await pool.query("DELETE FROM orden_liquidacion_detalle WHERE id_detalle_liq = ?", [id_detalle_liq]);
+      await connection.query("DELETE FROM orden_liquidacion_detalle WHERE id_detalle_liq = ?", [id_detalle_liq]);
+      if (det.numero_serie) {
+        // Liberar serie si tenía
+        await connection.query("UPDATE producto_series SET estado = 'ASIGNADO' WHERE numero_serie = ?", [det.numero_serie]);
+        if (idTrabajador) {
+          await connection.query(`
+            UPDATE trabajador_series ts
+            JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
+            SET ts.estado = 'Asignada'
+            WHERE ts.id_trabajador = ? AND ps.numero_serie = ?
+          `, [idTrabajador, det.numero_serie]);
+        }
+      }
     } else {
-      await pool.query("UPDATE orden_liquidacion_detalle SET cantidad = ? WHERE id_detalle_liq = ?", [nCant, id_detalle_liq]);
+      await connection.query("UPDATE orden_liquidacion_detalle SET cantidad = ? WHERE id_detalle_liq = ?", [nCant, id_detalle_liq]);
     }
 
     // 3. Ajustar el stock móvil del técnico (devolver excedente o descontar faltante)
     if (idTrabajador && diff !== 0) {
       if (diff > 0) {
         // Técnico declaró de más (ej. 101 en vez de 10). Se le retornan diff (+91) unidades a su camioneta
-        await pool.query(`
+        await connection.query(`
           UPDATE trabajador_productos 
           SET stock = stock + ? 
           WHERE id_trabajador = ? AND id_producto = ?
@@ -8990,7 +9267,7 @@ app.put('/api/almacen/orden-liquidaciones/:id/ajustar-material', async (req, res
       } else {
         // Técnico declaró de menos (ej. 10 en vez de 15). Se le descuenta el faltante (|diff|) de su camioneta
         const cantRestar = Math.abs(diff);
-        await pool.query(`
+        await connection.query(`
           UPDATE trabajador_productos 
           SET stock = GREATEST(0, stock - ?) 
           WHERE id_trabajador = ? AND id_producto = ?
@@ -9001,11 +9278,13 @@ app.put('/api/almacen/orden-liquidaciones/:id/ajustar-material', async (req, res
     // 4. Registrar en log de auditoría
     try {
       const desc = `[Auditoría Liquidación #${idLiquidacion} / Acta ${det.numero_acta}] Ajuste de material "${det.nombre_producto}": de ${cantAnterior} a ${nCant} UND. Diferencia de stock aplicada al técnico: ${diff > 0 ? '+' + diff : diff} UND. Motivo: ${motivo || 'Corrección por auditoría de almacén'}.`;
-      await pool.query(`
+      await connection.query(`
         INSERT INTO auditoria_actividad (id_usuario, usuario_nombre, id_rol, rol_nombre, area, modulo, accion, id_referencia, descripcion, fecha_creacion)
         VALUES (1, 'Auditoría Almacén', 1, 'ADMINISTRACION', 'ALMACEN', 'LIQUIDACIONES', 'AJUSTE_MATERIAL', ?, ?, NOW())
       `, [idLiquidacion, desc]);
     } catch (e) {}
+
+    await connection.commit();
 
     res.json({
       success: true,
@@ -9016,8 +9295,542 @@ app.put('/api/almacen/orden-liquidaciones/:id/ajustar-material', async (req, res
       diferencia_retornada: diff
     });
   } catch (error) {
+    await connection.rollback();
     console.error("Error al ajustar material de liquidación:", error.message);
     res.status(500).json({ success: false, error: error.message });
+  } finally {
+    connection.release();
+  }
+});
+
+// --- 📋 5.3.2 CAMBIAR PRODUCTO POR OTRO EN LIQUIDACIÓN (CON REASIGNACIÓN DE STOCK) ---
+app.put('/api/almacen/orden-liquidaciones/:id/cambiar-producto', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const idLiquidacion = req.params.id;
+    const { id_detalle_liq, nuevo_id_producto, nueva_cantidad, nuevo_numero_serie, motivo } = req.body || {};
+
+    if (!id_detalle_liq || !nuevo_id_producto) {
+      return res.status(400).json({ success: false, error: 'Faltan parámetros requeridos (id_detalle_liq, nuevo_id_producto).' });
+    }
+
+    const nCant = nueva_cantidad ? parseInt(nueva_cantidad, 10) : 1;
+    if (isNaN(nCant) || nCant <= 0) {
+      return res.status(400).json({ success: false, error: 'La nueva cantidad debe ser un número entero mayor a 0.' });
+    }
+
+    await connection.beginTransaction();
+
+    // 1. Obtener detalle actual, producto viejo y datos de liquidación
+    const [detRows] = await connection.query(`
+      SELECT d.*, p.nombre as nombre_producto_viejo, p.precio_compra as precio_viejo,
+             ol.id_trabajador, ol.id_orden, ol.numero_acta
+      FROM orden_liquidacion_detalle d
+      JOIN orden_liquidaciones ol ON d.id_liquidacion = ol.id_liquidacion
+      JOIN productos p ON d.id_producto = p.id_producto
+      WHERE d.id_detalle_liq = ? AND d.id_liquidacion = ?
+    `, [id_detalle_liq, idLiquidacion]);
+
+    if (detRows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, error: 'Detalle de liquidación no encontrado.' });
+    }
+
+    const det = detRows[0];
+    const cantVieja = Number(det.cantidad) || 0;
+    const prodIdViejo = Number(det.id_producto);
+    const serieVieja = det.numero_serie;
+    let idTrabajador = det.id_trabajador;
+
+    if (!idTrabajador && det.id_orden) {
+      const [ordRows] = await connection.query(`
+        SELECT t.id_trabajador 
+        FROM ordenes o 
+        LEFT JOIN trabajadores t ON t.id_usuario = o.id_tecnico 
+        WHERE o.id_orden = ? LIMIT 1
+      `, [det.id_orden]);
+      if (ordRows.length > 0) idTrabajador = ordRows[0].id_trabajador;
+    }
+
+    // 2. Obtener datos del nuevo producto
+    const [nProdRows] = await connection.query(`
+      SELECT id_producto, nombre, precio_compra, categoria_liquidar, es_drop, maneja_serie
+      FROM productos WHERE id_producto = ?
+    `, [nuevo_id_producto]);
+
+    if (nProdRows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, error: 'El nuevo producto seleccionado no existe.' });
+    }
+
+    const nuevoProd = nProdRows[0];
+
+    // 3. Revertir / Devolver stock del producto viejo a la camioneta del técnico
+    if (idTrabajador && cantVieja > 0) {
+      await connection.query(`
+        UPDATE trabajador_productos 
+        SET stock = stock + ? 
+        WHERE id_trabajador = ? AND id_producto = ?
+      `, [cantVieja, idTrabajador, prodIdViejo]);
+    }
+
+    // Si el producto viejo tenía serie, liberarla
+    if (serieVieja) {
+      await connection.query("UPDATE producto_series SET estado = 'ASIGNADO' WHERE numero_serie = ?", [serieVieja]);
+      if (idTrabajador) {
+        await connection.query(`
+          UPDATE trabajador_series ts
+          JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
+          SET ts.estado = 'Asignada'
+          WHERE ts.id_trabajador = ? AND ps.numero_serie = ?
+        `, [idTrabajador, serieVieja]);
+      }
+    }
+
+    // 4. Descontar stock del NUEVO producto de la camioneta del técnico
+    if (idTrabajador) {
+      // Verificar si ya tiene registro en trabajador_productos
+      const [tpExist] = await connection.query(`
+        SELECT id_trabajador_producto, stock FROM trabajador_productos 
+        WHERE id_trabajador = ? AND id_producto = ?
+      `, [idTrabajador, nuevo_id_producto]);
+
+      if (tpExist.length > 0) {
+        await connection.query(`
+          UPDATE trabajador_productos 
+          SET stock = GREATEST(0, stock - ?) 
+          WHERE id_trabajador = ? AND id_producto = ?
+        `, [nCant, idTrabajador, nuevo_id_producto]);
+      } else {
+        await connection.query(`
+          INSERT INTO trabajador_productos (id_trabajador, id_producto, stock, fecha_creacion, fecha_actualizacion)
+          VALUES (?, ?, 0, NOW(), NOW())
+        `, [idTrabajador, nuevo_id_producto]);
+      }
+    }
+
+    // Si el nuevo producto incluye serie
+    let finalNuevaSerie = nuevo_numero_serie ? String(nuevo_numero_serie).trim().toUpperCase() : null;
+    if (finalNuevaSerie) {
+      await connection.query("UPDATE producto_series SET estado = 'VENDIDO' WHERE numero_serie = ?", [finalNuevaSerie]);
+      if (idTrabajador) {
+        await connection.query(`
+          UPDATE trabajador_series ts
+          JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
+          SET ts.estado = 'Usada'
+          WHERE ts.id_trabajador = ? AND ps.numero_serie = ?
+        `, [idTrabajador, finalNuevaSerie]);
+      }
+    }
+
+    // 5. Actualizar el detalle de liquidación
+    await connection.query(`
+      UPDATE orden_liquidacion_detalle 
+      SET id_producto = ?, cantidad = ?, numero_serie = ?
+      WHERE id_detalle_liq = ?
+    `, [nuevo_id_producto, nCant, finalNuevaSerie, id_detalle_liq]);
+
+    // 6. Registrar en auditoría
+    try {
+      const desc = `[Auditoría Liquidación #${idLiquidacion} / Acta ${det.numero_acta}] Cambio de producto: "${det.nombre_producto_viejo}" (${cantVieja} UND) sustituido por "${nuevoProd.nombre}" (${nCant} UND). Stock móvil recalibrado. Motivo: ${motivo || 'Corrección por auditoría de almacén'}.`;
+      await connection.query(`
+        INSERT INTO auditoria_actividad (id_usuario, usuario_nombre, id_rol, rol_nombre, area, modulo, accion, id_referencia, descripcion, fecha_creacion)
+        VALUES (1, 'Auditoría Almacén', 1, 'ADMINISTRACION', 'ALMACEN', 'LIQUIDACIONES', 'CAMBIO_PRODUCTO', ?, ?, NOW())
+      `, [idLiquidacion, desc]);
+    } catch (e) {}
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      message: `Producto cambiado exitosamente a "${nuevoProd.nombre}" (${nCant} UND). Se reincorporó "${det.nombre_producto_viejo}" al stock del técnico y se descontó el nuevo.`,
+      id_detalle_liq,
+      id_producto: nuevo_id_producto,
+      nombre_producto: nuevoProd.nombre,
+      cantidad: nCant,
+      numero_serie: finalNuevaSerie,
+      precio_compra: nuevoProd.precio_compra,
+      costo: nCant * Number(nuevoProd.precio_compra || 0)
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Error al cambiar producto de liquidación:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  } finally {
+    connection.release();
+  }
+});
+
+// --- 📋 5.3.3 AGREGAR MATERIAL U OLVIDO A LA LIQUIDACIÓN (JALADO DE STOCK DEL VEHÍCULO) ---
+app.post('/api/almacen/orden-liquidaciones/:id/agregar-material', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const idLiquidacion = req.params.id;
+    const { id_producto, cantidad, numero_serie, motivo } = req.body || {};
+
+    if (!id_producto || !cantidad) {
+      return res.status(400).json({ success: false, error: 'Debe seleccionar un producto y una cantidad.' });
+    }
+
+    const cant = parseInt(cantidad, 10);
+    if (isNaN(cant) || cant <= 0) {
+      return res.status(400).json({ success: false, error: 'La cantidad debe ser un entero mayor a 0.' });
+    }
+
+    await connection.beginTransaction();
+
+    // 1. Obtener liquidación y técnico
+    const [liqRows] = await connection.query(`
+      SELECT ol.id_liquidacion, ol.id_trabajador, ol.id_orden, ol.numero_acta
+      FROM orden_liquidaciones ol
+      WHERE ol.id_liquidacion = ?
+    `, [idLiquidacion]);
+
+    if (liqRows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, error: 'Liquidación no encontrada.' });
+    }
+
+    const liq = liqRows[0];
+    let idTrabajador = liq.id_trabajador;
+
+    if (!idTrabajador && liq.id_orden) {
+      const [ordRows] = await connection.query(`
+        SELECT t.id_trabajador 
+        FROM ordenes o 
+        LEFT JOIN trabajadores t ON t.id_usuario = o.id_tecnico 
+        WHERE o.id_orden = ? LIMIT 1
+      `, [liq.id_orden]);
+      if (ordRows.length > 0) idTrabajador = ordRows[0].id_trabajador;
+    }
+
+    // 2. Obtener producto
+    const [pRows] = await connection.query(`
+      SELECT id_producto, nombre, precio_compra, categoria_liquidar, maneja_serie, es_drop
+      FROM productos WHERE id_producto = ?
+    `, [id_producto]);
+
+    if (pRows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, error: 'Producto no encontrado.' });
+    }
+
+    const prod = pRows[0];
+    const finalSerie = numero_serie ? String(numero_serie).trim().toUpperCase() : null;
+
+    // 3. Descontar stock del vehículo del técnico
+    if (idTrabajador) {
+      const [tpRows] = await connection.query(`
+        SELECT id_trabajador_producto, stock FROM trabajador_productos 
+        WHERE id_trabajador = ? AND id_producto = ?
+      `, [idTrabajador, id_producto]);
+
+      if (tpRows.length > 0) {
+        await connection.query(`
+          UPDATE trabajador_productos 
+          SET stock = GREATEST(0, stock - ?) 
+          WHERE id_trabajador = ? AND id_producto = ?
+        `, [cant, idTrabajador, id_producto]);
+      } else {
+        await connection.query(`
+          INSERT INTO trabajador_productos (id_trabajador, id_producto, stock, fecha_creacion, fecha_actualizacion)
+          VALUES (?, ?, 0, NOW(), NOW())
+        `, [idTrabajador, id_producto]);
+      }
+    }
+
+    // Si tiene serie, marcarla como usada / vendida
+    if (finalSerie) {
+      await connection.query("UPDATE producto_series SET estado = 'VENDIDO' WHERE numero_serie = ?", [finalSerie]);
+      if (idTrabajador) {
+        await connection.query(`
+          UPDATE trabajador_series ts
+          JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
+          SET ts.estado = 'Usada'
+          WHERE ts.id_trabajador = ? AND ps.numero_serie = ?
+        `, [idTrabajador, finalSerie]);
+      }
+    }
+
+    // 4. Insertar en orden_liquidacion_detalle
+    const [insRes] = await connection.query(`
+      INSERT INTO orden_liquidacion_detalle (id_liquidacion, id_producto, cantidad, numero_serie)
+      VALUES (?, ?, ?, ?)
+    `, [idLiquidacion, id_producto, cant, finalSerie]);
+
+    // 5. Registrar en bitácora de auditoría
+    try {
+      const desc = `[Auditoría Liquidación #${idLiquidacion} / Acta ${liq.numero_acta}] Material agregado: "${prod.nombre}" x ${cant} UND ${finalSerie ? `(Serie: ${finalSerie})` : ''}. Descontado de la camioneta del técnico. Motivo: ${motivo || 'Material agregado por auditoría'}.`;
+      await connection.query(`
+        INSERT INTO auditoria_actividad (id_usuario, usuario_nombre, id_rol, rol_nombre, area, modulo, accion, id_referencia, descripcion, fecha_creacion)
+        VALUES (1, 'Auditoría Almacén', 1, 'ADMINISTRACION', 'ALMACEN', 'LIQUIDACIONES', 'AGREGAR_MATERIAL', ?, ?, NOW())
+      `, [idLiquidacion, desc]);
+    } catch (e) {}
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      message: `"${prod.nombre}" x ${cant} UND agregado correctamente a la liquidación y descontado del stock del técnico.`,
+      id_detalle_liq: insRes.insertId,
+      id_producto,
+      nombre_producto: prod.nombre,
+      categoria_liquidar: prod.categoria_liquidar,
+      cantidad: cant,
+      numero_serie: finalSerie,
+      precio_compra: prod.precio_compra,
+      costo: cant * Number(prod.precio_compra || 0)
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Error al agregar material a liquidación:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  } finally {
+    connection.release();
+  }
+});
+
+// --- 📋 5.3.4 ELIMINAR MATERIAL DE LIQUIDACIÓN (CON REINTEGRO AUTOMÁTICO A CAMIONETA) ---
+app.delete('/api/almacen/orden-liquidaciones/:id/eliminar-material/:id_detalle_liq', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const idLiquidacion = req.params.id;
+    const idDetalleLiq = req.params.id_detalle_liq;
+    const { motivo } = req.body || req.query || {};
+
+    await connection.beginTransaction();
+
+    // 1. Obtener detalle actual
+    const [detRows] = await connection.query(`
+      SELECT d.*, p.nombre as nombre_producto, ol.id_trabajador, ol.id_orden, ol.numero_acta
+      FROM orden_liquidacion_detalle d
+      JOIN orden_liquidaciones ol ON d.id_liquidacion = ol.id_liquidacion
+      JOIN productos p ON d.id_producto = p.id_producto
+      WHERE d.id_detalle_liq = ? AND d.id_liquidacion = ?
+    `, [idDetalleLiq, idLiquidacion]);
+
+    if (detRows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, error: 'Detalle de material no encontrado.' });
+    }
+
+    const det = detRows[0];
+    const cant = Number(det.cantidad) || 0;
+    const prodId = Number(det.id_producto);
+    const serie = det.numero_serie;
+    let idTrabajador = det.id_trabajador;
+
+    if (!idTrabajador && det.id_orden) {
+      const [ordRows] = await connection.query(`
+        SELECT t.id_trabajador 
+        FROM ordenes o 
+        LEFT JOIN trabajadores t ON t.id_usuario = o.id_tecnico 
+        WHERE o.id_orden = ? LIMIT 1
+      `, [det.id_orden]);
+      if (ordRows.length > 0) idTrabajador = ordRows[0].id_trabajador;
+    }
+
+    // 2. Eliminar detalle
+    await connection.query("DELETE FROM orden_liquidacion_detalle WHERE id_detalle_liq = ?", [idDetalleLiq]);
+
+    // 3. Devolver stock al técnico
+    if (idTrabajador && cant > 0) {
+      await connection.query(`
+        UPDATE trabajador_productos 
+        SET stock = stock + ? 
+        WHERE id_trabajador = ? AND id_producto = ?
+      `, [cant, idTrabajador, prodId]);
+    }
+
+    // 4. Liberar serie si existía
+    if (serie) {
+      await connection.query("UPDATE producto_series SET estado = 'ASIGNADO' WHERE numero_serie = ?", [serie]);
+      if (idTrabajador) {
+        await connection.query(`
+          UPDATE trabajador_series ts
+          JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
+          SET ts.estado = 'Asignada'
+          WHERE ts.id_trabajador = ? AND ps.numero_serie = ?
+        `, [idTrabajador, serie]);
+      }
+    }
+
+    // 5. Auditoría
+    try {
+      const desc = `[Auditoría Liquidación #${idLiquidacion} / Acta ${det.numero_acta}] Material eliminado: "${det.nombre_producto}" x ${cant} UND. Stock reintegrado a la camioneta del técnico. Motivo: ${motivo || 'Eliminado por auditoría de almacén'}.`;
+      await connection.query(`
+        INSERT INTO auditoria_actividad (id_usuario, usuario_nombre, id_rol, rol_nombre, area, modulo, accion, id_referencia, descripcion, fecha_creacion)
+        VALUES (1, 'Auditoría Almacén', 1, 'ADMINISTRACION', 'ALMACEN', 'LIQUIDACIONES', 'ELIMINAR_MATERIAL', ?, ?, NOW())
+      `, [idLiquidacion, desc]);
+    } catch (e) {}
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      message: `"${det.nombre_producto}" x ${cant} UND eliminado de la liquidación y reintegrado a la camioneta del técnico.`
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Error al eliminar material de liquidación:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  } finally {
+    connection.release();
+  }
+});
+
+// --- 📋 5.3.5 EDITAR NÚMERO DE ACTA FÍSICA (CON REVERSIÓN Y REASIGNACIÓN DE STOCK/SERIE DEL TÉCNICO) ---
+app.put(['/api/almacen/orden-liquidaciones/:id/editar-acta', '/almacen/orden-liquidaciones/:id/editar-acta'], async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const idLiquidacion = req.params.id;
+    let { nuevo_numero_acta, motivo } = req.body || {};
+
+    if (!nuevo_numero_acta || !String(nuevo_numero_acta).trim()) {
+      return res.status(400).json({ success: false, error: 'Debe ingresar un número de acta válido.' });
+    }
+
+    let cleanNuevaActa = String(nuevo_numero_acta).trim().toUpperCase();
+    if (/^\d{4,8}$/.test(cleanNuevaActa.replace(/^001-?/i, ''))) {
+      cleanNuevaActa = `001-${cleanNuevaActa.replace(/^001-?/i, '')}`;
+    }
+
+    await connection.beginTransaction();
+
+    // 1. Obtener la liquidación actual
+    const [liqRows] = await connection.query(`
+      SELECT ol.id_liquidacion, ol.id_orden, ol.id_trabajador, ol.numero_acta, ol.numero_guia,
+             o.numero as numero_orden, o.id_tecnico
+      FROM orden_liquidaciones ol
+      LEFT JOIN ordenes o ON ol.id_orden = o.id_orden
+      WHERE ol.id_liquidacion = ?
+    `, [idLiquidacion]);
+
+    if (liqRows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, error: 'Liquidación no encontrada.' });
+    }
+
+    const liq = liqRows[0];
+    const actaVieja = String(liq.numero_acta || liq.numero_guia || '').trim();
+    let idTrabajador = liq.id_trabajador;
+
+    if (!idTrabajador && liq.id_tecnico) {
+      const [tRows] = await connection.query("SELECT id_trabajador FROM trabajadores WHERE id_usuario = ? LIMIT 1", [liq.id_tecnico]);
+      if (tRows.length > 0) idTrabajador = tRows[0].id_trabajador;
+    }
+
+    if (actaVieja === cleanNuevaActa) {
+      await connection.rollback();
+      return res.json({ success: true, message: 'El número de acta ingresado es idéntico al actual.', nuevo_numero_acta: cleanNuevaActa });
+    }
+
+    // 2. Validar que la nueva acta no esté ya usada en otra liquidación activa
+    const [dupRows] = await connection.query(`
+      SELECT ol.id_liquidacion, o.numero as numero_orden
+      FROM orden_liquidaciones ol
+      LEFT JOIN ordenes o ON ol.id_orden = o.id_orden
+      WHERE (ol.numero_acta = ? OR ol.numero_guia = ?) AND ol.id_liquidacion != ?
+      LIMIT 1
+    `, [cleanNuevaActa, cleanNuevaActa, idLiquidacion]);
+
+    if (dupRows.length > 0) {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        error: `El Acta "${cleanNuevaActa}" ya está registrada y utilizada en la Orden #${dupRows[0].numero_orden || dupRows[0].id_liquidacion}. No se puede duplicar.`
+      });
+    }
+
+    // 3. REVERSIÓN DEL ACTA ANTERIOR: Reincorporar al stock del técnico si estaba asignada
+    if (actaVieja && idTrabajador) {
+      const cleanViejaSinPrefijo = actaVieja.replace(/^001-?/i, '');
+      const [serieViejaRows] = await connection.query(`
+        SELECT ps.id_producto_serie, ps.id_producto, ts.id_trabajador_serie
+        FROM producto_series ps
+        JOIN trabajador_series ts ON ps.id_producto_serie = ts.id_producto_serie
+        WHERE ts.id_trabajador = ?
+          AND (ps.numero_serie = ? OR ps.numero_serie = ? OR ps.numero_serie = ? OR ps.numero_serie LIKE ?)
+        LIMIT 1
+      `, [idTrabajador, actaVieja, cleanViejaSinPrefijo, `001-${cleanViejaSinPrefijo}`, `%${cleanViejaSinPrefijo}%`]);
+
+      if (serieViejaRows.length > 0) {
+        const idProdSerieVieja = serieViejaRows[0].id_producto_serie;
+        const idProdViejo = serieViejaRows[0].id_producto;
+
+        await connection.query("UPDATE producto_series SET estado = 'ASIGNADO' WHERE id_producto_serie = ?", [idProdSerieVieja]);
+        await connection.query("UPDATE trabajador_series SET estado = 'Asignada' WHERE id_trabajador = ? AND id_producto_serie = ?", [idTrabajador, idProdSerieVieja]);
+        await connection.query("UPDATE trabajador_productos SET stock = stock + 1 WHERE id_trabajador = ? AND id_producto = ?", [idTrabajador, idProdViejo]);
+
+        try {
+          await connection.query(`
+            INSERT INTO movimientos (id_producto, id_almacen, id_producto_serie, tipo, cantidad, referencia, fecha_creacion)
+            VALUES (?, 1, ?, 'ENTRADA', 1, ?, NOW())
+          `, [idProdViejo, idProdSerieVieja, `Corrección Acta: Reversión al técnico de serie [${actaVieja}] en Orden #${liq.numero_orden || liq.id_orden}`]);
+        } catch (eMov) {}
+      }
+    }
+
+    // 4. CONSUMO DE LA NUEVA ACTA: Descontar del stock del técnico si existe en sus series asignadas
+    if (cleanNuevaActa && idTrabajador) {
+      const cleanNuevaSinPrefijo = cleanNuevaActa.replace(/^001-?/i, '');
+      const [serieNuevaRows] = await connection.query(`
+        SELECT ps.id_producto_serie, ps.id_producto, ts.id_trabajador_serie
+        FROM producto_series ps
+        JOIN trabajador_series ts ON ps.id_producto_serie = ts.id_producto_serie
+        WHERE ts.id_trabajador = ?
+          AND (ps.numero_serie = ? OR ps.numero_serie = ? OR ps.numero_serie = ? OR ps.numero_serie LIKE ?)
+        LIMIT 1
+      `, [idTrabajador, cleanNuevaActa, cleanNuevaSinPrefijo, `001-${cleanNuevaSinPrefijo}`, `%${cleanNuevaSinPrefijo}%`]);
+
+      if (serieNuevaRows.length > 0) {
+        const idProdSerieNueva = serieNuevaRows[0].id_producto_serie;
+        const idProdNuevo = serieNuevaRows[0].id_producto;
+
+        await connection.query("UPDATE producto_series SET estado = 'CONSUMIDO' WHERE id_producto_serie = ?", [idProdSerieNueva]);
+        await connection.query("UPDATE trabajador_series SET estado = 'Usada' WHERE id_trabajador = ? AND id_producto_serie = ?", [idTrabajador, idProdSerieNueva]);
+        await connection.query("UPDATE trabajador_productos SET stock = GREATEST(0, stock - 1) WHERE id_trabajador = ? AND id_producto = ?", [idTrabajador, idProdNuevo]);
+
+        try {
+          await connection.query(`
+            INSERT INTO movimientos (id_producto, id_almacen, id_producto_serie, tipo, cantidad, referencia, fecha_creacion)
+            VALUES (?, 1, ?, 'SALIDA', 1, ?, NOW())
+          `, [idProdNuevo, idProdSerieNueva, `Corrección Acta: Consumo de serie [${cleanNuevaActa}] en Orden #${liq.numero_orden || liq.id_orden}`]);
+        } catch (eMov) {}
+      }
+    }
+
+    // 5. Actualizar en orden_liquidaciones
+    await connection.query(`
+      UPDATE orden_liquidaciones 
+      SET numero_acta = ?, numero_guia = ?
+      WHERE id_liquidacion = ?
+    `, [cleanNuevaActa, cleanNuevaActa, idLiquidacion]);
+
+    // 6. Auditoría de Actividad
+    try {
+      const desc = `[Auditoría Liquidación #${idLiquidacion} / Orden #${liq.numero_orden || liq.id_orden}] Corrección de N° de Acta Física: de "${actaVieja}" a "${cleanNuevaActa}". Serie anterior reincorporada al stock y nueva serie descontada. Motivo: ${motivo || 'Corrección por auditoría de almacén'}.`;
+      await connection.query(`
+        INSERT INTO auditoria_actividad (id_usuario, usuario_nombre, id_rol, rol_nombre, area, modulo, accion, id_referencia, descripcion, fecha_creacion)
+        VALUES (1, 'Auditoría Almacén', 1, 'ADMINISTRACION', 'ALMACEN', 'LIQUIDACIONES', 'EDITAR_NUMERO_ACTA', ?, ?, NOW())
+      `, [idLiquidacion, desc]);
+    } catch (eAud) {}
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      message: `Número de Acta actualizado correctamente a "${cleanNuevaActa}". Stock y Kardex recalibrados.`,
+      id_liquidacion: idLiquidacion,
+      acta_anterior: actaVieja,
+      nuevo_numero_acta: cleanNuevaActa
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Error al editar número de acta:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  } finally {
+    connection.release();
   }
 });
 
@@ -9031,6 +9844,194 @@ app.post('/api/almacen/orden-liquidaciones/aprobar-masivo', async (req, res) => 
     await pool.query("UPDATE orden_liquidaciones SET estado = 'Aprobada', motivo_rechazo = NULL WHERE id_liquidacion IN (?)", [ids]);
     res.json({ success: true, message: `${ids.length} liquidaciones aprobadas con éxito.` });
   } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// --- 📋 5.5 OBTENER FOTOGRAFÍA EN ALTA RESOLUCIÓN DEL ACTA DE CONFORMIDAD DE LA ORDEN ---
+app.get('/api/almacen/orden-liquidaciones/:numeroOrden/foto-acta', async (req, res) => {
+  try {
+    const rawNum = req.params.numeroOrden;
+    if (!rawNum) {
+      return res.status(400).json({ success: false, error: 'Número de orden requerido' });
+    }
+    let cleanNum = String(rawNum).trim().replace(/^#/, '').replace(/^0+/, '');
+    console.log(`🔍 [Foto Acta] Solicitando acta HD para identificador/orden #${cleanNum}...`);
+
+    // 💡 Resolver a número de orden oficial de Fénix (priorizando órdenes Finalizadas con evidencias)
+    try {
+      const [ordRows] = await pool.query(
+        `SELECT numero, codigo_seguimiento, cod_seguimiento_cliente, id_orden, estado 
+         FROM ordenes 
+         WHERE numero = ? OR codigo_seguimiento = ? OR cod_seguimiento_cliente = ? OR id_orden = ? 
+         ORDER BY 
+           CASE 
+             WHEN UPPER(COALESCE(estado, '')) LIKE '%FINALIZ%' THEN 1 
+             WHEN UPPER(COALESCE(estado, '')) LIKE '%LIQUID%' THEN 2 
+             ELSE 3 
+           END, 
+           fecha_visita DESC, 
+           id_orden DESC 
+         LIMIT 1`,
+        [cleanNum, cleanNum, cleanNum, isNaN(cleanNum) ? 0 : Number(cleanNum)]
+      );
+      if (ordRows.length > 0 && ordRows[0].numero) {
+        const numResuelto = String(ordRows[0].numero).trim().replace(/^0+/, '');
+        if (numResuelto) {
+          console.log(`📌 [Foto Acta] Identificador '${cleanNum}' resuelto a OrdenId oficial Fénix #${numResuelto} (Estado: ${ordRows[0].estado})`);
+          cleanNum = numResuelto;
+        }
+      }
+    } catch (eResolve) {
+      console.warn("⚠️ [Foto Acta] Error resolviendo número de orden en BD:", eResolve.message);
+    }
+
+    // 1. Verificar si ya tenemos el Acta en caché en la BD local (Apertura instantánea 0ms)
+    try {
+      const [rows] = await pool.query(
+        "SELECT tareas_json FROM orden_tareas_cache WHERE numero_orden = ? OR numero_orden = ? LIMIT 1",
+        [cleanNum, `000${cleanNum}`.slice(-10)]
+      );
+
+      if (rows.length > 0 && rows[0].tareas_json) {
+        const tasks = JSON.parse(rows[0].tareas_json);
+        const actaTask = tasks.find(t => {
+          const tit = (t.titulo || t.nombre || '').toUpperCase();
+          return tit.includes('ACTA') || tit.includes('CONFORMIDAD');
+        }) || tasks[tasks.length - 1];
+
+        if (actaTask && actaTask.detalle && actaTask.detalle.fotografias && actaTask.detalle.fotografias.length > 0) {
+          // Buscar si alguna foto ya tiene imagen_hd
+          for (const fotoObj of actaTask.detalle.fotografias) {
+            if (fotoObj.imagen_hd && fotoObj.imagen_hd.length > 5000) {
+              console.log(`⚡ [Foto Acta] Acta encontrada en caché HD para orden #${cleanNum}`);
+              return res.json({
+                success: true,
+                origen: 'CACHE_LOCAL',
+                numero_orden: cleanNum,
+                titulo: actaTask.titulo,
+                dataId: fotoObj.dataId,
+                foto_url: fotoObj.imagen_hd,
+                tiempos: actaTask.detalle.tiempos || null,
+                coordenadas: actaTask.detalle.coordenadas_inicio || null
+              });
+            }
+          }
+
+          // Si tiene dataId pero aún no descargada en HD, intentar descargarla
+          for (const fotoObj of actaTask.detalle.fotografias) {
+            if (fotoObj.dataId && String(fotoObj.dataId) !== String(actaTask.id)) {
+              console.log(`📥 [Foto Acta] Descargando imagen HD desde dataId ${fotoObj.dataId}...`);
+              const imgBase64 = await obtenerImagenReal(fotoObj.dataId, fotoObj.opcion || 1, fotoObj.titulo || 'ACTA');
+              if (imgBase64 && imgBase64.length > 5000) {
+                fotoObj.imagen_hd = imgBase64;
+                await pool.query(
+                  "UPDATE orden_tareas_cache SET tareas_json = ?, fecha_actualizacion = NOW() WHERE numero_orden = ?",
+                  [JSON.stringify(tasks), cleanNum]
+                ).catch(() => {});
+
+                console.log(`✅ [Foto Acta] Acta HD descargada y guardada en caché para orden #${cleanNum}`);
+                return res.json({
+                  success: true,
+                  origen: 'FENIX_LIVE',
+                  numero_orden: cleanNum,
+                  titulo: actaTask.titulo,
+                  dataId: fotoObj.dataId,
+                  foto_url: imgBase64,
+                  tiempos: actaTask.detalle.tiempos || null,
+                  coordenadas: actaTask.detalle.coordenadas_inicio || null
+                });
+              }
+            }
+          }
+        }
+      }
+    } catch (errCache) {
+      console.warn("⚠️ [Foto Acta] Error leyendo caché para foto de acta:", errCache.message);
+    }
+
+    // 2. Si no está en caché o falló, consultar a Fénix en vivo
+    console.log(`🌐 [Foto Acta] Consultando Fénix en vivo para orden #${cleanNum}...`);
+    const ordeVisiId = await obtenerOrdeVisiId(cleanNum);
+    if (!ordeVisiId) {
+      return res.status(404).json({ success: false, error: `No se encontró la orden #${cleanNum} en Fénix.` });
+    }
+
+    const tareas = await obtenerTareasOrden(ordeVisiId, cleanNum);
+    if (!tareas || tareas.length === 0) {
+      return res.status(404).json({ success: false, error: `No se encontraron tareas registradas para la orden #${cleanNum}.` });
+    }
+
+    const actaTask = tareas.find(t => {
+      const tit = (t.titulo || t.nombre || '').toUpperCase();
+      return tit.includes('ACTA') || tit.includes('CONFORMIDAD');
+    }) || tareas[tareas.length - 1];
+
+    if (!actaTask || !actaTask.id) {
+      return res.status(404).json({ success: false, error: 'No se encontró la tarea del Acta de Conformidad.' });
+    }
+
+    const detalle = await obtenerDetalleTarea(actaTask.id, actaTask.index);
+    if (!detalle || !detalle.fotografias || detalle.fotografias.length === 0) {
+      return res.status(404).json({ success: false, error: 'La tarea del Acta aún no tiene fotografías registradas por el técnico.' });
+    }
+
+    let imgBase64 = null;
+    let selectedFoto = null;
+
+    // Probar descargar alta resolución de cada fotografía encontrada
+    for (const f of detalle.fotografias) {
+      const dataId = f.dataId || actaTask.id;
+      const opcion = f.opcion || 1;
+      console.log(`🖼️ [Foto Acta] Probando descarga HD para foto con DataId: ${dataId}, Op: ${opcion}...`);
+      const resImg = await obtenerImagenReal(dataId, opcion, f.titulo || 'ACTA');
+      if (resImg && resImg.length > 5000) {
+        imgBase64 = resImg;
+        selectedFoto = f;
+        f.imagen_hd = resImg;
+        break;
+      }
+    }
+
+    // Si la descarga HD falló, usar la miniatura / preview como respaldo si existe
+    if (!imgBase64) {
+      for (const f of detalle.fotografias) {
+        if (f.imagen && f.imagen.length > 500) {
+          imgBase64 = f.imagen;
+          selectedFoto = f;
+          console.log(`ℹ️ [Foto Acta] Usando imagen preview de respaldo para orden #${cleanNum}`);
+          break;
+        }
+      }
+    }
+
+    if (!imgBase64) {
+      return res.status(404).json({ success: false, error: 'No se pudo descargar la imagen del acta desde Fénix. Verifique si el técnico subió la foto.' });
+    }
+
+    // Guardar en caché local para que futuras aperturas sean instantáneas (0ms)
+    try {
+      actaTask.detalle = detalle;
+      await pool.query(`
+        INSERT INTO orden_tareas_cache (numero_orden, total_tareas, tareas_finalizadas, progreso_porcentaje, tareas_json, fecha_sincronizacion)
+        VALUES (?, ?, ?, 100, ?, NOW())
+        ON DUPLICATE KEY UPDATE tareas_json = VALUES(tareas_json), fecha_actualizacion = NOW()
+      `, [cleanNum, tareas.length, tareas.length, JSON.stringify(tareas)]).catch(() => {});
+      console.log(`💾 [Foto Acta] Guardado con éxito en orden_tareas_cache para orden #${cleanNum}`);
+    } catch (e) {}
+
+    res.json({
+      success: true,
+      origen: 'FENIX_LIVE',
+      numero_orden: cleanNum,
+      titulo: actaTask.titulo,
+      dataId: selectedFoto ? selectedFoto.dataId : null,
+      foto_url: imgBase64,
+      tiempos: detalle.tiempos || null,
+      coordenadas: detalle.coordenadas_inicio || null
+    });
+  } catch (error) {
+    console.error("❌ [Foto Acta] Error al obtener foto del acta:", error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -10201,7 +11202,13 @@ app.get(['/api/dashboard/rendimiento-tecnicos', '/dashboard/rendimiento-tecnicos
       hasta = hasta || fmt(ultimo);
     }
 
-    let whereClause = 'WHERE DATE(o.fecha_visita) >= ? AND DATE(o.fecha_visita) <= ?';
+    let whereClause = `
+      WHERE DATE(o.fecha_visita) >= ? 
+        AND DATE(o.fecha_visita) <= ? 
+        AND o.estado != 'Finalizada Externa'
+        AND (o.tecnico_asignado IS NULL OR o.tecnico_asignado NOT LIKE 'EXTERNO%')
+        AND (o.id_tecnico IS NOT NULL AND o.id_tecnico > 0)
+    `;
     const queryParams = [desde, hasta];
 
     if (tecnico && String(tecnico).trim().length > 0) {
@@ -10455,7 +11462,13 @@ app.get(['/api/dashboard/rendimiento-tecnicos-fechas', '/dashboard/rendimiento-t
       curDate.setDate(curDate.getDate() + 1);
     }
 
-    let whereClause = 'WHERE DATE(o.fecha_visita) >= ? AND DATE(o.fecha_visita) <= ?';
+    let whereClause = `
+      WHERE DATE(o.fecha_visita) >= ? 
+        AND DATE(o.fecha_visita) <= ? 
+        AND o.estado != 'Finalizada Externa'
+        AND (o.tecnico_asignado IS NULL OR o.tecnico_asignado NOT LIKE 'EXTERNO%')
+        AND (o.id_tecnico IS NOT NULL AND o.id_tecnico > 0)
+    `;
     const queryParams = [desde, hasta];
 
     if (tecnico && String(tecnico).trim().length > 0) {
@@ -10792,6 +11805,9 @@ app.get('/api/dashboard/latencia-primer-tramo', async (req, res) => {
         AND TIME(o.inicio_visita) BETWEEN '06:00:00' AND '14:00:00'
         AND o.tecnico_asignado IS NOT NULL 
         AND TRIM(o.tecnico_asignado) != ''
+        AND o.tecnico_asignado NOT LIKE 'EXTERNO%'
+        AND o.estado != 'Finalizada Externa'
+        AND (o.id_tecnico IS NOT NULL AND o.id_tecnico > 0)
     `;
     const params = [fechaDesde, fechaHasta];
 

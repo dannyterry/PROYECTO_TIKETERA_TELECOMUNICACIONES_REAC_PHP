@@ -513,6 +513,10 @@ export default function Dashboard({ selectedEmpProp, onDataUpdated }: DashboardP
                   <p><strong className="text-gray-800">Área:</strong> {selectedEmpleado.rolNombre || selectedEmpleado.id_rol || "N/A"}</p>
                   <p><strong className="text-gray-800">Cargo:</strong> {selectedEmpleado.area || "N/A"}</p>
                   <p><strong className="text-gray-800">Tipo de Servicio:</strong> {selectedEmpleado.tipo_servicio || "N/A"}</p>
+                  <p><strong className="text-gray-800">Opción Personal:</strong> {selectedEmpleado.opcionPersonal || "Directo"}</p>
+                  {(selectedEmpleado.subcontrata_codigo || selectedEmpleado.subcontrataCodigo) && (
+                    <p><strong className="text-purple-800">Subcontrata / Cuadrilla:</strong> <span className="font-bold text-purple-700">{selectedEmpleado.subcontrata_codigo || selectedEmpleado.subcontrataCodigo}</span></p>
+                  )}
                   <p><strong className="text-gray-800">Cuadrilla:</strong> {selectedEmpleado.cuadrilla || "No asignada"}</p>
                   <p><strong className="text-gray-800">Régimen:</strong> {selectedEmpleado.regimenPensionario || "N/A"}</p>
                   {selectedEmpleado.regimenPensionario?.includes("AFP") && (
@@ -532,11 +536,17 @@ export default function Dashboard({ selectedEmpProp, onDataUpdated }: DashboardP
               </div>
               
               <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm print:shadow-none print:border-gray-300 print:break-inside-avoid">
-                <h3 className="mb-4 text-base font-bold text-teal-700">Seguridad (SSOMA)</h3>
+                <h3 className="mb-4 text-base font-bold text-teal-700">Seguridad & Control Vehicular</h3>
                 <div className="space-y-2.5 text-sm text-gray-600">
                   <p><strong className="text-gray-800">Venc. SCTR:</strong> {selectedEmpleado.sctrVencimiento ? selectedEmpleado.sctrVencimiento.substring(0, 10) : "N/A"}</p>
                   <p><strong className="text-gray-800">Venc. EMO:</strong> {selectedEmpleado.emoVencimiento ? selectedEmpleado.emoVencimiento.substring(0, 10) : "N/A"}</p>
-                  <p><strong className="text-gray-800">Licencia:</strong> {selectedEmpleado.licencia || "Sin Licencia"} {selectedEmpleado.fechaVencimientoLicencia && ` (Vence: ${selectedEmpleado.fechaVencimientoLicencia.substring(0, 10)})`}</p>
+                  <p><strong className="text-gray-800">Licencia:</strong> {selectedEmpleado.licencia || "Sin Licencia"} {selectedEmpleado.numeroBrevete && `(${selectedEmpleado.numeroBrevete})`} {selectedEmpleado.fechaVencimientoLicencia && ` - Vence: ${selectedEmpleado.fechaVencimientoLicencia.substring(0, 10)}`}</p>
+                  {(selectedEmpleado.numeroRevisionTecnica || selectedEmpleado.numero_revision_tecnica || selectedEmpleado.fechaVencimientoRevisionTecnica || selectedEmpleado.vencimiento_revision_tecnica) && (
+                    <p><strong className="text-gray-800">Rev. Técnica:</strong> {selectedEmpleado.numeroRevisionTecnica || selectedEmpleado.numero_revision_tecnica || "Registrado"} {(selectedEmpleado.fechaVencimientoRevisionTecnica || selectedEmpleado.vencimiento_revision_tecnica) && ` - Vence: ${(selectedEmpleado.fechaVencimientoRevisionTecnica || selectedEmpleado.vencimiento_revision_tecnica)!.substring(0, 10)}`}</p>
+                  )}
+                  {(selectedEmpleado.numeroSoat || selectedEmpleado.numero_soat || selectedEmpleado.fechaVencimientoSoat || selectedEmpleado.vencimiento_soat) && (
+                    <p><strong className="text-gray-800">SOAT:</strong> {selectedEmpleado.numeroSoat || selectedEmpleado.numero_soat || "Registrado"} {(selectedEmpleado.fechaVencimientoSoat || selectedEmpleado.vencimiento_soat) && ` - Vence: ${(selectedEmpleado.fechaVencimientoSoat || selectedEmpleado.vencimiento_soat)!.substring(0, 10)}`}</p>
+                  )}
                 </div>
               </div>
               

@@ -411,7 +411,37 @@ export const PLANTILLAS_POR_TRABAJO: Record<string, PlantillaActa> = {
     requiereEquipoRetirado: true,
     materialesDefault: [],
   },
+  "CAMBIO DE FONOWIN": {
+    requiereDrop: false,
+    requiereEquipoInstalado: true,
+    requiereEquipoRetirado: true,
+    materialesDefault: [],
+  },
+  "CAMBIO DE PHONOWIN": {
+    requiereDrop: false,
+    requiereEquipoInstalado: true,
+    requiereEquipoRetirado: true,
+    materialesDefault: [],
+  },
   "CAMBIO DE FONO WIN": {
+    requiereDrop: false,
+    requiereEquipoInstalado: true,
+    requiereEquipoRetirado: true,
+    materialesDefault: [],
+  },
+  "DESCARTE DE TELEFONO": {
+    requiereDrop: false,
+    requiereEquipoInstalado: true,
+    requiereEquipoRetirado: true,
+    materialesDefault: [],
+  },
+  "DESCARTE DE TELÉFONO": {
+    requiereDrop: false,
+    requiereEquipoInstalado: true,
+    requiereEquipoRetirado: true,
+    materialesDefault: [],
+  },
+  "DESCARTE DE PHONOWIN": {
     requiereDrop: false,
     requiereEquipoInstalado: true,
     requiereEquipoRetirado: true,
@@ -622,7 +652,7 @@ export const getPlantillaPorTrabajo = (tipoTrabajo?: string): PlantillaActa => {
   if (norm.includes("TV BOX") || norm.includes("WINBOX")) {
     return PLANTILLAS_POR_TRABAJO["CAMBIO DE TV BOX"];
   }
-  if (norm.includes("FONOWIN") || norm.includes("FONO WIN") || norm.includes("TELEFONO")) {
+  if (norm.includes("FONOWIN") || norm.includes("FONO WIN") || norm.includes("PHONOWIN") || norm.includes("PHONO WIN") || norm.includes("TELEFONO") || norm.includes("DESCARTE")) {
     return PLANTILLAS_POR_TRABAJO["CAMBIO FONOWIN"];
   }
   if (norm.includes("UTP") || norm.includes("CAT 6")) {

@@ -89,9 +89,13 @@ export const MobilityPage: React.FC = () => {
   // Modal Checklist Técnico
   const [modalChecklistAbierto, setModalChecklistAbierto] = useState(false);
 
-  const cargarDatos = async () => {
+  const isFetchingRef = React.useRef(false);
+  const cargarDatos = async (silent: boolean | unknown = false) => {
+    const isSilent = typeof silent === "boolean" && silent;
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     try {
-      setLoading(true);
+      if (!isSilent) setLoading(true);
       const [vData, tData, iData, cData, kmData] = await Promise.all([
         getVehiculos().catch(() => []),
         getTecnicos().catch(() => []),
@@ -124,13 +128,36 @@ export const MobilityPage: React.FC = () => {
     } catch (err) {
       console.error("Error al cargar datos de movilidad:", err);
     } finally {
-      setLoading(false);
+      isFetchingRef.current = false;
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     cargarDatos();
-  }, []);
+
+    // ⚡ 1. Polling automático cada 30 segundos solo si está en pantalla
+    const timer = setInterval(() => {
+      if (!document.hidden && !modalChecklistAbierto) {
+        cargarDatos(true);
+      }
+    }, 30000);
+
+    // ⚡ 2. Refrescar automáticamente al regresar al navegador o pestaña
+    const handleFocus = () => {
+      if (document.visibilityState === "visible" && !modalChecklistAbierto) {
+        cargarDatos(true);
+      }
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleFocus);
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleFocus);
+    };
+  }, [modalChecklistAbierto]);
 
   const pendientesCount = inspecciones.filter((i) => i.estado_auditoria === "Pendiente").length;
 

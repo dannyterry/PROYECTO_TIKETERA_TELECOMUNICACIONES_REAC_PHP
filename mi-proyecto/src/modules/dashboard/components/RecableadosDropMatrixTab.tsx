@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { API_URL } from "../../../config/api";
 import {
   Cable,
@@ -179,18 +179,18 @@ export const RecableadosDropMatrixTab: React.FC = () => {
   const [sortAsc, setSortAsc] = useState<boolean>(false);
   const [chartView, setChartView] = useState<"top_recableados" | "evolucion" | "distribucion">("top_recableados");
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const isFetchingRef = useRef(false);
+  const fetchData = useCallback(async (silent: boolean | unknown = false) => {
+    const isSilent = typeof silent === "boolean" && silent;
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+    if (!isSilent) setLoading(true);
     try {
       const url = new URL(`${API_URL}/api/dashboard/matriz-recableados-drop`);
       if (fechaDesde) url.searchParams.set("desde", fechaDesde);
       if (fechaHasta) url.searchParams.set("hasta", fechaHasta);
 
-      const res = await fetch(url.toString(), {
-        headers: {
-          "Authorization": `Bearer ${localStorage.getItem("token") || ""}`
-        }
-      });
+      const res = await fetch(url.toString());
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: MatrixResponse = await res.json();
       if (json && json.success) {
@@ -199,12 +199,35 @@ export const RecableadosDropMatrixTab: React.FC = () => {
     } catch (err) {
       console.error("Error al cargar matriz de recableados y drop:", err);
     } finally {
-      setLoading(false);
+      isFetchingRef.current = false;
+      if (!silent) setLoading(false);
     }
   }, [fechaDesde, fechaHasta]);
 
   useEffect(() => {
     fetchData();
+
+    // ⚡ 1. Polling automático cada 60 segundos solo si está en pantalla
+    const timer = setInterval(() => {
+      if (!document.hidden) {
+        fetchData(true);
+      }
+    }, 60000);
+
+    // ⚡ 2. Refrescar al regresar a la pestaña
+    const handleFocus = () => {
+      if (document.visibilityState === "visible") {
+        fetchData(true);
+      }
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleFocus);
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleFocus);
+    };
   }, [fetchData]);
 
   const handlePresetChange = (preset: "hoy" | "semana" | "mes_actual" | "mes_anterior" | "custom") => {

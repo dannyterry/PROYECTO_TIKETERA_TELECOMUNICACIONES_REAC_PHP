@@ -34,6 +34,8 @@ export interface Employee {
   tipo_servicio?: string;
   fechaIngreso?: string;
   opcionPersonal?: string;
+  subcontrata_codigo?: string;
+  subcontrataCodigo?: string;
   cuadrilla?: string;
   regimenPensionario?: string;
   tipoComision?: string;
@@ -54,13 +56,25 @@ export interface Employee {
     nacimiento: string;
   }>;
 
-  // SSOMA y Licencia (¡ESTOS TAMBIÉN!)
+  // SSOMA y Licencia / Vehicular
   sctrVencimiento?: string;
   emoVencimiento?: string;
   licencia?: string;
   numeroBrevete?: string;
   fechaEmisionLicencia?: string;
   fechaVencimientoLicencia?: string;
+  numeroRevisionTecnica?: string;
+  fechaEmisionRevisionTecnica?: string;
+  fechaVencimientoRevisionTecnica?: string;
+  numero_revision_tecnica?: string;
+  emision_revision_tecnica?: string;
+  vencimiento_revision_tecnica?: string;
+  numeroSoat?: string;
+  fechaEmisionSoat?: string;
+  fechaVencimientoSoat?: string;
+  numero_soat?: string;
+  emision_soat?: string;
+  vencimiento_soat?: string;
   tallaPolo?: string;
   tallaPantalon?: string;
   tallaCalzado?: string;

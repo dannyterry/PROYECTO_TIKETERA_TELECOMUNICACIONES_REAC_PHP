@@ -108,6 +108,11 @@ const getTipoFinalizacion = (ord: OrderDetail): string => {
 const getRowStylesByStatus = (estado?: string): string => {
   const norm = normalizeStr(estado);
 
+  // 🟣 FINALIZADA EXTERNA
+  if (norm.includes("extern")) {
+    return "bg-purple-50/85 hover:bg-purple-100 text-purple-950 border-l-4 border-l-purple-600";
+  }
+
   // 🔵 FINALIZADA, LIQUIDADA
   if (norm.includes("fin") || norm.includes("liquid") || norm.includes("termin") || norm.includes("cerrad")) {
     return "bg-[#deebf7]/85 hover:bg-[#cee2f3] text-slate-950 border-l-4 border-l-[#5b9bd5]";
@@ -144,6 +149,9 @@ const getRowStylesByStatus = (estado?: string): string => {
 // Función para obtener clase de badge de estado
 const getBadgeStyles = (estado?: string) => {
   const norm = normalizeStr(estado);
+  if (norm.includes("extern")) {
+    return "bg-purple-100 text-purple-800 border-purple-300 shadow-2xs font-bold";
+  }
   if (norm.includes("fin") || norm.includes("liquid") || norm.includes("termin")) {
     return "bg-white/95 text-[#1f4e78] border-[#bdd7ee] shadow-2xs";
   }
@@ -208,33 +216,67 @@ export const ClassificationOrdersModal: React.FC<ClassificationOrdersModalProps>
           return true;
         }
 
-        if (keyNorm.includes("finaliz") || keyNorm.includes("liquid")) {
-          return estNorm.includes("fin") || estNorm.includes("liquid");
+        // 1. Filtrado específico para Finalizada Externa
+        if (keyNorm.includes("extern")) {
+          return (
+            estNorm.includes("extern") ||
+            (ord.tecnico_asignado && ord.tecnico_asignado.toUpperCase().includes("EXTERNO:"))
+          );
         }
 
+        // 2. Filtrado específico para Finalizada (interna)
+        if (keyNorm === "finalizada" || keyNorm === "finalizadas") {
+          return (
+            (estNorm === "finalizada" || estNorm.includes("fin")) &&
+            !estNorm.includes("extern") &&
+            !(ord.tecnico_asignado && ord.tecnico_asignado.toUpperCase().includes("EXTERNO:"))
+          );
+        }
+
+        // 3. Filtrado específico para Liquidada
+        if (keyNorm.includes("liquid")) {
+          return estNorm.includes("liquid");
+        }
+
+        // 4. Canceladas
         if (keyNorm.includes("cancelad")) {
           return estNorm.includes("cancel");
         }
 
+        // 5. Anuladas
         if (keyNorm.includes("anulad")) {
           return estNorm.includes("anul");
         }
 
+        // 6. Regestión
         if (keyNorm.includes("regestion")) {
           return estNorm.includes("regest");
         }
 
+        // 7. Agendadas / Asignadas
         if (keyNorm.includes("agendad") || keyNorm.includes("asignad")) {
-          return estNorm.includes("agen") || estNorm.includes("asig");
+          return estNorm.includes("agen") || estNorm.includes("asig") || estNorm.includes("pend");
         }
 
-        if (keyNorm.includes("iniciad") || keyNorm.includes("proceso") || keyNorm.includes("camino")) {
-          return estNorm.includes("inic") || estNorm.includes("proceso") || estNorm.includes("camino");
+        // 8. En camino
+        if (keyNorm.includes("camino")) {
+          return estNorm.includes("camino");
         }
 
+        // 9. Iniciadas / En Proceso
+        if (keyNorm.includes("iniciad") || keyNorm.includes("proceso")) {
+          return estNorm.includes("inic") || estNorm.includes("proceso");
+        }
+
+        // 10. Observada específica (solo órdenes con estado Observada)
+        if (keyNorm === "observada" || keyNorm === "observadas") {
+          return estNorm === "observada" || estNorm.includes("observ");
+        }
+
+        // 11. Tarjeta agrupada "Canceladas / Obs. / Anuladas" (No liquidadas)
         if (
+          keyNorm === "observadas_canceladas" ||
           keyNorm.includes("observadas_canceladas") ||
-          keyNorm.includes("observad") ||
           keyNorm.includes("no liquidadas")
         ) {
           return (
@@ -247,7 +289,7 @@ export const ClassificationOrdersModal: React.FC<ClassificationOrdersModalProps>
         }
 
         // Búsqueda directa exacta o parcial
-        return estNorm.includes(keyNorm);
+        return estNorm === keyNorm || estNorm.includes(keyNorm);
       });
 
       setOrdenes(filtered);

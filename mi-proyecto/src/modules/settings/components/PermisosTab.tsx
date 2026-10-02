@@ -48,7 +48,7 @@ const CATALOGO_AREAS: Record<
       },
       portal_tecnico: {
         nombre: "Portal Móvil del Técnico (Campo)",
-        acciones: ["ver", "ver_stock"],
+        acciones: ["ver", "ver_stock", "traspaso"],
       },
       supervision: {
         nombre: "Supervisión & Control de Calidad",
@@ -167,6 +167,7 @@ const TODAS_ACCIONES = [
   "liquidar",
   "sincronizar",
   "exportar",
+  "traspaso",
   "ver_stock",
   "ver_dni",
   "ver_todos_roles",
@@ -492,6 +493,7 @@ export const PermisosTab: React.FC = () => {
                                   if (acc === "ver_todos_roles") label = "Todos Roles";
                                   if (acc === "liquidar") label = "Liquidar Acta";
                                   if (acc === "ver_stock") label = "Ver Stock";
+                                  if (acc === "traspaso") label = "Traspaso";
                                   return (
                                     <th key={acc} className="py-2.5 px-2 text-center whitespace-nowrap capitalize">
                                       {label}

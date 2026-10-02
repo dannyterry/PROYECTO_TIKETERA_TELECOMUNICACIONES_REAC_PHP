@@ -358,7 +358,7 @@ export default function App() {
     { id: "dashboard", label: "Análisis & Visualización", icon: LayoutDashboard, activo: isExecutiveDashboard },
     { id: "ordenes", label: "Órdenes", icon: ClipboardList, activo: isOrdersView },
     { id: "supervision", label: "Supervisión & Calidad", icon: ShieldCheck, activo: isSupervisionView },
-    { id: "portal-tecnico", label: "Portal Técnico / Dotación", icon: Car, activo: isTechnicianPortal },
+    { id: "portal-tecnico", label: "Portal Técnico", icon: Car, activo: isTechnicianPortal },
     { id: "personal", label: "Personal", icon: Users, activo: isPersonalView },
     { id: "inventario", label: "Inventario", icon: Package, activo: isInventoryView },
     { id: "movilidad", label: "Movilidad", icon: Car, activo: isMobilityView },

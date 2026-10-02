@@ -380,7 +380,7 @@ export const InspectionAuditTab: React.FC<Props> = ({
                           ? "bg-sky-600 text-white shadow-xs"
                           : "bg-emerald-600 text-white shadow-xs"
                       }`}>
-                        {insp.nivel_combustible === "Bajo" ? "🔴 Reserva / Bajo" : insp.nivel_combustible === "Medio" ? "🟡 Medio (1/2)" : insp.nivel_combustible === "3/4" ? "🔵 3/4" : "🟢 Full / Lleno"}
+                        {insp.nivel_combustible === "Bajo" ? "🔴 Bajo (1/4)" : insp.nivel_combustible === "Medio" ? "🟡 Medio (1/2)" : insp.nivel_combustible === "3/4" ? "🔵 3/4" : "🟢 Full / Lleno"}
                       </span>
                     </div>
                   )}

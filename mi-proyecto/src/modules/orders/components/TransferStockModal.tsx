@@ -350,6 +350,11 @@ export const TransferStockModal: React.FC<TransferStockModalProps> = ({
       }
 
       alert(`✅ Solicitud de Traspaso Generada con Éxito (${data.codigo}).\n\nEl técnico receptor (${tecnicoReceptor.nombre_completo}) recibirá una alerta en su portal para aceptar la transferencia.`);
+      try {
+        const bc = new BroadcastChannel("stock_transfers_sync");
+        bc.postMessage({ type: "TRANSFER_UPDATED", timestamp: Date.now() });
+        bc.close();
+      } catch {}
       onTransferenciaExitosa();
       onClose();
     } catch (err: any) {

@@ -63,6 +63,12 @@ export const IncomingTransfersModal: React.FC<IncomingTransfersModalProps> = ({
         ? "✅ ¡Transferencia aceptada con éxito! El stock y las series ya están disponibles en tu camioneta." 
         : "Transferencia rechazada.");
 
+      try {
+        const bc = new BroadcastChannel("stock_transfers_sync");
+        bc.postMessage({ type: "TRANSFER_UPDATED", timestamp: Date.now() });
+        bc.close();
+      } catch {}
+
       onActualizado();
       if (transferencias.length <= 1) {
         onClose();

@@ -57,6 +57,30 @@ export const TechnicianTransfersTab: React.FC = () => {
 
   useEffect(() => {
     cargarTransferencias();
+
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel("stock_transfers_sync");
+      bc.onmessage = (ev) => {
+        if (ev?.data?.type === "TRANSFER_UPDATED") {
+          cargarTransferencias();
+        }
+      };
+    } catch {}
+
+    const handleFocusOrVisibility = () => {
+      if (document.visibilityState === "visible") {
+        cargarTransferencias();
+      }
+    };
+    window.addEventListener("focus", handleFocusOrVisibility);
+    document.addEventListener("visibilitychange", handleFocusOrVisibility);
+
+    return () => {
+      if (bc) bc.close();
+      window.removeEventListener("focus", handleFocusOrVisibility);
+      document.removeEventListener("visibilitychange", handleFocusOrVisibility);
+    };
   }, [filtroEstado, fechaDesde, fechaHasta]);
 
   // KPIs

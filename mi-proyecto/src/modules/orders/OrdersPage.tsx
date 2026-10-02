@@ -826,6 +826,8 @@ export const OrdersPage: React.FC = () => {
       {selectedOrderForActa && (
         <TechnicalActModal
           order={selectedOrderForActa}
+          isTechnicianView={false}
+          showActaPhoto={true}
           readOnly={
             !authService.hasAnyPermission([
               "ordenes.liquidar",

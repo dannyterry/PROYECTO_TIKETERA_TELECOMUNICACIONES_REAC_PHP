@@ -52,12 +52,26 @@ interface Props {
 
 export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, userRol }) => {
   // Solo se muestra el selector de cambio de técnico en modo prueba (sin userId) o si es Administrador (Rol 1)
-  const esAdminOSimulador = !userId || userRol === "1" || String(userRol).toLowerCase().includes("admin");
-  const esSupervisorOAdmin =
+  const currentUser = authService.getCurrentUser();
+  const esAdmin =
     userRol === "1" ||
-    userRol === "6" ||
     String(userRol).toLowerCase().includes("admin") ||
-    String(userRol).toLowerCase().includes("supervi") ||
+    currentUser?.id_rol === 1 ||
+    currentUser?.rol?.toUpperCase().includes("ADMIN");
+
+  const esSoloSupervisor =
+    !esAdmin &&
+    (userRol === "6" ||
+      String(userRol).toLowerCase().includes("supervi") ||
+      String(userRol).toLowerCase().includes("calidad") ||
+      currentUser?.id_rol === 6 ||
+      currentUser?.rol?.toUpperCase().includes("SUPERVI") ||
+      currentUser?.rol?.toUpperCase().includes("CALIDAD"));
+
+  const esAdminOSimulador = !userId || esAdmin;
+  const esSupervisorOAdmin =
+    esAdmin ||
+    esSoloSupervisor ||
     authService.canAccessModule("supervision") ||
     authService.canAccessModule("dashboard");
   const [tecnicos, setTecnicos] = useState<any[]>([]);
@@ -96,6 +110,14 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
       "portal_tecnico.ver_stock",
       "stock.ver",
       "inventario.ver",
+    ]);
+  });
+  const [permiteTraspaso, setPermiteTraspaso] = useState<boolean>(() => {
+    return authService.hasAnyPermission([
+      "portal_tecnico.traspaso",
+      "stock.traspaso",
+      "inventario.traspaso",
+      "ordenes.traspaso",
     ]);
   });
 
@@ -330,6 +352,14 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
     setPermiteVerStock(allowed);
     if (!allowed) setMostrarStock(false);
 
+    const allowedTraspaso = authService.hasAnyPermission([
+      "portal_tecnico.traspaso",
+      "stock.traspaso",
+      "inventario.traspaso",
+      "ordenes.traspaso",
+    ]);
+    setPermiteTraspaso(allowedTraspaso);
+
     if (trabajadorActual.id_trabajador) {
       setCargandoStock(true);
       getTecnicoStock(trabajadorActual.id_trabajador)
@@ -363,8 +393,8 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
             if (hayNuevaAceptada) {
               getTecnicoStock(idTrabajador)
                 .then((resStock) => {
-                  setMiStock(resStock?.stock || []);
-                  setMisSeries(resStock?.series || []);
+                  setMiStock(resStock?.materiales || []);
+                  setMisSeries(resStock?.seriesAsignadas || []);
                 })
                 .catch(console.error);
             }
@@ -388,12 +418,43 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
   useEffect(() => {
     if (!trabajadorActual) return;
     cargarDatosTecnico();
+
+    // ⚡ 1. Polling en tiempo real rápido (cada 5 segundos)
     const timer = setInterval(() => {
       if (trabajadorActual?.id_trabajador) {
         cargarTransferenciasPendientes(trabajadorActual.id_trabajador);
       }
-    }, 30000);
-    return () => clearInterval(timer);
+    }, 5000);
+
+    // ⚡ 2. Canal de comunicación en tiempo real entre pestañas/sesiones
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel("stock_transfers_sync");
+      bc.onmessage = (ev) => {
+        if (ev?.data?.type === "TRANSFER_UPDATED" && trabajadorActual?.id_trabajador) {
+          cargarDatosTecnico();
+          cargarTransferenciasPendientes(trabajadorActual.id_trabajador);
+        }
+      };
+    } catch {}
+
+    // ⚡ 3. Refrescar automáticamente al regresar al navegador o pestaña
+    const handleFocusOrVisibility = () => {
+      if (document.visibilityState === "visible" && trabajadorActual?.id_trabajador) {
+        cargarDatosTecnico();
+        cargarTransferenciasPendientes(trabajadorActual.id_trabajador);
+      }
+    };
+
+    window.addEventListener("focus", handleFocusOrVisibility);
+    document.addEventListener("visibilitychange", handleFocusOrVisibility);
+
+    return () => {
+      clearInterval(timer);
+      if (bc) bc.close();
+      window.removeEventListener("focus", handleFocusOrVisibility);
+      document.removeEventListener("visibilitychange", handleFocusOrVisibility);
+    };
   }, [trabajadorActual?.id_trabajador, trabajadorActual?.id_usuario]);
 
   // 📍 RASTREO GPS AUTOMÁTICO DISCRETO EN SEGUNDO PLANO (MIGAS DE PAN CADA 5 MINUTOS)
@@ -689,7 +750,7 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="text-[9px] sm:text-[10px] uppercase font-bold text-sky-700 tracking-wider block">
-                  {esSupervisorOAdmin ? "Portal de Dotación & Vehículo" : "Portal de Campo • Técnico"}
+                  {esSupervisorOAdmin ? "Portal Técnico" : "Portal Técnico • Campo"}
                 </span>
                 {esAdminOSimulador && tecnicos.length > 1 && (
                   <select
@@ -717,9 +778,9 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
             </div>
           </div>
 
-          {/* Lado derecho: Acceso rápido a Supervisión + Fullscreen + Placa */}
+          {/* Lado derecho: Acceso rápido a Supervisión (Solo rol Supervisor) + Fullscreen + Placa */}
           <div className="flex items-center gap-1.5 shrink-0">
-            {authService.canAccessModule("supervision") && (
+            {esSoloSupervisor && (
               <button
                 type="button"
                 onClick={() => {
@@ -776,7 +837,7 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
         ) : null}
 
         {/* Acciones Rápidas del Técnico */}
-        <div className="grid grid-cols-2 gap-2 pt-0.5">
+        <div className={`grid gap-2 pt-0.5 ${permiteTraspaso ? "grid-cols-2" : "grid-cols-1"}`}>
           <button
             onClick={abrirChecklist}
             className="w-full py-2.5 px-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 active:scale-95 text-white rounded-2xl font-black text-xs shadow-md shadow-amber-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
@@ -785,18 +846,22 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
             Checklist Diario
           </button>
 
-          <button
-            onClick={() => setMostrarTransferModal(true)}
-            className="w-full py-2.5 px-3 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 active:scale-95 text-white rounded-2xl font-black text-xs shadow-md shadow-indigo-600/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-          >
-            <ArrowRightLeft size={15} />
-            Traspaso a Compañero
-          </button>
+          {permiteTraspaso && (
+            <button
+              onClick={() => setMostrarTransferModal(true)}
+              className="w-full py-2.5 px-3 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 active:scale-95 text-white rounded-2xl font-black text-xs shadow-md shadow-indigo-600/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <ArrowRightLeft size={15} />
+              Traspaso a Compañero
+            </button>
+          )}
 
           {permiteVerStock && (
             <button
               onClick={alternarStock}
-              className={`w-full py-2.5 px-3 rounded-2xl font-bold text-xs border transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 col-span-2 ${
+              className={`w-full py-2.5 px-3 rounded-2xl font-bold text-xs border transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 ${
+                permiteTraspaso ? "col-span-2" : "col-span-1"
+              } ${
                 mostrarStock
                   ? "bg-sky-600 text-white border-sky-600 shadow-md shadow-sky-600/25"
                   : "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200/90"
@@ -1238,6 +1303,8 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
         <TechnicalActModal
           order={ordenParaActa}
           idTrabajadorActual={trabajadorActual?.id_trabajador}
+          isTechnicianView={true}
+          showActaPhoto={false}
           onClose={() => setOrdenParaActa(null)}
           onSuccess={() => {
             setOrdenParaActa(null);
