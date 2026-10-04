@@ -53,10 +53,27 @@ export const KmDashboardTab: React.FC<Props> = ({
     modoInicial?: "gps" | "ordenes";
   } | null>(null);
 
-  // Fechas de referencia
-  const hoyStr = useMemo(() => new Date().toISOString().split("T")[0], []);
+  // Helper para obtener fecha YYYY-MM-DD en la zona horaria local (Perú)
+  const getLocalDateString = (d: Date = new Date()) => {
+    try {
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Lima",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(d);
+    } catch {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+  };
+
+  // Fechas de referencia en hora local peruana
+  const hoyStr = useMemo(() => getLocalDateString(new Date()), []);
   const ayerStr = useMemo(
-    () => new Date(Date.now() - 86400000).toISOString().split("T")[0],
+    () => getLocalDateString(new Date(Date.now() - 86400000)),
     []
   );
 

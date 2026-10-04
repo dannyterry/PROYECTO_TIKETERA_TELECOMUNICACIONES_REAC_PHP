@@ -2128,10 +2128,11 @@ async function syncAsistenciasFromOrders(fechaDesde, fechaHasta) {
         o.id_tecnico,
         o.tecnico_asignado,
         DATE(COALESCE(o.fecha_visita, o.fecha_solicitud)) AS fecha_orden,
+        o.hora_asignacion,
+        o.inicio_visita,
         TIME(COALESCE(o.inicio_visita, o.hora_en_camino, o.hora_asignacion, o.fecha_visita, o.fecha_solicitud)) AS hora_inicio,
         t.id_trabajador,
         COALESCE(h.hora_entrada, '07:45:00') AS horario_entrada,
-        COALESCE(h.tolerancia_min, 1) AS tolerancia_min,
         (
           SELECT COUNT(*) FROM trabajador_descansos td
           WHERE td.id_trabajador = t.id_trabajador
@@ -2153,49 +2154,129 @@ async function syncAsistenciasFromOrders(fechaDesde, fechaHasta) {
         (DATE(o.fecha_visita) BETWEEN ? AND ?)
         OR (o.fecha_visita IS NULL AND DATE(o.fecha_solicitud) BETWEEN ? AND ?)
       )
-      ORDER BY DATE(COALESCE(o.fecha_visita, o.fecha_solicitud)) ASC, hora_inicio ASC
+      ORDER BY 
+        DATE(COALESCE(o.fecha_visita, o.fecha_solicitud)) ASC,
+        (o.inicio_visita IS NULL) ASC,
+        hora_inicio ASC
     `, [fDesde, fHasta, fDesde, fHasta]);
 
     if (!ordenRows || ordenRows.length === 0) return 0;
 
-    // Agrupar por (id_trabajador + fecha) tomando su primera orden más temprana del día
-    const techMap = new Map();
+    // Agrupar todas las órdenes del día por (id_trabajador + fecha)
+    const techOrdersMap = new Map();
     for (const r of ordenRows) {
-      if (!r.fecha_orden || !r.hora_inicio) continue;
+      if (!r.fecha_orden) continue;
       const fStr = typeof r.fecha_orden === 'string' ? r.fecha_orden.slice(0, 10) : (r.fecha_orden instanceof Date ? r.fecha_orden.toISOString().slice(0, 10) : String(r.fecha_orden).slice(0, 10));
       const key = `${r.id_trabajador}_${fStr}`;
-      if (!techMap.has(key)) {
-        techMap.set(key, { ...r, fechaStr: fStr });
+      if (!techOrdersMap.has(key)) {
+        techOrdersMap.set(key, { ...r, fechaStr: fStr, orders: [] });
       }
+      techOrdersMap.get(key).orders.push(r);
     }
 
     let syncedCount = 0;
-    for (const [key, data] of techMap.entries()) {
+    for (const [key, data] of techOrdersMap.entries()) {
       // Si el trabajador tiene descanso programado o el estado ya fue marcado manualmente como Descanso / Permiso, respetarlo
       if (data.tiene_descanso > 0 || ['Descanso', 'Permiso'].includes(data.asistencia_estado)) {
         continue;
       }
 
-      const horaInicioStr = String(data.hora_inicio);
-      const horarioEntradaStr = String(data.horario_entrada);
-      const toleranciaMin = parseInt(data.tolerancia_min || 1, 10);
+      const allOrders = data.orders;
+      if (allOrders.length === 0) continue;
 
-      // Calcular diferencia en segundos respecto a la entrada oficial (07:45 AM)
-      const [hI, mI, sI] = horaInicioStr.split(':').map(n => parseInt(n || 0, 10));
-      const [hH, mH, sH] = horarioEntradaStr.split(':').map(n => parseInt(n || 0, 10));
-      const secInicio = (hI * 3600) + (mI * 60) + (sI || 0);
-      const secHorario = (hH * 3600) + (mH * 60) + (sH || 0);
-      const secLimite = secHorario + (toleranciaMin * 60);
+      // 1. Encontrar la ASIGNACIÓN MÁS ANTIGUA del día (determina el caso A o B y la regla de tolerancia)
+      let earliestAsigOrder = null;
+      let earliestAsigTimeStr = '99:99:99';
+      let earliestAsigEsMismoDia = false;
+      let hasAsignacionPrevia = false;
 
-      let estadoCalculado = 'Asistio';
-      let minutosTarde = 0;
+      for (const ord of allOrders) {
+        if (!ord.hora_asignacion) continue;
+        const asigRaw = String(ord.hora_asignacion);
+        const asigFecha = asigRaw.slice(0, 10);
+        const timePart = asigRaw.length >= 19 ? asigRaw.slice(11, 19) : (asigRaw.length === 8 ? asigRaw : '00:00:00');
 
-      if (secInicio > secLimite) {
-        estadoCalculado = 'Tardanza';
-        minutosTarde = Math.max(0, Math.ceil((secInicio - secHorario) / 60));
+        const partesFecha = data.fechaStr.split('-');
+        const invertida = `${partesFecha[0]}-${partesFecha[2]}-${partesFecha[1]}`;
+        const esMismoDia = (asigFecha === data.fechaStr || asigFecha === invertida);
+
+        if (!esMismoDia) {
+          // Asignada en fecha anterior (noche previa o antes) -> máxima prioridad
+          hasAsignacionPrevia = true;
+          earliestAsigOrder = ord;
+          break;
+        } else {
+          if (timePart < earliestAsigTimeStr) {
+            earliestAsigTimeStr = timePart;
+            earliestAsigOrder = ord;
+            earliestAsigEsMismoDia = true;
+          }
+        }
       }
 
-      const obsAuto = `Auto (OT #${data.numero_orden || data.id_orden})`;
+      // Si no hay hora de asignación explícita, usar la primera orden disponible
+      if (!earliestAsigOrder) earliestAsigOrder = allOrders[0];
+
+      // 2. Encontrar el PRIMER INICIO / ACTIVIDAD REAL del técnico en campo
+      let earliestStartOrder = null;
+      let earliestStartTimeStr = '99:99:99';
+
+      for (const ord of allOrders) {
+        const rawInicio = ord.inicio_visita ? String(ord.inicio_visita).slice(-8) : null;
+        const rawCamino = ord.hora_en_camino ? String(ord.hora_en_camino).slice(-8) : null;
+        const candidateTime = rawInicio || rawCamino;
+
+        if (candidateTime && candidateTime < earliestStartTimeStr) {
+          earliestStartTimeStr = candidateTime;
+          earliestStartOrder = ord;
+        }
+      }
+
+      // Si el técnico aún NO ha marcado inicio ni en camino en ninguna orden de hoy, NO generar asistencia automática prematura
+      if (!earliestStartOrder || earliestStartTimeStr === '99:99:99') {
+        continue;
+      }
+
+      // 3. Evaluar puntualidad o tardanza
+      const horaInicioStr = earliestStartTimeStr;
+      const [hI, mI] = horaInicioStr.split(':').map(n => parseInt(n || 0, 10));
+      const minInicio = (hI * 60) + mI;
+
+      const [hA, mA] = (earliestAsigTimeStr !== '99:99:99') ? earliestAsigTimeStr.split(':').map(n => parseInt(n || 0, 10)) : [0, 0];
+      const minAsig = (hA * 60) + mA;
+
+      let minLimite = 0;
+      let estadoCalculado = 'Asistio';
+      let minutosTarde = 0;
+      let obsAuto = '';
+
+      // CASO A: Asignada antes de hoy O asignada hoy hasta las 07:45 AM
+      const esCasoA = hasAsignacionPrevia || !earliestAsigEsMismoDia || (earliestAsigEsMismoDia && minAsig <= (7 * 60 + 45));
+
+      if (esCasoA) {
+        // Horario base 07:45 + 2 min tolerancia = 07:47 AM
+        minLimite = (7 * 60 + 45) + 2; // 07:47
+        if (minInicio > minLimite) {
+          estadoCalculado = 'Tardanza';
+          minutosTarde = minInicio - minLimite;
+          obsAuto = `Auto (OT #${earliestAsigOrder.numero_orden || earliestAsigOrder.id_orden} - Limite 07:47 - Tarde +${minutosTarde}m)`;
+        } else {
+          obsAuto = `Auto (OT #${earliestAsigOrder.numero_orden || earliestAsigOrder.id_orden} - Puntual)`;
+        }
+      } else {
+        // CASO B: Asignada hoy después de las 07:45 AM -> Asignación + 30m traslado + 2m tolerancia = Asignación + 32m
+        minLimite = minAsig + 32;
+        const hLim = Math.floor(minLimite / 60).toString().padStart(2, '0') + ':' + (minLimite % 60).toString().padStart(2, '0');
+        const hAsigDisplay = earliestAsigTimeStr.slice(0, 5);
+
+        if (minInicio > minLimite) {
+          estadoCalculado = 'Tardanza';
+          minutosTarde = minInicio - minLimite;
+          obsAuto = `Auto (OT #${earliestAsigOrder.numero_orden || earliestAsigOrder.id_orden} - Asig ${hAsigDisplay} Limite ${hLim} - Tarde +${minutosTarde}m)`;
+        } else {
+          obsAuto = `Auto (OT #${earliestAsigOrder.numero_orden || earliestAsigOrder.id_orden} - Asig ${hAsigDisplay} Limite ${hLim} - Puntual)`;
+        }
+      }
 
       const [exist] = await pool.query("SELECT id_asistencia, estado, observacion FROM asistencias WHERE id_trabajador = ? AND fecha = ?", [data.id_trabajador, data.fechaStr]);
 
@@ -11358,20 +11439,94 @@ app.get(['/api/dashboard/rendimiento-tecnicos', '/dashboard/rendimiento-tecnicos
       }
     }
 
+    // Consultar estadísticas de asistencia (puntualidad / tardanzas) en el rango consultado
+    const asistenciaStatsMap = new Map();
+    let grandTardanzas = 0;
+    let grandPuntuales = 0;
+    let grandFaltas = 0;
+    let grandMinutosTarde = 0;
+
+    try {
+      const [asistRows] = await pool.query(`
+        SELECT 
+          COALESCE(t.id_usuario, t.id_trabajador) AS id_usuario,
+          a.id_trabajador,
+          COUNT(a.id_asistencia) AS total_registros,
+          SUM(CASE WHEN a.estado = 'Tardanza' THEN 1 ELSE 0 END) AS tardanzas,
+          SUM(CASE WHEN a.estado = 'Asistio' THEN 1 ELSE 0 END) AS puntuales,
+          SUM(CASE WHEN a.estado = 'Falta' THEN 1 ELSE 0 END) AS faltas,
+          SUM(COALESCE(a.minutos_tarde, 0)) AS total_minutos_tarde,
+          ROUND(AVG(CASE WHEN a.estado = 'Tardanza' THEN a.minutos_tarde ELSE NULL END), 1) AS prom_minutos_tarde
+        FROM asistencias a
+        INNER JOIN trabajadores t ON a.id_trabajador = t.id_trabajador
+        WHERE a.fecha BETWEEN ? AND ?
+        GROUP BY id_usuario, a.id_trabajador
+      `, [desde, hasta]);
+
+      for (const ar of asistRows) {
+        const uId = Number(ar.id_usuario);
+        const tId = Number(ar.id_trabajador);
+        const tards = Number(ar.tardanzas) || 0;
+        const punts = Number(ar.puntuales) || 0;
+        const flts = Number(ar.faltas) || 0;
+        const minTarde = Number(ar.total_minutos_tarde) || 0;
+        const promMin = Number(ar.prom_minutos_tarde) || 0;
+
+        grandTardanzas += tards;
+        grandPuntuales += punts;
+        grandFaltas += flts;
+        grandMinutosTarde += minTarde;
+
+        const info = {
+          total_asistencias: Number(ar.total_registros) || 0,
+          tardanzas: tards,
+          puntuales: punts,
+          faltas: flts,
+          minutos_tarde: minTarde,
+          prom_minutos_tarde: promMin
+        };
+
+        if (uId) asistenciaStatsMap.set(uId, info);
+        if (tId) asistenciaStatsMap.set(`t_${tId}`, info);
+      }
+    } catch (errAsist) {
+      console.warn("Advertencia al calcular estadísticas de asistencia para rendimiento:", errAsist.message);
+    }
+
     const tecnicos = Array.from(techMap.values()).map(t => {
       const ef = t.total > 0 ? Math.round((t.finalizadas / t.total) * 1000) / 10 : 0;
       const pendientesLiq = Math.max(0, t.finalizadas - t.liquidadas);
       const ratioLiq = t.finalizadas > 0 ? Math.round((t.liquidadas / t.finalizadas) * 1000) / 10 : 0;
+      
+      const asistInfo = asistenciaStatsMap.get(Number(t.id_tecnico)) || 
+                        asistenciaStatsMap.get(`t_${t.id_tecnico}`) || {
+                          total_asistencias: 0,
+                          tardanzas: 0,
+                          puntuales: 0,
+                          faltas: 0,
+                          minutos_tarde: 0,
+                          prom_minutos_tarde: 0
+                        };
+
+      const totalPres = asistInfo.puntuales + asistInfo.tardanzas;
+      const puntualidadPct = totalPres > 0 ? Math.round((asistInfo.puntuales / totalPres) * 1000) / 10 : 100;
+
       return { 
         ...t, 
         efectividad: ef,
         pendientes_liquidacion: pendientesLiq,
-        ratio_liquidacion: ratioLiq
+        ratio_liquidacion: ratioLiq,
+        asistencias: {
+          ...asistInfo,
+          puntualidad_pct: puntualidadPct
+        }
       };
     }).sort((a, b) => b.total - a.total);
 
     const globalEfectividad = grandTotal > 0 ? Math.round((grandFinalizadas / grandTotal) * 1000) / 10 : 0;
     const globalRatioLiquidacion = grandFinalizadas > 0 ? Math.round((grandLiquidadas / grandFinalizadas) * 1000) / 10 : 0;
+    const totalPresGlobal = grandPuntuales + grandTardanzas;
+    const globalPuntualidad = totalPresGlobal > 0 ? Math.round((grandPuntuales / totalPresGlobal) * 1000) / 10 : 100;
 
     res.json({
       success: true,
@@ -11387,6 +11542,12 @@ app.get(['/api/dashboard/rendimiento-tecnicos', '/dashboard/rendimiento-tecnicos
         total_iniciadas: grandIniciadas,
         tasa_efectividad_global: globalEfectividad,
         tasa_liquidacion_global: globalRatioLiquidacion,
+        total_tardanzas: grandTardanzas,
+        total_puntuales: grandPuntuales,
+        total_faltas: grandFaltas,
+        total_minutos_tarde: grandMinutosTarde,
+        promedio_minutos_tarde: grandTardanzas > 0 ? Math.round((grandMinutosTarde / grandTardanzas) * 10) / 10 : 0,
+        tasa_puntualidad_global: globalPuntualidad,
         tecnico_top: tecnicos[0] ? {
           nombre: tecnicos[0].tecnico,
           total: tecnicos[0].total,

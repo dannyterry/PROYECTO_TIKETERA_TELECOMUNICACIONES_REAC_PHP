@@ -216,7 +216,7 @@ export const TechnicianRouteMapModal: React.FC<Props> = ({
                   {esMoto ? "🏍️ RUTA MOTOWIN" : "🚗 RUTA DE CAMPO"}
                 </span>
                 <span className="text-xs font-bold text-slate-500 font-mono">
-                  📅 {fecha || data?.fecha || new Date().toISOString().slice(0, 10)}
+                  📅 {fecha || data?.fecha || new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima" }).format(new Date())}
                 </span>
               </div>
               <h2 className="text-base md:text-lg font-black text-slate-900 mt-0.5 flex items-center gap-2">

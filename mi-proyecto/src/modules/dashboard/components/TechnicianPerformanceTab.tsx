@@ -33,7 +33,9 @@ import {
   LogOut,
   User,
   Coffee,
-  Cable
+  Cable,
+  AlertTriangle,
+  Clock3
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -70,6 +72,15 @@ export interface TechnicianStats {
   efectividad: number;
   tipos_trabajo: Record<string, number>;
   estados: Record<string, number>;
+  asistencias?: {
+    total_asistencias: number;
+    tardanzas: number;
+    puntuales: number;
+    faltas: number;
+    minutos_tarde: number;
+    prom_minutos_tarde: number;
+    puntualidad_pct: number;
+  };
 }
 
 export interface PerformanceData {
@@ -85,6 +96,12 @@ export interface PerformanceData {
     total_iniciadas: number;
     tasa_efectividad_global: number;
     tasa_liquidacion_global?: number;
+    total_tardanzas?: number;
+    total_puntuales?: number;
+    total_faltas?: number;
+    total_minutos_tarde?: number;
+    promedio_minutos_tarde?: number;
+    tasa_puntualidad_global?: number;
     tecnico_top: { nombre: string; total: number; finalizadas: number; efectividad: number } | null;
   };
   tipos_trabajo_columnas: string[];
@@ -445,6 +462,47 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
       }))
       .sort((a, b) => b.value - a.value);
   }, [data, abreviaturasTipo, coloresTipos]);
+
+  // Modo de visualización para Gráfico de Tardanzas vs Técnicos: 'tardanzas' (N° veces) o 'minutos' (Minutos acumulados)
+  const [modoGraficoTardanzas, setModoGraficoTardanzas] = useState<"tardanzas" | "minutos">("tardanzas");
+
+  // Datos para Gráfico: Tardanzas vs Técnicos (Ranking de Asistencia)
+  const chartTardanzasData = useMemo(() => {
+    return [...tecnicosFiltrados]
+      .filter((t) => (t.asistencias?.total_asistencias || 0) > 0 || (t.asistencias?.tardanzas || 0) > 0)
+      .sort((a, b) => {
+        if (modoGraficoTardanzas === "minutos") {
+          return (b.asistencias?.minutos_tarde || 0) - (a.asistencias?.minutos_tarde || 0);
+        }
+        return (b.asistencias?.tardanzas || 0) - (a.asistencias?.tardanzas || 0);
+      })
+      .slice(0, 15)
+      .map((t) => {
+        const partes = t.tecnico.trim().split(" ");
+        const nombreCorto = partes.length >= 2 ? `${partes[0]} ${partes[1].charAt(0)}.` : t.tecnico;
+        const asis = t.asistencias || {
+          total_asistencias: 0,
+          tardanzas: 0,
+          puntuales: 0,
+          faltas: 0,
+          minutos_tarde: 0,
+          prom_minutos_tarde: 0,
+          puntualidad_pct: 100
+        };
+        return {
+          name: nombreCorto,
+          nombreCompleto: t.tecnico,
+          cuadrilla: t.cuadrilla,
+          Tardanzas: asis.tardanzas,
+          Puntuales: asis.puntuales,
+          Faltas: asis.faltas,
+          MinutosTarde: asis.minutos_tarde,
+          PromMinutosTarde: asis.prom_minutos_tarde,
+          PuntualidadPct: asis.puntualidad_pct,
+          TotalDias: asis.total_asistencias
+        };
+      });
+  }, [tecnicosFiltrados, modoGraficoTardanzas]);
 
   // Exportar a CSV / Excel
   const handleExportCSV = () => {
@@ -1099,8 +1157,8 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
             </div>
           </div>
 
-          {/* Fila 3: Grid de 4 KPIs Compactos */}
-          <div className="pt-2 border-t border-slate-100 grid grid-cols-2 lg:grid-cols-4 gap-2.5 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
+          {/* Fila 3: Grid de 5 KPIs Compactos */}
+          <div className="pt-2 border-t border-slate-100 grid grid-cols-2 lg:grid-cols-5 gap-2.5 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
             {/* KPI 1: Técnicos Activos */}
             <div className="flex items-center justify-between px-2 pt-1 sm:pt-0">
               <div>
@@ -1145,7 +1203,23 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
               </div>
             </div>
 
-            {/* KPI 4: Técnico Top */}
+            {/* KPI 4: Puntualidad & Tardanzas */}
+            <div className="flex items-center justify-between px-2 pt-1 sm:pt-0">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600">Puntualidad</span>
+                <div className="text-xl font-black text-slate-900 leading-tight">
+                  {kpis.tasa_puntualidad_global !== undefined ? `${kpis.tasa_puntualidad_global}%` : "—"}
+                </div>
+                <span className="text-[10px] text-amber-700 font-bold">
+                  ⚠ {kpis.total_tardanzas || 0} tardanzas
+                </span>
+              </div>
+              <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-100 shadow-2xs shrink-0">
+                <Clock3 size={16} />
+              </div>
+            </div>
+
+            {/* KPI 5: Técnico Top */}
             <div className="flex items-center justify-between px-2 pt-1 sm:pt-0 min-w-0">
               <div className="min-w-0 pr-1">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600 flex items-center gap-1">
@@ -1890,6 +1964,187 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
         ) : (
           <div className="h-48 flex items-center justify-center text-slate-400 text-xs font-semibold">
             No hay órdenes registradas.
+          </div>
+        )}
+      </div>
+
+      {/* ─────────────────────────────────────────────────────────────
+          4.1. RANKING DE PUNTUALIDAD & TARDANZAS VS TÉCNICO
+      ───────────────────────────────────────────────────────────── */}
+      <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200/90 shadow-xs flex flex-col justify-between space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm sm:text-base font-black text-slate-900 flex items-center gap-2">
+                <Clock3 size={18} className="text-amber-500" />
+                Tardanzas vs Técnico: {modoGraficoTardanzas === "tardanzas" ? "Frecuencia de Tardanzas" : "Minutos Acumulados Tarde"}
+              </h3>
+              <span className={`px-2 py-0.5 rounded-md text-[10px] font-black border ${
+                (kpis.total_tardanzas || 0) > 0 
+                  ? "bg-amber-50 text-amber-800 border-amber-200" 
+                  : "bg-emerald-50 text-emerald-800 border-emerald-200"
+              }`}>
+                {kpis.tasa_puntualidad_global !== undefined ? `${kpis.tasa_puntualidad_global}% Puntualidad Global` : "RRHH Asistencias"}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Control de puntualidad calculado con la regla oficial (Límite 07:47 o 32 min desde la 1ra asignación).
+            </p>
+          </div>
+
+          {/* Mini KPIs de Asistencia en Cabecera + Selector de Modo */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="hidden md:flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-2xl border border-slate-200 text-xs">
+              <span className="text-slate-600 font-bold">
+                Tardanzas: <b className="text-amber-600 font-black">{kpis.total_tardanzas || 0}</b>
+              </span>
+              <span className="text-slate-300">•</span>
+              <span className="text-slate-600 font-bold">
+                Puntuales: <b className="text-emerald-600 font-black">{kpis.total_puntuales || 0}</b>
+              </span>
+              <span className="text-slate-300">•</span>
+              <span className="text-slate-600 font-bold">
+                Promedio: <b className="text-slate-800 font-black">{kpis.promedio_minutos_tarde || 0}m</b>
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0">
+              <button
+                type="button"
+                onClick={() => setModoGraficoTardanzas("tardanzas")}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  modoGraficoTardanzas === "tardanzas"
+                    ? "bg-white text-slate-900 shadow-xs"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                N° Tardanzas
+              </button>
+              <button
+                type="button"
+                onClick={() => setModoGraficoTardanzas("minutos")}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  modoGraficoTardanzas === "minutos"
+                    ? "bg-white text-slate-900 shadow-xs"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                Minutos Tarde
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {chartTardanzasData.length > 0 ? (
+          <div className="h-72 w-full pt-1">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartTardanzasData} margin={{ top: 10, right: 10, left: -18, bottom: 25 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis
+                  dataKey="name"
+                  tick={{ fill: "#64748b", fontSize: 10, fontWeight: 700 }}
+                  interval={0}
+                  angle={-25}
+                  textAnchor="end"
+                  height={45}
+                />
+                <YAxis tick={{ fill: "#64748b", fontSize: 10, fontWeight: 700 }} />
+                <RechartsTooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload || !payload.length) return null;
+                    const d = payload[0].payload;
+                    return (
+                      <div className="bg-white/95 backdrop-blur-md p-3.5 rounded-2xl border border-slate-200 shadow-xl text-xs space-y-2 z-50 min-w-[210px]">
+                        <p className="font-black text-slate-900 border-b border-slate-100 pb-1.5 flex justify-between items-center">
+                          <span>{d.nombreCompleto}</span>
+                          <span className="text-[10px] text-slate-500 font-mono font-bold bg-slate-100 px-1.5 py-0.5 rounded">
+                            {d.cuadrilla || "Sin Cuadrilla"}
+                          </span>
+                        </p>
+                        <div className="space-y-1 text-slate-600">
+                          <div className="flex justify-between items-center">
+                            <span className="flex items-center gap-1.5 text-amber-700 font-bold">
+                              <span className="w-2 h-2 rounded-full bg-amber-500" />
+                              Tardanzas:
+                            </span>
+                            <span className="font-mono font-black text-amber-800">{d.Tardanzas} días</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="flex items-center gap-1.5 text-emerald-700 font-bold">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                              Puntuales:
+                            </span>
+                            <span className="font-mono font-bold text-emerald-800">{d.Puntuales} días</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="flex items-center gap-1.5 text-slate-700 font-bold">
+                              <Clock size={11} className="text-slate-400" />
+                              Minutos Tarde:
+                            </span>
+                            <span className="font-mono font-black text-rose-600">{d.MinutosTarde} min</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-500 font-medium">Promedio x tardanza:</span>
+                            <span className="font-mono font-bold text-slate-800">{d.PromMinutosTarde} min</span>
+                          </div>
+                          <div className="flex justify-between items-center pt-1.5 border-t border-slate-100 font-bold">
+                            <span>Puntualidad:</span>
+                            <span className={`font-mono font-black ${
+                              d.PuntualidadPct >= 80 ? "text-emerald-600" : d.PuntualidadPct >= 50 ? "text-amber-600" : "text-rose-600"
+                            }`}>
+                              {d.PuntualidadPct}%
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }}
+                />
+                <Legend
+                  verticalAlign="top"
+                  align="right"
+                  content={() => (
+                    <div className="flex items-center justify-end gap-3 text-[11px] font-bold pb-2">
+                      {modoGraficoTardanzas === "tardanzas" ? (
+                        <>
+                          <span className="flex items-center gap-1.5 text-amber-800">
+                            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block shadow-2xs" />
+                            <span>Tardanzas</span>
+                          </span>
+                          <span className="flex items-center gap-1.5 text-emerald-800">
+                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block shadow-2xs" />
+                            <span>Puntuales</span>
+                          </span>
+                        </>
+                      ) : (
+                        <span className="flex items-center gap-1.5 text-rose-800">
+                          <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block shadow-2xs" />
+                          <span>Minutos Acumulados Tarde</span>
+                        </span>
+                      )}
+                    </div>
+                  )}
+                />
+                {modoGraficoTardanzas === "tardanzas" ? (
+                  <>
+                    <Bar dataKey="Tardanzas" fill="#f59e0b" radius={[4, 4, 0, 0]} maxBarSize={32} name="Tardanzas" />
+                    <Bar dataKey="Puntuales" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={32} name="Puntuales" />
+                  </>
+                ) : (
+                  <Bar
+                    dataKey="MinutosTarde"
+                    fill="#ef4444"
+                    radius={[6, 6, 0, 0]}
+                    maxBarSize={36}
+                    name="Minutos Tarde"
+                  />
+                )}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="h-44 flex items-center justify-center text-slate-400 text-xs font-semibold">
+            No hay asistencias o registros de actividad de técnicos en este período.
           </div>
         )}
       </div>
