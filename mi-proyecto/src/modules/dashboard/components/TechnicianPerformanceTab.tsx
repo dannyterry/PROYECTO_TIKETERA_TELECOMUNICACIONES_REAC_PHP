@@ -702,7 +702,7 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
       {/* ─────────────────────────────────────────────────────────────
           CABECERA ÚNICA ESTÁTICA INTEGRADA (TÍTULO + TABS + FILTROS + KPIS + ESTADOS)
       ───────────────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-30 bg-slate-100/95 backdrop-blur-xs pb-1">
+      <div className="sticky top-0 z-50 bg-slate-100/95 backdrop-blur-xs pb-1">
         <div className="bg-white px-4 py-3 rounded-2xl border border-slate-200/90 shadow-xs space-y-2.5">
           {/* Fila 1: Título del módulo y Selector de pestañas */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -829,7 +829,7 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
 
               {/* 💬 Desplegable En Línea / Chat (Oculto a Técnicos) */}
               {!isTecnico && (
-                <div className="relative shrink-0" ref={onlineDropdownRef}>
+                <div className="relative shrink-0 z-[60]" ref={onlineDropdownRef}>
                   <button
                     type="button"
                     onClick={() => setOnlineDropdownOpen(!onlineDropdownOpen)}
@@ -859,7 +859,7 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
                   </button>
 
                   {onlineDropdownOpen && (
-                    <div className="absolute right-0 mt-1 w-72 max-w-[90vw] bg-white rounded-2xl shadow-xl border border-slate-200/90 z-50 overflow-hidden flex flex-col animate-in fade-in slide-in-from-top-1 duration-150">
+                    <div className="absolute right-0 mt-1 w-72 max-w-[90vw] bg-white rounded-2xl shadow-2xl border border-slate-200/90 z-[70] overflow-hidden flex flex-col animate-in fade-in slide-in-from-top-1 duration-150">
                       <div className="p-2.5 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between">
                         <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
                           <Users size={13} className="text-sky-600" />
@@ -964,7 +964,7 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
               )}
 
               {/* 👤 Menú de Usuario y Cerrar Sesión */}
-              <div className="relative shrink-0 pl-1 border-l border-slate-200" ref={userMenuRef}>
+              <div className="relative shrink-0 pl-1 border-l border-slate-200 z-[60]" ref={userMenuRef}>
                 <button
                   type="button"
                   onClick={() => setUserMenuOpen(!userMenuOpen)}
@@ -997,7 +997,7 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
                 </button>
 
                 {userMenuOpen && (
-                  <div className="absolute right-0 mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-200/90 z-50 p-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                  <div className="absolute right-0 mt-1 w-48 bg-white rounded-xl shadow-2xl border border-slate-200/90 z-[70] p-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
                     <div className="px-2.5 py-2 border-b border-slate-100 mb-1">
                       <p className="text-xs font-black text-slate-900 truncate">{userName}</p>
                       <p className="text-[10px] text-sky-600 font-bold uppercase tracking-wider">{rolNombre}</p>

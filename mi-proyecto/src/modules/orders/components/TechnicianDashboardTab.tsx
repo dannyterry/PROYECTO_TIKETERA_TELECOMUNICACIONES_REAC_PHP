@@ -17,8 +17,12 @@ import {
   BarChart3,
   Layers,
   UserCheck,
+  UserX,
+  RotateCcw,
   Calendar,
   Coffee,
+  FileText,
+  ExternalLink,
 } from "lucide-react";
 import { Order } from "../types/Order";
 import { getOrders } from "../services/orderService";
@@ -31,11 +35,12 @@ interface Props {
 
 type PeriodMode = "dia" | "semana" | "mes";
 
-export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
+export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador, onSelectOrderForActa }) => {
   const [periodMode, setPeriodMode] = useState<PeriodMode>("mes");
   const [selectedOption, setSelectedOption] = useState<string>("");
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
+  const [mostrarDetalleReiteradas, setMostrarDetalleReiteradas] = useState<boolean>(false);
 
   // Calendario Mensual de Asistencia y Descansos para el Técnico
   const [mostrarCalendario, setMostrarCalendario] = useState<boolean>(false);
@@ -175,11 +180,23 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
     let finalizadas = 0;
     let canceladas = 0;
     let agendadas = 0;
-    let reiteradasPorTecnico = 0;
     let reiteradasGenerales = 0;
 
     const tiposTrabajoMap: Record<string, number> = {};
     const distritosMap: Record<string, number> = {};
+
+    // Agrupación por Cliente Único en el período seleccionado
+    const clientesMap = new Map<
+      string,
+      {
+        nombre: string;
+        documento?: string;
+        distrito?: string;
+        ordenes: Order[];
+        esReiterada: boolean;
+        totalVisitasMismoTecnico: number;
+      }
+    >();
 
     orders.forEach((o) => {
       const s = (o.status || "").toUpperCase();
@@ -189,11 +206,6 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
         canceladas++;
       } else {
         agendadas++;
-      }
-
-      // Reiteradas atendidas por ESTE técnico anteriormente
-      if (o.esReiteradaTecnico || (o.totalOrdenesMismoTecnico && o.totalOrdenesMismoTecnico > 1)) {
-        reiteradasPorTecnico++;
       }
 
       // Reiteradas generales (cualquier cuadrilla)
@@ -211,11 +223,50 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
       if (dist && dist !== "-") {
         distritosMap[dist] = (distritosMap[dist] || 0) + 1;
       }
+
+      // Agrupar por cliente
+      const rawClient = (o.cliente || (o as any).numeroDocumento || (o as any).dni || String(o.id || "")).trim();
+      const clientKey = rawClient.toLowerCase();
+      if (clientKey) {
+        if (!clientesMap.has(clientKey)) {
+          clientesMap.set(clientKey, {
+            nombre: o.cliente || "Cliente",
+            documento: (o as any).numeroDocumento || (o as any).dni || "",
+            distrito: o.distrito,
+            ordenes: [],
+            esReiterada: false,
+            totalVisitasMismoTecnico: 1,
+          });
+        }
+        const entry = clientesMap.get(clientKey)!;
+        entry.ordenes.push(o);
+
+        if (o.esReiteradaTecnico || (o.totalOrdenesMismoTecnico && o.totalOrdenesMismoTecnico > 1)) {
+          entry.esReiterada = true;
+        }
+
+        entry.totalVisitasMismoTecnico = Math.max(
+          entry.totalVisitasMismoTecnico,
+          o.totalOrdenesMismoTecnico || 1,
+          entry.ordenes.length
+        );
+      }
     });
 
+    const totalClientesUnicos = clientesMap.size;
+    const listaClientesReiterados = Array.from(clientesMap.values())
+      .filter((c) => c.esReiterada || c.ordenes.length > 1 || c.totalVisitasMismoTecnico > 1)
+      .sort((a, b) => b.ordenes.length - a.ordenes.length || b.totalVisitasMismoTecnico - a.totalVisitasMismoTecnico);
+
+    const totalClientesReiterados = listaClientesReiterados.length;
+    const totalClientesSinReincidencia = Math.max(0, totalClientesUnicos - totalClientesReiterados);
+
+    const totalVisitasPeriodoReiterados = listaClientesReiterados.reduce((acc, c) => acc + c.ordenes.length, 0);
+    const totalVisitasHistoricasReiterados = listaClientesReiterados.reduce((acc, c) => acc + c.totalVisitasMismoTecnico, 0);
+
     const efectividad = total > 0 ? Math.round((finalizadas / total) * 100) : 0;
-    const tasaReiteracionTec = total > 0 ? Math.round((reiteradasPorTecnico / total) * 100) : 0;
-    const calidadScore = Math.max(0, 100 - tasaReiteracionTec);
+    const tasaReiteracionTec = totalClientesUnicos > 0 ? Math.round((totalClientesReiterados / totalClientesUnicos) * 100) : 0;
+    const calidadScore = totalClientesUnicos > 0 ? Math.round((totalClientesSinReincidencia / totalClientesUnicos) * 100) : 100;
 
     // Donut chart SVG stroke calculations (Circunferencia = 2 * PI * R; R = 40 => Circ = 251.32)
     const circ = 251.32;
@@ -235,7 +286,13 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
       finalizadas,
       canceladas,
       agendadas,
-      reiteradasPorTecnico,
+      totalClientesUnicos,
+      totalClientesReiterados,
+      totalClientesSinReincidencia,
+      totalVisitasPeriodoReiterados,
+      totalVisitasHistoricasReiterados,
+      listaClientesReiterados,
+      tasaReiteracionTec,
       reiteradasGenerales,
       efectividad,
       calidadScore,
@@ -962,56 +1019,159 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador }) => {
           {/* ─────────────────────────────────────────────────────────────
               4. CONTROL DE REITERADAS DEL TÉCNICO (REVISITAS PROPIAS)
           ───────────────────────────────────────────────────────────── */}
-          <div className="grid grid-cols-2 gap-3">
-            {/* Reiteradas Atendidas por este Mismo Técnico */}
-            <div className="bg-white rounded-3xl p-4 border border-slate-200 shadow-xs space-y-2">
-              <div className="flex items-center gap-1.5 text-rose-700 font-black text-xs">
-                <UserCheck size={16} />
-                <span>Reiteradas por Ti</span>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              {/* Reiteradas Atendidas por este Mismo Técnico */}
+              <div className="bg-white rounded-3xl p-4 border border-slate-200 shadow-xs space-y-2.5 hover:border-rose-300 transition-all">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-rose-700 font-black text-xs">
+                    <RotateCcw size={15} />
+                    <span>Clientes Reincidentes</span>
+                  </div>
+                  <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+                    {analytics.tasaReiteracionTec}%
+                  </span>
+                </div>
+
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-2xl font-black text-rose-950 font-mono">
+                    {analytics.totalClientesReiterados}
+                  </span>
+                  <span className="text-xs font-bold text-slate-500">
+                    de {analytics.totalClientesUnicos} clie.
+                  </span>
+                </div>
+
+                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                  <div
+                    className="bg-rose-500 h-full rounded-full transition-all duration-500"
+                    style={{ width: `${analytics.tasaReiteracionTec}%` }}
+                  ></div>
+                </div>
+
+                <div className="flex items-center justify-between text-[10px] text-slate-500 leading-tight pt-0.5">
+                  <span>{analytics.totalVisitasPeriodoReiterados} visitas en el período</span>
+                  {analytics.totalClientesReiterados > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setMostrarDetalleReiteradas(!mostrarDetalleReiteradas)}
+                      className="text-rose-600 font-bold hover:text-rose-800 flex items-center gap-0.5 underline cursor-pointer"
+                    >
+                      {mostrarDetalleReiteradas ? "Ocultar" : "Ver lista"}
+                      {mostrarDetalleReiteradas ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-2xl font-black text-rose-950 font-mono">
-                  {analytics.reiteradasPorTecnico}
+
+              {/* Efectividad en Primera Atención (Sin Reincidencia) */}
+              <div className="bg-white rounded-3xl p-4 border border-slate-200 shadow-xs space-y-2.5 hover:border-emerald-300 transition-all">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-emerald-700 font-black text-xs">
+                    <ShieldCheck size={16} />
+                    <span>Sin Reincidencia</span>
+                  </div>
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                    {analytics.totalClientesSinReincidencia} clie.
+                  </span>
+                </div>
+
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-2xl font-black text-emerald-950 font-mono">
+                    {analytics.calidadScore}%
+                  </span>
+                  <span className="text-xs font-bold text-slate-500">
+                    1ra visita limpia
+                  </span>
+                </div>
+
+                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                  <div
+                    className="bg-emerald-500 h-full rounded-full transition-all duration-500"
+                    style={{ width: `${analytics.calidadScore}%` }}
+                  ></div>
+                </div>
+
+                <span className="text-[10px] text-slate-400 block leading-tight pt-0.5">
+                  Clientes atendidos en 1ra visita sin reincidencias
                 </span>
-                <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
-                  {analytics.total > 0 ? Math.round((analytics.reiteradasPorTecnico / analytics.total) * 100) : 0}%
-                </span>
               </div>
-              <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                <div
-                  className="bg-rose-500 h-full rounded-full"
-                  style={{ width: `${analytics.total > 0 ? (analytics.reiteradasPorTecnico / analytics.total) * 100 : 0}%` }}
-                ></div>
-              </div>
-              <span className="text-[10px] text-slate-400 block leading-tight">
-                Clientes que ya habías atendido tú anteriormente
-              </span>
             </div>
 
-            {/* Efectividad en Primera Atención (Sin Reincidencia) */}
-            <div className="bg-white rounded-3xl p-4 border border-slate-200 shadow-xs space-y-2">
-              <div className="flex items-center gap-1.5 text-emerald-700 font-black text-xs">
-                <ShieldCheck size={16} />
-                <span>Sin Reincidencia</span>
+            {/* Desglose Detallado de Clientes con Reincidencia en el Período */}
+            {mostrarDetalleReiteradas && analytics.listaClientesReiterados.length > 0 && (
+              <div className="bg-rose-50/60 rounded-3xl p-4 border border-rose-200/80 shadow-xs space-y-3 animate-in fade-in duration-300">
+                <div className="flex items-center justify-between border-b border-rose-200/60 pb-2">
+                  <div className="flex items-center gap-2 text-rose-900 font-black text-xs uppercase tracking-wide">
+                    <RotateCcw size={14} className="text-rose-600" />
+                    <span>Detalle de Clientes Reiterados ({analytics.listaClientesReiterados.length})</span>
+                  </div>
+                  <span className="text-[10px] font-bold text-rose-700 bg-white px-2 py-0.5 rounded-full border border-rose-200">
+                    Solo visitas tuyas
+                  </span>
+                </div>
+
+                <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                  {analytics.listaClientesReiterados.map((item, idx) => (
+                    <div
+                      key={`${item.nombre}-${idx}`}
+                      className="bg-white rounded-2xl p-3 border border-rose-100 shadow-2xs space-y-2"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="font-bold text-xs text-slate-900 block truncate">
+                            {item.nombre}
+                          </span>
+                          <span className="text-[10px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+                            {item.distrito && <span>📍 {item.distrito}</span>}
+                            {item.documento && <span>• Doc: {item.documento}</span>}
+                          </span>
+                        </div>
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <span className="text-[11px] font-black text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200 font-mono">
+                            {item.ordenes.length} {item.ordenes.length === 1 ? "visita" : "visitas"} (período)
+                          </span>
+                          {item.totalVisitasMismoTecnico > item.ordenes.length && (
+                            <span className="text-[9px] text-slate-500">
+                              {item.totalVisitasMismoTecnico} en historial
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Chips Informativos de Órdenes del Técnico para este Cliente */}
+                      <div className="flex flex-wrap gap-1.5 pt-1 border-t border-slate-100">
+                        {item.ordenes.map((ord, oIdx) => {
+                          const numOt = (ord as any).numero || (ord as any).ot || (ord as any).numeroOrden || (ord as any).ticket || `#${ord.id}`;
+                          const rawFecha = (ord as any).fechaVisita || (ord as any).fechaSolicitud || (ord as any).fecha_cita || (ord as any).fecha || "";
+                          const fecha = rawFecha ? String(rawFecha).slice(0, 10) : "";
+                          const st = (ord.status || (ord as any).estado || "").toUpperCase();
+                          const isFin = st.includes("FINALIZ") || st.includes("LIQUID");
+                          const isCanc = st.includes("CANCEL") || st.includes("REGEST") || st.includes("OBSERV");
+
+                          return (
+                            <div
+                              key={ord.id || oIdx}
+                              className={`flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-lg border select-none ${
+                                isFin
+                                  ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                                  : isCanc
+                                  ? "bg-amber-50 text-amber-800 border-amber-200"
+                                  : "bg-blue-50 text-blue-800 border-blue-200"
+                              }`}
+                            >
+                              <FileText size={11} className="shrink-0" />
+                              <span className="font-mono font-bold">OT {numOt}</span>
+                              {fecha && <span className="opacity-75">({fecha.slice(5)})</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-2xl font-black text-emerald-950 font-mono">
-                  {analytics.calidadScore}%
-                </span>
-                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                  {analytics.total - analytics.reiteradasPorTecnico} ord.
-                </span>
-              </div>
-              <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                <div
-                  className="bg-emerald-500 h-full rounded-full"
-                  style={{ width: `${analytics.calidadScore}%` }}
-                ></div>
-              </div>
-              <span className="text-[10px] text-slate-400 block leading-tight">
-                Clientes resueltos en primera visita por tu parte
-              </span>
-            </div>
+            )}
           </div>
 
           {/* ─────────────────────────────────────────────────────────────

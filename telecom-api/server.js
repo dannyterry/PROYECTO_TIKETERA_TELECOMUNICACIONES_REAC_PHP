@@ -127,7 +127,42 @@ app.use((req, res, next) => {
 
 app.get("/", (req, res) => { res.send("API Telecom funcionando con MySQL, Multer y AWS S3"); });
 
-// 🚀 Endpoint de un solo clic para migrar fotos de cPanel a AWS S3 y liberar los 2GB de espacio
+// 🚀 Función automática de barrido y limpieza: respalda todo en S3 y libera el disco de cPanel
+async function autoMigrarYLimpiarUploadsAS3() {
+  try {
+    if (!fs.existsSync(uploadDir)) return;
+    const files = fs.readdirSync(uploadDir).filter(f => !f.startsWith('.') && fs.statSync(path.join(uploadDir, f)).isFile());
+    if (files.length === 0) return;
+
+    console.log(`🧹 [Auto-S3 Sweeper] Escaneando ${files.length} archivos en /uploads para asegurar respaldo en S3 y liberar disco...`);
+    for (const file of files) {
+      const filePath = path.join(uploadDir, file);
+      const s3Key = `uploads/${file}`;
+      try {
+        const exists = await checkS3ObjectExists(s3Key);
+        if (!exists) {
+          await uploadFileToS3(filePath, s3Key);
+        }
+        // En hosting Linux, liberar el archivo de disco para que nunca consuma los 2GB de cPanel
+        const isLinuxHosting = process.platform === "linux" || __dirname.includes("corporacioncespe");
+        if (isLinuxHosting) {
+          fs.unlinkSync(filePath);
+          console.log(`🧹 [Auto-S3 Sweeper] Archivo '${file}' asegurado en S3 y liberado del disco local cPanel.`);
+        }
+      } catch (errFile) {
+        console.warn(`⚠️ [Auto-S3 Sweeper] Error con '${file}':`, errFile.message);
+      }
+    }
+  } catch (err) {
+    console.warn('⚠️ [Auto-S3 Sweeper] Error en barrido automático de uploads:', err.message);
+  }
+}
+
+// Ejecutar barrido automático 10 segundos después de iniciar y periódicamente cada 30 minutos
+setTimeout(autoMigrarYLimpiarUploadsAS3, 10000);
+setInterval(autoMigrarYLimpiarUploadsAS3, 30 * 60 * 1000);
+
+// 🚀 Endpoint de un solo clic para migrar fotos de cPanel a AWS S3 manualmente si se desea
 app.get('/api/admin/migrar-uploads-a-s3', async (req, res) => {
   const secretKey = req.query.key;
   if (secretKey !== 'cespedes2026') {
@@ -2840,10 +2875,10 @@ app.get('/ordenes', async (req, res) => {
       let historyRows = [];
       if (clientNames.length > 0 || docs.length > 0) {
         const [hist] = await pool.query(`
-          SELECT id_orden, cliente, numero_documento, cuadrilla, tecnico_asignado, id_tecnico
+          SELECT id_orden, numero, cliente, numero_documento, cuadrilla, tecnico_asignado, id_tecnico, fecha_visita, estado, tipo_trabajo
           FROM ordenes
           WHERE cliente IN (?) OR numero_documento IN (?)
-          ORDER BY id_orden DESC
+          ORDER BY fecha_visita DESC, id_orden DESC
         `, [clientNames.length > 0 ? clientNames : [''], docs.length > 0 ? docs : ['']]);
         historyRows = hist;
       }
@@ -2875,7 +2910,7 @@ app.get('/ordenes', async (req, res) => {
         const clienteHist = (kName && clientHistMap.get(kName)) || (kDoc && docHistMap.get(kDoc)) || [];
         const totalClienteGeneral = Math.max(1, clienteHist.length);
 
-        // Mismo técnico
+        // Mismo técnico (filtro estricto por id_tecnico o coincidencia de nombre de técnico)
         let totalMismoTecnico = 1;
         if (clienteHist.length > 1) {
           const matching = clienteHist.filter(h => {
@@ -3506,35 +3541,24 @@ app.get('/ordenes/:numero/historial-estados', async (req, res) => {
       if (!esManual && tiempos.usuarioEjecutor) {
         const [techUsers] = await pool.query("SELECT id_usuario, nombres, apellidos, primer_apellido, segundo_apellido FROM usuarios");
         
-        // Verificar si alguna fila de campo pertenece a un técnico de Céspedes (prioridad absoluta a técnicos internos)
-        const filasCampo = historial.filter((h) => {
-          const st = (h.estado || '').toUpperCase();
-          const u = (h.usuario || '').trim();
-          if (!u || /^(administrador|admin|sistema|central)$/i.test(u)) return false;
-          return st.includes('CAMINO') || st.includes('INICIA') || st.includes('PROCESO') || st.includes('REVISI');
+        // Verificar directamente si el último usuario que inició/ejecutó la visita es de Céspedes
+        const norm = String(tiempos.usuarioEjecutor).toUpperCase().trim();
+        let foundTech = (techUsers || []).find((u) => {
+          const full1 = `${u.nombres || ''} ${u.apellidos || ''}`.toUpperCase().trim();
+          const full2 = `${u.nombres || ''} ${u.primer_apellido || ''} ${u.segundo_apellido || ''}`.toUpperCase().trim();
+          if (full1 && (norm === full1 || norm.includes(full1) || full1.includes(norm))) return true;
+          if (full2 && (norm === full2 || norm.includes(full2) || full2.includes(norm))) return true;
+
+          const nameParts = (u.nombres || '').toUpperCase().split(/\s+/).filter(p => p.length > 2);
+          const apeParts = (u.apellidos || u.primer_apellido || '').toUpperCase().split(/\s+/).filter(p => p.length > 2);
+          return nameParts.some(p => norm.includes(p)) && apeParts.some(p => norm.includes(p));
         });
-
-        let foundTech = null;
-        for (const h of filasCampo) {
-          const norm = String(h.usuario).toUpperCase().trim();
-          foundTech = (techUsers || []).find((u) => {
-            const full1 = `${u.nombres || ''} ${u.apellidos || ''}`.toUpperCase().trim();
-            const full2 = `${u.nombres || ''} ${u.primer_apellido || ''} ${u.segundo_apellido || ''}`.toUpperCase().trim();
-            if (full1 && (norm === full1 || norm.includes(full1) || full1.includes(norm))) return true;
-            if (full2 && (norm === full2 || norm.includes(full2) || full2.includes(norm))) return true;
-
-            const nameParts = (u.nombres || '').toUpperCase().split(/\s+/).filter(p => p.length > 2);
-            const apeParts = (u.apellidos || u.primer_apellido || '').toUpperCase().split(/\s+/).filter(p => p.length > 2);
-            return nameParts.some(p => norm.includes(p)) && apeParts.some(p => norm.includes(p));
-          });
-          if (foundTech) break;
-        }
 
         if (foundTech) {
           autoIdTecnico = foundTech.id_usuario;
           autoNombreTecnico = `${foundTech.nombres} ${foundTech.apellidos || foundTech.primer_apellido || ''}`.trim();
         } else {
-          // Solo si el estado final es Finalizada o Liquidada se marca como EXTERNO
+          // Si el último ejecutor NO pertenece a Céspedes y la orden está concluida o en curso:
           const esFinLiq = ultimoEstadoFenix && /^(finalizad[ao]|liquidad[ao])/i.test(ultimoEstadoFenix);
           if (esFinLiq) {
             autoIdTecnico = null;
@@ -7404,14 +7428,15 @@ app.post('/api/almacen/despacho-tecnico', async (req, res) => {
           // Si es un lote de talonarios autogenerados
           const [insRes] = await pool.query(`
             INSERT INTO producto_series (id_producto, id_almacen, numero_serie, estado, fecha_ingreso)
-            VALUES (?, NULL, ?, 'RESERVADO', NOW())
-            ON DUPLICATE KEY UPDATE estado = 'RESERVADO', id_almacen = NULL
+            VALUES (?, 2, ?, 'RESERVADO', NOW())
+            ON DUPLICATE KEY UPDATE estado = 'RESERVADO', id_almacen = 2
           `, [actualProdId, cleanSerie]);
           idProdSerie = insRes.insertId || insRes.id_producto_serie;
           if (!idProdSerie) {
             const [findRes] = await pool.query("SELECT id_producto_serie FROM producto_series WHERE numero_serie = ?", [cleanSerie]);
             if (findRes.length > 0) idProdSerie = findRes[0].id_producto_serie;
           }
+          await pool.query("UPDATE stock SET cantidad = GREATEST(0, cantidad - 1) WHERE id_producto = ? AND id_almacen = 1", [actualProdId]);
         }
 
         if (idProdSerie && actualProdId) {
@@ -8476,6 +8501,7 @@ app.get('/api/almacen/actas-tecnicos', async (req, res) => {
           OR UPPER(COALESCE(c.nombre, '')) LIKE '%GUIA%' 
           OR UPPER(p.nombre) LIKE '%ACTA%' 
           OR UPPER(p.nombre) LIKE '%GUIA%')
+        AND (ts.estado = 'Asignada' OR ts.estado = 'Usada' OR ts.estado = 'Liquidada')
       ORDER BY ts.id_trabajador ASC, ps.numero_serie ASC
     `);
 

@@ -352,8 +352,9 @@ export const DataExportViewerTab: React.FC = () => {
       if (o.tramo && o.tramo.trim()) {
         tram.add(o.tramo.trim());
       }
-      if (o.tipoTrabajo && o.tipoTrabajo.trim()) {
-        tip.add(o.tipoTrabajo.trim());
+      const tTrab = (o.tipoTrabajo || (o as any).tipo_trabajo || (o as any).tipoTrabajoAsignado || "").trim();
+      if (tTrab && tTrab !== "-" && tTrab !== "null" && tTrab !== "undefined") {
+        tip.add(tTrab);
       }
       if (o.distrito && o.distrito.trim()) {
         dist.add(o.distrito.trim());
@@ -589,7 +590,8 @@ export const DataExportViewerTab: React.FC = () => {
 
       // 5. Tipo de Trabajo
       if (filtroTipoTrabajo !== "TODOS") {
-        if (!o.tipoTrabajo || o.tipoTrabajo.trim().toLowerCase() !== filtroTipoTrabajo.trim().toLowerCase()) {
+        const orderTipo = (o.tipoTrabajo || (o as any).tipo_trabajo || (o as any).tipoTrabajoAsignado || "").trim().toLowerCase();
+        if (orderTipo !== filtroTipoTrabajo.trim().toLowerCase()) {
           return false;
         }
       }
@@ -1332,6 +1334,23 @@ export const DataExportViewerTab: React.FC = () => {
             ))}
           </select>
 
+          {/* Tipo de Trabajo */}
+          <select
+            value={filtroTipoTrabajo}
+            onChange={(e) => {
+              setFiltroTipoTrabajo(e.target.value);
+              setPaginaActual(1);
+            }}
+            className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-0.5 text-[11px] font-bold text-slate-800 focus:outline-none focus:border-sky-500 cursor-pointer max-w-[155px]"
+          >
+            <option value="TODOS">Todos Tipos Trabajo ({tiposTrabajoList.length})</option>
+            {tiposTrabajoList.map((tt) => (
+              <option key={tt} value={tt}>
+                {tt}
+              </option>
+            ))}
+          </select>
+
           {/* Tramo */}
           <select
             value={filtroTramo}
@@ -1396,11 +1415,11 @@ export const DataExportViewerTab: React.FC = () => {
         <div className="overflow-x-auto max-h-[calc(100vh-210px)] min-h-[480px] overflow-y-auto custom-scrollbar">
           <table className="w-full text-[11px] border-separate border-spacing-0 whitespace-nowrap">
             {/* CABECERA AZUL OFICIAL DE ÓRDENES (#1e4b8a) */}
-            <thead className="sticky top-0 z-30 bg-[#1e4b8a] text-white shadow-2xs">
+            <thead className="sticky top-0 z-10 bg-[#1e4b8a] text-white shadow-2xs">
               <tr>
                 {/* 0. # (Índice) */}
                 {columnasVisibles.indice !== false && (
-                  <th className="sticky top-0 left-0 z-40 bg-[#163866] text-slate-200 font-black uppercase text-[10px] tracking-wider py-1 px-1 text-center border-b border-slate-950 border-r border-blue-900 min-w-[34px] w-[34px] max-w-[34px]">
+                  <th className="sticky top-0 left-0 z-20 bg-[#163866] text-slate-200 font-black uppercase text-[10px] tracking-wider py-1 px-1 text-center border-b border-slate-950 border-r border-blue-900 min-w-[34px] w-[34px] max-w-[34px]">
                     #
                   </th>
                 )}
@@ -1408,7 +1427,7 @@ export const DataExportViewerTab: React.FC = () => {
                 {columnasVisibles.fecha !== false && (
                   <th
                     onClick={() => handleCambiarOrden("fecha")}
-                    className={`sticky top-0 ${columnasVisibles.indice !== false ? "left-[34px]" : "left-0"} z-40 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 border-r border-blue-900 min-w-[85px] w-[85px] cursor-pointer hover:bg-blue-900`}
+                    className={`sticky top-0 ${columnasVisibles.indice !== false ? "left-[34px]" : "left-0"} z-20 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 border-r border-blue-900 min-w-[85px] w-[85px] cursor-pointer hover:bg-blue-900`}
                   >
                     <div className="flex items-center gap-1">
                       <span>Fecha</span>
@@ -1418,25 +1437,25 @@ export const DataExportViewerTab: React.FC = () => {
                 )}
                 {/* 2. Celular */}
                 {columnasVisibles.celular !== false && (
-                  <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950">
+                  <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950">
                     Celular
                   </th>
                 )}
                 {/* 3. Llamada */}
                 {columnasVisibles.llamada !== false && (
-                  <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
+                  <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                     Llamada
                   </th>
                 )}
                 {/* 4. Observación de Llamada */}
                 {columnasVisibles.observacionLlamada !== false && (
-                  <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 min-w-[170px]">
+                  <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 min-w-[170px]">
                     Observación de Llamada
                   </th>
                 )}
                 {/* 5. DNI */}
                 {columnasVisibles.dni !== false && (
-                  <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950">
+                  <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950">
                     DNI
                   </th>
                 )}
@@ -1444,7 +1463,7 @@ export const DataExportViewerTab: React.FC = () => {
                 {columnasVisibles.cliente !== false && (
                   <th
                     onClick={() => handleCambiarOrden("cliente")}
-                    className="sticky top-0 lg:left-[119px] z-30 lg:z-40 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2.5 text-left border-b border-slate-950 border-r border-blue-900 min-w-[180px] lg:min-w-[210px] cursor-pointer hover:bg-blue-900"
+                    className="sticky top-0 lg:left-[119px] z-10 lg:z-20 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2.5 text-left border-b border-slate-950 border-r border-blue-900 min-w-[180px] lg:min-w-[210px] cursor-pointer hover:bg-blue-900"
                   >
                     <div className="flex items-center gap-1">
                       <span>Cliente</span>
@@ -1454,31 +1473,31 @@ export const DataExportViewerTab: React.FC = () => {
                 )}
                 {/* 7. Dirección */}
                 {columnasVisibles.direccion !== false && (
-                  <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 min-w-[200px]">
+                  <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 min-w-[200px]">
                     Dirección
                   </th>
                 )}
                 {/* 8. Distrito */}
                 {columnasVisibles.distrito !== false && (
-                  <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950">
+                  <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950">
                     Distrito
                   </th>
                 )}
                 {/* 9. CTO */}
                 {columnasVisibles.cto !== false && (
-                  <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
+                  <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                     CTO
                   </th>
                 )}
                 {/* 10. Código de Pedido */}
                 {columnasVisibles.codigoPedido !== false && (
-                  <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
+                  <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                     Código de Pedido
                   </th>
                 )}
                 {/* 11. OT */}
                 {columnasVisibles.ot !== false && (
-                  <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
+                  <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                     OT
                   </th>
                 )}
@@ -1486,7 +1505,7 @@ export const DataExportViewerTab: React.FC = () => {
                 {columnasVisibles.ticket !== false && (
                   <th
                     onClick={() => handleCambiarOrden("ticket")}
-                    className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 min-w-[140px] cursor-pointer hover:bg-blue-900"
+                    className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 min-w-[140px] cursor-pointer hover:bg-blue-900"
                   >
                     <div className="flex items-center gap-1">
                       <span>Número de Ticket</span>
@@ -1498,7 +1517,7 @@ export const DataExportViewerTab: React.FC = () => {
                 {columnasVisibles.tecnico !== false && (
                   <th
                     onClick={() => handleCambiarOrden("tecnico")}
-                    className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950 min-w-[150px] cursor-pointer hover:bg-blue-900"
+                    className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950 min-w-[150px] cursor-pointer hover:bg-blue-900"
                   >
                     <div className="flex items-center justify-center gap-1">
                       <span>Técnico</span>
@@ -1508,37 +1527,37 @@ export const DataExportViewerTab: React.FC = () => {
                 )}
                 {/* 14. Acta */}
                 {columnasVisibles.acta !== false && (
-                  <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
+                  <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                     Acta
                   </th>
                 )}
                 {/* 15. Tareas */}
                 {columnasVisibles.tareas !== false && (
-                  <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-1.5 text-center border-b border-slate-950">
+                  <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-1.5 text-center border-b border-slate-950">
                     Tareas
                   </th>
                 )}
                 {/* 16. Asignación */}
                 {columnasVisibles.asignacion !== false && (
-                  <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
+                  <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                     Asignación
                   </th>
                 )}
                 {/* 17. Camino */}
                 {columnasVisibles.camino !== false && (
-                  <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
+                  <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                     Camino
                   </th>
                 )}
                 {/* 18. Inicio */}
                 {columnasVisibles.inicio !== false && (
-                  <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
+                  <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                     Inicio
                   </th>
                 )}
                 {/* 19. Fin */}
                 {columnasVisibles.fin !== false && (
-                  <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
+                  <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                     Fin
                   </th>
                 )}
@@ -1546,7 +1565,7 @@ export const DataExportViewerTab: React.FC = () => {
                 {columnasVisibles.tramo !== false && (
                   <th
                     onClick={() => handleCambiarOrden("tramo")}
-                    className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950 cursor-pointer hover:bg-blue-900"
+                    className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950 cursor-pointer hover:bg-blue-900"
                   >
                     <div className="flex items-center justify-center gap-1">
                       <span>Tramo</span>
@@ -1558,7 +1577,7 @@ export const DataExportViewerTab: React.FC = () => {
                 {columnasVisibles.status !== false && (
                   <th
                     onClick={() => handleCambiarOrden("estado")}
-                    className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950 cursor-pointer hover:bg-blue-900"
+                    className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950 cursor-pointer hover:bg-blue-900"
                   >
                     <div className="flex items-center justify-center gap-1">
                       <span>Status</span>
@@ -1570,7 +1589,7 @@ export const DataExportViewerTab: React.FC = () => {
                 {columnasVisibles.cuadrilla !== false && (
                   <th
                     onClick={() => handleCambiarOrden("cuadrilla")}
-                    className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 cursor-pointer hover:bg-blue-900"
+                    className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 cursor-pointer hover:bg-blue-900"
                   >
                     <div className="flex items-center gap-1">
                       <span>Cuadrilla</span>
@@ -1580,13 +1599,13 @@ export const DataExportViewerTab: React.FC = () => {
                 )}
                 {/* 23. Tipo de Trabajo Asignado */}
                 {columnasVisibles.tipoTrabajoAsignado !== false && (
-                  <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 min-w-[160px]">
+                  <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 min-w-[160px]">
                     Tipo de Trabajo Asignado
                   </th>
                 )}
                 {/* 24. Tipo de Liquidación */}
                 {columnasVisibles.tipoLiquidacion !== false && (
-                  <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 min-w-[160px]">
+                  <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 min-w-[160px]">
                     Tipo de Liquidación
                   </th>
                 )}
@@ -1594,7 +1613,7 @@ export const DataExportViewerTab: React.FC = () => {
                 {columnasVisibles.tipoTrabajo !== false && (
                   <th
                     onClick={() => handleCambiarOrden("tipoTrabajo")}
-                    className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 min-w-[160px] cursor-pointer hover:bg-blue-900"
+                    className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 min-w-[160px] cursor-pointer hover:bg-blue-900"
                   >
                     <div className="flex items-center gap-1">
                       <span>Tipo de Trabajo</span>
@@ -1604,24 +1623,24 @@ export const DataExportViewerTab: React.FC = () => {
                 )}
                 {/* 26. Observaciones de la Atención */}
                 {columnasVisibles.observacionesAtencion !== false && (
-                  <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 min-w-[200px]">
+                  <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 min-w-[200px]">
                     Observaciones de la Atención
                   </th>
                 )}
                 {/* 27. Total Drop */}
                 {columnasVisibles.totalDrop !== false && (
-                  <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
+                  <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                     Total Drop
                   </th>
                 )}
                 {/* 28. Ancho de Banda */}
                 {columnasVisibles.anchoBanda !== false && (
-                  <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950 min-w-[100px]">
+                  <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950 min-w-[100px]">
                     Ancho de Banda
                   </th>
                 )}
                 {/* 29. Ver */}
-                <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
+                <th className="sticky top-0 z-10 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
                   Ver
                 </th>
               </tr>
@@ -1958,7 +1977,7 @@ export const DataExportViewerTab: React.FC = () => {
           4. MODAL DETALLE COMPLETO DE ORDEN
       ───────────────────────────────────────────────────────────── */}
       {modalDetalleAbierto && ordenSeleccionada && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto p-4 space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-slate-200">
               <div className="flex items-center gap-2">
@@ -2062,7 +2081,7 @@ export const DataExportViewerTab: React.FC = () => {
           5. MODAL / DIALOG SELECTOR DE COLUMNAS VISIBLES Y EXPORTABLES
       ───────────────────────────────────────────────────────────── */}
       {modalColumnasAbierto && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150">
             {/* Header */}
             <div className="p-3.5 bg-[#1e4b8a] text-white flex items-center justify-between">

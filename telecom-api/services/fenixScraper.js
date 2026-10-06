@@ -970,11 +970,12 @@ async function sincronizarFenix({ fechaDesde = null, fechaHasta = null } = {}) {
         await Promise.all(
           batch.map(async (ord) => {
             if (!ord.numero) return;
-            // ⚡ Optimización: si ya cuenta con inicio y fin de visita, no saturar WIN con peticiones extra
-            if (ord.inicio_visita && ord.fin_visita) return;
+            // ⚡ Optimización: si ya cuenta con inicio, fin y usuario ejecutor identificado, no saturar WIN
+            if (ord.inicio_visita && ord.fin_visita && ord.usuario_ejecutor_fenix) return;
             try {
               const hist = await obtenerHistorialEstados(ord.numero);
               if (hist && hist.length > 0) {
+                ord.historial_estados = JSON.stringify(hist);
                 const tiempos = extraerTiemposDeHistorial(hist);
                 if (tiempos.horaEnCamino) ord.hora_en_camino = tiempos.horaEnCamino;
                 if (tiempos.inicioVisita) ord.inicio_visita = tiempos.inicioVisita;
@@ -1453,20 +1454,18 @@ function extraerTiemposDeHistorial(historial) {
   }
 
   // 2. Extraer usuario ejecutor de campo REAL (ESTRICTAMENTE en estados operativos: En camino, Iniciada, Revisión)
-  // Estados administrativos como Pendiente, Agendada, Asignada, Anulada, Cancelada NO generan ejecutor.
+  // Se excluyen usuarios administrativos de backoffice y auditoría de WIN (Grecia Rivas, César Colchado, Liz Gutierrez, etc.)
   const filasCampo = historial.filter((h) => {
     const st = (h.estado || '').toUpperCase();
-    const u = (h.usuario || '').trim();
-    if (!u || /^(administrador|admin|sistema|central)$/i.test(u)) return false;
+    const u = (h.usuario || '').trim().toUpperCase();
+    if (!u) return false;
+    if (/^(ADMINISTRADOR|ADMIN|SISTEMA|CENTRAL|GRECIA JAZMIN|CESAR GONZALO COLCHADO|LIZ JHOSSELIN GUTIERREZ|LAURA ANDREA CASTA)/i.test(u)) return false;
     return st.includes('CAMINO') || st.includes('INICIA') || st.includes('PROCESO') || st.includes('REVISI');
   });
 
   if (filasCampo.length > 0) {
-    const opRow = filasCampo.find(h => {
-      const st = (h.estado || '').toUpperCase();
-      return st.includes('REVISI') || st.includes('INICIA') || st.includes('CAMINO');
-    }) || filasCampo[0];
-    usuarioEjecutor = opRow.usuario.trim();
+    // Si hay registros de campo, el ejecutor de campo real es el técnico operativo
+    usuarioEjecutor = filasCampo[0].usuario.trim();
   }
 
   return {

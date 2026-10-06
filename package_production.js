@@ -34,7 +34,7 @@ if (fs.existsSync(tempBackend)) {
 fs.mkdirSync(tempBackend, { recursive: true });
 
 // Copiar archivos raíz requeridos
-const rootFiles = ['server.js', 'package.json', 'package-lock.json', 'db.js'];
+const rootFiles = ['server.js', 'package.json', 'package-lock.json', 'db.js', '.env'];
 rootFiles.forEach(f => {
   const src = path.join(apiDir, f);
   if (fs.existsSync(src)) {

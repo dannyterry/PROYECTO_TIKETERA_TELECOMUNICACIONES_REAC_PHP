@@ -1078,31 +1078,24 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
               const s = (ord.status || ord.estado || "").toUpperCase().trim();
               const isLiquidada = s.includes("LIQUID") || Boolean(ord.acta && ord.acta.trim() && ord.acta !== "-");
               const isFinalizada = s.includes("FINALIZ") || s.includes("TERMIN") || s.includes("CERRAD") || s.includes("FENIX") || isLiquidada;
-              const isEnProceso = s.includes("INICIAD") || s.includes("PROCESO") || s.includes("CAMINO") || s.includes("ASIGNAD");
+              // Solo estado realmente INICIADA en el domicilio del cliente (NO 'En camino' ni 'Asignada')
+              const isIniciada = s.includes("INICIAD") || s.includes("PROCESO");
               const esReiterada = Boolean(ord.esReiterada || (ord.totalOrdenesCliente && ord.totalOrdenesCliente > 1));
 
-              // Detectar si la orden amerita cambio de ONT / Equipo o Instalación
-              const fullTextBusqueda = `${ord.tipoLiquidacion || ""} ${ord.motivoLiquidacion || ""} ${ord.motivoFinalizacion || ""} ${ord.tipoTrabajo || ""} ${ord.tipoAveria || ""} ${ord.observacionesAtencion || ""} ${ord.observacionLlamada || ""} ${ord.tipoTrabajoAsignado || ""}`.toUpperCase();
-              const requiereCambioEquipo = 
-                fullTextBusqueda.includes("CAMBIO DE ONT") ||
-                fullTextBusqueda.includes("CAMBIO DE EQUIPO") ||
-                fullTextBusqueda.includes("CAMBIO ONT") ||
-                fullTextBusqueda.includes("MEJORA TECNOLOGICA") ||
-                fullTextBusqueda.includes("MEJORA TECNOLÓGICA") ||
-                fullTextBusqueda.includes("REEMPLAZO DE ONT") ||
-                fullTextBusqueda.includes("REEMPLAZO ONT") ||
-                fullTextBusqueda.includes("CAMBIO DE ROUTER") ||
-                fullTextBusqueda.includes("CAMBIO DE MESH") ||
-                fullTextBusqueda.includes("CAMBIO MESH") ||
-                fullTextBusqueda.includes("INSTALACION") ||
-                fullTextBusqueda.includes("INSTALACIÓN") ||
-                fullTextBusqueda.includes("ALTA") ||
-                fullTextBusqueda.includes("MIGRACION") ||
-                fullTextBusqueda.includes("MIGRACIÓN") ||
-                fullTextBusqueda.includes("EQUIPO") ||
-                fullTextBusqueda.includes("ONT");
+              // Progreso de tareas en Fénix (debe tener más del 50% de tareas completadas para habilitar el escaneo en domicilio)
+              const pctTareas = ord.progresoPorcentaje !== undefined && ord.progresoPorcentaje !== null
+                ? ord.progresoPorcentaje
+                : (ord.totalTareas && ord.totalTareas > 0 ? Math.round(((ord.tareasFinalizadas || 0) / ord.totalTareas) * 100) : 0);
+              const tieneMasDe50PorcientoTareas = pctTareas >= 50;
 
-              const habilitarParaEscanearEquipo = !isFinalizada && isEnProceso && requiereCambioEquipo;
+              // Detectar si la orden amerita cambio de ONT / Equipo o Instalación (solo en campos de tipo de trabajo/avería con palabra exacta)
+              const tipoTrabajoStr = `${ord.tipoTrabajo || ""} ${ord.tipoLiquidacion || ""} ${ord.motivoLiquidacion || ""} ${ord.motivoFinalizacion || ""} ${ord.tipoTrabajoAsignado || ""} ${ord.tipoAveria || ""}`.toUpperCase();
+              const requiereCambioEquipo = 
+                /\b(CAMBIO DE ONT|CAMBIO ONT|REEMPLAZO DE ONT|REEMPLAZO ONT|CAMBIO DE EQUIPO|CAMBIO DE ROUTER|CAMBIO DE MESH|CAMBIO MESH|INSTALACION|INSTALACIÓN|ALTA|MIGRACION|MIGRACIÓN|MEJORA TECNOLOGICA|MEJORA TECNOLÓGICA)\b/i.test(tipoTrabajoStr) ||
+                /\b(ONT|ROUTER|MESH)\b/i.test(tipoTrabajoStr);
+
+              // Solo se habilita si: NO está finalizada + está INICIADA en casa del cliente + tiene >50% de tareas + es tipo de trabajo de equipo
+              const habilitarParaEscanearEquipo = !isFinalizada && isIniciada && tieneMasDe50PorcientoTareas && requiereCambioEquipo;
 
               // Tipo de liquidación / motivo de finalización
               const tipoLiq = (ord.tipoLiquidacion || ord.motivoLiquidacion || ord.motivoFinalizacion || ord.tipoTrabajo || "").trim();

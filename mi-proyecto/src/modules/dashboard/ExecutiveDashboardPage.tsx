@@ -576,7 +576,7 @@ export const ExecutiveDashboardPage: React.FC = () => {
           1. HEADER EJECUTIVO & NAVEGACIÓN PRINCIPAL (PARA RESUMEN Y AUDITORÍA)
       ───────────────────────────────────────────────────────────── */}
       {activeMainTab !== "tecnicos" && (
-        <div className="sticky top-0 z-30 bg-white p-2.5 sm:p-3.5 md:p-4 rounded-2xl border border-slate-200/90 shadow-2xs space-y-2.5">
+        <div className="sticky top-0 z-50 bg-white p-2.5 sm:p-3.5 md:p-4 rounded-2xl border border-slate-200/90 shadow-2xs space-y-2.5">
           <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5 sm:gap-4">
             <div className="flex items-center gap-2.5 sm:gap-3.5">
               <button
@@ -714,7 +714,7 @@ export const ExecutiveDashboardPage: React.FC = () => {
 
               {/* 💬 Desplegable En Línea / Chat (Oculto a Técnicos) */}
               {!isTecnico && (
-                <div className="relative shrink-0" ref={onlineDropdownRef}>
+                <div className="relative shrink-0 z-[60]" ref={onlineDropdownRef}>
                   <button
                     type="button"
                     onClick={() => setOnlineDropdownOpen(!onlineDropdownOpen)}
@@ -744,7 +744,7 @@ export const ExecutiveDashboardPage: React.FC = () => {
 
                   {/* Dropdown flotante de chat */}
                   {onlineDropdownOpen && (
-                    <div className="absolute right-0 mt-1 w-72 max-w-[90vw] bg-white rounded-2xl shadow-xl border border-slate-200/90 z-50 overflow-hidden flex flex-col animate-in fade-in slide-in-from-top-1 duration-150">
+                    <div className="absolute right-0 mt-1 w-72 max-w-[90vw] bg-white rounded-2xl shadow-2xl border border-slate-200/90 z-[70] overflow-hidden flex flex-col animate-in fade-in slide-in-from-top-1 duration-150">
                       <div className="p-2.5 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between">
                         <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
                           <Users size={13} className="text-sky-600" />
@@ -881,7 +881,7 @@ export const ExecutiveDashboardPage: React.FC = () => {
 
                 {/* Dropdown de Usuario */}
                 {userMenuOpen && (
-                  <div className="absolute right-0 mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-200/90 z-50 p-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                  <div className="absolute right-0 mt-1 w-48 bg-white rounded-xl shadow-2xl border border-slate-200/90 z-[70] p-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
                     <div className="px-2.5 py-2 border-b border-slate-100 mb-1">
                       <p className="text-xs font-black text-slate-900 truncate">{userName}</p>
                       <p className="text-[10px] text-sky-600 font-bold uppercase tracking-wider">{rolNombre}</p>
