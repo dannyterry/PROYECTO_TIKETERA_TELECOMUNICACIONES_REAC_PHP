@@ -563,6 +563,18 @@ export const PLANTILLAS_POR_TRABAJO: Record<string, PlantillaActa> = {
     requiereEquipoRetirado: false,
     materialesDefault: [],
   },
+  "CONFIGURACION WINBOX": {
+    requiereDrop: false,
+    requiereEquipoInstalado: false,
+    requiereEquipoRetirado: false,
+    materialesDefault: [],
+  },
+  "CONFIGURACIÓN WINBOX": {
+    requiereDrop: false,
+    requiereEquipoInstalado: false,
+    requiereEquipoRetirado: false,
+    materialesDefault: [],
+  },
   "WINBOX - CONTROL DEFECT": {
     requiereDrop: false,
     requiereEquipoInstalado: false,
@@ -570,6 +582,12 @@ export const PLANTILLAS_POR_TRABAJO: Record<string, PlantillaActa> = {
     materialesDefault: [],
   },
   "ASISTENCIA WIN TV": {
+    requiereDrop: false,
+    requiereEquipoInstalado: false,
+    requiereEquipoRetirado: false,
+    materialesDefault: [],
+  },
+  "ASISTENCIA WINBOX": {
     requiereDrop: false,
     requiereEquipoInstalado: false,
     requiereEquipoRetirado: false,
@@ -649,7 +667,10 @@ export const getPlantillaPorTrabajo = (tipoTrabajo?: string): PlantillaActa => {
       ? PLANTILLAS_POR_TRABAJO["INSTALACIÓN DE MESH MAS CABLEADO CAT 6 - POST VENTA"]
       : PLANTILLAS_POR_TRABAJO["CAMBIO DE EQUIPO MESH"];
   }
-  if (norm.includes("TV BOX") || norm.includes("WINBOX")) {
+  if (norm.includes("TV BOX") || norm.includes("WINBOX") || norm.includes("WIN TV")) {
+    if (norm.includes("CONFIGURAC") || norm.includes("ASISTENCIA") || norm.includes("CONTROL") || norm.includes("DEFECT")) {
+      return PLANTILLAS_POR_TRABAJO["CONFIGURACION WINBOX"];
+    }
     return PLANTILLAS_POR_TRABAJO["CAMBIO DE TV BOX"];
   }
   if (norm.includes("FONOWIN") || norm.includes("FONO WIN") || norm.includes("PHONOWIN") || norm.includes("PHONO WIN") || norm.includes("TELEFONO") || norm.includes("DESCARTE")) {

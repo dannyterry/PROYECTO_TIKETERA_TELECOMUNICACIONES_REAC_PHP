@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { MessageSquare, Users, Search, ChevronDown } from "lucide-react";
+import { Users, Search, ChevronDown } from "lucide-react";
 import { API_URL } from "../../config/api";
 import { authService, AuthUser } from "../../services/authService";
 
@@ -28,7 +28,7 @@ export const OnlineChatDropdown: React.FC<OnlineChatDropdownProps> = ({
   const userRol = user?.id_rol ? String(user.id_rol) : "";
   const rolNombre = user?.rol || "";
 
-  // 🛡️ Identificación de Técnico (Ocultar chat si es técnico puro de campo)
+  // 🛡️ Identificación de Técnico (Ocultar si es técnico puro de campo)
   const isTecnico =
     userRol === "2" ||
     Boolean(
@@ -37,21 +37,7 @@ export const OnlineChatDropdown: React.FC<OnlineChatDropdownProps> = ({
           rolNombre.toUpperCase().includes("TÉCNICO"))
     );
 
-  const canUseGroupChat =
-    !isTecnico &&
-    (userRol === "1" ||
-      userRol === "3" ||
-      userRol === "5" ||
-      (rolNombre &&
-        (rolNombre.toUpperCase().includes("ADMIN") ||
-          rolNombre.toUpperCase().includes("RECURSO") ||
-          rolNombre.toUpperCase().includes("RRHH") ||
-          rolNombre.toUpperCase().includes("ALMACEN") ||
-          rolNombre.toUpperCase().includes("LOGISTICA"))));
-
   const [usuariosOnline, setUsuariosOnline] = useState<OnlineUser[]>([]);
-  const [totalNoLeidos, setTotalNoLeidos] = useState(0);
-  const [noLeidosPorUsuario, setNoLeidosPorUsuario] = useState<Record<number, number>>({});
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -68,7 +54,7 @@ export const OnlineChatDropdown: React.FC<OnlineChatDropdownProps> = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Polling de usuarios online y mensajes no leídos
+  // Polling ligero de usuarios online (cada 40 segundos)
   useEffect(() => {
     if (isTecnico) return;
 
@@ -82,109 +68,57 @@ export const OnlineChatDropdown: React.FC<OnlineChatDropdownProps> = ({
         .catch(() => {});
     };
 
-    const fetchNoLeidos = () => {
-      if (document.hidden || !userId) return;
-      fetch(`${API_URL}/api/chat/noleidos?id_usuario=${userId}`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (data && typeof data.total === "number") {
-            setTotalNoLeidos(data.total);
-            setNoLeidosPorUsuario(data.por_usuario || {});
-          }
-        })
-        .catch(() => {});
-    };
-
     fetchOnline();
-    fetchNoLeidos();
 
-    const iOnline = setInterval(fetchOnline, 12000);
-    const iNoLeidos = setInterval(fetchNoLeidos, 10000);
-
-    return () => {
-      clearInterval(iOnline);
-      clearInterval(iNoLeidos);
-    };
-  }, [userId, isTecnico]);
+    const interval = setInterval(fetchOnline, 40000);
+    return () => clearInterval(interval);
+  }, [isTecnico]);
 
   if (isTecnico) return null;
 
   const totalOnline = usuariosOnline.filter((u) => u.esta_online === 1).length;
 
-  const handleOpenGroupChat = () => {
-    window.dispatchEvent(new CustomEvent("openTeamChat", { detail: { tab: "general" } }));
-    setIsOpen(false);
-  };
-
-  const handleOpenUserChat = (target: OnlineUser) => {
-    window.dispatchEvent(new CustomEvent("openTeamChat", { detail: { tab: target.id_usuario, user: target } }));
-    setIsOpen(false);
-  };
-
   return (
     <div className={`relative shrink-0 ${className}`} ref={dropdownRef}>
-      {/* Botón Indicador de En Línea y Chat */}
+      {/* Botón Indicador de Personal Activo en Línea (Solo punto verde + número + texto) */}
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-2xs h-9 ${
-          totalNoLeidos > 0
-            ? "bg-emerald-500 text-white border-emerald-400 ring-2 ring-emerald-300 shadow-md animate-bounce"
-            : isOpen
-            ? "bg-sky-50 text-sky-900 border-sky-300 ring-1 ring-sky-200"
-            : "bg-white hover:bg-sky-50 text-slate-700 hover:text-sky-900 border-slate-200 hover:border-sky-300"
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-2xs h-8.5 ${
+          isOpen
+            ? "bg-emerald-50 text-emerald-900 border-emerald-300 ring-1 ring-emerald-200"
+            : "bg-white hover:bg-emerald-50/60 text-slate-700 hover:text-emerald-900 border-slate-200 hover:border-emerald-300"
         }`}
-        title="Personal en Línea y Chat de Equipo"
+        title="Ver personal activo en línea"
       >
-        <span className="relative flex h-2.5 w-2.5 shrink-0">
+        <span className="relative flex h-2 w-2 shrink-0">
           {totalOnline > 0 && (
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
           )}
-          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
         </span>
         <span className="font-mono font-black text-slate-900">{totalOnline}</span>
-        <MessageSquare size={14} className="text-sky-600 shrink-0" />
-        {totalNoLeidos > 0 && (
-          <span className="bg-red-600 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full shadow-xs">
-            {totalNoLeidos}
-          </span>
-        )}
+        <span className="text-slate-600 font-bold text-[11px] hidden sm:inline">En Línea</span>
         <ChevronDown
           size={12}
           className={`text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`}
         />
       </button>
 
-      {/* Popover / Dropdown flotante */}
+      {/* Popover / Dropdown flotante de usuarios conectados */}
       {isOpen && (
         <div className="absolute right-0 mt-2 w-76 max-w-[90vw] bg-white rounded-2xl shadow-2xl border border-slate-200/90 z-50 overflow-hidden flex flex-col animate-in fade-in slide-in-from-top-1 duration-150">
           {/* Header del dropdown */}
           <div className="p-3 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between">
             <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-              <Users size={14} className="text-sky-600" />
-              Equipo y Chat
+              <Users size={14} className="text-emerald-600" />
+              Personal en Línea
             </span>
-            <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
-              {totalOnline} en línea
+            <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              {totalOnline} conectados
             </span>
           </div>
-
-          {/* Botón Acceso Rápido Canal Grupal */}
-          {canUseGroupChat && (
-            <div className="p-2 border-b border-slate-100 bg-sky-50/40">
-              <button
-                type="button"
-                onClick={handleOpenGroupChat}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 active:scale-98 text-white font-black text-xs transition-all shadow-xs cursor-pointer"
-              >
-                <div className="flex items-center gap-1.5">
-                  <MessageSquare size={14} />
-                  <span>Canal Grupal 24/7</span>
-                </div>
-                <span className="bg-white/20 px-2 py-0.5 rounded text-[10px] font-mono">Abrir</span>
-              </button>
-            </div>
-          )}
 
           {/* Barra de búsqueda */}
           <div className="p-2 border-b border-slate-100">
@@ -195,16 +129,16 @@ export const OnlineChatDropdown: React.FC<OnlineChatDropdownProps> = ({
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Buscar compañero..."
-                className="w-full bg-slate-100 text-slate-800 text-xs pl-7 pr-2 py-1.5 rounded-lg border-none focus:ring-1 focus:ring-sky-500 outline-none"
+                className="w-full bg-slate-100 text-slate-800 text-xs pl-7 pr-2 py-1.5 rounded-lg border-none focus:ring-1 focus:ring-emerald-500 outline-none"
               />
             </div>
           </div>
 
-          {/* Lista de compañeros */}
+          {/* Lista de compañeros conectados */}
           <div className="max-h-64 overflow-y-auto p-1.5 space-y-1 custom-scrollbar">
             {usuariosOnline.length === 0 ? (
-              <div className="py-6 text-center text-xs text-slate-400">
-                Cargando personal...
+              <div className="py-6 text-center text-xs text-slate-400 font-medium">
+                No hay usuarios conectados actualmente.
               </div>
             ) : (
               usuariosOnline
@@ -217,21 +151,14 @@ export const OnlineChatDropdown: React.FC<OnlineChatDropdownProps> = ({
                 .map((u) => {
                   const isOnline = u.esta_online === 1;
                   const isMe = String(u.id_usuario) === String(userId);
-                  const cantNoLeidos = noLeidosPorUsuario[u.id_usuario] || 0;
-                  const hasUnread = cantNoLeidos > 0 && !isMe;
 
                   return (
-                    <button
+                    <div
                       key={u.id_usuario}
-                      type="button"
-                      disabled={isMe}
-                      onClick={() => handleOpenUserChat(u)}
                       className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-all ${
                         isMe
-                          ? "opacity-60 bg-slate-50 cursor-default"
-                          : hasUnread
-                          ? "bg-emerald-50 hover:bg-emerald-100 border border-emerald-300"
-                          : "hover:bg-slate-100 cursor-pointer"
+                          ? "bg-emerald-50/40 border border-emerald-100"
+                          : "hover:bg-slate-50 border border-transparent"
                       }`}
                     >
                       <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -247,21 +174,20 @@ export const OnlineChatDropdown: React.FC<OnlineChatDropdownProps> = ({
                         </span>
                         <div className="min-w-0 flex-1">
                           <p className="text-xs font-bold text-slate-900 truncate">
-                            {u.nombre_completo} {isMe && "(Tú)"}
+                            {u.nombre_completo} {isMe && <span className="text-emerald-700 font-normal">(Tú)</span>}
                           </p>
-                          <p className="text-[10px] text-slate-500 truncate">
+                          <p className="text-[10px] text-slate-500 truncate mt-0.5">
                             {u.rol_nombre || "Personal"} • {u.area || "Operaciones"}
                           </p>
                         </div>
                       </div>
-                      {hasUnread ? (
-                        <span className="bg-emerald-600 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full animate-pulse shrink-0">
-                          {cantNoLeidos}
+
+                      <div className="shrink-0 text-right">
+                        <span className={`text-[10px] font-bold ${isOnline ? "text-emerald-600" : "text-slate-400"}`}>
+                          {isOnline ? "Activo" : "Desconectado"}
                         </span>
-                      ) : (
-                        !isMe && <MessageSquare size={13} className="text-slate-400 hover:text-sky-600 shrink-0" />
-                      )}
-                    </button>
+                      </div>
+                    </div>
                   );
                 })
             )}

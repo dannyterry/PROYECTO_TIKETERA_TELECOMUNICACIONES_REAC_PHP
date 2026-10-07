@@ -97,6 +97,7 @@ export const TechnicalActModal: React.FC<Props> = ({
 
   const [tipoLiquidacion, setTipoLiquidacion] = useState(initialTipoLiq);
   const [motivosList, setMotivosList] = useState<MotivoItem[]>([]);
+  const [mostrarEquiposManual, setMostrarEquiposManual] = useState<boolean | null>(null);
 
   useEffect(() => {
     const t = (
@@ -106,7 +107,10 @@ export const TechnicalActModal: React.FC<Props> = ({
       order.tipoTrabajo ||
       ""
     ).trim();
-    if (t) setTipoLiquidacion(t);
+    if (t) {
+      setTipoLiquidacion(t);
+      setMostrarEquiposManual(null);
+    }
   }, [order]);
 
   // Reglas de negocio / Alarmas emergentes
@@ -660,6 +664,19 @@ export const TechnicalActModal: React.FC<Props> = ({
   }, [tipoLiquidacion]);
 
   const eqTipoNombre = isFono ? "FonoWin / Teléfono" : isMesh ? "Router Mesh" : isTvBox ? "TV Box" : "ONT";
+
+  // Control dinámico de visibilidad para equipos serializados
+  const seccionEquiposVisible = useMemo(() => {
+    if (mostrarEquiposManual !== null) return mostrarEquiposManual;
+    return Boolean(
+      plantillaActual.requiereEquipoInstalado ||
+      plantillaActual.requiereEquipoRetirado ||
+      snOntInstalado ||
+      snOntRetirado ||
+      snMeshInstalado ||
+      snMeshRetirado
+    );
+  }, [mostrarEquiposManual, plantillaActual, snOntInstalado, snOntRetirado, snMeshInstalado, snMeshRetirado]);
 
   // Series disponibles de equipos (excluyendo actas/talonarios y priorizando por tipo de equipo)
   const seriesEquiposDisponibles = useMemo(() => {
@@ -1628,18 +1645,35 @@ export const TechnicalActModal: React.FC<Props> = ({
             {/* ─────────────────────────────────────────────────────────────
                 5. CONTROL DE EQUIPOS SERIALIZADOS (ONT / MESH / FONOWIN / TV BOX)
             ───────────────────────────────────────────────────────────── */}
-            {(plantillaActual.requiereEquipoInstalado ||
-              plantillaActual.requiereEquipoRetirado ||
-              snOntRetirado) && (
+            {seccionEquiposVisible ? (
               <div className="p-4 bg-gradient-to-r from-indigo-50/60 to-purple-50/60 border border-indigo-200 rounded-2xl space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="font-black text-xs text-indigo-900 flex items-center gap-1.5">
                     <QrCode size={16} />
                     Equipos Serializados ({eqTipoNombre})
                   </span>
-                  <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-lg bg-indigo-100 text-indigo-800">
-                    Control de Series & Recojo
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-lg bg-indigo-100 text-indigo-800">
+                      Control de Series & Recojo
+                    </span>
+                    {!isAlreadyLiquidated && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSnOntInstalado("");
+                          setSnOntRetirado("");
+                          setSnMeshInstalado("");
+                          setSnMeshRetirado("");
+                          setMostrarEquiposManual(false);
+                        }}
+                        className="text-[11px] text-slate-400 hover:text-rose-600 hover:bg-rose-50 px-2 py-0.5 rounded-lg font-bold transition-colors cursor-pointer flex items-center gap-1"
+                        title="Omitir o quitar equipos de esta liquidación"
+                      >
+                        <X size={13} />
+                        <span>Omitir / Quitar</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white p-3 rounded-xl border border-indigo-100">
@@ -1725,6 +1759,23 @@ export const TechnicalActModal: React.FC<Props> = ({
                   </div>
                 </div>
               </div>
+            ) : (
+              !isAlreadyLiquidated && (
+                <div className="flex items-center justify-between p-3 bg-slate-50 border border-dashed border-slate-200 rounded-xl hover:bg-indigo-50/50 hover:border-indigo-200 transition-colors">
+                  <div className="flex items-center gap-2 text-slate-500 text-xs">
+                    <QrCode size={15} className="text-slate-400" />
+                    <span>¿Hubo cambio o instalación de equipo ({eqTipoNombre})?</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setMostrarEquiposManual(true)}
+                    className="px-2.5 py-1 bg-white hover:bg-indigo-600 hover:text-white text-indigo-600 border border-indigo-200 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer shadow-2xs active:scale-95"
+                  >
+                    <PlusCircle size={13} />
+                    <span>+ Registrar Equipo</span>
+                  </button>
+                </div>
+              )
             )}
 
             {/* Observaciones */}

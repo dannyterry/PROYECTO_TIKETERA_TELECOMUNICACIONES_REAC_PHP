@@ -37,6 +37,10 @@ function isPublicPath(req) {
     path.startsWith("/api/inventario/transferencias") || path.startsWith("/inventario/transferencias") ||
     orig.startsWith("/api/inventario/transferencias") || orig.startsWith("/inventario/transferencias")
   ) return true;
+  if (
+    path.startsWith("/api/cuadrillas") || path.startsWith("/cuadrillas") ||
+    orig.startsWith("/api/cuadrillas") || orig.startsWith("/cuadrillas")
+  ) return true;
   return false;
 }
 

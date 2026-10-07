@@ -493,6 +493,65 @@ export const restaurarCuadrillaFenix = async (orderId: number | string, numero?:
 };
 
 /**
+ * 👥 3.2 Asignar reemplazo persistente a nivel de Cuadrilla (hoy y órdenes futuras Fénix)
+ */
+export const asignarCuadrillaReemplazo = async (data: {
+  codigo_cuadrilla: string;
+  id_tecnico_reemplazo?: number | null;
+  nombre_reemplazo: string;
+  id_tecnico_reemplazo_t2?: number | null;
+  nombre_reemplazo_t2?: string | null;
+  id_tecnico_titular?: number | null;
+  nombre_titular?: string | null;
+  actualizar_ordenes?: boolean;
+}) => {
+  const token = localStorage.getItem("token");
+  const response = await fetch(`${API_URL}/api/cuadrillas/reemplazo`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error("Error al asignar reemplazo de cuadrilla");
+  return await response.json();
+};
+
+/**
+ * 📋 3.3 Obtener reemplazos de cuadrillas activos
+ */
+export const getCuadrillaReemplazos = async () => {
+  try {
+    const token = localStorage.getItem("token");
+    const response = await fetch(`${API_URL}/api/cuadrillas/reemplazos`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data?.data || [];
+  } catch (e) {
+    return [];
+  }
+};
+
+/**
+ * 🔄 3.4 Restaurar cuadrilla a técnico original de Fénix (eliminar reemplazo persistente)
+ */
+export const restaurarCuadrillaReemplazo = async (codigoCuadrilla: string) => {
+  const token = localStorage.getItem("token");
+  const response = await fetch(
+    `${API_URL}/api/cuadrillas/reemplazo/${encodeURIComponent(codigoCuadrilla)}`,
+    {
+      method: "DELETE",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    }
+  );
+  if (!response.ok) throw new Error("Error al restaurar cuadrilla a origen Fénix");
+  return await response.json();
+};
+
+/**
  * 🚀 4. Guardar / Alternar llamada Inconcert en BD
  */
 export const updateOrderInconcert = async (

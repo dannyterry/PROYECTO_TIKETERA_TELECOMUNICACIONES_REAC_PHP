@@ -402,3 +402,16 @@ export const resetPasswordEmpleado = async (id: number, password?: string) => {
   }
   return res.json();
 };
+
+export const actualizarSctrMasivo = async (ids: number[], vencimientoSctr: string) => {
+  const res = await fetch(`${API_URL}/api/empleados/actualizar-sctr-masivo`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids, vencimiento_sctr: vencimientoSctr }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Error al actualizar SCTR masivo");
+  }
+  return res.json();
+};

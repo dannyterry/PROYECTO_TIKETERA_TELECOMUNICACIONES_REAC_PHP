@@ -15,8 +15,8 @@ interface OrdersTableProps {
   onToggleInconcert?: (orderId: number) => void;
   onUpdateObservacionLlamada?: (orderId: number, value: string) => void;
   onUpdateObservacionesAtencion?: (orderId: number, value: string) => void;
-  onAssignTechnician?: (orderId: number, technician: string) => void;
-  onRestoreCuadrillaFenix?: (orderId: number) => void;
+  onAssignTechnician?: (orderId: number, technician: string, mode?: 'order' | 'cuadrilla', cuadrillaCode?: string) => void;
+  onRestoreCuadrillaFenix?: (orderId: number, mode?: 'order' | 'cuadrilla', cuadrillaCode?: string) => void;
   onUpdateTipoTrabajo?: (orderId: number, tipoTrabajo: string) => void;
   onSelectOrder?: (order: Order) => void;
   onOpenLiquidar?: (order: Order) => void;
@@ -431,10 +431,11 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
 }) => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  // Estado para el modal de asignación dual de técnicos (T1 & T2)
+  // Estado para el modal de asignación dual de técnicos (T1 & T2) y alcance (orden / cuadrilla)
   const [assigningOrder, setAssigningOrder] = useState<Order | null>(null);
   const [selectedT1, setSelectedT1] = useState<string>("");
   const [selectedT2, setSelectedT2] = useState<string>("");
+  const [assignMode, setAssignMode] = useState<'order' | 'cuadrilla'>('order');
 
   // 🚀 Lógica de Ordenamiento Inteligente:
   // 1. Si hay una BÚSQUEDA o RANGO DE FECHAS activo:
@@ -526,6 +527,7 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
       .filter((t) => t && t !== "-- Seleccione --" && t !== "-" && t !== "-- Seleccionar --");
     setSelectedT1(rawTecs[0] || "");
     setSelectedT2(rawTecs[1] || "");
+    setAssignMode('order');
     setAssigningOrder(order);
   };
 
@@ -536,7 +538,9 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
     else if (selectedT1) combined = selectedT1;
     else if (selectedT2) combined = selectedT2;
     else combined = "";
-    onAssignTechnician && onAssignTechnician(assigningOrder.id, combined);
+
+    const cuadCode = extractCuadrillaKey(assigningOrder.cuadrillaOrigenFenix || assigningOrder.cuadrilla || "") || assigningOrder.cuadrilla || "";
+    onAssignTechnician && onAssignTechnician(assigningOrder.id, combined, assignMode, cuadCode);
     setAssigningOrder(null);
   };
 
@@ -1583,140 +1587,228 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
         </table>
       </div>
 
-      {/* MODAL DE ASIGNACIÓN DUAL DE TÉCNICOS (T1 & T2) */}
-      {assigningOrder && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150"
-          onClick={() => setAssigningOrder(null)}
-        >
+      {/* MODAL DE ASIGNACIÓN (POR ORDEN O POR CUADRILLA PERSISTENTE) */}
+      {assigningOrder && (() => {
+        const detectedCuad = extractCuadrillaKey(assigningOrder.cuadrillaOrigenFenix || assigningOrder.cuadrilla || "") || assigningOrder.cuadrilla || "Sin Cuadrilla";
+        const isCuadrillaMode = assignMode === 'cuadrilla';
+
+        return (
           <div
-            className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150"
+            onClick={() => setAssigningOrder(null)}
           >
-            {/* Header */}
-            <div className="flex items-center justify-between px-5 py-3.5 bg-slate-50 border-b border-slate-200">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <Users size={16} className="text-indigo-600" />
-                  Asignar Técnicos a la Orden
-                </h3>
-                <p className="text-xs text-slate-500 font-mono mt-0.5">
-                  Ticket #{assigningOrder.ticket || assigningOrder.id} &bull; {assigningOrder.cliente || "Cliente"}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAssigningOrder(null)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition-colors cursor-pointer"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* Body */}
-            <div className="p-5 space-y-4 text-xs">
-              {/* Selector T1 */}
-              <div className="space-y-1.5">
-                <label className="flex items-center gap-1.5 font-bold text-slate-800">
-                  <span className="text-[10px] font-black uppercase text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded border border-indigo-200 font-mono">
-                    T1
-                  </span>
-                  Técnico 1 (Titular / Principal)
-                </label>
-                <select
-                  value={selectedT1}
-                  onChange={(e) => setSelectedT1(e.target.value)}
-                  className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer"
-                >
-                  <option value="">-- Sin asignar (Ninguno) --</option>
-                  {sortedTecnicosDisponibles.map((tec) => (
-                    <option key={tec} value={tec} disabled={tec === selectedT2}>
-                      {tec}
-                    </option>
-                  ))}
-                  {selectedT1 && !sortedTecnicosDisponibles.includes(selectedT1) && (
-                    <option value={selectedT1}>{selectedT1}</option>
-                  )}
-                </select>
-              </div>
-
-              {/* Selector T2 */}
-              <div className="space-y-1.5">
-                <label className="flex items-center gap-1.5 font-bold text-slate-800">
-                  <span className="text-[10px] font-black uppercase text-slate-700 bg-slate-200 px-1.5 py-0.5 rounded border border-slate-300 font-mono">
-                    T2
-                  </span>
-                  Técnico 2 (Auxiliar / Acompañante)
-                </label>
-                <select
-                  value={selectedT2}
-                  onChange={(e) => setSelectedT2(e.target.value)}
-                  className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer"
-                >
-                  <option value="">-- Sin asignar (Ninguno) --</option>
-                  {sortedTecnicosDisponibles.map((tec) => (
-                    <option key={tec} value={tec} disabled={tec === selectedT1}>
-                      {tec}
-                    </option>
-                  ))}
-                  {selectedT2 && !sortedTecnicosDisponibles.includes(selectedT2) && (
-                    <option value={selectedT2}>{selectedT2}</option>
-                  )}
-                </select>
-              </div>
-
-              {/* Vista previa */}
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Vista previa de asignación:
-                </span>
-                <div className="font-semibold text-slate-700 text-xs">
-                  {selectedT1 && selectedT2 ? (
-                    <span>{selectedT1} <strong className="text-indigo-600">/</strong> {selectedT2}</span>
-                  ) : selectedT1 ? (
-                    <span>{selectedT1}</span>
-                  ) : selectedT2 ? (
-                    <span>{selectedT2}</span>
-                  ) : (
-                    <span className="text-slate-400 italic">Sin técnicos asignados</span>
-                  )}
+            <div
+              className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-3.5 bg-slate-50 border-b border-slate-200">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <Users size={16} className="text-indigo-600" />
+                    Asignar Técnico
+                  </h3>
+                  <p className="text-xs text-slate-500 font-mono mt-0.5">
+                    Ticket #{assigningOrder.ticket || assigningOrder.id} &bull; {assigningOrder.cliente || "Cliente"}
+                  </p>
                 </div>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="flex items-center justify-between px-5 py-3 bg-slate-50 border-t border-slate-200">
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedT1("");
-                  setSelectedT2("");
-                }}
-                className="px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50 rounded-lg font-medium transition-colors cursor-pointer"
-              >
-                Limpiar
-              </button>
-
-              <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setAssigningOrder(null)}
-                  className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-200 rounded-lg font-medium transition-colors cursor-pointer"
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition-colors cursor-pointer"
                 >
-                  Cancelar
+                  <X size={18} />
                 </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 space-y-4 text-xs">
+                {/* Selector de Modo: Solo Orden vs Toda la Cuadrilla */}
+                <div className="space-y-1.5">
+                  <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                    Alcance de la asignación:
+                  </span>
+                  <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setAssignMode('order')}
+                      className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                        !isCuadrillaMode
+                          ? 'bg-white text-indigo-700 shadow-xs border border-slate-200'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <User size={14} />
+                      Solo esta orden
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAssignMode('cuadrilla')}
+                      className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                        isCuadrillaMode
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <Users size={14} />
+                      Toda la Cuadrilla
+                    </button>
+                  </div>
+                </div>
+
+                {/* Banner Contextual del Modo */}
+                {isCuadrillaMode ? (
+                  <div className="p-3 bg-indigo-50/80 border border-indigo-200/80 rounded-xl space-y-1.5 animate-in fade-in duration-100">
+                    <div className="flex items-center justify-between text-indigo-950 font-bold">
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles size={14} className="text-indigo-600" />
+                        Cuadrilla vinculada:
+                      </div>
+                      <span className="font-mono bg-indigo-200/80 px-2 py-0.5 rounded text-indigo-950 font-black text-[11px]">
+                        {detectedCuad}
+                      </span>
+                    </div>
+                    <p className="text-slate-600 text-[11px] leading-relaxed">
+                      El técnico seleccionado cubrirá <strong>todas las órdenes activas</strong> de esta cuadrilla y las que descargue Fénix en las próximas horas/días automáticamente.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-600 flex items-center justify-between">
+                    <div>
+                      <span className="font-bold text-slate-800">Modo puntual:</span> Aplica únicamente al Ticket <span className="font-mono font-bold text-indigo-600">#{assigningOrder.ticket || assigningOrder.id}</span>.
+                    </div>
+                  </div>
+                )}
+
+                {/* Selector T1 */}
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-1.5 font-bold text-slate-800">
+                    <span className="text-[10px] font-black uppercase text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded border border-indigo-200 font-mono">
+                      T1
+                    </span>
+                    {isCuadrillaMode ? "Técnico Reemplazo / Titular" : "Técnico 1 (Titular / Principal)"}
+                  </label>
+                  <select
+                    value={selectedT1}
+                    onChange={(e) => setSelectedT1(e.target.value)}
+                    className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer"
+                  >
+                    <option value="">-- Sin asignar (Ninguno) --</option>
+                    {sortedTecnicosDisponibles.map((tec) => (
+                      <option key={tec} value={tec} disabled={tec === selectedT2}>
+                        {tec}
+                      </option>
+                    ))}
+                    {selectedT1 && !sortedTecnicosDisponibles.includes(selectedT1) && (
+                      <option value={selectedT1}>{selectedT1}</option>
+                    )}
+                  </select>
+                </div>
+
+                {/* Selector T2 */}
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-1.5 font-bold text-slate-800">
+                    <span className="text-[10px] font-black uppercase text-slate-700 bg-slate-200 px-1.5 py-0.5 rounded border border-slate-300 font-mono">
+                      T2
+                    </span>
+                    Técnico 2 (Auxiliar / Acompañante)
+                  </label>
+                  <select
+                    value={selectedT2}
+                    onChange={(e) => setSelectedT2(e.target.value)}
+                    className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer"
+                  >
+                    <option value="">-- Sin asignar (Ninguno) --</option>
+                    {sortedTecnicosDisponibles.map((tec) => (
+                      <option key={tec} value={tec} disabled={tec === selectedT1}>
+                        {tec}
+                      </option>
+                    ))}
+                    {selectedT2 && !sortedTecnicosDisponibles.includes(selectedT2) && (
+                      <option value={selectedT2}>{selectedT2}</option>
+                    )}
+                  </select>
+                </div>
+
+                {/* Vista previa */}
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Vista previa {isCuadrillaMode ? "para toda la cuadrilla" : "de asignación"}:
+                    </span>
+                    {isCuadrillaMode && (
+                      <span className="text-[10px] font-mono font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+                        {detectedCuad}
+                      </span>
+                    )}
+                  </div>
+                  <div className="font-semibold text-slate-700 text-xs">
+                    {selectedT1 && selectedT2 ? (
+                      <span>{selectedT1} <strong className="text-indigo-600">/</strong> {selectedT2}</span>
+                    ) : selectedT1 ? (
+                      <span>{selectedT1}</span>
+                    ) : selectedT2 ? (
+                      <span>{selectedT2}</span>
+                    ) : (
+                      <span className="text-slate-400 italic">Sin técnicos asignados</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Botón de Restauración a Origen Fénix si la orden o cuadrilla está modificada */}
+                {onRestoreCuadrillaFenix && (
+                  <div className="pt-1 flex items-center justify-between border-t border-slate-100">
+                    <span className="text-[11px] text-slate-500">¿Revertir a datos Fénix?</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onRestoreCuadrillaFenix(assigningOrder.id, isCuadrillaMode ? 'cuadrilla' : 'order', detectedCuad);
+                        setAssigningOrder(null);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <RotateCcw size={12} />
+                      {isCuadrillaMode ? "Restaurar Cuadrilla Original" : "Restaurar Ticket Original"}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-between px-5 py-3 bg-slate-50 border-t border-slate-200">
                 <button
                   type="button"
-                  onClick={handleSaveAssignment}
-                  className="px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors cursor-pointer"
+                  onClick={() => {
+                    setSelectedT1("");
+                    setSelectedT2("");
+                  }}
+                  className="px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50 rounded-lg font-medium transition-colors cursor-pointer"
                 >
-                  Guardar
+                  Limpiar
                 </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAssigningOrder(null)}
+                    className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-200 rounded-lg font-medium transition-colors cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveAssignment}
+                    className="px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Check size={14} />
+                    {isCuadrillaMode ? "Guardar en Cuadrilla" : "Guardar Orden"}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };

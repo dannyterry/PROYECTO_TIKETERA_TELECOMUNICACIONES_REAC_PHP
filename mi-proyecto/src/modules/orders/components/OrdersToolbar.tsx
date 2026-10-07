@@ -11,14 +11,13 @@ import {
   Layers,
   Bell,
   Radio,
-  MessageSquare,
   ChevronDown,
-  Users,
-  LogOut,
   User,
+  LogOut,
 } from "lucide-react";
 import { authService } from "../../../services/authService";
 import { API_URL } from "../../../config/api";
+import { OnlineChatDropdown } from "../../../components/chat/OnlineChatDropdown";
 
 interface OnlineUser {
   id_usuario: number;
@@ -87,14 +86,9 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
 
   // Estados para Chat y Usuarios Online
   const [usuariosOnline, setUsuariosOnline] = useState<OnlineUser[]>([]);
-  const [totalNoLeidos, setTotalNoLeidos] = useState(0);
-  const [noLeidosPorUsuario, setNoLeidosPorUsuario] = useState<Record<number, number>>({});
-  const [onlineDropdownOpen, setOnlineDropdownOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [userSearchTerm, setUserSearchTerm] = useState("");
   const [avatarImgError, setAvatarImgError] = useState(false);
 
-  const onlineDropdownRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const statusDropdownRef = useRef<HTMLDivElement>(null);
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
@@ -102,9 +96,6 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
   // Cerrar dropdowns al hacer clic fuera
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (onlineDropdownRef.current && !onlineDropdownRef.current.contains(e.target as Node)) {
-        setOnlineDropdownOpen(false);
-      }
       if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
         setUserMenuOpen(false);
       }
@@ -115,56 +106,6 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
-
-  // Polling de usuarios online y mensajes no leídos (Solo para personal que no sea técnico)
-  useEffect(() => {
-    if (isTecnico) return;
-    const fetchOnline = () => {
-      if (document.hidden) return;
-      fetch(`${API_URL}/api/auditoria/usuarios-online`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (Array.isArray(data)) setUsuariosOnline(data);
-        })
-        .catch(() => {});
-    };
-
-    const fetchNoLeidos = () => {
-      if (document.hidden || !userId) return;
-      fetch(`${API_URL}/api/chat/noleidos?id_usuario=${userId}`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (data && typeof data.total === "number") {
-            setTotalNoLeidos(data.total);
-            setNoLeidosPorUsuario(data.por_usuario || {});
-          }
-        })
-        .catch(() => {});
-    };
-
-    fetchOnline();
-    fetchNoLeidos();
-
-    const iOnline = setInterval(fetchOnline, 15000);
-    const iNoLeidos = setInterval(fetchNoLeidos, 25000);
-
-    return () => {
-      clearInterval(iOnline);
-      clearInterval(iNoLeidos);
-    };
-  }, [userId]);
-
-  const totalOnline = usuariosOnline.filter((u) => u.esta_online === 1).length;
-
-  const handleOpenGroupChat = () => {
-    window.dispatchEvent(new CustomEvent("openTeamChat", { detail: { tab: "general" } }));
-    setOnlineDropdownOpen(false);
-  };
-
-  const handleOpenUserChat = (target: OnlineUser) => {
-    window.dispatchEvent(new CustomEvent("openTeamChat", { detail: { tab: target.id_usuario, user: target } }));
-    setOnlineDropdownOpen(false);
-  };
 
   const handleLogout = () => {
     authService.logout();
@@ -393,142 +334,9 @@ export const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
             <span className="font-mono text-[11px]">({countdown}s)</span>
           </Button>
 
-          {/* 3. Desplegable de En Línea y Chat (Oculto estrictamente para Técnicos) */}
+          {/* 3. Desplegable de En Línea (Oculto estrictamente para Técnicos) */}
           {!isTecnico && (
-            <div className="relative shrink-0" ref={onlineDropdownRef}>
-              <button
-                type="button"
-                onClick={() => setOnlineDropdownOpen(!onlineDropdownOpen)}
-                className={`flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer shadow-2xs h-7.5 ${
-                  totalNoLeidos > 0
-                    ? "bg-emerald-500 text-white border-emerald-400 ring-2 ring-emerald-300 shadow-md animate-bounce"
-                    : onlineDropdownOpen
-                    ? "bg-sky-50 text-sky-900 border-sky-300 ring-1 ring-sky-200"
-                    : "bg-slate-50 hover:bg-sky-50 text-slate-700 hover:text-sky-900 border-slate-200 hover:border-sky-300"
-                }`}
-                title="Personal en Línea y Chat de Equipo"
-              >
-                <span className="relative flex h-2 w-2">
-                  {totalOnline > 0 && (
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  )}
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                </span>
-                <span className="font-mono font-black text-slate-900">{totalOnline}</span>
-                <span className="text-[10px] text-slate-600 font-semibold hidden md:inline">En Línea</span>
-                <MessageSquare size={12} className="text-sky-600 shrink-0" />
-                {totalNoLeidos > 0 && (
-                  <span className="bg-red-600 text-white text-[9px] font-black px-1 py-0.2 rounded-full shadow-xs">
-                    {totalNoLeidos}
-                  </span>
-                )}
-                <ChevronDown size={11} className={`text-slate-400 transition-transform ${onlineDropdownOpen ? "rotate-180" : ""}`} />
-              </button>
-
-              {/* DROPDOWN FLOTANTE DE CHAT & EQUIPO */}
-              {onlineDropdownOpen && (
-                <div className="absolute right-0 mt-1 w-72 max-w-[90vw] bg-white rounded-2xl shadow-xl border border-slate-200/90 z-50 overflow-hidden flex flex-col animate-in fade-in slide-in-from-top-1 duration-150">
-                  <div className="p-2.5 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between">
-                    <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-                      <Users size={13} className="text-sky-600" />
-                      Equipo y Chat
-                    </span>
-                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded-full">
-                      {totalOnline} en línea
-                    </span>
-                  </div>
-
-                  {canUseGroupChat && (
-                    <div className="p-2 border-b border-slate-100 bg-sky-50/40">
-                      <button
-                        type="button"
-                        onClick={handleOpenGroupChat}
-                        className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-black text-xs transition-all shadow-xs cursor-pointer"
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <MessageSquare size={13} />
-                          <span>Canal Grupal 24/7</span>
-                        </div>
-                        <span className="bg-white/20 px-1.5 py-0.2 rounded text-[9px] font-mono">Abrir</span>
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="p-2 border-b border-slate-100">
-                    <div className="relative">
-                      <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input
-                        type="text"
-                        value={userSearchTerm}
-                        onChange={(e) => setUserSearchTerm(e.target.value)}
-                        placeholder="Buscar compañero..."
-                        className="w-full bg-slate-100 text-slate-800 text-xs pl-7 pr-2 py-1 rounded-lg border-none focus:ring-1 focus:ring-sky-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="max-h-60 overflow-y-auto p-1.5 space-y-1 custom-scrollbar">
-                    {usuariosOnline
-                      .filter(
-                        (u) =>
-                          !userSearchTerm ||
-                          u.nombre_completo.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
-                          (u.rol_nombre && u.rol_nombre.toLowerCase().includes(userSearchTerm.toLowerCase()))
-                      )
-                      .map((u) => {
-                        const isOnline = u.esta_online === 1;
-                        const isMe = String(u.id_usuario) === String(userId);
-                        const cantNoLeidos = noLeidosPorUsuario[u.id_usuario] || 0;
-                        const hasUnread = cantNoLeidos > 0 && !isMe;
-
-                        return (
-                          <button
-                            key={u.id_usuario}
-                            type="button"
-                            disabled={isMe}
-                            onClick={() => handleOpenUserChat(u)}
-                            className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-all ${
-                              isMe
-                                ? "opacity-60 bg-slate-50 cursor-default"
-                                : hasUnread
-                                ? "bg-emerald-50 hover:bg-emerald-100 border border-emerald-300"
-                                : "hover:bg-slate-100 cursor-pointer"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                              <span className="relative flex h-2 w-2 shrink-0">
-                                {isOnline && (
-                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                )}
-                                <span
-                                  className={`relative inline-flex rounded-full h-2 w-2 ${
-                                    isOnline ? "bg-emerald-500" : "bg-slate-300"
-                                  }`}
-                                ></span>
-                              </span>
-                              <div className="min-w-0 flex-1">
-                                <p className="text-xs font-bold text-slate-900 truncate">
-                                  {u.nombre_completo} {isMe && "(Tú)"}
-                                </p>
-                                <p className="text-[10px] text-slate-500 truncate">
-                                  {u.rol_nombre || "Personal"} • {u.area || "Operaciones"}
-                                </p>
-                              </div>
-                            </div>
-                            {hasUnread ? (
-                              <span className="bg-emerald-600 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full animate-pulse shrink-0">
-                                {cantNoLeidos}
-                              </span>
-                            ) : (
-                              !isMe && <MessageSquare size={13} className="text-slate-400 hover:text-sky-600 shrink-0" />
-                            )}
-                          </button>
-                        );
-                      })}
-                  </div>
-                </div>
-              )}
-            </div>
+            <OnlineChatDropdown />
           )}
 
           {/* 4. Menú de Usuario y Cerrar Sesión */}

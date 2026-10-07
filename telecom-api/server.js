@@ -1100,6 +1100,46 @@ app.get(['/empleados/:id/historial', '/api/empleados/:id/historial'], async (req
   }
 });
 
+// --- 🛡️ ACTUALIZACIÓN MASIVA DE SCTR ---
+app.post(['/empleados/actualizar-sctr-masivo', '/api/empleados/actualizar-sctr-masivo'], async (req, res) => {
+  const { ids, vencimiento_sctr } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: "Debe seleccionar al menos un empleado." });
+  }
+  if (!vencimiento_sctr) {
+    return res.status(400).json({ error: "Debe ingresar una fecha de vencimiento válida." });
+  }
+
+  const cleanIds = ids.map(id => Number(id)).filter(id => !isNaN(id) && id > 0);
+  if (cleanIds.length === 0) {
+    return res.status(400).json({ error: "IDs inválidos." });
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.query(
+      "UPDATE usuarios SET vencimiento_sctr = ? WHERE id_usuario IN (?)",
+      [vencimiento_sctr, cleanIds]
+    );
+
+    if (cacheEmpleados) {
+      cacheEmpleados.data = null;
+    }
+
+    res.json({
+      success: true,
+      message: `SCTR actualizado correctamente para ${cleanIds.length} empleado(s).`,
+      total: cleanIds.length,
+      vencimiento_sctr
+    });
+  } catch (err) {
+    console.error("Error al actualizar SCTR masivo:", err);
+    res.status(500).json({ error: "Error en el servidor al actualizar SCTR masivo." });
+  } finally {
+    connection.release();
+  }
+});
+
 // --- RESTABLECER / ASIGNAR CONTRASEÑA DE UN EMPLEADO ---
 app.post(['/empleados/:id/reset-password', '/api/empleados/:id/reset-password'], async (req, res) => {
   try {
@@ -3821,6 +3861,133 @@ app.post('/ordenes/:id/restaurar-cuadrilla-fenix', async (req, res) => {
   }
 });
 
+// --- 2.2 GESTIÓN DE REEMPLAZOS PERSISTENTES POR CUADRILLA ---
+app.get(['/api/cuadrillas/reemplazos', '/cuadrillas/reemplazos'], async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      "SELECT id_reemplazo, codigo_cuadrilla, id_tecnico_titular, nombre_titular, id_tecnico_reemplazo, nombre_reemplazo, id_tecnico_reemplazo_t2, nombre_reemplazo_t2, activo, fecha_creacion, fecha_actualizacion FROM cuadrilla_reemplazos WHERE activo = 1 ORDER BY codigo_cuadrilla ASC"
+    );
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error("Error al obtener reemplazos de cuadrillas:", error.message);
+    res.status(500).json({ success: false, error: error.message, data: [] });
+  }
+});
+
+app.post(['/api/cuadrillas/reemplazo', '/cuadrillas/reemplazo'], async (req, res) => {
+  try {
+    const {
+      codigo_cuadrilla,
+      id_tecnico_reemplazo,
+      nombre_reemplazo,
+      id_tecnico_reemplazo_t2,
+      nombre_reemplazo_t2,
+      id_tecnico_titular,
+      nombre_titular,
+      actualizar_ordenes = true
+    } = req.body || {};
+
+    if (!codigo_cuadrilla || !codigo_cuadrilla.trim()) {
+      return res.status(400).json({ success: false, message: "El código de cuadrilla es obligatorio" });
+    }
+
+    const cleanCodigo = codigo_cuadrilla.trim().toUpperCase();
+
+    // Guardar / Actualizar en tabla cuadrilla_reemplazos
+    await pool.query(
+      `INSERT INTO cuadrilla_reemplazos 
+        (codigo_cuadrilla, id_tecnico_titular, nombre_titular, id_tecnico_reemplazo, nombre_reemplazo, id_tecnico_reemplazo_t2, nombre_reemplazo_t2, activo, fecha_actualizacion)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW())
+       ON DUPLICATE KEY UPDATE
+        id_tecnico_titular = COALESCE(VALUES(id_tecnico_titular), id_tecnico_titular),
+        nombre_titular = COALESCE(VALUES(nombre_titular), nombre_titular),
+        id_tecnico_reemplazo = VALUES(id_tecnico_reemplazo),
+        nombre_reemplazo = VALUES(nombre_reemplazo),
+        id_tecnico_reemplazo_t2 = VALUES(id_tecnico_reemplazo_t2),
+        nombre_reemplazo_t2 = VALUES(nombre_reemplazo_t2),
+        activo = 1,
+        fecha_actualizacion = NOW()`,
+      [
+        cleanCodigo,
+        id_tecnico_titular || null,
+        nombre_titular || null,
+        id_tecnico_reemplazo || null,
+        nombre_reemplazo || null,
+        id_tecnico_reemplazo_t2 || null,
+        nombre_reemplazo_t2 || null
+      ]
+    );
+
+    let affectedOrdersCount = 0;
+    if (actualizar_ordenes) {
+      const fullTechName = (nombre_reemplazo_t2 && nombre_reemplazo_t2.trim())
+        ? `${nombre_reemplazo} / ${nombre_reemplazo_t2}`
+        : nombre_reemplazo;
+
+      const [upRes] = await pool.query(
+        `UPDATE ordenes 
+         SET 
+           cuadrilla_origen_fenix = COALESCE(cuadrilla_origen_fenix, cuadrilla),
+           id_tecnico = ?,
+           id_tecnico_reemplazo = ?,
+           tecnico_asignado = ?,
+           asignacion_manual = 1,
+           fecha_asignacion_manual = NOW()
+         WHERE (UPPER(cuadrilla) LIKE ? OR UPPER(cuadrilla_origen_fenix) LIKE ?)
+           AND (fecha_visita >= CURDATE() - INTERVAL 7 DAY OR fecha_solicitud >= CURDATE() - INTERVAL 7 DAY OR fecha_visita IS NULL)`,
+        [
+          id_tecnico_reemplazo || null,
+          id_tecnico_reemplazo_t2 || null,
+          fullTechName || null,
+          `%${cleanCodigo}%`,
+          `%${cleanCodigo}%`
+        ]
+      );
+      affectedOrdersCount = upRes.affectedRows || 0;
+    }
+
+    res.json({
+      success: true,
+      message: `Cuadrilla ${cleanCodigo} configurada con reemplazo: ${nombre_reemplazo}. Persistente para futuras órdenes Fénix.`,
+      codigo_cuadrilla: cleanCodigo,
+      id_tecnico_reemplazo,
+      nombre_reemplazo,
+      affectedOrders: affectedOrdersCount
+    });
+  } catch (error) {
+    console.error("Error al registrar reemplazo de cuadrilla:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.delete(['/api/cuadrillas/reemplazo/:codigo', '/cuadrillas/reemplazo/:codigo'], async (req, res) => {
+  try {
+    const { codigo } = req.params;
+    const cleanCodigo = decodeURIComponent(codigo || '').trim().toUpperCase();
+
+    await pool.query(
+      "UPDATE cuadrilla_reemplazos SET activo = 0 WHERE UPPER(codigo_cuadrilla) = ?",
+      [cleanCodigo]
+    );
+
+    await pool.query(
+      `UPDATE ordenes 
+       SET asignacion_manual = 0, fecha_asignacion_manual = NULL, id_tecnico_reemplazo = NULL
+       WHERE (UPPER(cuadrilla) LIKE ? OR UPPER(cuadrilla_origen_fenix) LIKE ?)
+         AND (fecha_visita >= CURDATE() - INTERVAL 7 DAY OR fecha_solicitud >= CURDATE() - INTERVAL 7 DAY)`,
+      [`%${cleanCodigo}%`, `%${cleanCodigo}%`]
+    );
+
+    res.json({
+      success: true,
+      message: `Reemplazo de la cuadrilla ${cleanCodigo} desactivado y restaurado a origen Fénix.`
+    });
+  } catch (error) {
+    console.error("Error al restaurar cuadrilla:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // --- 3. ACTUALIZAR LLAMADA INCONCERT DE UNA ORDEN ---
 app.put('/ordenes/:id/inconcert', async (req, res) => {
   try {
@@ -3977,6 +4144,24 @@ app.put('/ordenes/:id/observaciones-atencion', async (req, res) => {
       await pool.query("ALTER TABLE ordenes ADD COLUMN cuadrilla_origen_fenix VARCHAR(255) DEFAULT NULL");
       console.log("✅ [DB] Columna 'cuadrilla_origen_fenix' creada exitosamente en tabla 'ordenes'.");
     }
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS cuadrilla_reemplazos (
+        id_reemplazo INT AUTO_INCREMENT PRIMARY KEY,
+        codigo_cuadrilla VARCHAR(100) NOT NULL UNIQUE,
+        id_tecnico_titular INT NULL,
+        nombre_titular VARCHAR(255) NULL,
+        id_tecnico_reemplazo INT NOT NULL,
+        nombre_reemplazo VARCHAR(255) NOT NULL,
+        id_tecnico_reemplazo_t2 INT NULL,
+        nombre_reemplazo_t2 VARCHAR(255) NULL,
+        activo TINYINT(1) DEFAULT 1,
+        creado_por INT NULL,
+        fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+        fecha_actualizacion DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_cuad_act (codigo_cuadrilla, activo)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
   } catch (e) {}
 })();
 

@@ -37,7 +37,7 @@ import { PaymentsPage } from "./modules/payments/PaymentsPage";
 import { RolesTab } from "./modules/employee/components/RolesTab";
 import { AttendanceTab } from "./modules/employee/components/AttendanceTab";
 import { SupervisionPage } from "./modules/supervision/SupervisionPage";
-import { TeamChat } from "./components/chat/TeamChat";
+import { OnlineChatDropdown } from "./components/chat/OnlineChatDropdown";
 import { authService, AuthUser } from "./services/authService";
 import { LoginPage } from "./pages/LoginPage";
 import { API_URL } from "./config/api";
@@ -523,86 +523,9 @@ export default function App() {
       </aside>
 
       {/* ─────────────────────────────────────────────────────────────
-          ÁREA PRINCIPAL DE CONTENIDO + TOPBAR CORPORATIVO
+          ÁREA PRINCIPAL DE CONTENIDO
       ───────────────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
-        {/* 1. TOPBAR INTEGRADO UNIFICADO: MENÚ (3 RAYITAS), LOGO, CHAT 24/7, EN LÍNEA, USUARIO & CERRAR SESIÓN */}
-        <TeamChat
-          userId={userId}
-          userName={userName}
-          userRol={userRol}
-          rolNombre={rolNombre}
-          hideBar={ocultarBarraChat}
-          compactMode={isOrdersView}
-          leftSlot={
-            <div className="flex items-center">
-              <button
-                type="button"
-                onClick={() => setSidebarColapsado(!sidebarColapsado)}
-                className="w-8 h-8 rounded-xl hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200 flex items-center justify-center transition-colors cursor-pointer shadow-2xs shrink-0"
-                title={sidebarColapsado ? "Mostrar menú lateral (3 rayitas)" : "Ocultar menú"}
-              >
-                <Menu size={16} />
-              </button>
-            </div>
-          }
-          rightSlot={
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setMenuUsuarioAbierto(!menuUsuarioAbierto)}
-                className="flex items-center gap-2.5 py-1 px-2 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer border border-transparent hover:border-slate-200"
-              >
-                <div className="text-right hidden sm:block leading-tight">
-                  <span className="text-xs font-black text-slate-900 block truncate max-w-[170px]">
-                    {userSoloNombres}
-                  </span>
-                  <span className="text-[10px] font-bold text-sky-600 uppercase tracking-wider block">
-                    {rolNombre}
-                  </span>
-                </div>
-
-                {currentUser.foto_personal && !avatarImgError ? (
-                  <img
-                    src={`${API_URL}/uploads/${currentUser.foto_personal}`}
-                    alt={userName}
-                    className="w-8 h-8 rounded-full object-cover border-2 border-sky-500 shrink-0 shadow-xs"
-                    onError={() => setAvatarImgError(true)}
-                  />
-                ) : (
-                  <div className="w-8 h-8 rounded-full bg-sky-600 text-white flex items-center justify-center font-black text-xs shrink-0 shadow-xs uppercase">
-                    {userName.slice(0, 2)}
-                  </div>
-                )}
-
-                <ChevronDown size={14} className="text-slate-400" />
-              </button>
-
-              {/* Menú Desplegable de Usuario (Solo Cerrar Sesión) */}
-              {menuUsuarioAbierto && (
-                <>
-                  <div
-                    className="fixed inset-0 z-[998]"
-                    onClick={() => setMenuUsuarioAbierto(false)}
-                  />
-                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-2xl border border-slate-200/90 p-1.5 z-[999] animate-in fade-in zoom-in-95 duration-100">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMenuUsuarioAbierto(false);
-                        handleLogout();
-                      }}
-                      className="w-full px-3 py-2.5 text-left text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl flex items-center gap-2.5 cursor-pointer transition-colors"
-                    >
-                      <LogOut size={15} />
-                      <span>Cerrar Sesión</span>
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          }
-        />
 
         {/* ─────────────────────────────────────────────────────────────
             VISTAS DE LOS MÓDULOS DE REACT (CON PROTECCIÓN DE RUTAS)
@@ -692,19 +615,23 @@ export default function App() {
                 <div className="flex-1 flex flex-col w-full min-h-0 overflow-hidden bg-slate-100/60">
                   {/* Barra superior de Pestañas horizontales (Estilo Corporativo) */}
                   <div className="bg-white border-b border-slate-200/80 px-4 md:px-6 pt-3 shrink-0 shadow-2xs">
-                    <div className="flex items-center justify-between gap-4 mb-3">
-                      <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-4 mb-3">
+                      <div className="flex items-center gap-3.5">
                         <button
                           type="button"
-                          onClick={() => setSidebarColapsado(!sidebarColapsado)}
-                          className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-sky-600 to-cyan-500 hover:from-sky-700 hover:to-cyan-600 active:scale-95 text-white flex items-center justify-center shadow-md shadow-sky-600/20 cursor-pointer shrink-0 transition-all group"
+                          onClick={() => setSidebarColapsado(false)}
+                          className="w-11 h-11 rounded-2xl bg-sky-50 hover:bg-sky-100 active:scale-95 text-sky-600 hover:text-sky-800 border border-sky-200 hover:border-sky-300 flex items-center justify-center font-black shadow-xs cursor-pointer transition-all group shrink-0"
                           title="📋 Clic para abrir el menú lateral"
                         >
-                          <Briefcase size={20} className="group-hover:scale-110 transition-transform" />
+                          <Briefcase size={22} className="group-hover:scale-110 transition-transform" />
                         </button>
                         <div>
                           <div className="flex items-center gap-2">
-                            <h1 className="text-base md:text-lg font-black text-slate-900 tracking-tight">
+                            <h1
+                              onClick={() => setSidebarColapsado(false)}
+                              className="text-base md:text-lg font-black text-slate-900 tracking-tight cursor-pointer hover:text-sky-700 transition-colors"
+                              title="📋 Clic para abrir el menú lateral"
+                            >
                               Recursos Humanos & Personal
                             </h1>
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-sky-50 text-sky-700 border border-sky-200/80 font-mono">
@@ -717,201 +644,70 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        {/* 💬 Desplegable En Línea / Chat (Oculto a Técnicos) */}
-                        {!esTecnico && (
-                          <div className="relative shrink-0" ref={onlineDropdownRef}>
-                            <button
-                              type="button"
-                              onClick={() => setOnlineDropdownOpen(!onlineDropdownOpen)}
-                              className={`flex items-center gap-1 px-2 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-2xs h-8.5 ${
-                                totalNoLeidos > 0
-                                  ? "bg-emerald-500 text-white border-emerald-400 ring-2 ring-emerald-300 shadow-md animate-bounce"
-                                  : onlineDropdownOpen
-                                  ? "bg-sky-50 text-sky-900 border-sky-300 ring-1 ring-sky-200"
-                                  : "bg-slate-50 hover:bg-sky-50 text-slate-700 hover:text-sky-900 border-slate-200 hover:border-sky-300"
-                              }`}
-                              title="Personal en Línea y Chat de Equipo"
-                            >
-                              <span className="relative flex h-2 w-2">
-                                {usuariosOnline.filter((u) => u.esta_online === 1).length > 0 && (
-                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                )}
-                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                              </span>
-                              <span className="font-mono font-black text-slate-900">
-                                {usuariosOnline.filter((u) => u.esta_online === 1).length}
-                              </span>
-                              <MessageSquare size={13} className="text-sky-600 shrink-0" />
-                              {totalNoLeidos > 0 && (
-                                <span className="bg-red-600 text-white text-[9px] font-black px-1 py-0.2 rounded-full shadow-xs">
-                                  {totalNoLeidos}
-                                </span>
-                              )}
-                              <ChevronDown size={12} className={`text-slate-400 transition-transform ${onlineDropdownOpen ? "rotate-180" : ""}`} />
-                            </button>
-
-                            {onlineDropdownOpen && (
-                              <div className="absolute right-0 mt-1.5 w-72 max-w-[90vw] bg-white rounded-2xl shadow-xl border border-slate-200/90 z-50 overflow-hidden flex flex-col animate-in fade-in slide-in-from-top-1 duration-150">
-                                <div className="p-2.5 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between">
-                                  <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-                                    <Users size={13} className="text-sky-600" />
-                                    Equipo y Chat
-                                  </span>
-                                  <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded-full">
-                                    {usuariosOnline.filter((u) => u.esta_online === 1).length} en línea
-                                  </span>
-                                </div>
-
-                                {canUseGroupChat && (
-                                  <div className="p-2 border-b border-slate-100 bg-sky-50/40">
-                                    <button
-                                      type="button"
-                                      onClick={handleOpenGroupChat}
-                                      className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-black text-xs transition-all shadow-xs cursor-pointer"
-                                    >
-                                      <div className="flex items-center gap-1.5">
-                                        <MessageSquare size={13} />
-                                        <span>Canal Grupal 24/7</span>
-                                      </div>
-                                      <span className="bg-white/20 px-1.5 py-0.2 rounded text-[9px] font-mono">Abrir</span>
-                                    </button>
-                                  </div>
-                                )}
-
-                                <div className="p-2 border-b border-slate-100">
-                                  <div className="relative">
-                                    <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                                    <input
-                                      type="text"
-                                      value={userSearchTerm}
-                                      onChange={(e) => setUserSearchTerm(e.target.value)}
-                                      placeholder="Buscar compañero..."
-                                      className="w-full bg-slate-100 text-slate-800 text-xs pl-7 pr-2 py-1 rounded-lg border-none focus:ring-1 focus:ring-sky-500"
-                                    />
-                                  </div>
-                                </div>
-
-                                <div className="max-h-60 overflow-y-auto p-1.5 space-y-1 custom-scrollbar">
-                                  {usuariosOnline
-                                    .filter(
-                                      (u) =>
-                                        !userSearchTerm ||
-                                        u.nombre_completo.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
-                                        (u.rol_nombre && u.rol_nombre.toLowerCase().includes(userSearchTerm.toLowerCase()))
-                                    )
-                                    .map((u) => {
-                                      const isOnline = u.esta_online === 1;
-                                      const isMe = String(u.id_usuario) === String(userId);
-                                      const cantNoLeidos = noLeidosPorUsuario[u.id_usuario] || 0;
-                                      const hasUnread = cantNoLeidos > 0 && !isMe;
-
-                                      return (
-                                        <button
-                                          key={u.id_usuario}
-                                          type="button"
-                                          disabled={isMe}
-                                          onClick={() => handleOpenUserChat(u)}
-                                          className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-all ${
-                                            isMe
-                                              ? "opacity-60 bg-slate-50 cursor-default"
-                                              : hasUnread
-                                              ? "bg-emerald-50 hover:bg-emerald-100 border border-emerald-300"
-                                              : "hover:bg-slate-100 cursor-pointer"
-                                          }`}
-                                        >
-                                          <div className="flex items-center gap-2 min-w-0 flex-1">
-                                            <span className="relative flex h-2 w-2 shrink-0">
-                                              {isOnline && (
-                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                              )}
-                                              <span
-                                                className={`relative inline-flex rounded-full h-2 w-2 ${
-                                                  isOnline ? "bg-emerald-500" : "bg-slate-300"
-                                                }`}
-                                              ></span>
-                                            </span>
-                                            <div className="min-w-0 flex-1">
-                                              <p className="text-xs font-bold text-slate-900 truncate">
-                                                {u.nombre_completo} {isMe && "(Tú)"}
-                                              </p>
-                                              <p className="text-[10px] text-slate-500 truncate">
-                                                {u.rol_nombre || "Personal"} • {u.area || "Operaciones"}
-                                              </p>
-                                            </div>
-                                          </div>
-                                          {hasUnread ? (
-                                            <span className="bg-emerald-600 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full animate-pulse shrink-0">
-                                              {cantNoLeidos}
-                                            </span>
-                                          ) : (
-                                            !isMe && <MessageSquare size={13} className="text-slate-400 hover:text-sky-600 shrink-0" />
-                                          )}
-                                        </button>
-                                      );
-                                    })}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
+                      <div className="flex items-center gap-2.5">
+                        <OnlineChatDropdown currentUser={currentUser} />
 
                         <button
                           onClick={cargarEmpleados}
                           title="Recargar empleados"
-                          className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-all cursor-pointer shrink-0 h-8.5"
+                          className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-all cursor-pointer shrink-0 h-8.5 flex items-center gap-1.5 text-xs font-bold shadow-2xs"
                         >
-                          <RefreshCw size={16} />
+                          <RefreshCw size={15} />
+                          <span className="hidden sm:inline">Actualizar</span>
                         </button>
 
-                        {/* 👤 Menú de Usuario y Cerrar Sesión */}
-                        <div className="relative shrink-0 pl-1 border-l border-slate-200" ref={userMenuRef}>
+                        {/* Menú de Usuario y Cerrar Sesión */}
+                        <div className="relative shrink-0 pl-1 border-l border-slate-200">
                           <button
                             type="button"
                             onClick={() => setMenuUsuarioAbierto(!menuUsuarioAbierto)}
-                            className="flex items-center gap-1.5 py-0.5 px-1 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer border border-transparent hover:border-slate-200 text-left h-8.5"
-                            title="Cuenta de Usuario"
+                            className="flex items-center gap-2 py-1 px-2 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer border border-transparent hover:border-slate-200"
                           >
-                            <div className="text-right hidden xl:block leading-none">
-                              <span className="text-[11px] font-black text-slate-900 block truncate max-w-[130px]">
+                            <div className="text-right hidden sm:block leading-tight">
+                              <span className="text-xs font-black text-slate-900 block truncate max-w-[150px]">
                                 {userSoloNombres}
                               </span>
-                              <span className="text-[9px] font-bold text-sky-600 uppercase tracking-wider block">
+                              <span className="text-[10px] font-bold text-sky-600 uppercase tracking-wider block">
                                 {rolNombre}
                               </span>
                             </div>
 
-                            {currentUser?.foto_personal && !avatarImgError ? (
+                            {currentUser.foto_personal && !avatarImgError ? (
                               <img
                                 src={`${API_URL}/uploads/${currentUser.foto_personal}`}
                                 alt={userName}
-                                className="w-7 h-7 rounded-full object-cover border border-sky-500 shrink-0 shadow-2xs"
+                                className="w-8 h-8 rounded-full object-cover border-2 border-sky-500 shrink-0 shadow-xs"
                                 onError={() => setAvatarImgError(true)}
                               />
                             ) : (
-                              <div className="w-7 h-7 rounded-full bg-sky-600 text-white flex items-center justify-center font-black text-[11px] shrink-0 shadow-2xs uppercase">
-                                {(userName || "US").slice(0, 2)}
+                              <div className="w-8 h-8 rounded-full bg-sky-600 text-white flex items-center justify-center font-black text-xs shrink-0 shadow-xs uppercase">
+                                {userName.slice(0, 2)}
                               </div>
                             )}
 
-                            <ChevronDown size={12} className={`text-slate-400 transition-transform ${menuUsuarioAbierto ? "rotate-180" : ""}`} />
+                            <ChevronDown size={13} className="text-slate-400" />
                           </button>
 
                           {menuUsuarioAbierto && (
-                            <div className="absolute right-0 mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-200/90 z-50 p-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
-                              <div className="px-2.5 py-2 border-b border-slate-100 mb-1">
-                                <p className="text-xs font-black text-slate-900 truncate">{userName}</p>
-                                <p className="text-[10px] text-sky-600 font-bold uppercase tracking-wider">{rolNombre}</p>
+                            <>
+                              <div
+                                className="fixed inset-0 z-[998]"
+                                onClick={() => setMenuUsuarioAbierto(false)}
+                              />
+                              <div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-2xl border border-slate-200/90 p-1.5 z-[999] animate-in fade-in zoom-in-95 duration-100">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setMenuUsuarioAbierto(false);
+                                    handleLogout();
+                                  }}
+                                  className="w-full px-3 py-2.5 text-left text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl flex items-center gap-2.5 cursor-pointer transition-colors"
+                                >
+                                  <LogOut size={15} />
+                                  <span>Cerrar Sesión</span>
+                                </button>
                               </div>
-                              <button
-                                type="button"
-                                onClick={handleLogout}
-                                className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-bold text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                              >
-                                <LogOut size={14} />
-                                <span>Cerrar Sesión</span>
-                              </button>
-                            </div>
+                            </>
                           )}
                         </div>
                       </div>

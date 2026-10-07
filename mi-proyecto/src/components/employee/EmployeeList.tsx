@@ -12,6 +12,7 @@ import {
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { QuickStatusModal } from "./QuickStatusModal";
+import { BulkSCTRModal } from "./BulkSCTRModal";
 import { Edit3, Sparkles, Eye, EyeOff, KeyRound, Check, Copy, Dices, Lock, RefreshCw, X, ShieldCheck } from "lucide-react";
 import { resetPasswordEmpleado } from "../../services/employeeService";
 
@@ -36,6 +37,22 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
   // Modal de cambio rápido de estado
   const [empleadoParaEstado, setEmpleadoParaEstado] = useState<Employee | null>(null);
   const [isModalEstadoOpen, setIsModalEstadoOpen] = useState(false);
+
+  // Modal de actualización masiva de SCTR
+  const [isModalSctrOpen, setIsModalSctrOpen] = useState(false);
+
+  const handleSctrUpdated = (updatedIds: number[], newVencimiento: string) => {
+    setListaLocal((prev) =>
+      prev.map((emp) =>
+        updatedIds.includes(emp.id)
+          ? { ...emp, sctrVencimiento: newVencimiento }
+          : emp
+      )
+    );
+    if (onEmployeeUpdated) {
+      onEmployeeUpdated();
+    }
+  };
 
   // Estados para nuestros filtros
   const [searchTerm, setSearchTerm] = useState("");
@@ -833,6 +850,17 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
             <Button variant="outline" size="sm" onClick={exportarExcelSCTR} className="bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100 shadow-sm font-bold">
               🟧 Trama SCTR
             </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsModalSctrOpen(true)}
+              className="bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 shadow-sm font-bold flex items-center gap-1.5 cursor-pointer active:scale-95"
+              title="Actualizar masivamente la fecha de vigencia SCTR a los empleados actualmente filtrados"
+            >
+              <ShieldCheck size={15} className="text-indigo-600" />
+              <span>Actualizar SCTR Masivo</span>
+            </Button>
           </div>
 
           <div className="bg-sky-50 border border-sky-200 px-3 py-1 rounded-xl text-sky-800 text-xs font-bold shadow-2xs flex items-center gap-2">
@@ -1240,6 +1268,14 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modal de Actualización Masiva de SCTR */}
+      <BulkSCTRModal
+        isOpen={isModalSctrOpen}
+        onClose={() => setIsModalSctrOpen(false)}
+        empleadosFiltrados={filteredEmpleados}
+        onSuccess={handleSctrUpdated}
+      />
     </div>
   );
 };

@@ -15,6 +15,9 @@ import {
   updateOrderObservacionesAtencion,
   updateOrderTecnico,
   restaurarCuadrillaFenix,
+  asignarCuadrillaReemplazo,
+  getCuadrillaReemplazos,
+  restaurarCuadrillaReemplazo,
   updateOrderTipoTrabajo,
   syncOrdersFromWin,
   registrarLogAuditoria,
@@ -495,83 +498,171 @@ export const OrdersPage: React.FC = () => {
     }
   };
 
-  // Asignar Técnico (1 o 2 técnicos / Pareja de Cuadrilla) con persistencia en Base de Datos
-  const handleAssignTechnician = async (orderId: number, technicianName: string) => {
+  // Asignar Técnico (Puntual por Orden o Reemplazo Persistente por Cuadrilla)
+  const handleAssignTechnician = async (
+    orderId: number,
+    technicianName: string,
+    mode: 'order' | 'cuadrilla' = 'order',
+    customCuadrillaCode?: string
+  ) => {
     const targetOrder = orders.find((o) => o.id === orderId);
 
-    // Si contiene múltiples técnicos (ej: "CARLOS MARRUFO / JUAN PEREZ"), buscar el T1 principal para el id_tecnico
-    const firstTechName = technicianName.split(/\s*[\/,+]\s*|\s+y\s+/i)[0]?.trim() || technicianName.trim();
-    const targetTech = tecnicosList.find(
-      (t) => t.nombreCompleto.toLowerCase().trim() === firstTechName.toLowerCase().trim()
+    // Separar T1 y T2 si viene compuesto (ej: "LUIS CHOQUE / MARCOS DIAZ")
+    const tecParts = technicianName.split(/\s*[\/,+]\s*|\s+y\s+/i).map(t => t.trim()).filter(Boolean);
+    const t1Name = tecParts[0] || technicianName.trim();
+    const t2Name = tecParts[1] || "";
+
+    const targetTech1 = tecnicosList.find(
+      (t) => t.nombreCompleto.toLowerCase().trim() === t1Name.toLowerCase().trim()
     );
+    const targetTech2 = t2Name ? tecnicosList.find(
+      (t) => t.nombreCompleto.toLowerCase().trim() === t2Name.toLowerCase().trim()
+    ) : null;
 
-    const newIdTecnico = targetTech?.idTecnico;
+    const newIdTecnico = targetTech1?.idTecnico ? Number(targetTech1.idTecnico) : undefined;
+    const newIdTecnico2 = targetTech2?.idTecnico ? Number(targetTech2.idTecnico) : undefined;
 
-    // Preservar siempre la Cuadrilla original de Fénix para que no se altere al reasignar técnico
-    const finalCuadrilla = targetOrder?.cuadrillaOrigenFenix || targetOrder?.cuadrilla || targetTech?.cuadrilla;
+    if (mode === 'cuadrilla') {
+      const rawCuad = customCuadrillaCode || targetOrder?.cuadrillaOrigenFenix || targetOrder?.cuadrilla || "";
+      const canonicalCuad = extractCuadrillaKey(rawCuad) || rawCuad;
+      if (!canonicalCuad) return;
 
-    setOrders((prev) =>
-      prev.map((o) =>
-        o.id === orderId
-          ? {
-            ...o,
-            tecnico: technicianName,
-            idTecnico: newIdTecnico,
-            cuadrilla: finalCuadrilla,
-            cuadrillaOrigenFenix: o.cuadrillaOrigenFenix || targetOrder?.cuadrilla,
-            asignacionManual: true,
+      // Actualizar en memoria todas las órdenes que pertenecen a esta cuadrilla
+      setOrders((prev) =>
+        prev.map((o) => {
+          const oCuad = extractCuadrillaKey(o.cuadrillaOrigenFenix || o.cuadrilla || "") || (o.cuadrillaOrigenFenix || o.cuadrilla || "");
+          if (
+            oCuad.toUpperCase() === canonicalCuad.toUpperCase() ||
+            (o.cuadrilla && o.cuadrilla.toUpperCase().includes(canonicalCuad.toUpperCase())) ||
+            (o.cuadrillaOrigenFenix && o.cuadrillaOrigenFenix.toUpperCase().includes(canonicalCuad.toUpperCase()))
+          ) {
+            return {
+              ...o,
+              tecnico: technicianName,
+              idTecnico: newIdTecnico,
+              asignacionManual: true,
+            };
           }
-          : o
-      )
-    );
+          return o;
+        })
+      );
 
-    try {
-      await updateOrderTecnico(orderId, technicianName, newIdTecnico, targetOrder?.numeroOrden, finalCuadrilla);
-      registrarLogAuditoria({
-        id_usuario: currentUserId ? Number(currentUserId) : null,
-        usuario_nombre: currentUserName || "Gestor de Órdenes",
-        rol_nombre: currentRolNombre,
-        modulo: "ORDENES",
-        accion: "ASIGNACION_TECNICO",
-        id_referencia: targetOrder?.ticket || orderId,
-        descripcion: `Asignó técnico/cuadrilla manual blindado: ${technicianName} en Ticket ${targetOrder?.ticket || orderId}`,
-      });
-    } catch (err) {
-      console.error("Error al asignar técnico en BD:", err);
-    }
-  };
+      try {
+        await asignarCuadrillaReemplazo({
+          codigo_cuadrilla: canonicalCuad,
+          id_tecnico_reemplazo: newIdTecnico ?? null,
+          nombre_reemplazo: t1Name,
+          id_tecnico_reemplazo_t2: newIdTecnico2 ?? null,
+          nombre_reemplazo_t2: t2Name || null,
+          actualizar_ordenes: true
+        });
 
-  // Restaurar cuadrilla y técnico original de Fénix (desbloqueo manual)
-  const handleRestoreCuadrillaFenix = async (orderId: number) => {
-    const targetOrder = orders.find((o) => o.id === orderId);
-    try {
-      const res = await restaurarCuadrillaFenix(orderId, targetOrder?.numeroOrden);
-      if (res && res.success) {
-        setOrders((prev) =>
-          prev.map((o) =>
-            o.id === orderId
-              ? {
-                ...o,
-                tecnico: res.tecnico_asignado || o.tecnico,
-                idTecnico: res.id_tecnico || o.idTecnico,
-                cuadrilla: res.cuadrilla || o.cuadrilla,
-                asignacionManual: false,
-              }
-              : o
-          )
-        );
         registrarLogAuditoria({
           id_usuario: currentUserId ? Number(currentUserId) : null,
           usuario_nombre: currentUserName || "Gestor de Órdenes",
           rol_nombre: currentRolNombre,
           modulo: "ORDENES",
-          accion: "RESTAURAR_CUADRILLA_FENIX",
-          id_referencia: targetOrder?.ticket || orderId,
-          descripcion: `Restauró orden a cuadrilla original Fénix: ${res.cuadrilla || ""} en Ticket ${targetOrder?.ticket || orderId}`,
+          accion: "REEMPLAZO_CUADRILLA_PERSISTENTE",
+          id_referencia: canonicalCuad,
+          descripcion: `Asignó reemplazo de cuadrilla persistente: ${technicianName} para toda la cuadrilla [${canonicalCuad}]`,
         });
+      } catch (err) {
+        console.error("Error al asignar reemplazo de cuadrilla en BD:", err);
       }
-    } catch (err) {
-      console.error("Error al restaurar cuadrilla Fénix en BD:", err);
+    } else {
+      // Modo 'order' (Puntual solo para esta orden)
+      const finalCuadrilla = targetOrder?.cuadrillaOrigenFenix || targetOrder?.cuadrilla || targetTech1?.cuadrilla;
+
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === orderId
+            ? {
+              ...o,
+              tecnico: technicianName,
+              idTecnico: newIdTecnico,
+              cuadrilla: finalCuadrilla,
+              cuadrillaOrigenFenix: o.cuadrillaOrigenFenix || targetOrder?.cuadrilla,
+              asignacionManual: true,
+            }
+            : o
+        )
+      );
+
+      try {
+        await updateOrderTecnico(orderId, technicianName, newIdTecnico, targetOrder?.numeroOrden, finalCuadrilla);
+        registrarLogAuditoria({
+          id_usuario: currentUserId ? Number(currentUserId) : null,
+          usuario_nombre: currentUserName || "Gestor de Órdenes",
+          rol_nombre: currentRolNombre,
+          modulo: "ORDENES",
+          accion: "ASIGNACION_TECNICO",
+          id_referencia: targetOrder?.ticket || orderId,
+          descripcion: `Asignó técnico puntual blindado: ${technicianName} en Ticket ${targetOrder?.ticket || orderId}`,
+        });
+      } catch (err) {
+        console.error("Error al asignar técnico en BD:", err);
+      }
+    }
+  };
+
+  // Restaurar cuadrilla y técnico original de Fénix (desbloqueo manual por orden o cuadrilla)
+  const handleRestoreCuadrillaFenix = async (
+    orderId: number,
+    mode: 'order' | 'cuadrilla' = 'order',
+    customCuadrillaCode?: string
+  ) => {
+    const targetOrder = orders.find((o) => o.id === orderId);
+
+    if (mode === 'cuadrilla') {
+      const rawCuad = customCuadrillaCode || targetOrder?.cuadrillaOrigenFenix || targetOrder?.cuadrilla || "";
+      const canonicalCuad = extractCuadrillaKey(rawCuad) || rawCuad;
+      if (!canonicalCuad) return;
+
+      try {
+        await restaurarCuadrillaReemplazo(canonicalCuad);
+        loadData(false);
+        registrarLogAuditoria({
+          id_usuario: currentUserId ? Number(currentUserId) : null,
+          usuario_nombre: currentUserName || "Gestor de Órdenes",
+          rol_nombre: currentRolNombre,
+          modulo: "ORDENES",
+          accion: "RESTAURAR_CUADRILLA_PERSISTENTE",
+          id_referencia: canonicalCuad,
+          descripcion: `Restauró cuadrilla persistente [${canonicalCuad}] a origen Fénix`,
+        });
+      } catch (err) {
+        console.error("Error al restaurar reemplazo de cuadrilla en BD:", err);
+      }
+    } else {
+      try {
+        const res = await restaurarCuadrillaFenix(orderId, targetOrder?.numeroOrden);
+        if (res && res.success) {
+          setOrders((prev) =>
+            prev.map((o) =>
+              o.id === orderId
+                ? {
+                  ...o,
+                  tecnico: res.tecnico_asignado || o.tecnico,
+                  idTecnico: res.id_tecnico || o.idTecnico,
+                  cuadrilla: res.cuadrilla || o.cuadrilla,
+                  asignacionManual: false,
+                }
+                : o
+            )
+          );
+          registrarLogAuditoria({
+            id_usuario: currentUserId ? Number(currentUserId) : null,
+            usuario_nombre: currentUserName || "Gestor de Órdenes",
+            rol_nombre: currentRolNombre,
+            modulo: "ORDENES",
+            accion: "RESTAURAR_CUADRILLA_FENIX",
+            id_referencia: targetOrder?.ticket || orderId,
+            descripcion: `Restauró orden a cuadrilla original Fénix: ${res.cuadrilla || ""} en Ticket ${targetOrder?.ticket || orderId}`,
+          });
+        }
+      } catch (err) {
+        console.error("Error al restaurar cuadrilla Fénix en BD:", err);
+      }
     }
   };
 

@@ -1,1 +1,152 @@
-[]
+[
+  {
+    "ticket": "MOTO-CENTRO1",
+    "distrito": "Zona Sur",
+    "direccion": "Zona Sur (CENTRO 1)",
+    "zona_nodo": "CENTRO 1",
+    "franja_horaria": "16:00-20:00",
+    "motivo": "MOTOWIN CRM",
+    "vehiculo_tipo": "MOTOWIN",
+    "tarjeta": "MOTOWIN ZONAS"
+  },
+  {
+    "ticket": "MOTO-ESTE2",
+    "distrito": "Zona Sur",
+    "direccion": "Zona Sur (ESTE 2)",
+    "zona_nodo": "ESTE 2",
+    "franja_horaria": "16:00-20:00",
+    "motivo": "MOTOWIN CRM",
+    "vehiculo_tipo": "MOTOWIN",
+    "tarjeta": "MOTOWIN ZONAS"
+  },
+  {
+    "ticket": "MOTO-OESTE1",
+    "distrito": "Zona Sur",
+    "direccion": "Zona Sur (OESTE 1)",
+    "zona_nodo": "OESTE 1",
+    "franja_horaria": "16:00-20:00",
+    "motivo": "MOTOWIN CRM",
+    "vehiculo_tipo": "MOTOWIN",
+    "tarjeta": "MOTOWIN ZONAS"
+  },
+  {
+    "ticket": "MOTO-NORTE3",
+    "distrito": "Zona Sur",
+    "direccion": "Zona Sur (NORTE 3)",
+    "zona_nodo": "NORTE 3",
+    "franja_horaria": "16:00-20:00",
+    "motivo": "MOTOWIN CRM",
+    "vehiculo_tipo": "MOTOWIN",
+    "tarjeta": "MOTOWIN ZONAS"
+  },
+  {
+    "ticket": "MOTO-SUR2",
+    "distrito": "Zona Sur",
+    "direccion": "Zona Sur (SUR 2)",
+    "zona_nodo": "SUR 2",
+    "franja_horaria": "16:00-20:00",
+    "motivo": "MOTOWIN CRM",
+    "vehiculo_tipo": "MOTOWIN",
+    "tarjeta": "MOTOWIN ZONAS"
+  },
+  {
+    "ticket": "MOTO-NORTE2",
+    "distrito": "Zona Sur",
+    "direccion": "Zona Sur (NORTE 2)",
+    "zona_nodo": "NORTE 2",
+    "franja_horaria": "16:00-20:00",
+    "motivo": "MOTOWIN CRM",
+    "vehiculo_tipo": "MOTOWIN",
+    "tarjeta": "MOTOWIN ZONAS"
+  },
+  {
+    "ticket": "MOTO-ESTE1",
+    "distrito": "Zona Sur",
+    "direccion": "Zona Sur (ESTE 1)",
+    "zona_nodo": "ESTE 1",
+    "franja_horaria": "16:00-20:00",
+    "motivo": "MOTOWIN CRM",
+    "vehiculo_tipo": "MOTOWIN",
+    "tarjeta": "MOTOWIN ZONAS"
+  },
+  {
+    "ticket": "MOTO-ESTE3",
+    "distrito": "Zona Sur",
+    "direccion": "Zona Sur (ESTE 3)",
+    "zona_nodo": "ESTE 3",
+    "franja_horaria": "16:00-20:00",
+    "motivo": "MOTOWIN CRM",
+    "vehiculo_tipo": "MOTOWIN",
+    "tarjeta": "MOTOWIN ZONAS"
+  },
+  {
+    "ticket": "MOTO-SUR5",
+    "distrito": "Zona Sur",
+    "direccion": "Zona Sur (SUR 5)",
+    "zona_nodo": "SUR 5",
+    "franja_horaria": "16:00-20:00",
+    "motivo": "MOTOWIN CRM",
+    "vehiculo_tipo": "MOTOWIN",
+    "tarjeta": "MOTOWIN ZONAS"
+  },
+  {
+    "ticket": "MOTO-NORTE1",
+    "distrito": "Zona Sur",
+    "direccion": "Zona Sur (NORTE 1)",
+    "zona_nodo": "NORTE 1",
+    "franja_horaria": "16:00-20:00",
+    "motivo": "MOTOWIN CRM",
+    "vehiculo_tipo": "MOTOWIN",
+    "tarjeta": "MOTOWIN ZONAS"
+  },
+  {
+    "ticket": "MOTO-OESTE2",
+    "distrito": "Zona Sur",
+    "direccion": "Zona Sur (OESTE 2)",
+    "zona_nodo": "OESTE 2",
+    "franja_horaria": "16:00-20:00",
+    "motivo": "MOTOWIN CRM",
+    "vehiculo_tipo": "MOTOWIN",
+    "tarjeta": "MOTOWIN ZONAS"
+  },
+  {
+    "ticket": "MOTO-OESTE3",
+    "distrito": "Zona Sur",
+    "direccion": "Zona Sur (OESTE 3)",
+    "zona_nodo": "OESTE 3",
+    "franja_horaria": "16:00-20:00",
+    "motivo": "MOTOWIN CRM",
+    "vehiculo_tipo": "MOTOWIN",
+    "tarjeta": "MOTOWIN ZONAS"
+  },
+  {
+    "ticket": "MOTO-SUR1",
+    "distrito": "Zona Sur",
+    "direccion": "Zona Sur (SUR 1)",
+    "zona_nodo": "SUR 1",
+    "franja_horaria": "16:00-20:00",
+    "motivo": "MOTOWIN CRM",
+    "vehiculo_tipo": "MOTOWIN",
+    "tarjeta": "MOTOWIN ZONAS"
+  },
+  {
+    "ticket": "MOTO-CENTRO2",
+    "distrito": "Zona Sur",
+    "direccion": "Zona Sur (CENTRO 2)",
+    "zona_nodo": "CENTRO 2",
+    "franja_horaria": "16:00-20:00",
+    "motivo": "MOTOWIN CRM",
+    "vehiculo_tipo": "MOTOWIN",
+    "tarjeta": "MOTOWIN ZONAS"
+  },
+  {
+    "ticket": "MOTO-ESTE4",
+    "distrito": "Zona Sur",
+    "direccion": "Zona Sur (ESTE 4)",
+    "zona_nodo": "ESTE 4",
+    "franja_horaria": "16:00-20:00",
+    "motivo": "MOTOWIN CRM",
+    "vehiculo_tipo": "MOTOWIN",
+    "tarjeta": "MOTOWIN ZONAS"
+  }
+]

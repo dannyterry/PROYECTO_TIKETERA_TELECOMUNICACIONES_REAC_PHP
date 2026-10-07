@@ -652,6 +652,16 @@ async function guardarOrdenesEnBD(ordenes) {
     console.error("⚠️ [Fénix Scraper] No se pudo cargar lista de técnicos para auto-matching:", errTech.message);
   }
 
+  // Cargar reemplazos de cuadrillas activos para asignación persistente
+  let cuadrillaReemplazos = [];
+  try {
+    const [rowsReemplazo] = await pool.query(
+      `SELECT codigo_cuadrilla, id_tecnico_titular, nombre_titular, id_tecnico_reemplazo, nombre_reemplazo, id_tecnico_reemplazo_t2, nombre_reemplazo_t2 
+       FROM cuadrilla_reemplazos WHERE activo = 1`
+    );
+    cuadrillaReemplazos = rowsReemplazo || [];
+  } catch (errReemplazo) {}
+
   // Función inteligente para encontrar coincidencia de técnico desde el texto de la cuadrilla
   const findTechMatch = (cuadStr) => {
     if (!cuadStr || cuadStr === '-' || !techUsers.length) return null;
@@ -718,19 +728,42 @@ async function guardarOrdenesEnBD(ordenes) {
     if (!o.numero) continue;
 
     try {
-      // Prioridad de matching inteligente: solo marcar EXTERNO si la orden está Finalizada o Liquidada
+      const esFinLiq = Boolean(o.estado && /^(finalizad[ao]|liquidad[ao])/i.test(String(o.estado).trim()));
+
+      // 0. Comprobar si la cuadrilla tiene un reemplazo persistente activo
       let techInfo = null;
-      const esFinLiq = o.estado && /^(finalizad[ao]|liquidad[ao])/i.test(String(o.estado).trim());
-      
-      if (esFinLiq && o.usuario_ejecutor_fenix) {
-        techInfo = findTechMatch(o.usuario_ejecutor_fenix);
-        if (techInfo && techInfo.isExternal) {
-          techInfo.id = null;
-          techInfo.nombre = 'EXTERNO: ' + o.usuario_ejecutor_fenix;
-        }
+      let reemplazoCuadrillaActivo = null;
+
+      if (o.cuadrilla && cuadrillaReemplazos.length > 0) {
+        const cKey = extractCuadrillaKey(o.cuadrilla).toUpperCase().trim();
+        const fullCuadUpper = String(o.cuadrilla).toUpperCase().trim();
+        reemplazoCuadrillaActivo = cuadrillaReemplazos.find((r) => {
+          const cod = String(r.codigo_cuadrilla || '').toUpperCase().trim();
+          return cod && (cod === cKey || fullCuadUpper.includes(cod));
+        });
       }
-      if (!techInfo || (!esFinLiq && techInfo.isExternal)) {
-        techInfo = findTechMatch(o.cuadrilla);
+
+      if (reemplazoCuadrillaActivo) {
+        const fullReemplazoName = (reemplazoCuadrillaActivo.nombre_reemplazo_t2 && reemplazoCuadrillaActivo.nombre_reemplazo_t2.trim())
+          ? `${reemplazoCuadrillaActivo.nombre_reemplazo} / ${reemplazoCuadrillaActivo.nombre_reemplazo_t2}`
+          : reemplazoCuadrillaActivo.nombre_reemplazo;
+        techInfo = {
+          id: reemplazoCuadrillaActivo.id_tecnico_reemplazo,
+          nombre: fullReemplazoName,
+          isExternal: false
+        };
+      } else {
+        // Prioridad de matching inteligente regular: solo marcar EXTERNO si la orden está Finalizada o Liquidada
+        if (esFinLiq && o.usuario_ejecutor_fenix) {
+          techInfo = findTechMatch(o.usuario_ejecutor_fenix);
+          if (techInfo && techInfo.isExternal) {
+            techInfo.id = null;
+            techInfo.nombre = 'EXTERNO: ' + o.usuario_ejecutor_fenix;
+          }
+        }
+        if (!techInfo || (!esFinLiq && techInfo.isExternal)) {
+          techInfo = findTechMatch(o.cuadrilla);
+        }
       }
       const autoIdTecnico = techInfo?.id || null;
       const autoNombreTecnico = techInfo?.nombre || null;
