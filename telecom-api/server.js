@@ -15341,5 +15341,5 @@ app.get('/api/inventario/transferencias/historial', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor en puerto ${PORT}`));
 
-// Servidor Telecom API listo
+// Servidor Telecom API listo - nodemon activo
 module.exports = app;
