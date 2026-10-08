@@ -2985,7 +2985,7 @@ app.get('/ordenes', async (req, res) => {
 let estaSincronizandoFenix = false;
 let ultimoErrorFenixTime = 0;
 
-app.post('/ordenes/sincronizar-win', async (req, res) => {
+app.all('/ordenes/sincronizar-win', async (req, res) => {
   // 1. Candado Anti-Duplicados: si ya hay una sincronización corriendo, no duplicar procesos
   if (estaSincronizandoFenix) {
     return res.json({ 
@@ -3006,7 +3006,8 @@ app.post('/ordenes/sincronizar-win', async (req, res) => {
 
   try {
     estaSincronizandoFenix = true;
-    const { fechaDesde, fechaHasta } = req.body || {};
+    const fechaDesde = req.body?.fechaDesde || req.query?.fechaDesde;
+    const fechaHasta = req.body?.fechaHasta || req.query?.fechaHasta;
 
     // Timeout máximo de seguridad: Si Fénix tarda más de 40 segundos, cortar de inmediato
     const timeoutSeguridad = new Promise((_, reject) => 

@@ -53,6 +53,7 @@ import {
 import { supervisionService } from "../services/supervisionService";
 import { authService } from "../../../services/authService";
 import { CameraBarcodeScannerModal } from "../../../components/CameraBarcodeScannerModal";
+import { getPeruDateStr } from "../../../lib/dateUtils";
 
 interface FieldSupervisionTabProps {
   onSaved?: () => void;
@@ -100,7 +101,7 @@ export const FieldSupervisionTab: React.FC<FieldSupervisionTabProps> = ({ onSave
   const [selectedTecnico, setSelectedTecnico] = useState<TecnicoCombo | null>(null);
   const [tecnicoName, setTecnicoName] = useState("");
   const [cuadrilla, setCuadrilla] = useState("");
-  const [fecha, setFecha] = useState(new Date().toISOString().split("T")[0]);
+  const [fecha, setFecha] = useState(getPeruDateStr());
   const [hora, setHora] = useState(
     new Date().toTimeString().split(" ")[0].slice(0, 5)
   );

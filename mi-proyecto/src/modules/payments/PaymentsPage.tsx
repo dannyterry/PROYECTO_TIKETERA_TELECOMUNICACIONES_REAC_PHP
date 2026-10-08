@@ -32,13 +32,14 @@ import {
 import { AdelantosTab } from "./components/AdelantosTab";
 import { OnlineChatDropdown } from "../../components/chat/OnlineChatDropdown";
 import { UserProfileDropdown } from "../../components/layout/UserProfileDropdown";
+import { getPeruDateStr } from "../../lib/dateUtils";
 
 interface PaymentsPageProps {
   currentUserId?: number;
 }
 
 export const PaymentsPage: React.FC<PaymentsPageProps> = ({ currentUserId }) => {
-  const hoy = new Date().toISOString().split("T")[0];
+  const hoy = getPeruDateStr();
 
   // Pestaña activa: "liquidaciones" | "adelantos"
   const [activeTab, setActiveTab] = useState<"liquidaciones" | "adelantos">("liquidaciones");

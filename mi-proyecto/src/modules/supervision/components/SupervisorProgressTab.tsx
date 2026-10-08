@@ -27,12 +27,14 @@ interface SupervisorProgressTabProps {
   onGoToCliente?: () => void;
 }
 
+import { getPeruDateStr } from "../../../lib/dateUtils";
+
 export const SupervisorProgressTab: React.FC<SupervisorProgressTabProps> = ({
   onGoToCampo,
   onGoToCliente,
 }) => {
   const currentUser = authService.getCurrentUser();
-  const [fecha, setFecha] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [fecha, setFecha] = useState<string>(getPeruDateStr());
   const [loading, setLoading] = useState<boolean>(true);
   const [avanceData, setAvanceData] = useState<any | null>(null);
   const [selectedSupervisorId, setSelectedSupervisorId] = useState<number | null>(null);

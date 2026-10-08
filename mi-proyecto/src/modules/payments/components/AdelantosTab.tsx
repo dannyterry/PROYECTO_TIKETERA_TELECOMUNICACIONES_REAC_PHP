@@ -32,13 +32,14 @@ import {
 } from "../services/adelantoService";
 import { getEmpleados } from "../../../services/employeeService";
 import { Employee } from "../../../components/employee/Employee";
+import { getPeruDateStr } from "../../../lib/dateUtils";
 
 interface AdelantosTabProps {
   currentUserId?: number;
 }
 
 export const AdelantosTab: React.FC<AdelantosTabProps> = ({ currentUserId }) => {
-  const hoy = new Date().toISOString().split("T")[0];
+  const hoy = getPeruDateStr();
 
   // Filtros
   const [desde, setDesde] = useState("");

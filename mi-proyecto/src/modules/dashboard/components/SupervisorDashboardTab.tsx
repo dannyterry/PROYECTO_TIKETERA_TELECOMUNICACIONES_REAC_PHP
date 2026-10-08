@@ -38,10 +38,11 @@ import {
   SupervisionMonitoringMap,
   MapPointSupervisor,
 } from "../../supervision/components/SupervisionMonitoringMap";
+import { getPeruDateStr } from "../../../lib/dateUtils";
 
 export const SupervisorDashboardTab: React.FC = () => {
   const [activeSubTab, setActiveSubTab] = useState<"AVANCE_VIVO" | "CRUCE_STOCK" | "HISTORIAL_RANKING">("AVANCE_VIVO");
-  const [fecha, setFecha] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [fecha, setFecha] = useState<string>(getPeruDateStr());
   const [loading, setLoading] = useState<boolean>(true);
   const [avanceData, setAvanceData] = useState<any | null>(null);
 

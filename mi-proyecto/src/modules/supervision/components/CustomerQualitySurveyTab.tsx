@@ -32,6 +32,7 @@ import {
   OrdenBusqueda,
 } from "../types/supervisionTypes";
 import { supervisionService } from "../services/supervisionService";
+import { getPeruDateStr } from "../../../lib/dateUtils";
 
 interface CustomerQualitySurveyTabProps {
   onSaved?: () => void;
@@ -86,12 +87,8 @@ export const CustomerQualitySurveyTab: React.FC<CustomerQualitySurveyTabProps> =
   const [cliente, setCliente] = useState<string>("");
   const [telefono, setTelefono] = useState<string>("");
   const [distrito, setDistrito] = useState<string>("");
-  const [fechaAtencion, setFechaAtencion] = useState<string>(
-    new Date().toISOString().split("T")[0]
-  );
-  const [fechaAuditoria, setFechaAuditoria] = useState<string>(
-    new Date().toISOString().split("T")[0]
-  );
+  const [fechaAtencion, setFechaAtencion] = useState<string>(getPeruDateStr());
+  const [fechaAuditoria, setFechaAuditoria] = useState<string>(getPeruDateStr());
   const [auditor, setAuditor] = useState<string>("");
 
   // Questions

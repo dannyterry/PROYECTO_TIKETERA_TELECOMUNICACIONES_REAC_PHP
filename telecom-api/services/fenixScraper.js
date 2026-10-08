@@ -994,65 +994,57 @@ async function sincronizarFenix({ fechaDesde = null, fechaHasta = null } = {}) {
     const todasLasOrdenes = Array.from(ordenesMap.values());
     console.log(`📦 [Fénix Scraper] Total órdenes combinadas desde grilla: ${todasLasOrdenes.length}`);
 
-    // 🚀 PASO 1 (INMEDIATO): Guardar y actualizar órdenes en BD al instante
-    // Esto garantiza que el estado de la grilla (Iniciada, Finalizada, Cancelada, etc.)
-    // se refleje de inmediato en la base de datos sin demoras ni timeouts.
     let resultadoBD = { totalGuardadas: 0 };
+
+    // =========================================================================
+    // FASE 1: GUARDADO INMEDIATO DE ESTADOS Y GRILLA BASE (~1-2 seg)
+    // Permite que las órdenes cambien de color (ej. Iniciada -> Finalizada) al instante
+    // =========================================================================
     if (todasLasOrdenes.length > 0) {
-      console.log(`💾 [Fénix Scraper] Guardando ${todasLasOrdenes.length} órdenes inmediatamente en la BD...`);
+      console.log(`⚡ [Fénix Scraper - Fase 1] Guardando inmediatamente ${todasLasOrdenes.length} órdenes en BD (estados y datos de grilla)...`);
       resultadoBD = await guardarOrdenesEnBD(todasLasOrdenes);
-      console.log(`✅ [Fénix Scraper] ¡Órdenes guardadas al instante! ${resultadoBD.totalGuardadas} procesadas.`);
+      console.log(`✅ [Fénix Scraper - Fase 1] ¡Órdenes guardadas al instante! ${resultadoBD.totalGuardadas} procesadas.`);
     }
 
-    // 🚀 PASO 2 (SEGUNDO PLANO / BACKGROUND): Enriquecer con historial de estados y tiempos
-    // No bloquea la respuesta al frontend ni arriesga el timeout de 40s.
+    // =========================================================================
+    // FASE 2: ENRIQUECIMIENTO DETALLADO DE HISTORIAL Y EJECUTORES
+    // Extrae CargarHistoEstaGrilla para tiempos exactos y detectar técnicos externos
+    // =========================================================================
     if (todasLasOrdenes.length > 0) {
-      setImmediate(async () => {
-        try {
-          console.log(`⏱️ [Fénix Scraper Background] Iniciando extracción de tiempos exactos e histórico para ${todasLasOrdenes.length} órdenes...`);
-          const batchSize = 6;
-          for (let i = 0; i < todasLasOrdenes.length; i += batchSize) {
-            const batch = todasLasOrdenes.slice(i, i + batchSize);
-            await Promise.all(
-              batch.map(async (ord) => {
-                if (!ord.numero) return;
-                try {
-                  const hist = await obtenerHistorialEstados(ord.numero);
-                  if (hist && hist.length > 0) {
-                    const tiempos = extraerTiemposDeHistorial(hist);
-                    
-                    // Actualizar directamente en MySQL con los tiempos e historial
-                    await pool.query(`
-                      UPDATE ordenes SET
-                        historial_estados = COALESCE(?, historial_estados),
-                        hora_en_camino = COALESCE(?, hora_en_camino),
-                        inicio_visita = COALESCE(?, inicio_visita),
-                        fin_visita = COALESCE(?, fin_visita),
-                        hora_asignacion = COALESCE(?, hora_asignacion),
-                        usuario_ejecutor_fenix = COALESCE(?, usuario_ejecutor_fenix)
-                      WHERE numero = ?
-                    `, [
-                      JSON.stringify(hist),
-                      tiempos.horaEnCamino,
-                      tiempos.inicioVisita,
-                      tiempos.finVisita,
-                      tiempos.horaAsignacion,
-                      tiempos.usuarioEjecutor,
-                      ord.numero
-                    ]);
-                  }
-                } catch (errHist) {
-                  // Fallos individuales no interrumpen el lote
-                }
-              })
-            );
-          }
-          console.log(`✅ [Fénix Scraper Background] Enriquecimiento de tiempos e historial finalizado.`);
-        } catch (bgErr) {
-          console.error("⚠️ [Fénix Scraper Background] Error en proceso de segundo plano:", bgErr.message);
-        }
-      });
+      console.log(`⏱️ [Fénix Scraper - Fase 2] Extrayendo tiempos exactos (En camino, Inicio, Fin) para ${todasLasOrdenes.length} órdenes...`);
+      let huboCambios = false;
+      const batchSize = 5;
+      for (let i = 0; i < todasLasOrdenes.length; i += batchSize) {
+        const batch = todasLasOrdenes.slice(i, i + batchSize);
+        await Promise.all(
+          batch.map(async (ord) => {
+            if (!ord.numero) return;
+            // ⚡ Optimización: si ya cuenta con inicio, fin y usuario ejecutor identificado, no saturar WIN
+            if (ord.inicio_visita && ord.fin_visita && ord.usuario_ejecutor_fenix) return;
+            try {
+              const hist = await obtenerHistorialEstados(ord.numero);
+              if (hist && hist.length > 0) {
+                ord.historial_estados = JSON.stringify(hist);
+                const tiempos = extraerTiemposDeHistorial(hist);
+                if (tiempos.horaEnCamino) ord.hora_en_camino = tiempos.horaEnCamino;
+                if (tiempos.inicioVisita) ord.inicio_visita = tiempos.inicioVisita;
+                if (tiempos.finVisita) ord.fin_visita = tiempos.finVisita;
+                if (tiempos.horaAsignacion) ord.hora_asignacion = tiempos.horaAsignacion;
+                if (tiempos.usuarioEjecutor) ord.usuario_ejecutor_fenix = tiempos.usuarioEjecutor;
+                huboCambios = true;
+              }
+            } catch (errHist) {}
+          })
+        );
+      }
+
+      if (huboCambios) {
+        console.log(`💾 [Fénix Scraper - Fase 2] Actualizando órdenes con datos de historial enriquecidos...`);
+        resultadoBD = await guardarOrdenesEnBD(todasLasOrdenes);
+      }
     }
+
+    console.log(`✅ [Fénix Scraper] ¡Sincronización completada con éxito! ${resultadoBD.totalGuardadas} órdenes procesadas.`);
 
     return {
       success: true,
@@ -1524,8 +1516,8 @@ function extraerTiemposDeHistorial(historial) {
   });
 
   if (filasCampo.length > 0) {
-    // Si hay registros de campo, el ejecutor de campo real es el técnico operativo
-    usuarioEjecutor = filasCampo[0].usuario.trim();
+    // Si hay registros de campo, el ejecutor de campo real es el último técnico operativo (quien realizó el trabajo)
+    usuarioEjecutor = filasCampo[filasCampo.length - 1].usuario.trim();
   }
 
   return {
