@@ -1198,7 +1198,52 @@ app.delete('/api/roles/:id', async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-// --- 🏢 ÁREAS CRUD ---
+// --- 🏢 SUBCONTRATAS CRUD ---
+app.get(['/subcontratas', '/api/subcontratas'], async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      "SELECT id_subcontrata, codigo, nombre, descripcion, estado FROM subcontratas WHERE estado = 'Activo' ORDER BY id_subcontrata ASC"
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("Error al obtener subcontratas:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post(['/subcontratas', '/api/subcontratas'], async (req, res) => {
+  try {
+    const { codigo, nombre, descripcion, estado = 'Activo' } = req.body;
+    if (!codigo || !codigo.trim()) {
+      return res.status(400).json({ error: "El código o nombre de la subcontrata es requerido." });
+    }
+    const cleanCod = codigo.trim();
+    const cleanNom = (nombre && nombre.trim()) ? nombre.trim() : cleanCod;
+    const cleanDesc = descripcion ? descripcion.trim() : null;
+
+    const [exist] = await pool.query("SELECT id_subcontrata FROM subcontratas WHERE codigo = ?", [cleanCod]);
+    if (exist.length > 0) {
+      return res.status(400).json({ error: `La subcontrata "${cleanCod}" ya existe.` });
+    }
+
+    const [result] = await pool.query(
+      "INSERT INTO subcontratas (codigo, nombre, descripcion, estado) VALUES (?, ?, ?, ?)",
+      [cleanCod, cleanNom, cleanDesc, estado]
+    );
+
+    res.json({
+      success: true,
+      message: `Subcontrata "${cleanCod}" creada exitosamente.`,
+      id_subcontrata: result.insertId,
+      codigo: cleanCod,
+      nombre: cleanNom
+    });
+  } catch (error) {
+    console.error("Error al registrar subcontrata:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get(['/areas', '/api/areas'], async (req, res) => {
   try {
     const [rows] = await pool.query(`
@@ -4315,6 +4360,7 @@ const uploadInspeccion = multer({ storage: storage }).fields([
   { name: 'foto_agua', maxCount: 1 },
   { name: 'foto_estado_general', maxCount: 1 },
   { name: 'foto_tablero_fin', maxCount: 1 },
+  { name: 'foto_combustible_fin', maxCount: 1 },
   { name: 'foto_comprobante', maxCount: 1 }
 ]);
 
@@ -4782,7 +4828,8 @@ const getPeruTimeStr = () => new Intl.DateTimeFormat("en-GB", { timeZone: "Ameri
 // --- 🚗 4. REGISTRAR CHECKLIST INICIO JORNADA (TÉCNICO 7:00 AM) ---
 app.post('/api/movilidad/inspeccion/inicio', uploadInspeccion, async (req, res) => {
   try {
-    const { id_vehiculo, id_trabajador, fecha, km_inicio, hora_inicio, observaciones_tecnico, lat_inicio, lng_inicio, nivel_combustible } = req.body;
+    const { id_vehiculo, id_trabajador, fecha, km_inicio, hora_inicio, observaciones_tecnico, lat_inicio, lng_inicio, nivel_combustible, nivel_combustible_inicio } = req.body;
+    const nivelCombInicio = nivel_combustible_inicio || nivel_combustible || 'Medio';
 
     if (!id_vehiculo || !id_trabajador) {
       return res.status(400).json({ error: "id_vehiculo y id_trabajador son requeridos" });
@@ -4817,9 +4864,10 @@ app.post('/api/movilidad/inspeccion/inicio', uploadInspeccion, async (req, res) 
           foto_agua = COALESCE(?, foto_agua),
           foto_estado_general = COALESCE(?, foto_estado_general),
           nivel_combustible = COALESCE(?, nivel_combustible),
+          nivel_combustible_inicio = COALESCE(?, nivel_combustible_inicio),
           observaciones_tecnico = COALESCE(?, observaciones_tecnico)
         WHERE id_inspeccion = ?
-      `, [id_trabajador, km_inicio, horaInicio, lat_inicio || null, lng_inicio || null, foto_tablero_inicio, foto_aceite, foto_agua, foto_estado_general, nivelComb, observaciones_tecnico, existente[0].id_inspeccion]);
+      `, [id_trabajador, km_inicio, horaInicio, lat_inicio || null, lng_inicio || null, foto_tablero_inicio, foto_aceite, foto_agua, foto_estado_general, nivelComb, nivelCombInicio, observaciones_tecnico, existente[0].id_inspeccion]);
 
       await pool.query("UPDATE vehiculos SET ultimo_nivel_combustible = ? WHERE id_vehiculo = ?", [nivelComb, id_vehiculo]).catch(() => {});
 
@@ -4835,9 +4883,9 @@ app.post('/api/movilidad/inspeccion/inicio', uploadInspeccion, async (req, res) 
         id_vehiculo, id_trabajador, fecha, km_inicio, hora_inicio,
         lat_inicio, lng_inicio,
         foto_tablero_inicio, foto_aceite, foto_agua, foto_estado_general,
-        nivel_combustible, observaciones_tecnico, estado_auditoria
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pendiente')
-    `, [id_vehiculo, id_trabajador, fechaInspeccion, km_inicio, horaInicio, lat_inicio || null, lng_inicio || null, foto_tablero_inicio, foto_aceite, foto_agua, foto_estado_general, nivelComb, observaciones_tecnico]);
+        nivel_combustible, nivel_combustible_inicio, observaciones_tecnico, estado_auditoria
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pendiente')
+    `, [id_vehiculo, id_trabajador, fechaInspeccion, km_inicio, horaInicio, lat_inicio || null, lng_inicio || null, foto_tablero_inicio, foto_aceite, foto_agua, foto_estado_general, nivelComb, nivelCombInicio, observaciones_tecnico]);
 
     await pool.query("UPDATE vehiculos SET ultimo_nivel_combustible = ? WHERE id_vehiculo = ?", [nivelComb, id_vehiculo]).catch(() => {});
 
@@ -4854,7 +4902,9 @@ app.post('/api/movilidad/inspeccion/inicio', uploadInspeccion, async (req, res) 
 // --- 🚗 5. REGISTRAR CHECKLIST FIN JORNADA (TÉCNICO 7:00 PM) ---
 app.post('/api/movilidad/inspeccion/fin', uploadInspeccion, async (req, res) => {
   try {
-    const { id_inspeccion, id_vehiculo, id_trabajador, fecha, km_fin, hora_fin, observaciones_tecnico, lat_fin, lng_fin, nivel_combustible } = req.body;
+    const { id_inspeccion, id_vehiculo, id_trabajador, fecha, km_fin, hora_fin, observaciones_tecnico, lat_fin, lng_fin, nivel_combustible, nivel_combustible_fin } = req.body;
+    const foto_combustible_fin = req.files && req.files['foto_combustible_fin'] ? req.files['foto_combustible_fin'][0].filename : null;
+    const nivelCombFin = nivel_combustible_fin || nivel_combustible || null;
 
     const horaFin = hora_fin || getPeruTimeStr();
     const fechaHoy = (fecha && fecha.length === 10) ? fecha : getPeruDateStr();
@@ -4959,16 +5009,18 @@ app.post('/api/movilidad/inspeccion/fin', uploadInspeccion, async (req, res) => 
       UPDATE vehiculo_inspecciones SET
         km_fin = ?,
         hora_fin = ?,
+        fecha_cierre_real = NOW(),
         lat_fin = ?,
         lng_fin = ?,
         foto_tablero_fin = COALESCE(?, foto_tablero_fin),
-        nivel_combustible = COALESCE(?, nivel_combustible),
+        foto_combustible_fin = COALESCE(?, foto_combustible_fin),
+        nivel_combustible_fin = COALESCE(?, nivel_combustible_fin),
         km_recorridos = ?,
         km_estimados_ordenes = ?,
         diferencia_km = ?,
         observaciones_tecnico = CONCAT(COALESCE(observaciones_tecnico, ''), ' | Fin: ', COALESCE(?, ''))
       WHERE id_inspeccion = ?
-    `, [kmFinNum, horaFin, lat_fin || null, lng_fin || null, foto_tablero_fin, nivelComb, kmRecorridos, kmEstimadosOrdenes, diferenciaKm, observaciones_tecnico, targetId]);
+    `, [kmFinNum, horaFin, lat_fin || null, lng_fin || null, foto_tablero_fin, foto_combustible_fin, nivelCombFin, kmRecorridos, kmEstimadosOrdenes, diferenciaKm, observaciones_tecnico, targetId]);
 
     if (nivelComb && (id_vehiculo || insp.id_vehiculo)) {
       await pool.query("UPDATE vehiculos SET ultimo_nivel_combustible = ? WHERE id_vehiculo = ?", [nivelComb, id_vehiculo || insp.id_vehiculo]).catch(() => {});
@@ -5001,7 +5053,22 @@ app.get('/api/movilidad/inspecciones', async (req, res) => {
         u.id_usuario,
         TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))) AS nombre_tecnico,
         u.cuadrilla,
-        u.telefono
+        u.telefono,
+        (
+          SELECT TIME(MAX(COALESCE(ol.fecha_liquidacion, o.fin_visita, o.fecha_estado)))
+          FROM ordenes o
+          LEFT JOIN orden_liquidaciones ol ON o.id_orden = ol.id_orden
+          WHERE DATE(o.fecha_visita) = i.fecha
+            AND (o.id_tecnico = t.id_trabajador OR (u.cuadrilla IS NOT NULL AND u.cuadrilla != '' AND o.cuadrilla = u.cuadrilla) OR o.tecnico_asignado LIKE CONCAT('%', u.nombres, '%'))
+            AND (LOWER(TRIM(o.estado)) = 'finalizada' OR LOWER(TRIM(o.estado)) = 'liquidada')
+        ) AS hora_fin_ultima_orden,
+        (
+          SELECT COUNT(o.id_orden)
+          FROM ordenes o
+          WHERE DATE(o.fecha_visita) = i.fecha
+            AND (o.id_tecnico = t.id_trabajador OR (u.cuadrilla IS NOT NULL AND u.cuadrilla != '' AND o.cuadrilla = u.cuadrilla) OR o.tecnico_asignado LIKE CONCAT('%', u.nombres, '%'))
+            AND (LOWER(TRIM(o.estado)) = 'finalizada' OR LOWER(TRIM(o.estado)) = 'liquidada')
+        ) AS total_ordenes_completadas
       FROM vehiculo_inspecciones i
       JOIN vehiculos v ON i.id_vehiculo = v.id_vehiculo
       JOIN trabajadores t ON i.id_trabajador = t.id_trabajador
@@ -9657,6 +9724,43 @@ app.put('/api/almacen/orden-liquidaciones/:id/cambiar-producto', async (req, res
     }
 
     const nuevoProd = nProdRows[0];
+    let finalNuevaSerie = nuevo_numero_serie ? String(nuevo_numero_serie).trim().toUpperCase() : null;
+    const nuevoRequiereSerie = Number(nuevoProd.maneja_serie) === 1 || String(nuevoProd.categoria_liquidar || '').toUpperCase() === 'EQUIPO';
+
+    if (nuevoRequiereSerie) {
+      if (!finalNuevaSerie) {
+        await connection.rollback();
+        return res.status(400).json({
+          success: false,
+          error: `El producto de reemplazo "${nuevoProd.nombre}" es un equipo y requiere seleccionar una serie obligatoria de la camioneta del técnico.`
+        });
+      }
+
+      if (idTrabajador) {
+        const [serieCheck] = await connection.query(`
+          SELECT ts.id_trabajador_serie, ts.estado, ps.numero_serie
+          FROM trabajador_series ts
+          JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
+          WHERE ts.id_trabajador = ? AND ps.numero_serie = ? AND ts.id_producto = ?
+        `, [idTrabajador, finalNuevaSerie, nuevo_id_producto]);
+
+        if (serieCheck.length === 0) {
+          await connection.rollback();
+          return res.status(400).json({
+            success: false,
+            error: `La serie "${finalNuevaSerie}" no está asignada en la camioneta del técnico para el equipo "${nuevoProd.nombre}".`
+          });
+        }
+
+        if (serieCheck[0].estado !== 'Asignada') {
+          await connection.rollback();
+          return res.status(400).json({
+            success: false,
+            error: `La serie "${finalNuevaSerie}" figura como "${serieCheck[0].estado}" y no está disponible en la camioneta.`
+          });
+        }
+      }
+    }
 
     // 3. Revertir / Devolver stock del producto viejo a la camioneta del técnico
     if (idTrabajador && cantVieja > 0) {
@@ -9703,7 +9807,6 @@ app.put('/api/almacen/orden-liquidaciones/:id/cambiar-producto', async (req, res
     }
 
     // Si el nuevo producto incluye serie
-    let finalNuevaSerie = nuevo_numero_serie ? String(nuevo_numero_serie).trim().toUpperCase() : null;
     if (finalNuevaSerie) {
       await connection.query("UPDATE producto_series SET estado = 'VENDIDO' WHERE numero_serie = ?", [finalNuevaSerie]);
       if (idTrabajador) {
@@ -9810,6 +9913,40 @@ app.post('/api/almacen/orden-liquidaciones/:id/agregar-material', async (req, re
 
     const prod = pRows[0];
     const finalSerie = numero_serie ? String(numero_serie).trim().toUpperCase() : null;
+    const requiereSerie = Number(prod.maneja_serie) === 1 || String(prod.categoria_liquidar || '').toUpperCase() === 'EQUIPO';
+
+    if (requiereSerie) {
+      if (!finalSerie) {
+        await connection.rollback();
+        return res.status(400).json({
+          success: false,
+          error: "El producto " + prod.nombre + " es un equipo y requiere seleccionar una serie obligatoria de la camioneta del técnico."
+        });
+      }
+
+      if (idTrabajador) {
+        const [serieCheck] = await connection.query(
+          "SELECT ts.id_trabajador_serie, ts.estado, ps.numero_serie FROM trabajador_series ts JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie WHERE ts.id_trabajador = ? AND ps.numero_serie = ? AND ts.id_producto = ?",
+          [idTrabajador, finalSerie, id_producto]
+        );
+
+        if (serieCheck.length === 0) {
+          await connection.rollback();
+          return res.status(400).json({
+            success: false,
+            error: "La serie " + finalSerie + " no está asignada en la camioneta del técnico para el equipo " + prod.nombre + "."
+          });
+        }
+
+        if (serieCheck[0].estado !== 'Asignada') {
+          await connection.rollback();
+          return res.status(400).json({
+            success: false,
+            error: "La serie " + finalSerie + " figura como " + serieCheck[0].estado + " y no está disponible en la camioneta."
+          });
+        }
+      }
+    }
 
     // 3. Descontar stock del vehículo del técnico
     if (idTrabajador) {
@@ -11774,6 +11911,98 @@ app.get(['/api/dashboard/rendimiento-tecnicos', '/dashboard/rendimiento-tecnicos
     });
   } catch (error) {
     console.error("Error en /api/dashboard/rendimiento-tecnicos:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// --- 🔍 DETALLE DE ÓRDENES POR TÉCNICO Y TIPO DE TRABAJO (DRILLDOWN MATRIZ) ---
+app.get(['/api/dashboard/ordenes-detalle-matriz', '/dashboard/ordenes-detalle-matriz'], async (req, res) => {
+  try {
+    let { id_tecnico, tecnico, tipo_trabajo, desde, hasta } = req.query;
+
+    if (!desde || !hasta) {
+      return res.status(400).json({ success: false, error: "Fechas 'desde' y 'hasta' son obligatorias" });
+    }
+
+    let whereClause = `
+      WHERE DATE(o.fecha_visita) >= ? 
+        AND DATE(o.fecha_visita) <= ? 
+        AND o.estado != 'Finalizada Externa'
+        AND (o.tecnico_asignado IS NULL OR o.tecnico_asignado NOT LIKE 'EXTERNO%')
+    `;
+    const queryParams = [desde, hasta];
+
+    if (id_tecnico && Number(id_tecnico) > 0) {
+      whereClause += ` AND (o.id_tecnico = ? OR u.id_usuario = ?)`;
+      queryParams.push(Number(id_tecnico), Number(id_tecnico));
+    } else if (tecnico && String(tecnico).trim()) {
+      whereClause += ` AND (o.cuadrilla LIKE ? OR CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, '')) LIKE ?)`;
+      const term = `%${String(tecnico).trim()}%`;
+      queryParams.push(term, term);
+    }
+
+    const [rows] = await pool.query(`
+      SELECT 
+        o.id_orden,
+        o.numero,
+        o.cliente,
+        o.fecha_visita,
+        o.direccion,
+        o.localidad,
+        o.sector_operativo,
+        o.estado,
+        o.motivo_finalizacion,
+        o.motivo_trabajo,
+        o.tipo_trabajo,
+        o.cuadrilla,
+        COALESCE(
+          NULLIF(TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))), ''),
+          NULLIF(TRIM(o.cuadrilla), ''),
+          'Sin Técnico Asignado'
+        ) AS tecnico_nombre
+      FROM ordenes o
+      LEFT JOIN usuarios u ON o.id_tecnico = u.id_usuario
+      ${whereClause}
+      ORDER BY o.fecha_visita DESC, o.id_orden DESC
+    `, queryParams);
+
+    const catalogoMotivos = await getMotivosCatalogo(pool);
+
+    const ordenesFiltradas = [];
+    for (const r of rows) {
+      const estLower = (r.estado || '').toLowerCase();
+      const esFinalizada = estLower.includes('finaliz') || estLower.includes('liquid');
+      if (!esFinalizada) continue;
+
+      const tipoResuelto = resolverTipoTrabajoConCatalogo(r.motivo_finalizacion, r.tipo_trabajo || r.motivo_trabajo, r.estado, catalogoMotivos);
+
+      if (!tipo_trabajo || tipo_trabajo === 'TOTAL' || tipoResuelto === tipo_trabajo) {
+        ordenesFiltradas.push({
+          id_orden: r.id_orden,
+          numero: r.numero,
+          cliente: r.cliente || 'Sin cliente',
+          fecha_visita: r.fecha_visita,
+          direccion: r.direccion || 'Sin dirección',
+          localidad: r.localidad || r.sector_operativo || '',
+          estado: r.estado,
+          motivo_finalizacion: r.motivo_finalizacion || '',
+          motivo_trabajo: r.motivo_trabajo || '',
+          tipo_trabajo_resuelto: tipoResuelto || r.tipo_trabajo || 'SIN TIPO',
+          cuadrilla: r.cuadrilla,
+          tecnico: r.tecnico_nombre
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      total: ordenesFiltradas.length,
+      tecnico: tecnico || (ordenesFiltradas[0]?.tecnico || 'Técnico'),
+      tipo_trabajo: tipo_trabajo || 'TOTAL',
+      ordenes: ordenesFiltradas
+    });
+  } catch (error) {
+    console.error("Error en /api/dashboard/ordenes-detalle-matriz:", error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });

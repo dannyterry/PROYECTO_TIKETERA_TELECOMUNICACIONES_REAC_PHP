@@ -103,8 +103,8 @@ export const InspectionAuditTab: React.FC<Props> = ({
     if (insp.foto_estado_general) {
       list.push({
         url: insp.foto_estado_general,
-        title: "Marcador Gas / Gasolina",
-        subtitle: `Manómetro GLP/GNV o Marcador | Placa: ${insp.placa || ""}`,
+        title: "Marcador Gas / Gasolina (Inicio)",
+        subtitle: `Nivel Inicio: ${insp.nivel_combustible_inicio || insp.nivel_combustible || "Medio"} | Placa: ${insp.placa || ""}`,
       });
     }
     if (insp.foto_tablero_fin) {
@@ -112,6 +112,13 @@ export const InspectionAuditTab: React.FC<Props> = ({
         url: insp.foto_tablero_fin,
         title: "Tablero Cierre de Jornada",
         subtitle: `Placa: ${insp.placa || "S/P"} | KM Final: ${insp.km_fin || "0"} | Hora: ${insp.hora_fin || "--"}`,
+      });
+    }
+    if (insp.foto_combustible_fin) {
+      list.push({
+        url: insp.foto_combustible_fin,
+        title: "Marcador Gas / Gasolina (Cierre)",
+        subtitle: `Nivel Cierre: ${insp.nivel_combustible_fin || "No registrado"} | Placa: ${insp.placa || ""}`,
       });
     }
 
@@ -276,6 +283,7 @@ export const InspectionAuditTab: React.FC<Props> = ({
               insp.foto_agua,
               insp.foto_estado_general,
               insp.foto_tablero_fin,
+              insp.foto_combustible_fin,
             ].filter(Boolean);
 
             const kmInicio = Number(insp.km_inicio) || 0;
@@ -348,39 +356,63 @@ export const InspectionAuditTab: React.FC<Props> = ({
                     )}
                   </div>
 
-                  {/* ⛽ Nivel de Combustible Reportado */}
-                  {insp.nivel_combustible && (
-                    <div className={`flex items-center justify-between px-3 py-2 rounded-2xl border text-xs font-bold ${
-                      insp.nivel_combustible === "Bajo"
-                        ? "bg-rose-50/90 border-rose-200 text-rose-900"
-                        : insp.nivel_combustible === "Medio"
-                        ? "bg-amber-50/90 border-amber-200 text-amber-900"
-                        : insp.nivel_combustible === "3/4"
-                        ? "bg-sky-50/90 border-sky-200 text-sky-900"
-                        : "bg-emerald-50/90 border-emerald-200 text-emerald-900"
-                    }`}>
-                      <span className="flex items-center gap-1.5 font-bold">
-                        <Fuel size={14} className={
-                          insp.nivel_combustible === "Bajo"
-                            ? "text-rose-600 animate-bounce"
-                            : insp.nivel_combustible === "Medio"
-                            ? "text-amber-600"
-                            : insp.nivel_combustible === "3/4"
-                            ? "text-sky-600"
-                            : "text-emerald-600"
-                        } />
-                        Marcador Gas / Gasolina:
+                  {/* ⛽ Nivel de Combustible Reportado (Inicio vs Cierre) */}
+                  {(insp.nivel_combustible_inicio || insp.nivel_combustible || insp.nivel_combustible_fin) && (
+                    <div className="bg-slate-50/90 p-2.5 rounded-2xl border border-slate-200/70 space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                        <span className="flex items-center gap-1.5">
+                          <Fuel size={13} className="text-amber-500" />
+                          Combustible Inicio:
+                        </span>
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-200 text-slate-800">
+                          {insp.nivel_combustible_inicio || insp.nivel_combustible || "Medio"}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-700 border-t border-slate-200/60 pt-1.5">
+                        <span className="flex items-center gap-1.5">
+                          <Fuel size={13} className={insp.nivel_combustible_fin === "Bajo" ? "text-rose-600 animate-bounce" : "text-cyan-600"} />
+                          Combustible Cierre:
+                        </span>
+                        {insp.nivel_combustible_fin ? (
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                            insp.nivel_combustible_fin === "Bajo"
+                              ? "bg-rose-600 text-white shadow-xs animate-pulse"
+                              : insp.nivel_combustible_fin === "Medio"
+                              ? "bg-amber-500 text-white shadow-xs"
+                              : "bg-emerald-600 text-white shadow-xs"
+                          }`}>
+                            {insp.nivel_combustible_fin}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 font-semibold italic">
+                            Pendiente cierre
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Cruce Horario: Última Orden vs Cierre Jornada */}
+                  {(insp.hora_fin_ultima_orden || insp.hora_fin || insp.hora_cierre_real) && (
+                    <div className="flex items-center justify-between text-[11px] bg-cyan-50/40 px-3 py-1.5 rounded-xl border border-cyan-100/70 text-slate-700">
+                      <span className="flex items-center gap-1 font-medium">
+                        <Clock size={12} className="text-cyan-600" />
+                        Fin Última Orden:{" "}
+                        <strong className="text-slate-900 font-mono">
+                          {insp.hora_fin_ultima_orden
+                            ? insp.hora_fin_ultima_orden.includes("T") || insp.hora_fin_ultima_orden.includes(" ")
+                              ? (insp.hora_fin_ultima_orden.split(/[T ]/)[1] || "").slice(0, 5)
+                              : insp.hora_fin_ultima_orden.slice(0, 5)
+                            : "--"}
+                        </strong>
                       </span>
-                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                        insp.nivel_combustible === "Bajo"
-                          ? "bg-rose-600 text-white shadow-xs animate-pulse"
-                          : insp.nivel_combustible === "Medio"
-                          ? "bg-amber-500 text-white shadow-xs"
-                          : insp.nivel_combustible === "3/4"
-                          ? "bg-sky-600 text-white shadow-xs"
-                          : "bg-emerald-600 text-white shadow-xs"
-                      }`}>
-                        {insp.nivel_combustible === "Bajo" ? "🔴 Bajo (1/4)" : insp.nivel_combustible === "Medio" ? "🟡 Medio (1/2)" : insp.nivel_combustible === "3/4" ? "🔵 3/4" : "🟢 Full / Lleno"}
+                      <span className="font-medium">
+                        Cierre:{" "}
+                        <strong className="text-slate-900 font-mono">
+                          {insp.hora_cierre_real
+                            ? (insp.hora_cierre_real.split(/[T ]/)[1] || insp.hora_cierre_real).slice(0, 5)
+                            : (insp.hora_fin ? insp.hora_fin.slice(0, 5) : "--")}
+                        </strong>
                       </span>
                     </div>
                   )}
@@ -407,12 +439,12 @@ export const InspectionAuditTab: React.FC<Props> = ({
                     </div>
                   </div>
 
-                  {/* MINIATURAS DE FOTOS REQUERIDAS (5 FOTOS) */}
+                  {/* MINIATURAS DE FOTOS REQUERIDAS (HASTA 6 FOTOS) */}
                   <div>
                     <div className="flex items-center justify-between text-xs font-bold text-slate-600 mb-2">
                       <span className="flex items-center gap-1.5">
                         <Eye size={13} className="text-cyan-600" />
-                        Evidencias Fotográficas ({fotosDisponibles.length}/5)
+                        Evidencias Fotográficas ({fotosDisponibles.length}/6)
                       </span>
                       {fotosDisponibles.length > 0 && (
                         <button
@@ -424,7 +456,7 @@ export const InspectionAuditTab: React.FC<Props> = ({
                       )}
                     </div>
 
-                    <div className="grid grid-cols-5 gap-1.5">
+                    <div className="grid grid-cols-6 gap-1.5">
                       
                       {/* Foto Tablero Inicio */}
                       <button
@@ -443,12 +475,12 @@ export const InspectionAuditTab: React.FC<Props> = ({
                               alt="Tablero Inicio"
                               className="w-full h-full object-cover rounded-xl"
                             />
-                            <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[8px] font-bold text-white text-center rounded py-0.5 truncate">
+                            <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[7px] font-bold text-white text-center rounded py-0.5 truncate">
                               Tablero
                             </span>
                           </>
                         ) : (
-                          <Gauge size={16} />
+                          <Gauge size={14} />
                         )}
                       </button>
 
@@ -469,12 +501,12 @@ export const InspectionAuditTab: React.FC<Props> = ({
                               alt="Aceite"
                               className="w-full h-full object-cover rounded-xl"
                             />
-                            <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[8px] font-bold text-white text-center rounded py-0.5 truncate">
+                            <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[7px] font-bold text-white text-center rounded py-0.5 truncate">
                               Aceite
                             </span>
                           </>
                         ) : (
-                          <Droplet size={16} />
+                          <Droplet size={14} />
                         )}
                       </button>
 
@@ -495,16 +527,16 @@ export const InspectionAuditTab: React.FC<Props> = ({
                               alt="Agua"
                               className="w-full h-full object-cover rounded-xl"
                             />
-                            <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[8px] font-bold text-white text-center rounded py-0.5 truncate">
+                            <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[7px] font-bold text-white text-center rounded py-0.5 truncate">
                               Agua
                             </span>
                           </>
                         ) : (
-                          <Waves size={16} />
+                          <Waves size={14} />
                         )}
                       </button>
 
-                      {/* Foto Marcador Gas / Gasolina */}
+                      {/* Foto Marcador Gas / Gasolina Inicio */}
                       <button
                         type="button"
                         onClick={() => insp.foto_estado_general && handleOpenPhotos(insp, 3)}
@@ -518,15 +550,15 @@ export const InspectionAuditTab: React.FC<Props> = ({
                           <>
                             <img
                               src={getImageUrl(insp.foto_estado_general)}
-                              alt="Marcador Gas"
+                              alt="Marcador Gas Inicio"
                               className="w-full h-full object-cover rounded-xl"
                             />
-                            <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[8px] font-bold text-white text-center rounded py-0.5 truncate">
-                              Gas
+                            <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[7px] font-bold text-white text-center rounded py-0.5 truncate">
+                              Gas Ini
                             </span>
                           </>
                         ) : (
-                          <Fuel size={16} />
+                          <Fuel size={14} />
                         )}
                       </button>
 
@@ -547,12 +579,38 @@ export const InspectionAuditTab: React.FC<Props> = ({
                               alt="Tablero Cierre"
                               className="w-full h-full object-cover rounded-xl"
                             />
-                            <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[8px] font-bold text-white text-center rounded py-0.5 truncate">
+                            <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[7px] font-bold text-white text-center rounded py-0.5 truncate">
                               Cierre
                             </span>
                           </>
                         ) : (
-                          <Clock size={16} />
+                          <Clock size={14} />
+                        )}
+                      </button>
+
+                      {/* Foto Marcador Gas / Gasolina Fin */}
+                      <button
+                        type="button"
+                        onClick={() => insp.foto_combustible_fin && handleOpenPhotos(insp, 5)}
+                        className={`relative aspect-square rounded-2xl border overflow-hidden flex flex-col items-center justify-center p-1 transition-all ${
+                          insp.foto_combustible_fin
+                            ? "border-slate-200 hover:border-cyan-500 cursor-pointer shadow-xs"
+                            : "border-dashed border-slate-200 bg-slate-50 text-slate-300 cursor-not-allowed"
+                        }`}
+                      >
+                        {insp.foto_combustible_fin ? (
+                          <>
+                            <img
+                              src={getImageUrl(insp.foto_combustible_fin)}
+                              alt="Marcador Gas Cierre"
+                              className="w-full h-full object-cover rounded-xl"
+                            />
+                            <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[7px] font-bold text-white text-center rounded py-0.5 truncate">
+                              Gas Fin
+                            </span>
+                          </>
+                        ) : (
+                          <Fuel size={14} />
                         )}
                       </button>
                     </div>

@@ -148,6 +148,94 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
   const [catalogoGeneral, setCatalogoGeneral] = useState<ProductoStock[]>([]);
   const [cargandoStockTec, setCargandoStockTec] = useState<boolean>(false);
 
+  // ── 🚚 LÓGICA DE DETECCIÓN Y SERIES DE CAMIONETA PARA AGREGAR ──
+  const prodSeleccionadoAgregar = useMemo(() => {
+    if (!nuevoMatProdId) return null;
+    if (origenStockAgregar === "camioneta") {
+      const match = stockTecnico?.materiales?.find((m: any) => m.id_producto === nuevoMatProdId);
+      if (match) return match;
+    }
+    return catalogoGeneral.find((p) => p.id_producto === nuevoMatProdId) || null;
+  }, [nuevoMatProdId, origenStockAgregar, stockTecnico, catalogoGeneral]);
+
+  const esEquipoAgregar = useMemo(() => {
+    if (!prodSeleccionadoAgregar) return false;
+    return (
+      Boolean(prodSeleccionadoAgregar.maneja_serie) ||
+      String(prodSeleccionadoAgregar.categoria_liquidar || "").toUpperCase() === "EQUIPO" ||
+      Boolean(
+        stockTecnico?.seriesAsignadas &&
+        stockTecnico.seriesAsignadas.some(
+          (s: any) => s.id_producto === prodSeleccionadoAgregar.id_producto
+        )
+      )
+    );
+  }, [prodSeleccionadoAgregar, stockTecnico]);
+
+  const seriesCamionetaAgregar = useMemo(() => {
+    if (!nuevoMatProdId || !stockTecnico?.seriesAsignadas) return [];
+    return stockTecnico.seriesAsignadas.filter(
+      (s: any) => s.id_producto === nuevoMatProdId && (s.estado === "Asignada" || !s.estado)
+    );
+  }, [nuevoMatProdId, stockTecnico]);
+
+  useEffect(() => {
+    if (esEquipoAgregar) {
+      setNuevoMatCant("1");
+      if (seriesCamionetaAgregar.length === 1) {
+        setNuevoMatSerie(seriesCamionetaAgregar[0].numero_serie);
+      } else if (!seriesCamionetaAgregar.some((s: any) => s.numero_serie === nuevoMatSerie)) {
+        setNuevoMatSerie("");
+      }
+    } else {
+      setNuevoMatSerie("");
+    }
+  }, [esEquipoAgregar, nuevoMatProdId, seriesCamionetaAgregar]);
+
+  // ── 🚚 LÓGICA DE DETECCIÓN Y SERIES DE CAMIONETA PARA CAMBIO ──
+  const prodSeleccionadoCambio = useMemo(() => {
+    if (!cambioProdId) return null;
+    if (origenStockCambio === "camioneta") {
+      const match = stockTecnico?.materiales?.find((m: any) => m.id_producto === cambioProdId);
+      if (match) return match;
+    }
+    return catalogoGeneral.find((p) => p.id_producto === cambioProdId) || null;
+  }, [cambioProdId, origenStockCambio, stockTecnico, catalogoGeneral]);
+
+  const esEquipoCambio = useMemo(() => {
+    if (!prodSeleccionadoCambio) return false;
+    return (
+      Boolean(prodSeleccionadoCambio.maneja_serie) ||
+      String(prodSeleccionadoCambio.categoria_liquidar || "").toUpperCase() === "EQUIPO" ||
+      Boolean(
+        stockTecnico?.seriesAsignadas &&
+        stockTecnico.seriesAsignadas.some(
+          (s: any) => s.id_producto === prodSeleccionadoCambio.id_producto
+        )
+      )
+    );
+  }, [prodSeleccionadoCambio, stockTecnico]);
+
+  const seriesCamionetaCambio = useMemo(() => {
+    if (!cambioProdId || !stockTecnico?.seriesAsignadas) return [];
+    return stockTecnico.seriesAsignadas.filter(
+      (s: any) => s.id_producto === cambioProdId && (s.estado === "Asignada" || !s.estado)
+    );
+  }, [cambioProdId, stockTecnico]);
+
+  useEffect(() => {
+    if (esEquipoCambio) {
+      setCambioCant("1");
+      if (seriesCamionetaCambio.length === 1) {
+        setCambioSerie(seriesCamionetaCambio[0].numero_serie);
+      } else if (!seriesCamionetaCambio.some((s: any) => s.numero_serie === cambioSerie)) {
+        setCambioSerie("");
+      }
+    } else {
+      setCambioSerie("");
+    }
+  }, [esEquipoCambio, cambioProdId, seriesCamionetaCambio]);
+
   // Modal de confirmación para aprobación masiva
   const [modalMasivoAbierto, setModalMasivoAbierto] = useState<boolean>(false);
 
@@ -407,6 +495,17 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
       return;
     }
 
+    if (esEquipoAgregar) {
+      if (!nuevoMatSerie.trim()) {
+        alert("Debe seleccionar una serie disponible de la camioneta del técnico.");
+        return;
+      }
+      if (!seriesCamionetaAgregar.some((s: any) => s.numero_serie === nuevoMatSerie.trim())) {
+        alert("La serie seleccionada no está asignada o disponible en la camioneta del técnico.");
+        return;
+      }
+    }
+
     setProcesandoAccion(true);
     try {
       const res = await agregarMaterialLiquidacion(modalLiq.id_liquidacion, {
@@ -470,6 +569,17 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
     if (isNaN(nCant) || nCant <= 0) {
       alert("Por favor ingrese una cantidad válida mayor a 0.");
       return;
+    }
+
+    if (esEquipoCambio) {
+      if (!cambioSerie.trim()) {
+        alert("Debe seleccionar una serie disponible de la camioneta del técnico para el producto de reemplazo.");
+        return;
+      }
+      if (!seriesCamionetaCambio.some((s: any) => s.numero_serie === cambioSerie.trim())) {
+        alert("La serie seleccionada no está asignada o disponible en la camioneta del técnico.");
+        return;
+      }
     }
 
     const conf = window.confirm(
@@ -2403,52 +2513,92 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                 </select>
               </div>
 
-              {/* Cantidad */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-700 block">Cantidad a Liquidar:</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={nuevoMatCant}
-                    onChange={(e) => setNuevoMatCant(e.target.value)}
-                    className="w-full p-2 rounded-xl border border-slate-300 font-mono font-bold text-slate-900 bg-white"
-                  />
-                </div>
+              {/* Cantidad y Serie */}
+              {esEquipoAgregar ? (
+                /* ── CASO EQUIPO: SERIE EXCLUSIVA DE CAMIONETA ── */
+                <div className="space-y-3">
+                  <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="font-extrabold text-amber-950 flex items-center gap-1.5 text-xs">
+                        <Truck size={14} className="text-amber-700" />
+                        Serie del Camión del Técnico (Obligatorio):
+                      </label>
+                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-full font-mono ${
+                        seriesCamionetaAgregar.length > 0 ? "bg-amber-200 text-amber-900" : "bg-rose-200 text-rose-900"
+                      }`}>
+                        {seriesCamionetaAgregar.length} disponibles
+                      </span>
+                    </div>
 
-                {/* Serie si aplica */}
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-700 block">N° Serie (Opcional):</label>
-                  <input
-                    type="text"
-                    placeholder="Ej. HWTC123456"
-                    value={nuevoMatSerie}
-                    onChange={(e) => setNuevoMatSerie(e.target.value)}
-                    className="w-full p-2 rounded-xl border border-slate-300 font-mono text-slate-900 bg-white uppercase"
-                  />
-                </div>
-              </div>
+                    {seriesCamionetaAgregar.length > 0 ? (
+                      <>
+                        <select
+                          value={nuevoMatSerie}
+                          onChange={(e) => setNuevoMatSerie(e.target.value)}
+                          className="w-full p-2.5 rounded-xl border border-amber-300 bg-white font-mono font-bold text-slate-900 focus:border-amber-500 shadow-2xs text-xs"
+                        >
+                          <option value="">-- Seleccionar Serie Física del Vehículo --</option>
+                          {seriesCamionetaAgregar.map((s: any) => (
+                            <option key={s.id_trabajador_serie || s.numero_serie} value={s.numero_serie}>
+                              {s.numero_serie} — {s.equipo_nombre} (En Camioneta)
+                            </option>
+                          ))}
+                        </select>
 
-              {/* Series disponibles en camioneta si es equipo */}
-              {stockTecnico?.seriesAsignadas && stockTecnico.seriesAsignadas.length > 0 && (
-                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 space-y-1">
-                  <span className="font-bold text-amber-900 block text-[11px]">
-                    Series Asignadas al Técnico en Campo:
-                  </span>
-                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
-                    {stockTecnico.seriesAsignadas.map((s: any) => (
-                      <button
-                        type="button"
-                        key={s.id_trabajador_serie || s.numero_serie}
-                        onClick={() => {
-                          setNuevoMatSerie(s.numero_serie);
-                          if (s.id_producto) setNuevoMatProdId(s.id_producto);
-                        }}
-                        className="px-2 py-0.5 rounded-md bg-white border border-amber-300 font-mono text-[10px] font-bold text-amber-900 hover:bg-amber-100 cursor-pointer"
-                      >
-                        {s.numero_serie} ({s.equipo_nombre})
-                      </button>
-                    ))}
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {seriesCamionetaAgregar.map((s: any) => {
+                            const isSelected = nuevoMatSerie === s.numero_serie;
+                            return (
+                              <button
+                                type="button"
+                                key={s.id_trabajador_serie || s.numero_serie}
+                                onClick={() => setNuevoMatSerie(s.numero_serie)}
+                                className={`px-2.5 py-1 rounded-lg font-mono text-[11px] font-bold transition-all cursor-pointer border ${
+                                  isSelected
+                                    ? "bg-amber-600 text-white border-amber-700 shadow-2xs"
+                                    : "bg-white text-amber-900 border-amber-200 hover:bg-amber-100"
+                                }`}
+                              >
+                                {s.numero_serie}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2">
+                        <AlertTriangle size={18} className="text-rose-600 shrink-0 mt-0.5" />
+                        <div>
+                          <strong className="block font-black">Sin stock en camioneta:</strong>
+                          El técnico <span className="underline">{modalLiq.tecnico}</span> no tiene ninguna unidad disponible de este equipo en su vehículo. No es posible agregar series no asignadas.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs text-slate-600">
+                    <span className="font-bold">Cantidad a Liquidar:</span>
+                    <span className="font-mono font-black text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-200">
+                      1 UND (Serializado)
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                /* ── CASO MATERIAL / INSUMO COMÚN (SIN SERIE) ── */
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700 block">Cantidad a Liquidar:</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={nuevoMatCant}
+                      onChange={(e) => setNuevoMatCant(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-300 font-mono font-bold text-slate-900 bg-white"
+                    />
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-[11px] flex items-center gap-2">
+                    <Check size={14} className="text-emerald-600 shrink-0" />
+                    <span>Este producto es un material/insumo común, no requiere número de serie.</span>
                   </div>
                 </div>
               )}
@@ -2478,8 +2628,12 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
               <button
                 type="button"
                 onClick={handleGuardarNuevoMaterial}
-                disabled={procesandoAccion || !nuevoMatProdId}
-                className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs cursor-pointer shadow-sm disabled:bg-slate-300"
+                disabled={
+                  procesandoAccion ||
+                  !nuevoMatProdId ||
+                  (esEquipoAgregar && (!nuevoMatSerie || seriesCamionetaAgregar.length === 0))
+                }
+                className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs cursor-pointer shadow-sm disabled:bg-slate-300 disabled:cursor-not-allowed"
               >
                 Agregar y Descontar Stock
               </button>
@@ -2590,29 +2744,94 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
               </div>
 
               {/* Cantidad y Serie */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-700 block">Nueva Cantidad:</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={cambioCant}
-                    onChange={(e) => setCambioCant(e.target.value)}
-                    className="w-full p-2 rounded-xl border border-slate-300 font-mono font-bold text-slate-900 bg-white"
-                  />
-                </div>
+              {esEquipoCambio ? (
+                /* ── CASO EQUIPO: SERIE EXCLUSIVA DE CAMIONETA ── */
+                <div className="space-y-3">
+                  <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="font-extrabold text-amber-950 flex items-center gap-1.5 text-xs">
+                        <Truck size={14} className="text-amber-700" />
+                        Serie del Camión del Técnico (Obligatorio):
+                      </label>
+                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-full font-mono ${
+                        seriesCamionetaCambio.length > 0 ? "bg-amber-200 text-amber-900" : "bg-rose-200 text-rose-900"
+                      }`}>
+                        {seriesCamionetaCambio.length} disponibles
+                      </span>
+                    </div>
 
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-700 block">Nueva Serie (Opcional):</label>
-                  <input
-                    type="text"
-                    placeholder="Ej. HWTC789012"
-                    value={cambioSerie}
-                    onChange={(e) => setCambioSerie(e.target.value)}
-                    className="w-full p-2 rounded-xl border border-slate-300 font-mono text-slate-900 bg-white uppercase"
-                  />
+                    {seriesCamionetaCambio.length > 0 ? (
+                      <>
+                        <select
+                          value={cambioSerie}
+                          onChange={(e) => setCambioSerie(e.target.value)}
+                          className="w-full p-2.5 rounded-xl border border-amber-300 bg-white font-mono font-bold text-slate-900 focus:border-amber-500 shadow-2xs text-xs"
+                        >
+                          <option value="">-- Seleccionar Serie Física del Vehículo --</option>
+                          {seriesCamionetaCambio.map((s: any) => (
+                            <option key={s.id_trabajador_serie || s.numero_serie} value={s.numero_serie}>
+                              {s.numero_serie} — {s.equipo_nombre} (En Camioneta)
+                            </option>
+                          ))}
+                        </select>
+
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {seriesCamionetaCambio.map((s: any) => {
+                            const isSelected = cambioSerie === s.numero_serie;
+                            return (
+                              <button
+                                type="button"
+                                key={s.id_trabajador_serie || s.numero_serie}
+                                onClick={() => setCambioSerie(s.numero_serie)}
+                                className={`px-2.5 py-1 rounded-lg font-mono text-[11px] font-bold transition-all cursor-pointer border ${
+                                  isSelected
+                                    ? "bg-amber-600 text-white border-amber-700 shadow-2xs"
+                                    : "bg-white text-amber-900 border-amber-200 hover:bg-amber-100"
+                                }`}
+                              >
+                                {s.numero_serie}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2">
+                        <AlertTriangle size={18} className="text-rose-600 shrink-0 mt-0.5" />
+                        <div>
+                          <strong className="block font-black">Sin stock en camioneta:</strong>
+                          El técnico <span className="underline">{modalLiq.tecnico}</span> no tiene ninguna unidad disponible de este equipo en su vehículo. No es posible sustituir por series no asignadas.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs text-slate-600">
+                    <span className="font-bold">Cantidad a Liquidar:</span>
+                    <span className="font-mono font-black text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-200">
+                      1 UND (Serializado)
+                    </span>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                /* ── CASO MATERIAL / INSUMO COMÚN (SIN SERIE) ── */
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700 block">Nueva Cantidad:</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={cambioCant}
+                      onChange={(e) => setCambioCant(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-300 font-mono font-bold text-slate-900 bg-white"
+                    />
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-[11px] flex items-center gap-2">
+                    <Check size={14} className="text-emerald-600 shrink-0" />
+                    <span>Este producto es un material/insumo común, no requiere número de serie.</span>
+                  </div>
+                </div>
+              )}
 
               {/* Motivo */}
               <div className="space-y-1">
@@ -2639,8 +2858,12 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
               <button
                 type="button"
                 onClick={handleGuardarCambioProducto}
-                disabled={procesandoAccion || !cambioProdId}
-                className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs cursor-pointer shadow-sm disabled:bg-slate-300"
+                disabled={
+                  procesandoAccion ||
+                  !cambioProdId ||
+                  (esEquipoCambio && (!cambioSerie || seriesCamionetaCambio.length === 0))
+                }
+                className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs cursor-pointer shadow-sm disabled:bg-slate-300 disabled:cursor-not-allowed"
               >
                 Cambiar y Recalibrar Stock
               </button>

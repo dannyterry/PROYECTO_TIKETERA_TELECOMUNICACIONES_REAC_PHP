@@ -94,9 +94,15 @@ export interface Inspeccion {
   foto_agua?: string;
   foto_estado_general?: string;
   nivel_combustible?: string;
+  nivel_combustible_inicio?: string;
+  nivel_combustible_fin?: string;
   km_fin?: number;
   hora_fin?: string;
   foto_tablero_fin?: string;
+  foto_combustible_fin?: string;
+  fecha_cierre_real?: string;
+  hora_fin_ultima_orden?: string;
+  total_ordenes_completadas?: number;
   km_recorridos?: number;
   km_estimados_ordenes?: number;
   km_gps_app?: number;

@@ -34,7 +34,11 @@ import {
   Coffee,
   Cable,
   AlertTriangle,
-  Clock3
+  Clock3,
+  Copy,
+  Check,
+  FileText,
+  ClipboardList
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { OnlineChatDropdown } from "../../../components/chat/OnlineChatDropdown";
@@ -149,6 +153,20 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
   const [isMatrizModalOpen, setIsMatrizModalOpen] = useState<boolean>(false);
   const [isDailyMatrixModalOpen, setIsDailyMatrixModalOpen] = useState<boolean>(false);
   const [isMonthlyDescansosModalOpen, setIsMonthlyDescansosModalOpen] = useState<boolean>(false);
+
+  // 🔍 Estados para Filtro de Cuadrillas y Modal de Detalle de Órdenes (Drilldown)
+  const [filtroCuadrilla, setFiltroCuadrilla] = useState<"todas" | "campo" | "ordenamiento">("todas");
+  const [detalleModal, setDetalleModal] = useState<{
+    isOpen: boolean;
+    idTecnico: number | null;
+    tecnicoNombre: string;
+    tipoTrabajo: string;
+    cantidad: number;
+  } | null>(null);
+  const [ordenesDetalle, setOrdenesDetalle] = useState<any[]>([]);
+  const [loadingDetalle, setLoadingDetalle] = useState<boolean>(false);
+  const [filtroBusquedaModal, setFiltroBusquedaModal] = useState<string>("");
+  const [copiadoId, setCopiadoId] = useState<string | null>(null);
 
   // 👤 Datos del Usuario Activo y Chat
   const currentUser = authService.getCurrentUser();
@@ -302,10 +320,39 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
       : columnasTipo.filter((c) => tiposSeleccionados.includes(c));
   }, [columnasTipo, tiposSeleccionados]);
 
-  // Filtrar técnicos en memoria por búsqueda reactiva y ordenamiento coordinado con columnas visibles
+  // Conteo de cuadrillas para los botones de filtro rápido
+  const conteoCuadrillas = useMemo(() => {
+    if (!data?.tecnicos) return { total: 0, campo: 0, ordenamiento: 0 };
+    let campo = 0;
+    let ordenamiento = 0;
+    data.tecnicos.forEach((t) => {
+      const c = (t.cuadrilla || "").trim().toUpperCase();
+      if (c.startsWith("O ") || c.includes("ORDENAMIENTO")) {
+        ordenamiento++;
+      } else {
+        campo++;
+      }
+    });
+    return { total: data.tecnicos.length, campo, ordenamiento };
+  }, [data]);
+
+  // Filtrar técnicos en memoria por búsqueda reactiva, cuadrilla y ordenamiento coordinado con columnas visibles
   const tecnicosFiltrados = useMemo(() => {
     if (!data || !data.tecnicos) return [];
     let list = [...data.tecnicos];
+
+    // Filtro por tipo de cuadrilla (Campo K vs Ordenamiento O)
+    if (filtroCuadrilla === "campo") {
+      list = list.filter((t) => {
+        const c = (t.cuadrilla || "").trim().toUpperCase();
+        return !c.startsWith("O ") && !c.includes("ORDENAMIENTO");
+      });
+    } else if (filtroCuadrilla === "ordenamiento") {
+      list = list.filter((t) => {
+        const c = (t.cuadrilla || "").trim().toUpperCase();
+        return c.startsWith("O ") || c.includes("ORDENAMIENTO");
+      });
+    }
 
     if (busquedaTecnico.trim()) {
       const term = busquedaTecnico.toLowerCase().trim();
@@ -332,7 +379,57 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
     });
 
     return list;
-  }, [data, busquedaTecnico, ordenarPor, ordenAsc, columnasVisibles, tiposSeleccionados]);
+  }, [data, filtroCuadrilla, busquedaTecnico, ordenarPor, ordenAsc, columnasVisibles, tiposSeleccionados]);
+
+  // Cargar órdenes detalladas cuando se abre el modal de drilldown
+  useEffect(() => {
+    if (!detalleModal?.isOpen) {
+      setOrdenesDetalle([]);
+      setFiltroBusquedaModal("");
+      return;
+    }
+    const fetchDetalle = async () => {
+      setLoadingDetalle(true);
+      try {
+        const params = new URLSearchParams({
+          desde: fechas.desde,
+          hasta: fechas.hasta,
+          tipo_trabajo: detalleModal.tipoTrabajo,
+        });
+        if (detalleModal.idTecnico) {
+          params.append("id_tecnico", String(detalleModal.idTecnico));
+        }
+        if (detalleModal.tecnicoNombre) {
+          params.append("tecnico", detalleModal.tecnicoNombre);
+        }
+        const res = await fetch(`${API_URL}/api/dashboard/ordenes-detalle-matriz?${params.toString()}`);
+        if (!res.ok) throw new Error("Error al obtener detalle de órdenes");
+        const json = await res.json();
+        if (json.success && json.ordenes) {
+          setOrdenesDetalle(json.ordenes);
+        }
+      } catch (err) {
+        console.error("Error al cargar detalle de órdenes:", err);
+      } finally {
+        setLoadingDetalle(false);
+      }
+    };
+    fetchDetalle();
+  }, [detalleModal, fechas.desde, fechas.hasta]);
+
+  // Órdenes filtradas dentro del modal por búsqueda de cliente/ticket/dirección
+  const ordenesFiltradasModal = useMemo(() => {
+    if (!filtroBusquedaModal.trim()) return ordenesDetalle;
+    const term = filtroBusquedaModal.toLowerCase().trim();
+    return ordenesDetalle.filter(
+      (o: any) =>
+        (o.numero && String(o.numero).toLowerCase().includes(term)) ||
+        (o.cliente && o.cliente.toLowerCase().includes(term)) ||
+        (o.direccion && o.direccion.toLowerCase().includes(term)) ||
+        (o.localidad && o.localidad.toLowerCase().includes(term)) ||
+        (o.motivo_finalizacion && o.motivo_finalizacion.toLowerCase().includes(term))
+    );
+  }, [ordenesDetalle, filtroBusquedaModal]);
 
   // Totales dinámicos de la matriz de cruce coordinados según las columnas visibles y técnicos filtrados
   const totalesMatriz = useMemo(() => {
@@ -1208,6 +1305,67 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
               )}
             </div>
 
+            {/* Buscador de Técnico */}
+            <div className="relative flex items-center">
+              <Search size={13} className="absolute left-2.5 text-slate-400 pointer-events-none" />
+              <input
+                type="text"
+                value={busquedaTecnico}
+                onChange={(e) => setBusquedaTecnico(e.target.value)}
+                placeholder="Buscar técnico..."
+                className="pl-7 pr-6 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 placeholder-slate-400 shadow-2xs outline-none focus:border-indigo-500 w-32 sm:w-36 transition-all"
+              />
+              {busquedaTecnico && (
+                <button
+                  type="button"
+                  onClick={() => setBusquedaTecnico("")}
+                  className="absolute right-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+
+            {/* Filtro Cuadrillas: Todas | Campo (K) | Ordenamiento (O) */}
+            <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-xl border border-slate-200 text-[11px] shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setFiltroCuadrilla("todas")}
+                className={`px-2 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                  filtroCuadrilla === "todas"
+                    ? "bg-white text-slate-900 shadow-2xs"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+                title="Mostrar todas las cuadrillas"
+              >
+                Todas ({conteoCuadrillas.total})
+              </button>
+              <button
+                type="button"
+                onClick={() => setFiltroCuadrilla("campo")}
+                className={`px-2 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                  filtroCuadrilla === "campo"
+                    ? "bg-emerald-600 text-white shadow-2xs shadow-emerald-600/30 font-black"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+                title="Excluir cuadrillas de ordenamiento (Solo Técnicos de Campo K)"
+              >
+                Campo ({conteoCuadrillas.campo})
+              </button>
+              <button
+                type="button"
+                onClick={() => setFiltroCuadrilla("ordenamiento")}
+                className={`px-2 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                  filtroCuadrilla === "ordenamiento"
+                    ? "bg-amber-600 text-white shadow-2xs shadow-amber-600/30 font-black"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+                title="Ver únicamente cuadrillas de ordenamiento (O)"
+              >
+                Ordenamiento ({conteoCuadrillas.ordenamiento})
+              </button>
+            </div>
+
             <span className="text-xs font-bold text-slate-500">Ordenar:</span>
             <select
               value={ordenarPor}
@@ -1315,7 +1473,22 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
                           className="py-1 px-0.5 text-center border-b border-r border-slate-300 text-[10px] font-mono leading-none w-[52px] min-w-[52px] max-w-[52px] align-middle"
                         >
                           {cant > 0 ? (
-                            <span className="font-bold text-slate-900">{cant}</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDetalleModal({
+                                  isOpen: true,
+                                  idTecnico: t.id_tecnico,
+                                  tecnicoNombre: t.tecnico,
+                                  tipoTrabajo: col,
+                                  cantidad: cant,
+                                })
+                              }
+                              className="w-full py-0.5 px-0.5 font-bold text-slate-900 rounded hover:bg-indigo-100 hover:text-indigo-700 hover:font-black transition-all cursor-pointer active:scale-95"
+                              title={`Ver ${cant} órdenes de ${col} de ${t.tecnico}`}
+                            >
+                              {cant}
+                            </button>
                           ) : (
                             ""
                           )}
@@ -1331,7 +1504,26 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
                       );
                       return (
                         <td className="py-1 px-0.5 text-center border-b border-r border-slate-300 bg-slate-50/80 font-mono font-black text-slate-900 text-[10px] leading-none w-[48px] min-w-[48px] max-w-[48px] align-middle">
-                          {sumaFilaVisible > 0 ? sumaFilaVisible : ""}
+                          {sumaFilaVisible > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDetalleModal({
+                                  isOpen: true,
+                                  idTecnico: t.id_tecnico,
+                                  tecnicoNombre: t.tecnico,
+                                  tipoTrabajo: "TOTAL",
+                                  cantidad: sumaFilaVisible,
+                                })
+                              }
+                              className="w-full py-0.5 px-0.5 font-black text-slate-950 rounded hover:bg-blue-200 hover:text-blue-900 transition-all cursor-pointer active:scale-95"
+                              title={`Ver todas las ${sumaFilaVisible} órdenes de ${t.tecnico}`}
+                            >
+                              {sumaFilaVisible}
+                            </button>
+                          ) : (
+                            ""
+                          )}
                         </td>
                       );
                     })()}
@@ -2385,6 +2577,67 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
                   )}
                 </div>
 
+                {/* Buscador de Técnico en Pantalla Completa */}
+                <div className="relative flex items-center">
+                  <Search size={13} className="absolute left-2.5 text-slate-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={busquedaTecnico}
+                    onChange={(e) => setBusquedaTecnico(e.target.value)}
+                    placeholder="Buscar técnico..."
+                    className="pl-7 pr-6 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 placeholder-slate-400 shadow-2xs outline-none focus:border-indigo-500 w-36 sm:w-44 transition-all"
+                  />
+                  {busquedaTecnico && (
+                    <button
+                      type="button"
+                      onClick={() => setBusquedaTecnico("")}
+                      className="absolute right-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Filtro Cuadrillas: Todas | Campo (K) | Ordenamiento (O) */}
+                <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-xl border border-slate-200 text-[11px] shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => setFiltroCuadrilla("todas")}
+                    className={`px-2 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                      filtroCuadrilla === "todas"
+                        ? "bg-white text-slate-900 shadow-2xs"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                    title="Mostrar todas las cuadrillas"
+                  >
+                    Todas ({conteoCuadrillas.total})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFiltroCuadrilla("campo")}
+                    className={`px-2 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                      filtroCuadrilla === "campo"
+                        ? "bg-emerald-600 text-white shadow-2xs shadow-emerald-600/30 font-black"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                    title="Excluir cuadrillas de ordenamiento (Solo Técnicos de Campo K)"
+                  >
+                    Campo ({conteoCuadrillas.campo})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFiltroCuadrilla("ordenamiento")}
+                    className={`px-2 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                      filtroCuadrilla === "ordenamiento"
+                        ? "bg-amber-600 text-white shadow-2xs shadow-amber-600/30 font-black"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                    title="Ver únicamente cuadrillas de ordenamiento (O)"
+                  >
+                    Ordenamiento ({conteoCuadrillas.ordenamiento})
+                  </button>
+                </div>
+
                 <span className="text-xs font-bold text-slate-500">Ordenar:</span>
                 <select
                   value={ordenarPor}
@@ -2492,9 +2745,22 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
                               className="py-1.5 px-1 text-center border-b border-r border-slate-300 text-xs font-mono leading-tight w-[68px] min-w-[68px] max-w-[68px] align-middle"
                             >
                               {cant > 0 ? (
-                                <span className="font-bold text-slate-900">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setDetalleModal({
+                                      isOpen: true,
+                                      idTecnico: t.id_tecnico,
+                                      tecnicoNombre: t.tecnico,
+                                      tipoTrabajo: col,
+                                      cantidad: cant,
+                                    })
+                                  }
+                                  className="w-full py-1 px-1 font-bold text-slate-900 rounded hover:bg-indigo-100 hover:text-indigo-700 hover:font-black transition-all cursor-pointer active:scale-95"
+                                  title={`Ver ${cant} órdenes de ${col} de ${t.tecnico}`}
+                                >
                                   {cant}
-                                </span>
+                                </button>
                               ) : (
                                 ""
                               )}
@@ -2510,7 +2776,26 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
                           );
                           return (
                             <td className="py-1.5 px-1 text-center border-b border-r border-slate-300 bg-slate-50/80 font-mono font-black text-slate-900 text-xs leading-tight w-[64px] min-w-[64px] max-w-[64px] align-middle">
-                              {sumaFilaVisible > 0 ? sumaFilaVisible : ""}
+                              {sumaFilaVisible > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setDetalleModal({
+                                      isOpen: true,
+                                      idTecnico: t.id_tecnico,
+                                      tecnicoNombre: t.tecnico,
+                                      tipoTrabajo: "TOTAL",
+                                      cantidad: sumaFilaVisible,
+                                    })
+                                  }
+                                  className="w-full py-1 px-1 font-black text-slate-950 rounded hover:bg-blue-200 hover:text-blue-900 transition-all cursor-pointer active:scale-95"
+                                  title={`Ver todas las ${sumaFilaVisible} órdenes de ${t.tecnico}`}
+                                >
+                                  {sumaFilaVisible}
+                                </button>
+                              ) : (
+                                ""
+                              )}
                             </td>
                           );
                         })()}
@@ -2585,6 +2870,211 @@ export const TechnicianPerformanceTab: React.FC<TechnicianPerformanceTabProps> =
           onClose={() => setIsMonthlyDescansosModalOpen(false)}
           initialDate={new Date(fechas.desde + "T00:00:00")}
         />
+      )}
+
+      {/* 🔍 MODAL DETALLE DE ÓRDENES POR TÉCNICO Y TIPO DE TRABAJO (DRILLDOWN) */}
+      {detalleModal?.isOpen && (
+        <div className="fixed inset-0 z-[10001] flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-scale-up">
+            {/* Cabecera del Modal */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between gap-3 bg-gradient-to-r from-slate-50 via-white to-indigo-50/40">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-600/10 text-indigo-600 flex items-center justify-center shrink-0 border border-indigo-200/50">
+                  <ClipboardList size={22} />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-base sm:text-lg font-black text-slate-900 truncate">
+                      {detalleModal.tecnicoNombre}
+                    </h3>
+                    <span
+                      className="px-2.5 py-0.5 rounded-full text-xs font-black uppercase text-white shadow-2xs"
+                      style={{
+                        backgroundColor:
+                          coloresTipos[detalleModal.tipoTrabajo] || "#4f46e5",
+                      }}
+                    >
+                      {detalleModal.tipoTrabajo}
+                    </span>
+                    <span className="text-xs font-bold text-slate-400">
+                      • {ordenesFiltradasModal.length} órdenes
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                    <Calendar size={13} className="text-slate-400" />
+                    <span>
+                      Rango de fechas: <strong className="text-slate-700">{fechas.desde}</strong> al <strong className="text-slate-700">{fechas.hasta}</strong>
+                    </span>
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setDetalleModal(null)}
+                className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-2xl transition-colors cursor-pointer shrink-0"
+                title="Cerrar modal"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Barra de Búsqueda Interna */}
+            <div className="p-3 sm:px-5 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="relative w-full sm:w-80">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                <input
+                  type="text"
+                  value={filtroBusquedaModal}
+                  onChange={(e) => setFiltroBusquedaModal(e.target.value)}
+                  placeholder="Buscar por cliente, n° orden o dirección..."
+                  className="w-full pl-9 pr-8 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 placeholder-slate-400 shadow-2xs outline-none focus:border-indigo-500"
+                />
+                {filtroBusquedaModal && (
+                  <button
+                    type="button"
+                    onClick={() => setFiltroBusquedaModal("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+
+              <div className="text-xs text-slate-500 font-medium self-end sm:self-center">
+                Mostrando <strong className="text-slate-800">{ordenesFiltradasModal.length}</strong> de <strong className="text-slate-800">{ordenesDetalle.length}</strong> órdenes
+              </div>
+            </div>
+
+            {/* Contenido: Tabla de Órdenes */}
+            <div className="flex-1 overflow-auto p-4 sm:p-5 custom-scrollbar bg-slate-50/20">
+              {loadingDetalle ? (
+                <div className="py-16 flex flex-col items-center justify-center gap-3">
+                  <RotateCw size={32} className="text-indigo-600 animate-spin" />
+                  <p className="text-xs font-bold text-slate-500">Cargando órdenes del técnico...</p>
+                </div>
+              ) : ordenesFiltradasModal.length === 0 ? (
+                <div className="py-16 text-center">
+                  <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3">
+                    <FileText size={24} />
+                  </div>
+                  <h4 className="text-sm font-bold text-slate-700">No se encontraron órdenes</h4>
+                  <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                    {filtroBusquedaModal
+                      ? "No hay resultados que coincidan con la búsqueda."
+                      : "No se registraron órdenes finalizadas para este tipo de trabajo en el rango de fechas seleccionado."}
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-2xs">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-slate-100/90 text-slate-700 border-b border-slate-200 font-black text-[11px] uppercase tracking-wider">
+                        <th className="py-2.5 px-3">N° Ticket / Orden</th>
+                        <th className="py-2.5 px-3">Cliente</th>
+                        <th className="py-2.5 px-3">Fecha de Visita</th>
+                        <th className="py-2.5 px-3">Dirección / Localidad</th>
+                        <th className="py-2.5 px-3 text-center">Estado / Submotivo</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {ordenesFiltradasModal.map((ord: any, idx: number) => {
+                        const esCopiado = copiadoId === String(ord.numero || ord.id_orden);
+                        return (
+                          <tr key={ord.id_orden || idx} className="hover:bg-indigo-50/30 transition-colors">
+                            {/* N° Ticket / Orden */}
+                            <td className="py-2.5 px-3 font-mono font-bold text-slate-900 whitespace-nowrap">
+                              <div className="flex items-center gap-1.5">
+                                <span className="bg-slate-100 px-2 py-0.5 rounded-lg border border-slate-200 text-slate-800">
+                                  {ord.numero || "S/N"}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (ord.numero) {
+                                      navigator.clipboard.writeText(String(ord.numero));
+                                      setCopiadoId(String(ord.numero));
+                                      setTimeout(() => setCopiadoId(null), 2000);
+                                    }
+                                  }}
+                                  className="p-1 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                                  title={esCopiado ? "¡Copiado!" : "Copiar número de ticket"}
+                                >
+                                  {esCopiado ? (
+                                    <Check size={13} className="text-emerald-600" />
+                                  ) : (
+                                    <Copy size={13} />
+                                  )}
+                                </button>
+                              </div>
+                            </td>
+
+                            {/* Cliente */}
+                            <td className="py-2.5 px-3">
+                              <div className="font-bold text-slate-900 uppercase">
+                                {ord.cliente || "Sin cliente"}
+                              </div>
+                            </td>
+
+                            {/* Fecha de Visita */}
+                            <td className="py-2.5 px-3 font-mono text-slate-600 whitespace-nowrap">
+                              {ord.fecha_visita ? (
+                                <span>{String(ord.fecha_visita).replace("T", " ").slice(0, 16)}</span>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+
+                            {/* Dirección / Localidad */}
+                            <td className="py-2.5 px-3 text-slate-600 max-w-xs">
+                              <div className="truncate" title={ord.direccion}>
+                                {ord.direccion || "—"}
+                              </div>
+                              {ord.localidad && (
+                                <div className="text-[10px] text-slate-400 font-semibold truncate">
+                                  {ord.localidad}
+                                </div>
+                              )}
+                            </td>
+
+                            {/* Estado y Submotivo */}
+                            <td className="py-2.5 px-3 text-center">
+                              <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                {ord.estado || "Finalizada"}
+                              </span>
+                              {ord.motivo_finalizacion && (
+                                <div
+                                  className="text-[9.5px] text-slate-500 font-semibold truncate max-w-[150px] mx-auto mt-0.5"
+                                  title={ord.motivo_finalizacion}
+                                >
+                                  {ord.motivo_finalizacion}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Footer del Modal */}
+            <div className="p-3 sm:px-5 border-t border-slate-100 bg-white flex items-center justify-between gap-3">
+              <span className="text-xs text-slate-400 font-medium truncate">
+                Cuadrilla: <strong className="text-slate-700">{ordenesDetalle[0]?.cuadrilla || "—"}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setDetalleModal(null)}
+                className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition-colors cursor-pointer shrink-0"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

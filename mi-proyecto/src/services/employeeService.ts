@@ -415,3 +415,37 @@ export const actualizarSctrMasivo = async (ids: number[], vencimientoSctr: strin
   }
   return res.json();
 };
+
+// ==========================================
+// 🏢 SUBCONTRATAS CRUD
+// ==========================================
+export interface SubcontrataItem {
+  id_subcontrata: number;
+  codigo: string;
+  nombre: string;
+  descripcion?: string;
+  estado: 'Activo' | 'Inactivo';
+}
+
+export const getSubcontratas = async (): Promise<SubcontrataItem[]> => {
+  try {
+    const res = await fetch(`${API_URL}/api/subcontratas`);
+    if (!res.ok) throw new Error("Error obteniendo subcontratas");
+    return await res.json();
+  } catch {
+    return [];
+  }
+};
+
+export const createSubcontrata = async (data: { codigo: string; nombre?: string; descripcion?: string }) => {
+  const res = await fetch(`${API_URL}/api/subcontratas`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Error al registrar subcontrata");
+  }
+  return await res.json();
+};

@@ -16,6 +16,7 @@ import {
   Route,
   ChevronRight,
   Sparkles,
+  Fuel,
 } from "lucide-react";
 import { Inspeccion, DashboardKmResumen } from "../types/mobilityTypes";
 import { TechnicianRouteMapModal } from "./TechnicianRouteMapModal";
@@ -30,6 +31,15 @@ interface Props {
 const formatKm = (value: number) => {
   const rounded = Math.round(value * 10) / 10;
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+};
+
+const formatHora = (val?: string | null) => {
+  if (!val) return "--";
+  if (val.includes("T") || val.includes(" ")) {
+    const parts = val.split(/[T ]/);
+    if (parts[1]) return parts[1].slice(0, 5);
+  }
+  return val.slice(0, 5);
 };
 
 export const KmDashboardTab: React.FC<Props> = ({
@@ -456,7 +466,9 @@ export const KmDashboardTab: React.FC<Props> = ({
                   <th className="py-3 px-4">Técnico / Cuadrilla</th>
                   <th className="py-3 px-4">Vehículo</th>
                   <th className="py-3 px-4 text-center">Salida / KM Inicio</th>
+                  <th className="py-3 px-4 text-center bg-teal-50/40 text-teal-900">Fin Última Orden</th>
                   <th className="py-3 px-4 text-center">Cierre / KM Final</th>
+                  <th className="py-3 px-4 text-center">Combustible (Ini ➡️ Fin)</th>
                   <th className="py-3 px-4 text-center">KM Declarado (Fotos)</th>
                   <th className="py-3 px-4 text-center bg-teal-50/40 text-teal-900">
                     KM Estimado (Órdenes)
@@ -576,6 +588,30 @@ export const KmDashboardTab: React.FC<Props> = ({
                         )}
                       </td>
 
+                      {/* Fin Última Orden */}
+                      <td className="py-3.5 px-4 text-center font-mono bg-teal-50/20">
+                        {insp.hora_fin_ultima_orden ? (
+                          <>
+                            <div className="text-teal-950 font-bold text-xs flex items-center justify-center gap-1">
+                              <Clock size={12} className="text-teal-600" />
+                              {formatHora(insp.hora_fin_ultima_orden)}
+                            </div>
+                            <span className="text-[10px] text-teal-700 font-semibold block">
+                              {(insp.total_ordenes_completadas || 0) > 0
+                                ? `${insp.total_ordenes_completadas} órds liq.`
+                                : "Última actividad"}
+                            </span>
+                          </>
+                        ) : (
+                          <div className="flex flex-col items-center">
+                            <span className="text-slate-400 text-xs font-medium">--</span>
+                            <span className="text-[9px] text-slate-400 font-normal">
+                              Sin órds liq.
+                            </span>
+                          </div>
+                        )}
+                      </td>
+
                       {/* Cierre / KM Final */}
                       <td className="py-3.5 px-4 text-center font-mono">
                         {insp.km_fin ? (
@@ -584,8 +620,35 @@ export const KmDashboardTab: React.FC<Props> = ({
                               {insp.km_fin.toLocaleString()} km
                             </div>
                             <span className="text-[10px] text-slate-500 font-semibold block">
-                              🌙 {insp.hora_cierre_real || insp.hora_fin || "-"}
+                              🌙 {formatHora(insp.hora_cierre_real || insp.hora_fin)}
                             </span>
+                            {insp.hora_fin_ultima_orden && (insp.hora_cierre_real || insp.hora_fin) && (() => {
+                              const hOrd = formatHora(insp.hora_fin_ultima_orden);
+                              const hCie = formatHora(insp.hora_cierre_real || insp.hora_fin);
+                              if (hOrd !== "--" && hCie !== "--") {
+                                const [mOrdH, mOrdM] = hOrd.split(":").map(Number);
+                                const [mCieH, mCieM] = hCie.split(":").map(Number);
+                                const minDiff = (mCieH * 60 + mCieM) - (mOrdH * 60 + mOrdM);
+                                if (!isNaN(minDiff)) {
+                                  const diffLabel = minDiff >= 0 ? `+${minDiff}m` : `${minDiff}m`;
+                                  return (
+                                    <span
+                                      className={`text-[9px] px-1 py-0.2 rounded font-extrabold mt-0.5 inline-block ${
+                                        minDiff > 120
+                                          ? "bg-amber-100 text-amber-800"
+                                          : minDiff >= 0
+                                          ? "bg-emerald-100 text-emerald-800"
+                                          : "bg-rose-100 text-rose-800"
+                                      }`}
+                                      title="Diferencia de tiempo entre última orden y cierre de jornada"
+                                    >
+                                      {diffLabel} post-orden
+                                    </span>
+                                  );
+                                }
+                              }
+                              return null;
+                            })()}
                           </>
                         ) : (
                           <div className="flex flex-col items-center">
@@ -597,6 +660,35 @@ export const KmDashboardTab: React.FC<Props> = ({
                             </span>
                           </div>
                         )}
+                      </td>
+
+                      {/* Combustible: Inicio ➡️ Fin */}
+                      <td className="py-3.5 px-4 text-center">
+                        <div className="flex flex-col items-center gap-1">
+                          <div className="flex items-center justify-center gap-1 text-[11px] font-mono font-bold">
+                            <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px]">
+                              {insp.nivel_combustible_inicio || insp.nivel_combustible || "Medio"}
+                            </span>
+                            <span className="text-slate-400 text-[9px]">➡️</span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold ${
+                                insp.nivel_combustible_fin === "Bajo"
+                                  ? "bg-rose-100 text-rose-800 animate-pulse"
+                                  : insp.nivel_combustible_fin
+                                  ? "bg-slate-200 text-slate-800"
+                                  : "bg-slate-50 text-slate-400 border border-dashed border-slate-200"
+                              }`}
+                            >
+                              {insp.nivel_combustible_fin || "--"}
+                            </span>
+                          </div>
+                          {(insp.foto_estado_general || insp.foto_combustible_fin) && (
+                            <span className="text-[9px] text-cyan-600 font-semibold flex items-center gap-0.5">
+                              <Fuel size={10} />
+                              {[insp.foto_estado_general ? "Foto Ini" : null, insp.foto_combustible_fin ? "Foto Fin" : null].filter(Boolean).join(" + ")}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* KM Declarado (Fotos) */}

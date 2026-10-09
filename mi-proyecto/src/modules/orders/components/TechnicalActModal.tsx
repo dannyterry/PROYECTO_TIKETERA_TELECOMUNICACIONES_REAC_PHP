@@ -138,6 +138,9 @@ export const TechnicalActModal: React.FC<Props> = ({
     return iniVal || finVal || 0;
   }, [dropMetroInicio, dropMetroFin]);
 
+  // Activación manual de sección Drop de Fibra Óptica (cuando el técnico lo selecciona desde "+ Agregar Material")
+  const [mostrarSeccionDropManual, setMostrarSeccionDropManual] = useState(false);
+
   // 3. Stock disponible del técnico
   const [stockTecnicoMateriales, setStockTecnicoMateriales] = useState<any[]>([]);
   const [seriesAsignadasTecnico, setSeriesAsignadasTecnico] = useState<any[]>([]);
@@ -397,12 +400,26 @@ export const TechnicalActModal: React.FC<Props> = ({
     );
   };
 
+  // Helper para identificar Cable Drop en bobina continua (medido en metros)
+  const esBobinaDrop = (m: any) => {
+    const nom = String(m?.nombre || "").toUpperCase().trim();
+    return (
+      !esDropConectorizado(m) &&
+      (m?.es_drop === 1 || Number(m?.id_producto) === 55 || nom === "DROP" || nom === "CABLE DROP" || nom === "FIBRA DROP")
+    );
+  };
+
   // Filtro estricto de Materiales Consumibles para la lista de liquidación
   const soloMaterialesLiquidables = useMemo(() => {
     return stockTecnicoMateriales.filter((m) => {
       const cat = String(m.categoria || "").toUpperCase().trim();
       const catLiq = String(m.categoria_liquidar || "").toUpperCase().trim();
       const nom = String(m.nombre || "").toUpperCase().trim();
+
+      // 🌟 Excepción prioritaria: Si es Drop Conectorizado o Bobina Drop, se PERMITE siempre en el selector
+      if (esDropConectorizado(m) || esBobinaDrop(m)) {
+        return true;
+      }
 
       // ─── PASO 1: VALIDACIÓN POR CATEGORÍA ───
       // Debe ser estrictamente categoría MATERIAL / MATERIALES
@@ -430,24 +447,9 @@ export const TechnicalActModal: React.FC<Props> = ({
       }
 
       // ─── PASO 2: VALIDACIÓN POR PRODUCTO ───
-      // 2.1 Excluir actas y guías físicas (se ingresan únicamente en la cabecera N° 001-XXXX)
+      // Excluir actas y guías físicas (se ingresan únicamente en la cabecera N° 001-XXXX)
       if (nom.includes("ACTA") || nom.includes("GUIA") || nom.includes("TALONARIO") || cat.includes("DOCUMENT")) {
         return false;
-      }
-
-      // 2.2 Excluir Cable Drop continuo en bobina (se gestiona arriba en la sección de Metraje / Bobina).
-      // NOTA IMPORTANTE: Los Drops Pre-Conectorizados (50M, 100M, 150M, 200M) que se cuentan por UNIDADES SÍ se permiten aquí.
-      const esConectorizado = esDropConectorizado(m);
-      if (!esConectorizado) {
-        if (
-          m.es_drop === 1 ||
-          Number(m.id_producto) === 55 ||
-          nom === "DROP" ||
-          nom === "CABLE DROP" ||
-          nom === "FIBRA DROP"
-        ) {
-          return false;
-        }
       }
 
       return true;
@@ -560,7 +562,13 @@ export const TechnicalActModal: React.FC<Props> = ({
       return null;
     }
 
-    // 1. Revisar si el motivo en BD tiene configurado limites_materiales
+    // 1. Si el técnico seleccionó un Drop Pre-Conectorizado (el cual ya viene con conector en cabeza/CTO):
+    // Solo requiere 1 conector mecánico manual en la Roseta.
+    if (dropConectorizadoSeleccionado) {
+      return 1;
+    }
+
+    // 2. Revisar si el motivo en BD tiene configurado limites_materiales
     if (limitesDelMotivo && limitesDelMotivo.length > 0) {
       const matchConector = limitesDelMotivo.find((l: any) => {
         const id = Number(l.id_producto);
@@ -570,15 +578,25 @@ export const TechnicalActModal: React.FC<Props> = ({
       if (matchConector && (matchConector.cantidad !== undefined || matchConector.max !== undefined || matchConector.limite !== undefined)) {
         return Number(matchConector.cantidad ?? matchConector.max ?? matchConector.limite);
       }
+      // Si el motivo tiene límites explícitos configurados y el conector NO figura en ellos, el límite es 0
+      return 0;
     }
 
-    // 2. Si no viene en JSON de BD, aplicar el límite según el Tipo de Liquidación de la orden
+    // 3. Revisar por plantilla de tipo de liquidación o palabras clave
     const tipoNorm = tipoLiquidacion.toUpperCase();
     if (tipoNorm.includes("CTO") || tipoNorm.includes("NAP") || tipoNorm.includes("ROSETA") || tipoNorm.includes("REUBICACION CON RESERVA")) {
       return 1;
     }
     if (tipoNorm.includes("RECABLEADO") || tipoNorm.includes("NORMALIZAC") || tipoNorm.includes("INSTALAC") || tipoNorm.includes("TRASLADO") || tipoNorm.includes("REUBICACION SIN RESERVA")) {
       return 2;
+    }
+
+    // 4. Si la plantilla por defecto NO usa conectores ni requiere drop (ej: Patch Cord, ONT, Mesh, Acomodo, Pruebas, etc.), el límite es 0
+    const plantillaTieneConector = (plantillaActual.materialesDefault || []).some((m) =>
+      m.nombre.toUpperCase().includes("CONECTOR") || m.nombre.toUpperCase().includes("FAST")
+    );
+    if (!plantillaTieneConector && !plantillaActual.requiereDrop) {
+      return 0;
     }
 
     return null;
@@ -773,15 +791,83 @@ export const TechnicalActModal: React.FC<Props> = ({
     const prod = stockTecnicoMateriales.find((p) => p.id_producto === Number(selectedStockProductoId));
     if (!prod || prod.nombre.toUpperCase().includes("ACTA") || prod.nombre.toUpperCase().includes("GUIA")) return;
 
+    // 🌟 Si el usuario seleccionó "DROP (Bobina Continua)":
+    if (esBobinaDrop(prod)) {
+      setMostrarSeccionDropManual(true);
+      setSelectedStockProductoId("");
+      setSelectedStockCantidad(1);
+      setMostrarSelectorStock(false);
+      setAlertaLimiteMsg("ℹ️ Se activó la sección de Metraje de Bobina de Cable Drop arriba. Ingresa Metro Inicio y Fin.");
+      setTimeout(() => setAlertaLimiteMsg(null), 5000);
+      return;
+    }
+
+    // 🌟 Si el usuario seleccionó un "DROP CONECTORIZADO":
+    if (esDropConectorizado(prod)) {
+      setMostrarSeccionDropManual(true);
+      setMateriales((prev) => {
+        const sinOtros = prev.filter((m) => !esDropConectorizado(m));
+        // Ajustar conectores mecánicos existentes a máx 1 (porque el conectorizado ya tiene 1 de fábrica en la cabeza)
+        const conAjuste = sinOtros.map((m) => {
+          const esConect = Number(m.id_producto) === 27 || m.nombre.toUpperCase().includes("CONECTOR") || m.nombre.toUpperCase().includes("FAST");
+          if (esConect && m.cantidad > 1) {
+            return { ...m, cantidad: 1 };
+          }
+          return m;
+        });
+        return [
+          ...conAjuste,
+          {
+            id_producto: prod.id_producto,
+            nombre: prod.nombre,
+            cantidad: 1,
+            unidad: "UND",
+            stockDisponible: prod.stock,
+          },
+        ];
+      });
+      setDropMetroInicio("");
+      setDropMetroFin("");
+      setSelectedStockProductoId("");
+      setSelectedStockCantidad(1);
+      setMostrarSelectorStock(false);
+      setAlertaLimiteMsg(`✅ Agregado rollo pre-conectorizado: "${prod.nombre}". Límite de conectores mecánicos ajustado a 1 (Roseta).`);
+      setTimeout(() => setAlertaLimiteMsg(null), 5000);
+      return;
+    }
+
     const cant = Math.max(1, Number(selectedStockCantidad) || 1);
     const lim = obtenerLimiteParaMaterial(prod.id_producto, prod.nombre);
 
-    if (lim !== null && cant > lim) {
-      setAlertaLimiteMsg(
-        `⚠️ El tipo de liquidación "${tipoLiquidacion}" solo permite hasta ${lim} unidades de ${prod.nombre}.`
-      );
-      setTimeout(() => setAlertaLimiteMsg(null), 5000);
-      return;
+    if (lim !== null) {
+      if (lim === 0) {
+        setAlertaLimiteMsg(
+          `⛔ El tipo de liquidación "${tipoLiquidacion}" no requiere ni permite conectores ópticos (límite: 0).`
+        );
+        setTimeout(() => setAlertaLimiteMsg(null), 6000);
+        return;
+      }
+      if (cant > lim) {
+        setAlertaLimiteMsg(
+          `⚠️ El tipo de liquidación "${tipoLiquidacion}" solo permite hasta ${lim} conector(es).`
+        );
+        setTimeout(() => setAlertaLimiteMsg(null), 5000);
+        return;
+      }
+    }
+
+    const esConector = Number(prod.id_producto) === 27 || prod.nombre.toUpperCase().includes("CONECTOR") || prod.nombre.toUpperCase().includes("FAST");
+    if (esConector && lim !== null) {
+      const conectoresActuales = materiales
+        .filter((m) => Number(m.id_producto) === 27 || m.nombre.toUpperCase().includes("CONECTOR") || m.nombre.toUpperCase().includes("FAST"))
+        .reduce((sum, m) => sum + Number(m.cantidad || 0), 0);
+      if (conectoresActuales + cant > lim) {
+        setAlertaLimiteMsg(
+          `⚠️ Límite de conectores alcanzado: "${tipoLiquidacion}" solo permite un máximo de ${lim} conector(es). Ya tienes ${conectoresActuales} asignado(s).`
+        );
+        setTimeout(() => setAlertaLimiteMsg(null), 6000);
+        return;
+      }
     }
 
     setMateriales((prev) => {
@@ -896,18 +982,33 @@ export const TechnicalActModal: React.FC<Props> = ({
     }
 
     // ─────────────────────────────────────────────────────────────
-    // REGLA DE NEGOCIO 2: VALIDACIÓN DE LÍMITES DE MATERIALES
+    // REGLA DE NEGOCIO 2: VALIDACIÓN DE LÍMITES DE MATERIALES Y CONECTORES
     // ─────────────────────────────────────────────────────────────
     for (const mat of materiales) {
       if (mat.cantidad > 0) {
         const lim = obtenerLimiteParaMaterial(mat.id_producto, mat.nombre);
         if (lim !== null && mat.cantidad > lim) {
           alert(
-            `❌ LÍMITE DE MATERIAL EXCEDIDO:\n\nHas ingresado ${mat.cantidad} unidades de "${mat.nombre}", pero el tipo de liquidación "${tipoLiquidacion}" solo permite un máximo de ${lim} unidades.\n\nPor favor ajusta la cantidad antes de liquidar.`
+            lim === 0
+              ? `❌ MATERIAL NO PERMITIDO:\n\nEl tipo de liquidación "${tipoLiquidacion}" no requiere ni permite "${mat.nombre}" (límite: 0).\n\nPor favor elimina este material antes de liquidar.`
+              : `❌ LÍMITE DE MATERIAL EXCEDIDO:\n\nHas ingresado ${mat.cantidad} unidades de "${mat.nombre}", pero el tipo de liquidación "${tipoLiquidacion}" solo permite un máximo de ${lim} conector(es).\n\nPor favor ajusta la cantidad antes de liquidar.`
           );
           return;
         }
       }
+    }
+
+    const totalConectoresEnActa = materiales
+      .filter((m) => Number(m.id_producto) === 27 || m.nombre.toUpperCase().includes("CONECTOR") || m.nombre.toUpperCase().includes("FAST"))
+      .reduce((sum, m) => sum + Number(m.cantidad || 0), 0);
+    const limConectorGlobal = obtenerLimiteParaMaterial(27, "CONECTOR SC/APC FAST");
+    if (limConectorGlobal !== null && totalConectoresEnActa > limConectorGlobal) {
+      alert(
+        limConectorGlobal === 0
+          ? `❌ CONECTORES NO PERMITIDOS:\n\nEl tipo de liquidación "${tipoLiquidacion}" no lleva conectores ópticos (límite: 0). Tienes ${totalConectoresEnActa} conector(es) ingresado(s).\n\nPor favor quítalos antes de liquidar.`
+          : `❌ LÍMITE TOTAL DE CONECTORES EXCEDIDO:\n\nHas ingresado un total de ${totalConectoresEnActa} conector(es), pero para "${tipoLiquidacion}" el límite permitido es de ${limConectorGlobal} conector(es).\n\nPor favor ajusta los materiales antes de liquidar.`
+      );
+      return;
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -1272,7 +1373,7 @@ export const TechnicalActModal: React.FC<Props> = ({
             {/* ─────────────────────────────────────────────────────────────
                 3. CÁLCULO DE CABLE DROP (BOBINA CONTINUA O CONECTORIZADO)
             ───────────────────────────────────────────────────────────── */}
-            {(plantillaActual.requiereDrop || Number(dropMetroInicio) > 0 || Number(dropMetroFin) > 0 || Boolean(dropConectorizadoSeleccionado) || (/fibra|drop|recableado|alta|traslado|instalac/i.test(tipoLiquidacion) && !/conector|roseta|patch|ont|mesh|winbox|fono|visita/i.test(tipoLiquidacion))) && (
+            {(mostrarSeccionDropManual || plantillaActual.requiereDrop || Number(dropMetroInicio) > 0 || Number(dropMetroFin) > 0 || Boolean(dropConectorizadoSeleccionado) || (/fibra|drop|recableado|alta|traslado|instalac/i.test(tipoLiquidacion) && !/conector|roseta|patch|ont|mesh|winbox|fono|visita/i.test(tipoLiquidacion))) && (
               <div className={`p-4 rounded-2xl space-y-3 border transition-all ${
                 dropConectorizadoSeleccionado
                   ? "bg-emerald-50/60 border-emerald-200"
@@ -1313,6 +1414,23 @@ export const TechnicalActModal: React.FC<Props> = ({
                       }`}>
                         Total Consumido: {totalDropCalculado} metros
                       </span>
+                    )}
+
+                    {/* Botón para ocultar sección de Drop si se abrió manualmente y no es obligatoria */}
+                    {mostrarSeccionDropManual && !plantillaActual.requiereDrop && !isAlreadyLiquidated && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMostrarSeccionDropManual(false);
+                          setDropMetroInicio("");
+                          setDropMetroFin("");
+                          setMateriales((prev) => prev.filter((m) => !esDropConectorizado(m)));
+                        }}
+                        className="px-2 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-md text-[10px] font-bold cursor-pointer transition-all"
+                        title="Ocultar sección de Drop"
+                      >
+                        ✕ Ocultar
+                      </button>
                     )}
                   </div>
                 </div>
@@ -1492,11 +1610,25 @@ export const TechnicalActModal: React.FC<Props> = ({
                         className="w-full p-2 bg-white border border-indigo-300 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-200 cursor-pointer"
                       >
                         <option value="">-- Elige un material de tu stock --</option>
-                        {soloMaterialesLiquidables.map((m) => (
-                          <option key={m.id_producto} value={m.id_producto}>
-                            {m.nombre} (Stock: {m.stock} {m.es_drop ? "m" : "und"})
-                          </option>
-                        ))}
+                        {soloMaterialesLiquidables.map((m) => {
+                          const esBobina = esBobinaDrop(m);
+                          const esConect = esDropConectorizado(m);
+                          const esConector = Number(m.id_producto) === 27 || m.nombre.toUpperCase().includes("CONECTOR") || m.nombre.toUpperCase().includes("FAST");
+                          const lim = esConector ? obtenerLimiteParaMaterial(m.id_producto, m.nombre) : null;
+                          const noPermitido = esConector && lim === 0;
+
+                          return (
+                            <option key={m.id_producto} value={m.id_producto} disabled={noPermitido}>
+                              {esBobina
+                                ? `CABLE DROP (Bobina continua) (Stock: ${m.stock} m)`
+                                : esConect
+                                ? `${m.nombre} (Stock: ${m.stock} und)`
+                                : noPermitido
+                                ? `${m.nombre} 🚫 (No permitido para ${tipoLiquidacion})`
+                                : `${m.nombre} (Stock: ${m.stock} ${m.es_drop ? "m" : "und"})${lim !== null ? ` [Máx: ${lim}]` : ""}`}
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
 

@@ -50,6 +50,7 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
   const [kmInicio, setKmInicio] = useState("");
   const [kmFin, setKmFin] = useState("");
   const [nivelCombustible, setNivelCombustible] = useState<string>("Medio");
+  const [nivelCombustibleFin, setNivelCombustibleFin] = useState<string>("Medio");
   const [observaciones, setObservaciones] = useState("");
 
   // Cargar si no vienen por props
@@ -141,6 +142,7 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
   const [fotoAgua, setFotoAgua] = useState<File | null>(null);
   const [fotoEstadoGeneral, setFotoEstadoGeneral] = useState<File | null>(null);
   const [fotoTableroFin, setFotoTableroFin] = useState<File | null>(null);
+  const [fotoCombustibleFin, setFotoCombustibleFin] = useState<File | null>(null);
 
   // Función para capturar coordenadas GPS reales del teléfono del técnico
   const obtenerGpsActual = (): Promise<{ lat: number; lng: number } | null> => {
@@ -167,7 +169,6 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
       fd.append("id_vehiculo", idVehiculo);
       fd.append("id_trabajador", idTrabajador);
       fd.append("observaciones_tecnico", observaciones);
-      fd.append("nivel_combustible", nivelCombustible);
 
       const now = new Date();
       const year = now.getFullYear();
@@ -187,6 +188,8 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
           setGuardando(false);
           return;
         }
+        fd.append("nivel_combustible", nivelCombustible);
+        fd.append("nivel_combustible_inicio", nivelCombustible);
         fd.append("km_inicio", kmInicio);
         fd.append("hora_inicio", horaLocal);
         if (gps) {
@@ -206,6 +209,8 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
           setGuardando(false);
           return;
         }
+        fd.append("nivel_combustible", nivelCombustibleFin);
+        fd.append("nivel_combustible_fin", nivelCombustibleFin);
         fd.append("km_fin", kmFin);
         fd.append("hora_fin", horaLocal);
         if (gps) {
@@ -213,6 +218,7 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
           fd.append("lng_fin", String(gps.lng));
         }
         if (fotoTableroFin) fd.append("foto_tablero_fin", fotoTableroFin);
+        if (fotoCombustibleFin) fd.append("foto_combustible_fin", fotoCombustibleFin);
 
         const res = await registrarInspeccionFin(fd);
         alert(`✅ ¡Cierre de jornada registrado con éxito! Recorriste hoy: ${res.km_recorridos || 0} KM.`);
@@ -477,70 +483,101 @@ export const TechnicianChecklistModal: React.FC<Props> = ({
                 </div>
               </div>
 
-              {/* Foto Tablero Final */}
-              <div>
-                <label className="block mb-1 text-slate-600">Foto del Tablero Final *</label>
-                <label className={`p-4 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer transition-all ${fotoTableroFin ? "border-indigo-500 bg-indigo-50/50" : "border-slate-200 bg-slate-50 hover:bg-slate-100"
+              {/* Fotos Cierre de Jornada (2 Fotos: Odómetro y Marcador Gas/Gasolina) */}
+              <div className="space-y-2.5">
+                <span className="block text-slate-700 font-extrabold text-xs">
+                  📸 Fotos Obligatorias de Cierre:
+                </span>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  {/* Foto Tablero Final */}
+                  <label className={`p-3 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer transition-all ${
+                    fotoTableroFin ? "border-indigo-500 bg-indigo-50/50" : "border-slate-200 bg-slate-50 hover:bg-slate-100"
                   }`}>
-                  <Gauge size={24} className={fotoTableroFin ? "text-indigo-600" : "text-slate-400"} />
-                  <span className="font-bold text-xs mt-1 text-slate-800">
-                    {fotoTableroFin ? fotoTableroFin.name : "Subir foto de odómetro final"}
-                  </span>
-                  <span className="text-[10px] text-slate-400">Verifica que los números sean legibles</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => e.target.files?.[0] && setFotoTableroFin(e.target.files[0])}
-                    className="hidden"
-                  />
-                </label>
+                    <Gauge size={22} className={fotoTableroFin ? "text-indigo-600" : "text-slate-400"} />
+                    <span className="font-bold text-[11px] mt-1 text-slate-800">1. Foto Tablero</span>
+                    <span className="text-[10px] text-slate-400 truncate max-w-[120px]">
+                      {fotoTableroFin ? fotoTableroFin.name : "Odómetro final"}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => e.target.files?.[0] && setFotoTableroFin(e.target.files[0])}
+                      className="hidden"
+                    />
+                  </label>
+
+                  {/* Foto Marcador Gas / Gasolina Cierre */}
+                  <label className={`p-3 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer transition-all ${
+                    fotoCombustibleFin ? "border-indigo-500 bg-indigo-50/50" : "border-slate-200 bg-slate-50 hover:bg-slate-100"
+                  }`}>
+                    <Fuel size={22} className={fotoCombustibleFin ? "text-indigo-600" : "text-slate-400"} />
+                    <span className="font-bold text-[11px] mt-1 text-slate-800">2. Gas / Gasolina Cierre</span>
+                    <span className="text-[10px] text-slate-400 truncate max-w-[120px]">
+                      {fotoCombustibleFin ? fotoCombustibleFin.name : "Manómetro o marcador"}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => e.target.files?.[0] && setFotoCombustibleFin(e.target.files[0])}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
               </div>
             </>
           )}
 
           {/* ⛽ SELECTOR INTERACTIVO DE NIVEL DE GAS / GASOLINA */}
-          <div className="space-y-2 p-3.5 rounded-2xl bg-slate-50/90 border border-slate-200 shadow-2xs">
-            <div className="flex items-center justify-between">
-              <label className="text-slate-800 font-extrabold text-xs flex items-center gap-1.5">
-                <Fuel size={16} className="text-amber-600" />
-                Nivel de Gas / Gasolina Reportado *
-              </label>
-              <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
-                nivelCombustible === "Bajo" 
-                  ? "bg-rose-100 text-rose-700 border border-rose-300 animate-pulse" 
-                  : nivelCombustible === "Medio" 
-                  ? "bg-amber-100 text-amber-800 border border-amber-300"
-                  : nivelCombustible === "3/4"
-                  ? "bg-sky-100 text-sky-800 border border-sky-300"
-                  : "bg-emerald-100 text-emerald-800 border border-emerald-300"
-              }`}>
-                {nivelCombustible === "Bajo" ? "⚠️ Bajo (1/4)" : nivelCombustible === "Medio" ? "🟡 Medio (1/2)" : nivelCombustible === "3/4" ? "🔵 Tres Cuartos (3/4)" : "🟢 Lleno (Full)"}
-              </span>
-            </div>
+          {(() => {
+            const nivelActual = tipoJornada === "inicio" ? nivelCombustible : nivelCombustibleFin;
+            const setNivelActual = tipoJornada === "inicio" ? setNivelCombustible : setNivelCombustibleFin;
 
-            <div className="grid grid-cols-4 gap-1.5 pt-0.5">
-              {[
-                { id: "Bajo", label: "Bajo (1/4)", icon: "🔴", activeClass: "bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-600/30 scale-[1.02]" },
-                { id: "Medio", label: "Medio (1/2)", icon: "🟡", activeClass: "bg-amber-500 text-white border-amber-500 shadow-md shadow-amber-500/30 scale-[1.02]" },
-                { id: "3/4", label: "3/4", icon: "🔵", activeClass: "bg-sky-600 text-white border-sky-600 shadow-md shadow-sky-600/30 scale-[1.02]" },
-                { id: "Lleno", label: "Full / Lleno", icon: "🟢", activeClass: "bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-600/30 scale-[1.02]" },
-              ].map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => setNivelCombustible(opt.id)}
-                  className={`py-2 px-1 rounded-xl text-[11px] font-bold border flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer ${
-                    nivelCombustible === opt.id
-                      ? opt.activeClass
-                      : "bg-white text-slate-600 hover:bg-slate-100 border-slate-200"
-                  }`}
-                >
-                  <span className="text-xs">{opt.icon}</span>
-                  <span className="truncate w-full text-center">{opt.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+            return (
+              <div className="space-y-2 p-3.5 rounded-2xl bg-slate-50/90 border border-slate-200 shadow-2xs">
+                <div className="flex items-center justify-between">
+                  <label className="text-slate-800 font-extrabold text-xs flex items-center gap-1.5">
+                    <Fuel size={16} className={tipoJornada === "inicio" ? "text-amber-600" : "text-indigo-600"} />
+                    {tipoJornada === "inicio" ? "Nivel de Gas / Gasolina (Inicio) *" : "Nivel de Gas / Gasolina (Cierre) *"}
+                  </label>
+                  <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
+                    nivelActual === "Bajo" 
+                      ? "bg-rose-100 text-rose-700 border border-rose-300 animate-pulse" 
+                      : nivelActual === "Medio" 
+                      ? "bg-amber-100 text-amber-800 border border-amber-300"
+                      : nivelActual === "3/4"
+                      ? "bg-sky-100 text-sky-800 border border-sky-300"
+                      : "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                  }`}>
+                    {nivelActual === "Bajo" ? "⚠️ Bajo (1/4)" : nivelActual === "Medio" ? "🟡 Medio (1/2)" : nivelActual === "3/4" ? "🔵 Tres Cuartos (3/4)" : "🟢 Lleno (Full)"}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-4 gap-1.5 pt-0.5">
+                  {[
+                    { id: "Bajo", label: "Bajo (1/4)", icon: "🔴", activeClass: "bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-600/30 scale-[1.02]" },
+                    { id: "Medio", label: "Medio (1/2)", icon: "🟡", activeClass: "bg-amber-500 text-white border-amber-500 shadow-md shadow-amber-500/30 scale-[1.02]" },
+                    { id: "3/4", label: "3/4", icon: "🔵", activeClass: "bg-sky-600 text-white border-sky-600 shadow-md shadow-sky-600/30 scale-[1.02]" },
+                    { id: "Lleno", label: "Full / Lleno", icon: "🟢", activeClass: "bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-600/30 scale-[1.02]" },
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setNivelActual(opt.id)}
+                      className={`py-2 px-1 rounded-xl text-[11px] font-bold border flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer ${
+                        nivelActual === opt.id
+                          ? opt.activeClass
+                          : "bg-white text-slate-600 hover:bg-slate-100 border-slate-200"
+                      }`}
+                    >
+                      <span className="text-xs">{opt.icon}</span>
+                      <span className="truncate w-full text-center">{opt.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Observaciones */}
           <div>

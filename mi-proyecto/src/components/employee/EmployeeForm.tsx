@@ -1,6 +1,16 @@
 import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input"; 
-import { createEmpleado, getDatosAFP, updateEmpleado, getAreas, AreaItem, getRoles } from "../../services/employeeService";
+import {
+  createEmpleado,
+  getDatosAFP,
+  updateEmpleado,
+  getAreas,
+  AreaItem,
+  getRoles,
+  getSubcontratas,
+  createSubcontrata,
+  SubcontrataItem
+} from "../../services/employeeService";
 import { API_URL } from "../../config/api";
 import { Employee } from "./Employee";
 
@@ -142,6 +152,11 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
   const [tasasAfp, setTasasAfp] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]); 
   const [areas, setAreas] = useState<AreaItem[]>([]);
+  const [subcontratas, setSubcontratas] = useState<SubcontrataItem[]>([]);
+  const [mostrarNuevaSubcontrata, setMostrarNuevaSubcontrata] = useState(false);
+  const [nuevaSubcontrataCodigo, setNuevaSubcontrataCodigo] = useState("");
+  const [guardandoSubcontrata, setGuardandoSubcontrata] = useState(false);
+  const [subcontrataError, setSubcontrataError] = useState("");
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, fieldName: string) => {
     if (e.target.files && e.target.files[0]) {
@@ -263,11 +278,11 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
     return { sufijo, passRandom };
   });
 
-  // 1. CARGAR TASAS DE LA SBS, ROLES Y ÁREAS DESDE MYSQL
+  // 1. CARGAR TASAS DE LA SBS, ROLES, ÁREAS Y SUBCONTRATAS DESDE MYSQL
   useEffect(() => {
     const cargarDatosIniciales = async () => {
       try {
-        const [tasas, rolesRes, areasRes] = await Promise.all([
+        const [tasas, rolesRes, areasRes, subcontratasRes] = await Promise.all([
           getDatosAFP().catch(() => []),
           getRoles().catch(async () => {
             const res = await fetch(`${API_URL}/roles`).catch(() => null);
@@ -277,17 +292,51 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
             }
             return [];
           }),
-          getAreas().catch(() => [])
+          getAreas().catch(() => []),
+          getSubcontratas().catch(() => [])
         ]);
         setTasasAfp(Array.isArray(tasas) ? tasas : []);
         setRoles(Array.isArray(rolesRes) ? rolesRes : []);
         setAreas(Array.isArray(areasRes) ? areasRes : []);
+        setSubcontratas(Array.isArray(subcontratasRes) ? subcontratasRes : []);
       } catch (error) {
         console.error("Error al cargar datos iniciales:", error);
       }
     };
     cargarDatosIniciales();
   }, []);
+
+  const handleCrearSubcontrata = async () => {
+    if (!nuevaSubcontrataCodigo.trim()) {
+      setSubcontrataError("Ingresa el código o nombre de la subcontrata (ej. Subcontrata C11)");
+      return;
+    }
+    try {
+      setGuardandoSubcontrata(true);
+      setSubcontrataError("");
+      const cod = nuevaSubcontrataCodigo.trim();
+      const res = await createSubcontrata({
+        codigo: cod,
+        nombre: cod,
+        descripcion: `Grupo ${cod}`
+      });
+      const nuevoItem: SubcontrataItem = {
+        id_subcontrata: res.id_subcontrata || Date.now(),
+        codigo: cod,
+        nombre: cod,
+        descripcion: `Grupo ${cod}`,
+        estado: 'Activo'
+      };
+      setSubcontratas(prev => [...prev, nuevoItem]);
+      setFormData(prev => ({ ...prev, subcontrataCodigo: cod }));
+      setNuevaSubcontrataCodigo("");
+      setMostrarNuevaSubcontrata(false);
+    } catch (err: any) {
+      setSubcontrataError(err.message || "Error al crear subcontrata");
+    } finally {
+      setGuardandoSubcontrata(false);
+    }
+  };
 
   // 2. EFECTO DE EDICIÓN: MAPEO CORRECTO ENTRE MYSQL Y REACT
   useEffect(() => {
@@ -738,29 +787,72 @@ export default function EmployeeForm({ empleadoAEditar, onSuccess }: EmployeeFor
       </div>
 
       {formData.opcionPersonal?.toLowerCase() === "subcontrata" && (
-        <div className="flex flex-col gap-1.5 animate-in fade-in zoom-in-95 duration-200">
-          <label className="text-xs font-bold text-purple-700 flex items-center gap-1">
-            <span>🏢</span> Código Subcontrata / Cuadrilla *
-          </label>
-          <select
-            name="subcontrataCodigo"
-            value={formData.subcontrataCodigo || ""}
-            onChange={handleChange}
-            className={`${selectClass} border-purple-300 bg-purple-50/50 font-semibold text-purple-900 focus:ring-purple-500`}
-            required
-          >
-            <option value="">Seleccionar Subcontrata...</option>
-            <option value="Subcontrata C1">Subcontrata C1 (Cuadrilla 1)</option>
-            <option value="Subcontrata C2">Subcontrata C2 (Cuadrilla 2)</option>
-            <option value="Subcontrata C3">Subcontrata C3 (Cuadrilla 3)</option>
-            <option value="Subcontrata C4">Subcontrata C4 (Cuadrilla 4)</option>
-            <option value="Subcontrata C5">Subcontrata C5 (Cuadrilla 5)</option>
-            <option value="Subcontrata C6">Subcontrata C6 (Cuadrilla 6)</option>
-            <option value="Subcontrata C7">Subcontrata C7 (Cuadrilla 7)</option>
-            <option value="Subcontrata C8">Subcontrata C8 (Cuadrilla 8)</option>
-            <option value="Subcontrata C9">Subcontrata C9 (Cuadrilla 9)</option>
-            <option value="Subcontrata C10">Subcontrata C10 (Cuadrilla 10)</option>
-          </select>
+        <div className="flex flex-col gap-1.5 animate-in fade-in zoom-in-95 duration-200 min-w-0 w-full">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-bold text-purple-700 flex items-center gap-1 truncate">
+              <span>🏢</span> Código Subcontrata / Cuadrilla *
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                setMostrarNuevaSubcontrata(!mostrarNuevaSubcontrata);
+                setSubcontrataError("");
+              }}
+              className="text-[11px] font-bold text-purple-700 hover:text-purple-900 bg-purple-100 hover:bg-purple-200 px-2 py-0.5 rounded-md transition-colors cursor-pointer flex items-center gap-1 shadow-2xs shrink-0"
+            >
+              <span>{mostrarNuevaSubcontrata ? "✕ Cancelar" : "+ Nueva Subcontrata"}</span>
+            </button>
+          </div>
+
+          {mostrarNuevaSubcontrata ? (
+            <div className="p-2.5 bg-purple-50/90 border border-purple-200 rounded-xl space-y-2 min-w-0 w-full">
+              <label className="text-[11px] font-bold text-purple-900 block truncate">
+                Nombre o Código de la nueva Subcontrata:
+              </label>
+              <div className="flex items-center gap-1.5 min-w-0 w-full">
+                <input
+                  type="text"
+                  placeholder="Ej: Subcontrata C11"
+                  value={nuevaSubcontrataCodigo}
+                  onChange={(e) => setNuevaSubcontrataCodigo(e.target.value)}
+                  className="flex-1 min-w-0 w-full text-xs p-2 bg-white border border-purple-300 rounded-lg font-bold text-purple-900 focus:outline-none focus:ring-2 focus:ring-purple-400 placeholder:text-purple-300"
+                />
+                <button
+                  type="button"
+                  disabled={guardandoSubcontrata}
+                  onClick={handleCrearSubcontrata}
+                  className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-black transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center shrink-0 whitespace-nowrap shadow-xs"
+                >
+                  {guardandoSubcontrata ? "..." : "Guardar"}
+                </button>
+              </div>
+              {subcontrataError && (
+                <p className="text-[11px] font-bold text-rose-600">{subcontrataError}</p>
+              )}
+            </div>
+          ) : (
+            <select
+              name="subcontrataCodigo"
+              value={formData.subcontrataCodigo || ""}
+              onChange={handleChange}
+              className={`${selectClass} border-purple-300 bg-purple-50/50 font-semibold text-purple-900 focus:ring-purple-500`}
+              required
+            >
+              <option value="">Seleccionar Subcontrata...</option>
+              {subcontratas.map((sub) => (
+                <option key={sub.id_subcontrata} value={sub.codigo}>
+                  {sub.nombre || sub.codigo}
+                </option>
+              ))}
+              {/* Si el empleado ya tenía una asignada que no está en la BD, preservarla */}
+              {formData.subcontrataCodigo &&
+                !subcontratas.some((s) => s.codigo === formData.subcontrataCodigo) && (
+                  <option value={formData.subcontrataCodigo}>
+                    {formData.subcontrataCodigo} (Actual)
+                  </option>
+                )}
+            </select>
+          )}
         </div>
       )}
 

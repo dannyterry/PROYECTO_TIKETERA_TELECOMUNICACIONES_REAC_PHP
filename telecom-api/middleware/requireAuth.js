@@ -29,6 +29,7 @@ function isPublicPath(req) {
   if (path.startsWith("/uploads") || orig.startsWith("/uploads")) return true;
   if (path.startsWith("/api/looker/") || path.startsWith("/looker/") || orig.startsWith("/api/looker/") || orig.startsWith("/looker/")) return true;
   if (path.startsWith("/api/win-audit/") || path.startsWith("/win-audit/") || orig.startsWith("/api/win-audit/") || orig.startsWith("/win-audit/")) return true;
+  if (path.startsWith("/api/dashboard/") || path.startsWith("/dashboard/") || orig.startsWith("/api/dashboard/") || orig.startsWith("/dashboard/")) return true;
   if (
     path === "/tecnicos" || path === "/api/tecnicos" || path.startsWith("/api/tecnicos") || path.startsWith("/tecnicos") ||
     orig === "/tecnicos" || orig === "/api/tecnicos" || orig.startsWith("/api/tecnicos") || orig.startsWith("/tecnicos")
@@ -40,6 +41,10 @@ function isPublicPath(req) {
   if (
     path.startsWith("/api/cuadrillas") || path.startsWith("/cuadrillas") ||
     orig.startsWith("/api/cuadrillas") || orig.startsWith("/cuadrillas")
+  ) return true;
+  if (
+    path.startsWith("/api/subcontratas") || path.startsWith("/subcontratas") ||
+    orig.startsWith("/api/subcontratas") || orig.startsWith("/subcontratas")
   ) return true;
   return false;
 }
