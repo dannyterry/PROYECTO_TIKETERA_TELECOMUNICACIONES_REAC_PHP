@@ -34,7 +34,7 @@ if (fs.existsSync(tempBackend)) {
 fs.mkdirSync(tempBackend, { recursive: true });
 
 // Copiar archivos raíz requeridos
-const rootFiles = ['server.js', 'package.json', 'package-lock.json', 'db.js', '.env'];
+const rootFiles = ['server.js', 'package.json', 'package-lock.json', 'db.js', '.env', 'looker_alert_service.js', 'cards_and_alerts.json'];
 rootFiles.forEach(f => {
   const src = path.join(apiDir, f);
   if (fs.existsSync(src)) {
@@ -51,6 +51,13 @@ folders.forEach(dir => {
     fs.cpSync(srcDir, destDir, { recursive: true });
   }
 });
+
+// Asegurar carpeta uploads vacía para subida de fotos
+const stagingUploads = path.join(tempBackend, 'uploads');
+if (!fs.existsSync(stagingUploads)) {
+  fs.mkdirSync(stagingUploads, { recursive: true });
+}
+fs.writeFileSync(path.join(stagingUploads, '.gitkeep'), '');
 
 const psBackend = `Compress-Archive -Path '${tempBackend}/*' -DestinationPath '${backendZip}' -Force`;
 execSync(`powershell -Command "${psBackend}"`, { stdio: 'inherit' });
