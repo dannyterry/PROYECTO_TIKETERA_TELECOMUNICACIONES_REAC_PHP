@@ -338,11 +338,11 @@ export const AttendanceTab: React.FC = () => {
       let minTarde = item.minutos_tarde || 0;
 
       if (nuevoEstado === "Asistio" && !hEntrada) {
-        hEntrada = "07:30:00";
-        minTarde = 0;
-      } else if (nuevoEstado === "Tardanza" && (!hEntrada || hEntrada === "07:30:00")) {
         hEntrada = "07:45:00";
-        minTarde = 15;
+        minTarde = 0;
+      } else if (nuevoEstado === "Tardanza" && (!hEntrada || hEntrada === "07:45:00")) {
+        hEntrada = "07:55:00";
+        minTarde = 8;
       }
 
       const resp = await marcarAsistencia({
@@ -377,16 +377,17 @@ export const AttendanceTab: React.FC = () => {
       setGuardandoId(item.id_usuario ?? item.id_trabajador);
       const hStr = valor.length === 5 ? `${valor}:00` : valor;
 
-      // Calcular si es tardanza (> 07:35)
+      // Calcular si es tardanza (> 07:47 - horario 07:45 + 2 min tolerancia)
       let nuevoEstado = item.estado || "Asistio";
       let minTarde = 0;
       if (valor) {
         const [h, m] = valor.split(":").map(Number);
         const minTotales = h * 60 + m;
-        const minPactados = 7 * 60 + 30; // 07:30 AM
-        if (minTotales > minPactados + 5) {
+        const minPactados = 7 * 60 + 45; // 07:45 AM
+        const minLimite = minPactados + 2; // 07:47 AM (tolerancia 2 min)
+        if (minTotales > minLimite) {
           nuevoEstado = "Tardanza";
-          minTarde = minTotales - minPactados;
+          minTarde = minTotales - minLimite;
         } else {
           nuevoEstado = "Asistio";
           minTarde = 0;

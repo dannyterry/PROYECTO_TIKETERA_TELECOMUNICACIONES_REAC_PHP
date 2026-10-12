@@ -2249,6 +2249,7 @@ async function syncAsistenciasFromOrders(fechaDesde, fechaHasta) {
         o.tecnico_asignado,
         DATE(COALESCE(o.fecha_visita, o.fecha_solicitud)) AS fecha_orden,
         o.hora_asignacion,
+        o.hora_en_camino,
         o.inicio_visita,
         TIME(COALESCE(o.inicio_visita, o.hora_en_camino, o.hora_asignacion, o.fecha_visita, o.fecha_solicitud)) AS hora_inicio,
         t.id_trabajador,
@@ -2342,9 +2343,23 @@ async function syncAsistenciasFromOrders(fechaDesde, fechaHasta) {
       let earliestStartTimeStr = '99:99:99';
 
       for (const ord of allOrders) {
-        const rawInicio = ord.inicio_visita ? String(ord.inicio_visita).slice(-8) : null;
-        const rawCamino = ord.hora_en_camino ? String(ord.hora_en_camino).slice(-8) : null;
-        const candidateTime = rawInicio || rawCamino;
+        const pad = (n) => String(n).padStart(2, '0');
+        const getTime = (val) => {
+          if (!val) return null;
+          if (val instanceof Date) return `${pad(val.getHours())}:${pad(val.getMinutes())}:${pad(val.getSeconds())}`;
+          const match = String(val).match(/(\d{2}):(\d{2}):(\d{2})/);
+          return match ? match[0] : null;
+        };
+
+        const rawInicio = getTime(ord.inicio_visita);
+        const rawCamino = getTime(ord.hora_en_camino);
+        
+        let candidateTime = null;
+        if (rawInicio && rawCamino) {
+          candidateTime = rawInicio < rawCamino ? rawInicio : rawCamino;
+        } else {
+          candidateTime = rawInicio || rawCamino;
+        }
 
         if (candidateTime && candidateTime < earliestStartTimeStr) {
           earliestStartTimeStr = candidateTime;
@@ -2556,7 +2571,7 @@ app.post('/api/asistencias/marcar', async (req, res) => {
     const fechaAsistencia = fecha || new Date().toISOString().slice(0, 10);
     const estadoAsistencia = estado || 'Asistio';
     const isNoWorkStatus = ['Falta', 'Descanso'].includes(estadoAsistencia);
-    const defaultHoraEntrada = isNoWorkStatus ? null : '07:30:00';
+    const defaultHoraEntrada = isNoWorkStatus ? null : '07:45:00';
     const finalHoraEntrada = hora_entrada ? hora_entrada : defaultHoraEntrada;
     const finalHoraSalida = hora_salida ? hora_salida : null;
 
@@ -3614,7 +3629,7 @@ app.get('/ordenes/:numero/historial-estados', async (req, res) => {
 
       // Obtener estado actual de la orden y si tiene asignación manual
       const [ordRows] = await pool.query(
-        "SELECT id_orden, numero, asignacion_manual, id_tecnico, tecnico_asignado, cuadrilla FROM ordenes WHERE numero = ? OR id_orden = ? LIMIT 1",
+        "SELECT id_orden, numero, asignacion_manual, id_tecnico, tecnico_asignado, cuadrilla, hora_en_camino, inicio_visita, fin_visita, hora_asignacion FROM ordenes WHERE numero = ? OR id_orden = ? LIMIT 1",
         [numero, numero]
       );
       const ordenActual = ordRows[0] || null;
@@ -3622,6 +3637,23 @@ app.get('/ordenes/:numero/historial-estados', async (req, res) => {
 
       let autoIdTecnico = ordenActual ? ordenActual.id_tecnico : null;
       let autoNombreTecnico = ordenActual ? ordenActual.tecnico_asignado : null;
+
+      // Calcular los mejores hitos de tiempo (la hora más temprana para inicio/camino y la más tardía para fin)
+      const finalHoraCamino = (ordenActual?.hora_en_camino && tiempos.horaEnCamino) 
+        ? (tiempos.horaEnCamino < ordenActual.hora_en_camino ? tiempos.horaEnCamino : ordenActual.hora_en_camino)
+        : (tiempos.horaEnCamino || ordenActual?.hora_en_camino || null);
+
+      const finalInicioVisita = (ordenActual?.inicio_visita && tiempos.inicioVisita)
+        ? (tiempos.inicioVisita < ordenActual.inicio_visita ? tiempos.inicioVisita : ordenActual.inicio_visita)
+        : (tiempos.inicioVisita || ordenActual?.inicio_visita || null);
+
+      const finalFinVisita = (ordenActual?.fin_visita && tiempos.finVisita)
+        ? (tiempos.finVisita > ordenActual.fin_visita ? tiempos.finVisita : ordenActual.fin_visita)
+        : (tiempos.finVisita || ordenActual?.fin_visita || null);
+
+      const finalHoraAsignacion = (ordenActual?.hora_asignacion && tiempos.horaAsignacion)
+        ? (tiempos.horaAsignacion < ordenActual.hora_asignacion ? tiempos.horaAsignacion : ordenActual.hora_asignacion)
+        : (tiempos.horaAsignacion || ordenActual?.hora_asignacion || null);
 
       // Si NO tiene asignación manual y SÍ hubo trabajo de campo real (En camino / Iniciada / Revisión)
       if (!esManual && tiempos.usuarioEjecutor) {
@@ -3669,10 +3701,10 @@ app.get('/ordenes/:numero/historial-estados', async (req, res) => {
              WHEN ? IS NOT NULL THEN ? 
              ELSE estado 
            END,
-           hora_en_camino = COALESCE(hora_en_camino, ?),
-           inicio_visita = COALESCE(inicio_visita, ?),
-           fin_visita = COALESCE(fin_visita, ?),
-           hora_asignacion = COALESCE(hora_asignacion, ?),
+           hora_en_camino = COALESCE(?, hora_en_camino),
+           inicio_visita = COALESCE(?, inicio_visita),
+           fin_visita = COALESCE(?, fin_visita),
+           hora_asignacion = COALESCE(?, hora_asignacion),
            usuario_ejecutor_fenix = ?,
            id_tecnico = CASE WHEN asignacion_manual = 1 THEN id_tecnico ELSE ? END,
            tecnico_asignado = CASE WHEN asignacion_manual = 1 THEN tecnico_asignado ELSE ? END
@@ -3680,10 +3712,10 @@ app.get('/ordenes/:numero/historial-estados', async (req, res) => {
         [
           esEstadoFenixSolido ? ultimoEstadoFenix : null,
           esEstadoFenixSolido ? ultimoEstadoFenix : null,
-          tiempos.horaEnCamino,
-          tiempos.inicioVisita,
-          tiempos.finVisita,
-          tiempos.horaAsignacion,
+          finalHoraCamino,
+          finalInicioVisita,
+          finalFinVisita,
+          finalHoraAsignacion,
           tiempos.usuarioEjecutor || null,
           autoIdTecnico,
           autoNombreTecnico,

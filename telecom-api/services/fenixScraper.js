@@ -1493,16 +1493,24 @@ function extraerTiemposDeHistorial(historial) {
     return { horaAsignacion, horaEnCamino, inicioVisita, finVisita, usuarioEjecutor };
   }
 
-  // 1. Extraer hitos de tiempo
+  // 1. Extraer hitos de tiempo (la hora más temprana para inicio/camino y la más tardía para finalización)
   for (const h of historial) {
     const st = (h.estado || '').toUpperCase();
     const parsedDate = parseDateToMySQL(h.fecha);
     if (!parsedDate) continue;
 
-    if (st.includes('CAMINO') && !horaEnCamino) horaEnCamino = parsedDate;
-    if ((st.includes('INICIA') || st.includes('PROCESO')) && !inicioVisita) inicioVisita = parsedDate;
-    if ((st.includes('FINALIZ') || st.includes('LIQUID') || st.includes('TERMIN')) && !finVisita) finVisita = parsedDate;
-    if ((st.includes('ASIGNA') || st.includes('AGENDA')) && !horaAsignacion) horaAsignacion = parsedDate;
+    if (st.includes('CAMINO')) {
+      if (!horaEnCamino || parsedDate < horaEnCamino) horaEnCamino = parsedDate;
+    }
+    if (st.includes('INICIA') || st.includes('PROCESO')) {
+      if (!inicioVisita || parsedDate < inicioVisita) inicioVisita = parsedDate;
+    }
+    if (st.includes('FINALIZ') || st.includes('LIQUID') || st.includes('TERMIN')) {
+      if (!finVisita || parsedDate > finVisita) finVisita = parsedDate;
+    }
+    if (st.includes('ASIGNA') || st.includes('AGENDA')) {
+      if (!horaAsignacion || parsedDate < horaAsignacion) horaAsignacion = parsedDate;
+    }
   }
 
   // 2. Extraer usuario ejecutor de campo REAL (ESTRICTAMENTE en estados operativos: En camino, Iniciada, Revisión)
@@ -1516,8 +1524,13 @@ function extraerTiemposDeHistorial(historial) {
   });
 
   if (filasCampo.length > 0) {
-    // Si hay registros de campo, el ejecutor de campo real es el último técnico operativo (quien realizó el trabajo)
-    usuarioEjecutor = filasCampo[filasCampo.length - 1].usuario.trim();
+    // Ordenar de más reciente a más antiguo para que el ejecutor sea el último técnico operativo que trabajó
+    const ordenada = [...filasCampo].sort((a, b) => {
+      const da = parseDateToMySQL(a.fecha) || '';
+      const db = parseDateToMySQL(b.fecha) || '';
+      return db.localeCompare(da);
+    });
+    usuarioEjecutor = ordenada[0].usuario.trim();
   }
 
   return {
