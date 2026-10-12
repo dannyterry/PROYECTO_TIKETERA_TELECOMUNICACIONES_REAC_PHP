@@ -42,6 +42,7 @@ import {
   Move,
   Image as ImageIcon,
   Loader2,
+  ArrowDownLeft,
 } from "lucide-react";
 import {
   LiquidacionOrdenAudit,
@@ -134,6 +135,12 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
   const [nuevoMatSerie, setNuevoMatSerie] = useState<string>("");
   const [nuevoMatMotivo, setNuevoMatMotivo] = useState<string>("");
   const [origenStockAgregar, setOrigenStockAgregar] = useState<"camioneta" | "catalogo">("camioneta");
+  // Estados para equipo recogido / retirado complementario
+  const [nuevoRetiroHabilitado, setNuevoRetiroHabilitado] = useState<boolean>(false);
+  const [nuevoRetiroSinRecupero, setNuevoRetiroSinRecupero] = useState<boolean>(false);
+  const [nuevoRetiroSerie, setNuevoRetiroSerie] = useState<string>("");
+  const [nuevoRetiroTipo, setNuevoRetiroTipo] = useState<string>("ONT");
+  const [nuevoRetiroMotivo, setNuevoRetiroMotivo] = useState<string>("Cambio por avería / postventa");
 
   // Estados para Modal de Cambiar / Sustituir Producto
   const [materialACambiar, setMaterialACambiar] = useState<MaterialLiquidadoAudit | null>(null);
@@ -506,18 +513,30 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
       }
     }
 
+    const equipoRetiradoPayload = nuevoRetiroHabilitado ? {
+      numero_serie: nuevoRetiroSinRecupero ? "SIN_RECUPERO" : nuevoRetiroSerie.trim().toUpperCase(),
+      tipo_equipo: nuevoRetiroTipo,
+      motivo_retiro: nuevoRetiroMotivo,
+      sin_recupero: nuevoRetiroSinRecupero
+    } : undefined;
+
     setProcesandoAccion(true);
     try {
       const res = await agregarMaterialLiquidacion(modalLiq.id_liquidacion, {
         id_producto: Number(nuevoMatProdId),
         cantidad: nCant,
         numero_serie: nuevoMatSerie.trim() || undefined,
-        motivo: nuevoMatMotivo.trim() || "Material agregado por auditoría de almacén"
+        motivo: nuevoMatMotivo.trim() || "Material agregado por auditoría de almacén",
+        equipo_retirado: equipoRetiradoPayload
       });
 
       if (res && res.success) {
         setAjusteFeedback({ msg: res.message || "Material agregado correctamente.", tipo: "success" });
         setTimeout(() => setAjusteFeedback(null), 6000);
+
+        setNuevoRetiroHabilitado(false);
+        setNuevoRetiroSinRecupero(false);
+        setNuevoRetiroSerie("");
 
         const nuevoItem: MaterialLiquidadoAudit = {
           id_detalle_liq: res.id_detalle_liq,
@@ -760,19 +779,25 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
     }
   };
 
+  // Referencia para saber si el modal está abierto sin reiniciar el useEffect
+  const modalLiqRef = React.useRef(modalLiq);
+  useEffect(() => {
+    modalLiqRef.current = modalLiq;
+  }, [modalLiq]);
+
   useEffect(() => {
     cargarDatos();
 
-    // ⚡ 1. Polling automático cada 20 segundos solo si está en pantalla
+    // ⚡ 1. Polling automático en segundo plano cada 25 segundos (100% silencioso)
     const timer = setInterval(() => {
-      if (!document.hidden && !modalLiq) {
+      if (!document.hidden && !modalLiqRef.current) {
         cargarDatos(true);
       }
-    }, 20000);
+    }, 25000);
 
-    // ⚡ 2. Refrescar automáticamente al regresar al navegador o pestaña
+    // ⚡ 2. Refrescar silenciosamente solo al regresar a la pestaña activa si no hay modal abierto
     const handleFocus = () => {
-      if (document.visibilityState === "visible" && !modalLiq) {
+      if (document.visibilityState === "visible" && !modalLiqRef.current) {
         cargarDatos(true);
       }
     };
@@ -784,7 +809,7 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleFocus);
     };
-  }, [fechaDesde, fechaHasta, tecnicoFiltro, estadoFiltro, modalLiq]);
+  }, [fechaDesde, fechaHasta, tecnicoFiltro, estadoFiltro]);
 
   // Manejador de presets de fecha
   const aplicarPresetFecha = (preset: "hoy" | "ayer" | "semana") => {
@@ -2581,6 +2606,117 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                     <span className="font-mono font-black text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-200">
                       1 UND (Serializado)
                     </span>
+                  </div>
+
+                  {/* ── BLOQUE COMPLEMENTARIO: EQUIPO RECOGIDO / SIN RECUPERO ── */}
+                  <div className="p-3.5 rounded-2xl bg-indigo-50/70 border border-indigo-200 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <label className="font-extrabold text-indigo-950 flex items-center gap-1.5 text-xs">
+                        <ArrowDownLeft size={14} className="text-indigo-600" />
+                        ¿Se recogió equipo antiguo del cliente?
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setNuevoRetiroHabilitado(!nuevoRetiroHabilitado)}
+                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-black transition-all cursor-pointer border ${
+                          nuevoRetiroHabilitado
+                            ? "bg-indigo-600 text-white border-indigo-700"
+                            : "bg-white text-indigo-700 border-indigo-300 hover:bg-indigo-100"
+                        }`}
+                      >
+                        {nuevoRetiroHabilitado ? "Activado ✓" : "+ Registrar Retiro"}
+                      </button>
+                    </div>
+
+                    {nuevoRetiroHabilitado && (
+                      <div className="space-y-2 pt-1 border-t border-indigo-100">
+                        {/* Selector: Con Recojo vs Sin Recupero */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setNuevoRetiroSinRecupero(false)}
+                            className={`p-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                              !nuevoRetiroSinRecupero
+                                ? "bg-white text-indigo-950 border-indigo-500 shadow-2xs ring-1 ring-indigo-300"
+                                : "bg-indigo-100/50 text-indigo-600 border-indigo-200 hover:bg-white"
+                            }`}
+                          >
+                            📦 Equipo Recogido
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setNuevoRetiroSinRecupero(true)}
+                            className={`p-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                              nuevoRetiroSinRecupero
+                                ? "bg-rose-600 text-white border-rose-700 shadow-2xs"
+                                : "bg-indigo-100/50 text-indigo-600 border-indigo-200 hover:bg-white"
+                            }`}
+                          >
+                            🚫 Sin Recupero (No entregó)
+                          </button>
+                        </div>
+
+                        {!nuevoRetiroSinRecupero ? (
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-3 gap-2">
+                              <div className="col-span-1">
+                                <label className="text-[10px] font-bold text-indigo-900 block mb-0.5">Tipo:</label>
+                                <select
+                                  value={nuevoRetiroTipo}
+                                  onChange={(e) => setNuevoRetiroTipo(e.target.value)}
+                                  className="w-full p-2 text-xs rounded-xl border border-indigo-300 bg-white font-bold text-slate-800"
+                                >
+                                  <option value="ONT">ONT</option>
+                                  <option value="MESH">MESH</option>
+                                  <option value="FONOWIN">FONOWIN</option>
+                                  <option value="TV BOX">TV BOX</option>
+                                </select>
+                              </div>
+                              <div className="col-span-2">
+                                <label className="text-[10px] font-bold text-indigo-900 block mb-0.5">S/N Serie Retirado:</label>
+                                <input
+                                  type="text"
+                                  placeholder="Ej: ALCLB93821..."
+                                  value={nuevoRetiroSerie}
+                                  onChange={(e) => setNuevoRetiroSerie(e.target.value.toUpperCase())}
+                                  className="w-full p-2 text-xs font-mono font-bold rounded-xl border border-indigo-300 bg-white text-slate-900 focus:border-indigo-600 uppercase"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="text-[10px] font-bold text-indigo-900 block mb-0.5">Motivo de Retiro:</label>
+                              <select
+                                value={nuevoRetiroMotivo}
+                                onChange={(e) => setNuevoRetiroMotivo(e.target.value)}
+                                className="w-full p-2 text-xs rounded-xl border border-indigo-300 bg-white text-slate-800 font-semibold"
+                              >
+                                <option value="Cambio por avería / postventa">Cambio por avería / postventa</option>
+                                <option value="Upgrade / Migración de plan">Upgrade / Migración de plan</option>
+                                <option value="Baja / Cancelación de servicio">Baja / Cancelación de servicio</option>
+                                <option value="Desinstalación técnica">Desinstalación técnica</option>
+                              </select>
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            <label className="text-[10px] font-bold text-rose-900 block mb-0.5">Motivo sin recupero:</label>
+                            <select
+                              value={nuevoRetiroMotivo}
+                              onChange={(e) => setNuevoRetiroMotivo(e.target.value)}
+                              className="w-full p-2 text-xs rounded-xl border border-rose-300 bg-white text-rose-950 font-bold"
+                            >
+                              <option value="Cliente no entrega equipo / Negativa">Cliente no entrega equipo / Negativa</option>
+                              <option value="Pérdida / Extravío reportado por abonado">Pérdida / Extravío reportado por abonado</option>
+                              <option value="Equipo dañado irreparablemente no hallado">Equipo dañado irreparablemente no hallado</option>
+                            </select>
+                            <p className="text-[10px] text-rose-700 mt-1 font-medium">
+                              ⚠️ Se registrará en la orden como <strong>Sin_Recupero</strong> para trazabilidad de Almacén.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (

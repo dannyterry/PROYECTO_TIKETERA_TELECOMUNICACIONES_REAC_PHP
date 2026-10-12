@@ -32,6 +32,7 @@ import {
   ShoppingCart,
   ArrowRightLeft,
   Zap,
+  Trash2,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -39,6 +40,7 @@ import {
   StockTecnicoDetalle,
   SerieTecnicoDetalle,
   ActaTecnicoResumen,
+  ActaAnuladaItem,
   ProductoSeriesResumen,
 } from "../types/inventoryTypes";
 import { QuickDispatchModal } from "./QuickDispatchModal";
@@ -46,6 +48,7 @@ import { QuickStockEntryModal } from "./QuickStockEntryModal";
 import { DischargeDetailModal } from "./DischargeDetailModal";
 import {
   getActasTecnicos,
+  getActasAnuladas,
   getProductoSeries,
   actualizarEstadoSerie,
   getTrazabilidadSerie,
@@ -81,8 +84,11 @@ export const StockOverviewTab: React.FC<Props> = ({
   const [filtroCategoria, setFiltroCategoria] = useState("Todas");
   const [tecnicoSeleccionado, setTecnicoSeleccionado] = useState<string>("Todos");
 
-  // Auditoría de Actas por Técnico
+  // Auditoría de Actas por Técnico y Reporte de Actas Anuladas
   const [actasTecnicos, setActasTecnicos] = useState<ActaTecnicoResumen[]>([]);
+  const [actasAnuladas, setActasAnuladas] = useState<ActaAnuladaItem[]>([]);
+  const [subVistaActas, setSubVistaActas] = useState<"asignadas" | "anuladas">("asignadas");
+  const [fotoActaModalUrl, setFotoActaModalUrl] = useState<string | null>(null);
   const [cargandoActas, setCargandoActas] = useState(false);
   const [modalDetalleActas, setModalDetalleActas] = useState<{
     isOpen: boolean;
@@ -577,8 +583,14 @@ export const StockOverviewTab: React.FC<Props> = ({
 
   const cargarActas = () => {
     setCargandoActas(true);
-    getActasTecnicos()
-      .then((data) => setActasTecnicos(data || []))
+    Promise.all([
+      getActasTecnicos().catch(() => []),
+      getActasAnuladas().catch(() => [])
+    ])
+      .then(([dataTec, dataAnul]) => {
+        setActasTecnicos(dataTec || []);
+        setActasAnuladas(dataAnul || []);
+      })
       .catch(console.error)
       .finally(() => setCargandoActas(false));
   };
@@ -655,6 +667,18 @@ export const StockOverviewTab: React.FC<Props> = ({
       at.rangos.some((r) => r.toLowerCase().includes(txt)) ||
       at.actas.some((a) => a.numero_serie.toLowerCase().includes(txt) || (a.orden_numero && a.orden_numero.toLowerCase().includes(txt)));
     const matchTec = tecnicoSeleccionado === "Todos" || at.tecnico_nombre === tecnicoSeleccionado;
+    return matchTxt && matchTec;
+  });
+
+  const actasAnuladasFiltradas = actasAnuladas.filter((aa) => {
+    const txt = filtroTexto.toLowerCase();
+    const matchTxt =
+      !txt ||
+      aa.numero_acta.toLowerCase().includes(txt) ||
+      (aa.tecnico_nombre && aa.tecnico_nombre.toLowerCase().includes(txt)) ||
+      (aa.motivo && aa.motivo.toLowerCase().includes(txt)) ||
+      (aa.anulado_por && aa.anulado_por.toLowerCase().includes(txt));
+    const matchTec = tecnicoSeleccionado === "Todos" || (aa.tecnico_nombre && aa.tecnico_nombre === tecnicoSeleccionado);
     return matchTxt && matchTec;
   });
 
@@ -1825,84 +1849,203 @@ export const StockOverviewTab: React.FC<Props> = ({
                 Auditoría de Actas Físicas de Servicio Técnico WIN
               </span>
               <p className="text-[11px] text-amber-900 font-medium">
-                Control de correlativos entregados a técnicos, actas liquidadas en campo y talonarios en mano.
+                Control de correlativos entregados a técnicos, actas liquidadas en campo, anulaciones e historial.
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={cargarActas}
-              className="px-3 py-1.5 bg-white border border-amber-300 text-amber-900 hover:bg-amber-100 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
-            >
-              <span>Actualizar Talonarios</span>
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Selector de Sub-Pestaña de Actas */}
+              <div className="flex bg-white/90 p-1 rounded-xl border border-amber-300 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => setSubVistaActas("asignadas")}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    subVistaActas === "asignadas"
+                      ? "bg-amber-600 text-white shadow-2xs"
+                      : "text-amber-900 hover:bg-amber-100/60"
+                  }`}
+                >
+                  📋 Talonarios en Mano ({actasTecnicos.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSubVistaActas("anuladas")}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    subVistaActas === "anuladas"
+                      ? "bg-rose-600 text-white shadow-2xs"
+                      : "text-rose-800 hover:bg-rose-100/60"
+                  }`}
+                >
+                  <Trash2 size={12} />
+                  <span>Actas Anuladas / Dañadas ({actasAnuladas.length})</span>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={cargarActas}
+                className="px-3 py-1.5 bg-white border border-amber-300 text-amber-900 hover:bg-amber-100 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+              >
+                <span>Actualizar</span>
+              </button>
+            </div>
           </div>
 
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50/80 text-slate-400 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
-              <tr>
-                <th className="py-3.5 px-4">Técnico Conductor</th>
-                <th className="py-3.5 px-4">Cuadrilla / Móvil</th>
-                <th className="py-3.5 px-4">Rango de Actas Asignadas</th>
-                <th className="py-3.5 px-4 text-center">Total Entregadas</th>
-                <th className="py-3.5 px-4 text-center">Liquidadas (Usadas)</th>
-                <th className="py-3.5 px-4 text-center">Disponibles en Mano</th>
-                <th className="py-3.5 px-4 text-center">Acción</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {actasTecnicosFiltrados.length === 0 ? (
+          {subVistaActas === "asignadas" ? (
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50/80 text-slate-400 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400 text-xs font-bold">
-                    No se encontraron talonarios de actas para los filtros seleccionados.
-                  </td>
+                  <th className="py-3.5 px-4">Técnico Conductor</th>
+                  <th className="py-3.5 px-4">Cuadrilla / Móvil</th>
+                  <th className="py-3.5 px-4">Rango de Actas Asignadas</th>
+                  <th className="py-3.5 px-4 text-center">Total Entregadas</th>
+                  <th className="py-3.5 px-4 text-center">Liquidadas (Usadas)</th>
+                  <th className="py-3.5 px-4 text-center">Anuladas (Quemadas)</th>
+                  <th className="py-3.5 px-4 text-center">Disponibles en Mano</th>
+                  <th className="py-3.5 px-4 text-center">Acción</th>
                 </tr>
-              ) : (
-                actasTecnicosFiltrados.map((tec) => (
-                  <tr key={tec.id_trabajador} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="py-3.5 px-4">
-                      <div className="font-extrabold text-slate-900">{tec.tecnico_nombre}</div>
-                      <span className="text-[10px] text-slate-400">{tec.telefono ? `Tel: ${tec.telefono}` : "Sin teléfono"}</span>
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <span className="text-[11px] font-bold text-slate-700 block">{tec.cuadrilla}</span>
-                      <span className="text-[10px] font-mono text-cyan-700 font-bold">{tec.vehiculo_placa}</span>
-                    </td>
-                    <td className="py-3.5 px-4 font-mono font-bold text-slate-800">
-                      {tec.rangos.map((r, i) => (
-                        <span key={i} className="inline-block px-2 py-0.5 bg-amber-50 border border-amber-200 rounded-md text-[11px] text-amber-900 mr-1 mb-1">
-                          {r}
-                        </span>
-                      ))}
-                    </td>
-                    <td className="py-3.5 px-4 text-center font-black font-mono text-sm text-slate-900">
-                      {tec.total_asignadas}
-                    </td>
-                    <td className="py-3.5 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-50 text-blue-700 border border-blue-200">
-                        {tec.total_usadas} usadas
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 text-center">
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        {tec.total_disponibles} en mano
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 text-center">
-                      <button
-                        type="button"
-                        onClick={() => setModalDetalleActas({ isOpen: true, tecnico: tec })}
-                        className="px-3 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-[11px] inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                      >
-                        <Eye size={12} />
-                        <span>Ver Hojas ({tec.actas.length})</span>
-                      </button>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {actasTecnicosFiltrados.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-12 text-center text-slate-400 text-xs font-bold">
+                      No se encontraron talonarios de actas para los filtros seleccionados.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  actasTecnicosFiltrados.map((tec) => (
+                    <tr key={tec.id_trabajador} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="py-3.5 px-4">
+                        <div className="font-extrabold text-slate-900">{tec.tecnico_nombre}</div>
+                        <span className="text-[10px] text-slate-400">{tec.telefono ? `Tel: ${tec.telefono}` : "Sin teléfono"}</span>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <span className="text-[11px] font-bold text-slate-700 block">{tec.cuadrilla}</span>
+                        <span className="text-[10px] font-mono text-cyan-700 font-bold">{tec.vehiculo_placa}</span>
+                      </td>
+                      <td className="py-3.5 px-4 font-mono font-bold text-slate-800">
+                        {tec.rangos.map((r, i) => (
+                          <span key={i} className="inline-block px-2 py-0.5 bg-amber-50 border border-amber-200 rounded-md text-[11px] text-amber-900 mr-1 mb-1">
+                            {r}
+                          </span>
+                        ))}
+                      </td>
+                      <td className="py-3.5 px-4 text-center font-black font-mono text-sm text-slate-900">
+                        {tec.total_asignadas}
+                      </td>
+                      <td className="py-3.5 px-4 text-center">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-50 text-blue-700 border border-blue-200">
+                          {tec.total_usadas} usadas
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-center">
+                        {Number(tec.total_anuladas || 0) > 0 ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-50 text-rose-700 border border-rose-200">
+                            {tec.total_anuladas} anuladas
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 text-[10px] font-mono">0</span>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4 text-center">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          {tec.total_disponibles} en mano
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setModalDetalleActas({ isOpen: true, tecnico: tec })}
+                          className="px-3 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-[11px] inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                        >
+                          <Eye size={12} />
+                          <span>Ver Hojas ({tec.actas.length})</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          ) : (
+            /* ── REPORTE DE ACTAS ANULADAS / DAÑADAS ── */
+            <div className="space-y-3">
+              <div className="px-4 py-2 bg-rose-50/50 border-b border-rose-100 flex items-center justify-between text-xs text-rose-900">
+                <span className="font-bold flex items-center gap-1.5">
+                  <AlertTriangle size={14} className="text-rose-600" />
+                  Registro de Hojas Físicas Anuladas / Invalidadas del Talonario:
+                </span>
+                <span className="font-mono font-black text-rose-700 bg-white px-2.5 py-0.5 rounded-full border border-rose-200">
+                  Total: {actasAnuladasFiltradas.length} actas quemadas
+                </span>
+              </div>
+
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50/80 text-slate-400 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
+                  <tr>
+                    <th className="py-3.5 px-4">Fecha Anulación</th>
+                    <th className="py-3.5 px-4">N° de Acta Física</th>
+                    <th className="py-3.5 px-4">Técnico Responsable</th>
+                    <th className="py-3.5 px-4">Cuadrilla / Móvil</th>
+                    <th className="py-3.5 px-4">Motivo / Causa</th>
+                    <th className="py-3.5 px-4">Anulado Por</th>
+                    <th className="py-3.5 px-4 text-center">Evidencia (Foto)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {actasAnuladasFiltradas.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-slate-400 text-xs font-bold">
+                        No se registran actas físicas anuladas o dañadas.
+                      </td>
+                    </tr>
+                  ) : (
+                    actasAnuladasFiltradas.map((anul) => (
+                      <tr key={anul.id_acta_anulada} className="hover:bg-rose-50/30 transition-colors">
+                        <td className="py-3.5 px-4 font-mono text-slate-500 text-[11px]">
+                          {anul.fecha_anulacion ? new Date(anul.fecha_anulacion).toLocaleString("es-PE", { dateStyle: "short", timeStyle: "short" }) : "—"}
+                        </td>
+                        <td className="py-3.5 px-4 font-mono font-black text-rose-700 text-sm">
+                          <span className="px-2.5 py-0.5 rounded-lg bg-rose-50 border border-rose-200">
+                            {anul.numero_acta}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <div className="font-extrabold text-slate-900">{anul.tecnico_nombre || "Técnico Asignado"}</div>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span className="text-[11px] font-bold text-slate-700 block">{anul.cuadrilla || "S/C"}</span>
+                          <span className="text-[10px] font-mono text-cyan-700 font-bold">{anul.vehiculo_placa || "Sin móvil"}</span>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-50 text-amber-900 border border-amber-200">
+                            {anul.motivo}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-600 font-medium">
+                          {anul.anulado_por || "Técnico en Campo"}
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          {anul.foto_url ? (
+                            <button
+                              type="button"
+                              onClick={() => setFotoActaModalUrl(anul.foto_url || null)}
+                              className="px-2.5 py-1 bg-white hover:bg-slate-100 text-indigo-700 border border-indigo-200 rounded-lg font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                            >
+                              <Eye size={12} />
+                              <span>Ver Foto</span>
+                            </button>
+                          ) : (
+                            <span className="text-slate-400 text-[10px]">Sin foto</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -2102,18 +2245,29 @@ export const StockOverviewTab: React.FC<Props> = ({
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-2 max-h-60 overflow-y-auto p-1 bg-slate-50/50 rounded-2xl border border-slate-200/60">
                 {modalDetalleActas.tecnico.actas.map((acta, idx) => {
                   const esUsada = acta.estado === "Usada";
+                  const esAnulada = acta.estado === "Anulada";
                   return (
                     <div
                       key={idx}
-                      className={`p-2 rounded-xl border text-center font-mono text-xs transition-all ${esUsada
-                        ? "bg-slate-100 border-slate-200 text-slate-400 line-through"
-                        : "bg-white border-emerald-200 text-emerald-950 font-black shadow-2xs"
-                        }`}
+                      className={`p-2 rounded-xl border text-center font-mono text-xs transition-all ${
+                        esAnulada
+                          ? "bg-rose-50/80 border-rose-300 text-rose-800"
+                          : esUsada
+                          ? "bg-slate-100 border-slate-200 text-slate-400 line-through"
+                          : "bg-white border-emerald-200 text-emerald-950 font-black shadow-2xs"
+                      }`}
                     >
                       <div className="font-bold">{acta.numero_serie}</div>
-                      <span className={`text-[9px] font-sans block mt-0.5 ${esUsada ? "text-blue-600 font-bold" : "text-emerald-700"
-                        }`}>
-                        {esUsada
+                      <span className={`text-[9px] font-sans block mt-0.5 ${
+                        esAnulada
+                          ? "text-rose-700 font-extrabold"
+                          : esUsada
+                          ? "text-blue-600 font-bold"
+                          : "text-emerald-700"
+                      }`}>
+                        {esAnulada
+                          ? "🚫 Anulada"
+                          : esUsada
                           ? acta.orden_numero ? `OT #${acta.orden_numero}` : "Liquidada"
                           : "En Mano"}
                       </span>
@@ -2133,6 +2287,43 @@ export const StockOverviewTab: React.FC<Props> = ({
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Modal Visor de Foto de Evidencia de Acta Anulada */}
+      {fotoActaModalUrl && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 animate-fade-in">
+          <div className="relative max-w-2xl w-full bg-white rounded-3xl p-4 shadow-2xl border border-slate-200 space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+              <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                <FileText size={15} className="text-rose-600" />
+                Fotografía de Acta Física Anulada / Rota
+              </span>
+              <button
+                type="button"
+                onClick={() => setFotoActaModalUrl(null)}
+                className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex justify-center bg-slate-950 rounded-2xl p-2 max-h-[75vh] overflow-hidden">
+              <img
+                src={fotoActaModalUrl}
+                alt="Evidencia Acta Anulada"
+                className="max-h-[70vh] object-contain rounded-xl"
+              />
+            </div>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setFotoActaModalUrl(null)}
+                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Cerrar Visor
+              </button>
+            </div>
           </div>
         </div>
       )}

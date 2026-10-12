@@ -269,7 +269,7 @@ export interface ActaDetalleItem {
   numero_serie: string;
   id_producto: number;
   producto_nombre: string;
-  estado: "Asignada" | "Usada" | "Devuelta";
+  estado: "Asignada" | "Usada" | "Devuelta" | "Anulada";
   fecha_asignacion: string;
   id_orden?: number | null;
   orden_numero?: string | null;
@@ -284,9 +284,24 @@ export interface ActaTecnicoResumen {
   telefono: string;
   total_asignadas: number;
   total_usadas: number;
+  total_anuladas?: number;
   total_disponibles: number;
   rangos: string[];
   actas: ActaDetalleItem[];
+}
+
+export interface ActaAnuladaItem {
+  id_acta_anulada: number;
+  id_trabajador?: number | null;
+  id_producto_serie?: number | null;
+  numero_acta: string;
+  motivo: string;
+  foto_url?: string | null;
+  anulado_por?: string | null;
+  fecha_anulacion: string;
+  tecnico_nombre?: string | null;
+  cuadrilla?: string | null;
+  vehiculo_placa?: string | null;
 }
 
 export interface ProductoSerieItem {

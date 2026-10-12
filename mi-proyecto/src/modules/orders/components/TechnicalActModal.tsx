@@ -41,6 +41,7 @@ import {
   getActaLiquidacion,
   getMotivos,
   getFotoActaLiquidacion,
+  anularActaFisica,
 } from "../../inventory/services/inventoryService";
 import { MotivoItem } from "../../inventory/types/inventoryTypes";
 import { CameraBarcodeScannerModal } from "../../../components/CameraBarcodeScannerModal";
@@ -85,6 +86,14 @@ export const TechnicalActModal: React.FC<Props> = ({
   const [guiaCorrelativo, setGuiaCorrelativo] = useState("");
   const [showGuiaSuggestions, setShowGuiaSuggestions] = useState(false);
   const [numeroGuiaGuardada, setNumeroGuiaGuardada] = useState("");
+
+  // Modal para Anular Acta Física Rota / Dañada / Error de llenado
+  const [modalAnularActaAbierto, setModalAnularActaAbierto] = useState(false);
+  const [actaParaAnular, setActaParaAnular] = useState("");
+  const [motivoAnulacion, setMotivoAnulacion] = useState("Error de llenado");
+  const [fotoAnulacion, setFotoAnulacion] = useState<string | null>(null);
+  const [anulandoActa, setAnulandoActa] = useState(false);
+  const fileInputFotoAnuladaRef = useRef<HTMLInputElement>(null);
   
   // Tipo de Liquidación (reemplaza Tipo de Trabajo)
   const initialTipoLiq = (
@@ -198,7 +207,8 @@ export const TechnicalActModal: React.FC<Props> = ({
   }, [scannerOpen]);
 
   const handleScanResult = (code: string) => {
-    const clean = code.trim().toUpperCase();
+    // Limpiar prefijos habituales de códigos de barras (SN:, S/N:, etc.)
+    const clean = code.trim().replace(/^(?:S\/N|SN|SERIE)[:\s-]+/i, "").trim().toUpperCase();
     if (scannerTarget === "ont_instalado") {
       setSnOntInstalado(clean);
     } else if (scannerTarget === "ont_retirado") {
@@ -409,6 +419,37 @@ export const TechnicalActModal: React.FC<Props> = ({
     );
   };
 
+  // Helper para identificar Conectores Ópticos / Mecánicos de Fibra (SC/APC, FAST CONNECTOR, CONECTOR WIN)
+  // Excluye estrictamente cables drop pre-conectorizados, conectores de red RJ-45 y coaxiales RG
+  const esConectorOptico = (m: any) => {
+    if (!m) return false;
+    const id = Number(m.id_producto || 0);
+    const nom = String(m.nombre || "").toUpperCase().trim();
+
+    // Si es un rollo de cable drop pre-conectorizado, NO es un conector suelto
+    if (esDropConectorizado(m)) return false;
+
+    // Descartar conectores que no son de fibra óptica
+    if (nom.includes("RJ-45") || nom.includes("RJ45") || nom.includes("RG-6") || nom.includes("RG6") || nom.includes("CONECTORES RG")) {
+      return false;
+    }
+
+    // Identificación por ID oficial o nombre clave de conector de fibra
+    return (
+      id === 76 || // CONECTOR WIN
+      id === 46 || // CONECTORES (general)
+      id === 27 || // Marcador de conector en plantillas/motivos
+      nom.includes("CONECTOR WIN") ||
+      nom.includes("FAST CONNECTOR") ||
+      nom.includes("SC/APC") ||
+      nom.includes("OPTICO") ||
+      nom.includes("ÓPTICO") ||
+      nom.includes("MECANICO") ||
+      nom.includes("MECÁNICO") ||
+      (nom.includes("CONECTOR") && !nom.includes("DROP") && !nom.includes("RJ") && !nom.includes("RG"))
+    );
+  };
+
   // Filtro estricto de Materiales Consumibles para la lista de liquidación
   const soloMaterialesLiquidables = useMemo(() => {
     return stockTecnicoMateriales.filter((m) => {
@@ -550,15 +591,10 @@ export const TechnicalActModal: React.FC<Props> = ({
     }
   }, [motivoSeleccionado]);
 
-  // Función para obtener el límite numérico de unidades permitidas EXCLUSIVAMENTE para CONECTORES
+  // Función para obtener el límite numérico de unidades permitidas EXCLUSIVAMENTE para CONECTORES ÓPTICOS
   const obtenerLimiteParaMaterial = (idProducto: number, nombreMat: string): number | null => {
-    const esConector =
-      Number(idProducto) === 27 ||
-      nombreMat.toUpperCase().includes("CONECTOR") ||
-      nombreMat.toUpperCase().includes("FAST");
-
-    // Si NO es conector, no se restringe (se comporta normal)
-    if (!esConector) {
+    // Si NO es conector óptico (o es RJ-45, coaxial RG, o Drop Conectorizado), no se restringe como conector óptico
+    if (!esConectorOptico({ id_producto: idProducto, nombre: nombreMat })) {
       return null;
     }
 
@@ -573,7 +609,7 @@ export const TechnicalActModal: React.FC<Props> = ({
       const matchConector = limitesDelMotivo.find((l: any) => {
         const id = Number(l.id_producto);
         const nom = String(l.nombre || "").toUpperCase();
-        return id === 27 || nom.includes("CONECTOR") || nom.includes("FAST");
+        return id === 27 || id === 76 || id === 46 || nom.includes("CONECTOR") || nom.includes("FAST");
       });
       if (matchConector && (matchConector.cantidad !== undefined || matchConector.max !== undefined || matchConector.limite !== undefined)) {
         return Number(matchConector.cantidad ?? matchConector.max ?? matchConector.limite);
@@ -593,7 +629,7 @@ export const TechnicalActModal: React.FC<Props> = ({
 
     // 4. Si la plantilla por defecto NO usa conectores ni requiere drop (ej: Patch Cord, ONT, Mesh, Acomodo, Pruebas, etc.), el límite es 0
     const plantillaTieneConector = (plantillaActual.materialesDefault || []).some((m) =>
-      m.nombre.toUpperCase().includes("CONECTOR") || m.nombre.toUpperCase().includes("FAST")
+      esConectorOptico(m)
     );
     if (!plantillaTieneConector && !plantillaActual.requiereDrop) {
       return 0;
@@ -715,7 +751,7 @@ export const TechnicalActModal: React.FC<Props> = ({
     if (isMesh) {
       const filtrados = noActas.filter((s: any) => {
         const nom = String(s.equipo_nombre || s.categoria || "").toUpperCase();
-        return nom.includes("MESH");
+        return nom.includes("MESH") || nom.includes("SMART");
       });
       return filtrados.length > 0 ? filtrados : noActas;
     }
@@ -729,8 +765,8 @@ export const TechnicalActModal: React.FC<Props> = ({
     return noActas;
   }, [seriesAsignadasTecnico, isFono, isMesh, isTvBox]);
 
-  // Cargar stock del técnico
-  useEffect(() => {
+  // Función reutilizable para recargar stock del técnico
+  const recargarStock = () => {
     if (orderTecnicoId) {
       getTecnicoStock(orderTecnicoId)
         .then((res) => {
@@ -740,7 +776,62 @@ export const TechnicalActModal: React.FC<Props> = ({
         })
         .catch((err) => console.error("Error al cargar stock:", err));
     }
+  };
+
+  // Cargar stock del técnico al montar o cambiar de técnico
+  useEffect(() => {
+    recargarStock();
   }, [orderTecnicoId]);
+
+  // Manejador para anular acta física rota / con error de llenado
+  const handleConfirmarAnularActa = async () => {
+    if (!actaParaAnular.trim()) {
+      alert("Por favor selecciona o ingresa el número de acta física que deseas anular.");
+      return;
+    }
+    if (!motivoAnulacion.trim()) {
+      alert("Por favor indica el motivo de la anulación del acta física.");
+      return;
+    }
+
+    const cleanNum = actaParaAnular.trim().replace(/^001-?/i, "");
+    const actaFormateada = `001-${cleanNum}`;
+
+    const currentUser = authService.getCurrentUser();
+    const nombreUsuario = currentUser ? `${currentUser.nombres || ''} ${currentUser.apellidos || ''}`.trim() : 'Técnico en Campo';
+
+    setAnulandoActa(true);
+    try {
+      const res = await anularActaFisica({
+        id_trabajador: orderTecnicoId || idTrabajadorActual || undefined,
+        id_usuario: currentUser?.id_usuario,
+        numero_acta: actaFormateada,
+        motivo: motivoAnulacion.trim(),
+        foto_url: fotoAnulacion || undefined,
+        anulado_por: nombreUsuario
+      });
+
+      if (res && res.success) {
+        alert(`✅ ${res.message || `Acta ${actaFormateada} anulada correctamente.`}`);
+        // Si el técnico tenía escrita esta misma acta en la cabecera, limpiarla o pasar a la siguiente
+        if (guiaCorrelativo.trim() === cleanNum) {
+          setGuiaCorrelativo("");
+        }
+        setModalAnularActaAbierto(false);
+        setActaParaAnular("");
+        setFotoAnulacion(null);
+        setMotivoAnulacion("Error de llenado");
+        recargarStock();
+      } else {
+        alert(`❌ Error al anular acta: ${res?.error || "Error desconocido"}`);
+      }
+    } catch (err: any) {
+      console.error("Error al anular acta:", err);
+      alert(`❌ No se pudo anular el acta: ${err.response?.data?.error || err.message}`);
+    } finally {
+      setAnulandoActa(false);
+    }
+  };
 
   // Aplicar sugerencias de materiales cuando cambia el Tipo de Liquidación
   useEffect(() => {
@@ -750,19 +841,34 @@ export const TechnicalActModal: React.FC<Props> = ({
       .filter((def) => !def.nombre.toUpperCase().includes("ACTA") && !def.nombre.toUpperCase().includes("GUIA"))
       .map((def, idx) => {
         // Buscar si el producto existe en el catálogo o stock del técnico con concordancia inteligente
-        const match = stockTecnicoMateriales.find((m) => {
-          const mName = String(m.nombre || "").toUpperCase();
-          const dName = String(def.nombre || "").toUpperCase();
-          if (mName.includes("ACTA") || mName.includes("GUIA")) return false;
-          if (mName.includes(dName) || dName.includes(mName)) return true;
-          if (dName.includes("CONECTOR") && mName.includes("CONECTOR")) return true;
-          if (dName.includes("PATCH") && mName.includes("PATCH")) return true;
-          if (dName.includes("ROSETA") && mName.includes("ROSETA")) return true;
-          if (dName.includes("DROP") && mName.includes("DROP")) return true;
-          if (dName.includes("CINTA") && mName.includes("CINTA")) return true;
-          if (dName.includes("ALCOHOL") && mName.includes("ALCOHOL")) return true;
-          return false;
-        });
+        const dName = String(def.nombre || "").toUpperCase();
+        const esDefConector = dName.includes("CONECTOR") || dName.includes("FAST");
+        const esDefRoseta = dName.includes("ROSETA");
+        const esDefPatch = dName.includes("PATCH");
+
+        let match = null;
+
+        if (esDefConector) {
+          // Priorizar CONECTOR WIN o conector óptico con stock disponible > 0
+          match = stockTecnicoMateriales.find((m) => esConectorOptico(m) && Number(m.stock || 0) > 0)
+            || stockTecnicoMateriales.find((m) => esConectorOptico(m));
+        } else if (esDefRoseta) {
+          match = stockTecnicoMateriales.find((m) => String(m.nombre || "").toUpperCase().includes("ROSETA") && Number(m.stock || 0) > 0)
+            || stockTecnicoMateriales.find((m) => String(m.nombre || "").toUpperCase().includes("ROSETA"));
+        } else if (esDefPatch) {
+          match = stockTecnicoMateriales.find((m) => String(m.nombre || "").toUpperCase().includes("PATCH") && Number(m.stock || 0) > 0)
+            || stockTecnicoMateriales.find((m) => String(m.nombre || "").toUpperCase().includes("PATCH"));
+        } else {
+          match = stockTecnicoMateriales.find((m) => {
+            const mName = String(m.nombre || "").toUpperCase();
+            if (mName.includes("ACTA") || mName.includes("GUIA")) return false;
+            if (mName.includes(dName) || dName.includes(mName)) return true;
+            if (dName.includes("DROP") && mName.includes("DROP") && !esDropConectorizado(m)) return true;
+            if (dName.includes("CINTA") && mName.includes("CINTA")) return true;
+            if (dName.includes("ALCOHOL") && mName.includes("ALCOHOL")) return true;
+            return false;
+          });
+        }
 
         const prodId = match ? match.id_producto : (idx + 1);
         const prodNombre = match ? match.nombre : def.nombre;
@@ -809,7 +915,7 @@ export const TechnicalActModal: React.FC<Props> = ({
         const sinOtros = prev.filter((m) => !esDropConectorizado(m));
         // Ajustar conectores mecánicos existentes a máx 1 (porque el conectorizado ya tiene 1 de fábrica en la cabeza)
         const conAjuste = sinOtros.map((m) => {
-          const esConect = Number(m.id_producto) === 27 || m.nombre.toUpperCase().includes("CONECTOR") || m.nombre.toUpperCase().includes("FAST");
+          const esConect = esConectorOptico(m);
           if (esConect && m.cantidad > 1) {
             return { ...m, cantidad: 1 };
           }
@@ -856,35 +962,48 @@ export const TechnicalActModal: React.FC<Props> = ({
       }
     }
 
-    const esConector = Number(prod.id_producto) === 27 || prod.nombre.toUpperCase().includes("CONECTOR") || prod.nombre.toUpperCase().includes("FAST");
+    const esConector = esConectorOptico(prod);
     if (esConector && lim !== null) {
-      const conectoresActuales = materiales
-        .filter((m) => Number(m.id_producto) === 27 || m.nombre.toUpperCase().includes("CONECTOR") || m.nombre.toUpperCase().includes("FAST"))
-        .reduce((sum, m) => sum + Number(m.cantidad || 0), 0);
-      if (conectoresActuales + cant > lim) {
-        setAlertaLimiteMsg(
-          `⚠️ Límite de conectores alcanzado: "${tipoLiquidacion}" solo permite un máximo de ${lim} conector(es). Ya tienes ${conectoresActuales} asignado(s).`
-        );
-        setTimeout(() => setAlertaLimiteMsg(null), 6000);
-        return;
+      // Filtrar otros conectores existentes ignorando los que tengan stock 0 o cantidad 0
+      const otrosConectores = materiales.filter((m) => esConectorOptico(m) && m.id_producto !== prod.id_producto);
+      const conectoresOtrosCant = otrosConectores.reduce((sum, m) => sum + Number(m.cantidad || 0), 0);
+
+      if (conectoresOtrosCant + cant > lim) {
+        // Si hay otros conectores con stock 0 que estaban bloqueando la suma, limpiarlos automáticamente
+        const otrosSinStock = otrosConectores.filter((m) => Number(m.stockDisponible || 0) <= 0);
+        if (otrosSinStock.length > 0) {
+          // Se limpiarán al agregar
+        } else {
+          setAlertaLimiteMsg(
+            `⚠️ Límite de conectores alcanzado: "${tipoLiquidacion}" solo permite un máximo de ${lim} conector(es). Ya tienes ${conectoresOtrosCant} asignado(s).`
+          );
+          setTimeout(() => setAlertaLimiteMsg(null), 6000);
+          return;
+        }
       }
     }
 
     setMateriales((prev) => {
-      const existeIndex = prev.findIndex((m) => m.id_producto === prod.id_producto);
+      // Si estamos agregando un conector óptico válido con stock, remover cualquier conector óptico sugerido con stock 0
+      let base = prev;
+      if (esConector && Number(prod.stock || 0) > 0) {
+        base = prev.filter((m) => !(esConectorOptico(m) && m.id_producto !== prod.id_producto && Number(m.stockDisponible || 0) <= 0));
+      }
+
+      const existeIndex = base.findIndex((m) => m.id_producto === prod.id_producto);
       if (existeIndex >= 0) {
-        const nuevaCant = prev[existeIndex].cantidad + cant;
+        const nuevaCant = base[existeIndex].cantidad + cant;
         if (lim !== null && nuevaCant > lim) {
           setAlertaLimiteMsg(
             `⚠️ Superarías el límite máximo de ${lim} unidades de ${prod.nombre} para "${tipoLiquidacion}".`
           );
           setTimeout(() => setAlertaLimiteMsg(null), 5000);
-          return prev.map((m, i) => (i === existeIndex ? { ...m, cantidad: lim } : m));
+          return base.map((m, i) => (i === existeIndex ? { ...m, cantidad: lim } : m));
         }
-        return prev.map((m, i) => (i === existeIndex ? { ...m, cantidad: nuevaCant } : m));
+        return base.map((m, i) => (i === existeIndex ? { ...m, cantidad: nuevaCant } : m));
       }
       return [
-        ...prev,
+        ...base,
         {
           id_producto: prod.id_producto,
           nombre: prod.nombre,
@@ -999,9 +1118,9 @@ export const TechnicalActModal: React.FC<Props> = ({
     }
 
     const totalConectoresEnActa = materiales
-      .filter((m) => Number(m.id_producto) === 27 || m.nombre.toUpperCase().includes("CONECTOR") || m.nombre.toUpperCase().includes("FAST"))
+      .filter((m) => esConectorOptico(m))
       .reduce((sum, m) => sum + Number(m.cantidad || 0), 0);
-    const limConectorGlobal = obtenerLimiteParaMaterial(27, "CONECTOR SC/APC FAST");
+    const limConectorGlobal = obtenerLimiteParaMaterial(76, "CONECTOR WIN");
     if (limConectorGlobal !== null && totalConectoresEnActa > limConectorGlobal) {
       alert(
         limConectorGlobal === 0
@@ -1065,10 +1184,10 @@ export const TechnicalActModal: React.FC<Props> = ({
     // REGLA DE NEGOCIO 3.2: VALIDACIÓN ESTRICTA DE EQUIPOS INSTALADOS (ONT / MESH / FONOWIN / TV BOX)
     // ─────────────────────────────────────────────────────────────
     if (snOntInstalado) {
-      const cleanEq = snOntInstalado.trim().toUpperCase();
+      const cleanEq = snOntInstalado.trim().replace(/^(?:S\/N|SN|SERIE)[:\s-]+/i, "").trim().toUpperCase();
       const serieValida = seriesAsignadasTecnico.some((s: any) => {
-        const num = String(s.numero_serie || "").trim().toUpperCase();
-        return num === cleanEq;
+        const num = String(s.numero_serie || "").trim().replace(/^(?:S\/N|SN|SERIE)[:\s-]+/i, "").trim().toUpperCase();
+        return num === cleanEq || num.endsWith(cleanEq) || cleanEq.endsWith(num);
       });
 
       if (!serieValida) {
@@ -1082,10 +1201,10 @@ export const TechnicalActModal: React.FC<Props> = ({
     }
 
     if (snMeshInstalado) {
-      const cleanMesh = snMeshInstalado.trim().toUpperCase();
+      const cleanMesh = snMeshInstalado.trim().replace(/^(?:S\/N|SN|SERIE)[:\s-]+/i, "").trim().toUpperCase();
       const serieValida = seriesAsignadasTecnico.some((s: any) => {
-        const num = String(s.numero_serie || "").trim().toUpperCase();
-        return num === cleanMesh;
+        const num = String(s.numero_serie || "").trim().replace(/^(?:S\/N|SN|SERIE)[:\s-]+/i, "").trim().toUpperCase();
+        return num === cleanMesh || num.endsWith(cleanMesh) || cleanMesh.endsWith(num);
       });
 
       if (!serieValida) {
@@ -1277,6 +1396,22 @@ export const TechnicalActModal: React.FC<Props> = ({
                     )}
                   </div>
                 )}
+
+                {/* Botón Anular Acta Física */}
+                {!isAlreadyLiquidated && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActaParaAnular(guiaCorrelativo ? `001-${guiaCorrelativo}` : (guiasDisponibles[0] ? `001-${guiasDisponibles[0]}` : ""));
+                      setModalAnularActaAbierto(true);
+                    }}
+                    className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs hover:scale-102"
+                    title="Anular acta física rota, manchada o con error de llenado para liberar correlativo"
+                  >
+                    <Trash2 size={13} className="text-rose-600" />
+                    <span>Anular Acta</span>
+                  </button>
+                )}
               </div>
               <h2 className="text-sm sm:text-base font-black text-slate-900 mt-0.5">
                 {isAlreadyLiquidated
@@ -1453,8 +1588,32 @@ export const TechnicalActModal: React.FC<Props> = ({
                           if (prod) {
                             setMateriales((prev) => {
                               const sinOtros = prev.filter((m) => !esDropConectorizado(m));
+                              // Ajustar conectores ópticos a máx 1
+                              let yaTieneConector = false;
+                              const conAjuste = sinOtros.map((m) => {
+                                if (esConectorOptico(m)) {
+                                  yaTieneConector = true;
+                                  return { ...m, cantidad: Math.min(Number(m.cantidad || 1), 1) };
+                                }
+                                return m;
+                              });
+
+                              // Si no tenía ningún conector óptico, o el que tenía tenía stock 0, intentar buscar un conector con stock
+                              if (!yaTieneConector) {
+                                const conectorStock = stockTecnicoMateriales.find((m) => esConectorOptico(m) && Number(m.stock || 0) > 0);
+                                if (conectorStock) {
+                                  conAjuste.push({
+                                    id_producto: conectorStock.id_producto,
+                                    nombre: conectorStock.nombre,
+                                    cantidad: 1,
+                                    unidad: "UND",
+                                    stockDisponible: conectorStock.stock,
+                                  });
+                                }
+                              }
+
                               return [
-                                ...sinOtros,
+                                ...conAjuste,
                                 {
                                   id_producto: prod.id_producto,
                                   nombre: prod.nombre,
@@ -1613,7 +1772,7 @@ export const TechnicalActModal: React.FC<Props> = ({
                         {soloMaterialesLiquidables.map((m) => {
                           const esBobina = esBobinaDrop(m);
                           const esConect = esDropConectorizado(m);
-                          const esConector = Number(m.id_producto) === 27 || m.nombre.toUpperCase().includes("CONECTOR") || m.nombre.toUpperCase().includes("FAST");
+                          const esConector = esConectorOptico(m);
                           const lim = esConector ? obtenerLimiteParaMaterial(m.id_producto, m.nombre) : null;
                           const noPermitido = esConector && lim === 0;
 
@@ -2280,6 +2439,178 @@ export const TechnicalActModal: React.FC<Props> = ({
           }}
           className="rounded-xl shadow-2xl"
         />
+      </div>
+    </div>
+  )}
+
+  {/* ─────────────────────────────────────────────────────────────
+      MODAL EMERGENTE: ANULAR ACTA FÍSICA (ROTA, DAÑADA, ERROR)
+  ───────────────────────────────────────────────────────────── */}
+  {modalAnularActaAbierto && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-fade-in">
+      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden space-y-4">
+        
+        {/* Encabezado */}
+        <div className="p-4 bg-gradient-to-r from-rose-50 to-orange-50 border-b border-rose-200/80 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-2xl bg-rose-600 text-white flex items-center justify-center shadow-md shadow-rose-600/30">
+              <Trash2 size={18} />
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-rose-950">Anular Acta Física</h3>
+              <p className="text-[11px] text-rose-800 font-medium">Invalida este número y quémalo del talonario</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setModalAnularActaAbierto(false)}
+            className="p-1.5 rounded-xl bg-white/80 hover:bg-white text-slate-500 hover:text-slate-800 transition-all cursor-pointer border border-rose-200"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Formulario */}
+        <div className="p-5 space-y-3.5">
+          {/* Selector / Input de Acta */}
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-700 block">
+              Número de Acta a Anular:
+            </label>
+            <div className="space-y-1.5">
+              <select
+                value={actaParaAnular}
+                onChange={(e) => setActaParaAnular(e.target.value)}
+                className="w-full p-2.5 text-xs rounded-xl border border-rose-300 font-mono font-bold text-slate-900 bg-rose-50/30 focus:border-rose-600"
+              >
+                <option value="">-- Seleccionar de mis actas asignadas ({guiasDisponibles.length}) --</option>
+                {guiasDisponibles.map((g) => (
+                  <option key={g} value={`001-${g}`}>
+                    001-{g} (Asignada en mi talonario)
+                  </option>
+                ))}
+              </select>
+
+              <div className="text-[11px] text-slate-500 flex items-center gap-1">
+                <span>O digita el número:</span>
+                <input
+                  type="text"
+                  placeholder="001-XXXXX"
+                  value={actaParaAnular}
+                  onChange={(e) => setActaParaAnular(e.target.value.toUpperCase())}
+                  className="p-1 px-2 text-xs font-mono font-bold border border-slate-300 rounded-lg w-28 bg-white uppercase"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Motivo */}
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-700 block">
+              Motivo de Anulación:
+            </label>
+            <select
+              value={motivoAnulacion}
+              onChange={(e) => setMotivoAnulacion(e.target.value)}
+              className="w-full p-2.5 text-xs rounded-xl border border-slate-300 font-semibold text-slate-900 bg-white"
+            >
+              <option value="Error de llenado">Error de llenado (datos erróneos)</option>
+              <option value="Hoja rota / Daño físico">Hoja rota / Daño físico</option>
+              <option value="Mancha de tinta / Ilegible">Mancha de tinta / Ilegible</option>
+              <option value="Tachón o borrón no admisible">Tachón o borrón no admisible</option>
+              <option value="Falla de impresión del talonario">Falla de impresión del talonario</option>
+              <option value="Otro motivo técnico">Otro motivo técnico</option>
+            </select>
+          </div>
+
+          {/* Adjuntar foto opcional del acta rota / tachada */}
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-700 block">
+              Foto del Acta Dañada / Tachada (Opcional):
+            </label>
+            <input
+              ref={fileInputFotoAnuladaRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  const reader = new FileReader();
+                  reader.onloadend = () => {
+                    setFotoAnulacion(reader.result as string);
+                  };
+                  reader.readAsDataURL(file);
+                }
+              }}
+            />
+
+            {fotoAnulacion ? (
+              <div className="relative p-2 rounded-2xl bg-slate-50 border border-slate-200 flex items-center gap-2">
+                <img src={fotoAnulacion} alt="Acta Anulada" className="w-14 h-14 object-cover rounded-xl border border-slate-200" />
+                <div className="flex-1 text-[11px] text-slate-600 font-medium">
+                  <span className="font-bold text-emerald-700 block">✓ Foto adjuntada</span>
+                  Comprobante visual del acta inutilizada
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFotoAnulacion(null)}
+                  className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileInputFotoAnuladaRef.current?.click()}
+                className="w-full py-2.5 border-2 border-dashed border-slate-300 hover:border-rose-400 rounded-2xl text-slate-600 text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer bg-slate-50/50 hover:bg-rose-50/30"
+              >
+                <Camera size={15} className="text-slate-500" />
+                <span>Tomar / Subir Foto del Acta Rota</span>
+              </button>
+            )}
+          </div>
+
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-[11px] text-amber-900 space-y-1">
+            <span className="font-black flex items-center gap-1">
+              <AlertTriangle size={13} className="text-amber-700" /> Importante:
+            </span>
+            <p>
+              Al anular esta acta, saldrá de tu stock móvil y quedará registrada en el reporte de <strong>Actas Anuladas</strong> en Almacén Central para la liquidación física del talonario. Podrás usar la siguiente acta correlativa sin trabas.
+            </p>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setModalAnularActaAbierto(false)}
+            className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs cursor-pointer hover:bg-white"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={handleConfirmarAnularActa}
+            disabled={anulandoActa || !actaParaAnular.trim()}
+            className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md shadow-rose-600/30 flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {anulandoActa ? (
+              <>
+                <Loader2 size={13} className="animate-spin" />
+                <span>Anulando...</span>
+              </>
+            ) : (
+              <>
+                <Trash2 size={13} />
+                <span>Confirmar Anulación</span>
+              </>
+            )}
+          </button>
+        </div>
+
       </div>
     </div>
   )}

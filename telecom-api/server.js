@@ -5976,7 +5976,7 @@ app.get('/api/almacen/stock-general', async (req, res) => {
         (ol.numero_acta = ps.numero_serie OR ol.numero_guia = ps.numero_serie)
       )
       LEFT JOIN ordenes o ON ol.id_orden = o.id_orden
-      WHERE (ts.estado = 'Asignada' OR ts.estado = 'Usada' OR ts.estado = 'Liquidada')
+      WHERE (ts.estado = 'Asignada' OR ts.estado = 'Usada' OR ts.estado = 'Liquidada' OR ts.estado = 'Anulada')
         AND (u.id_rol IN (2, 6) OR UPPER(COALESCE(r.nombre, '')) LIKE '%TECNIC%' OR UPPER(COALESCE(r.nombre, '')) LIKE '%SUPERVI%')
       ORDER BY ts.id_trabajador ASC, ps.numero_serie ASC
     `);
@@ -8754,7 +8754,7 @@ app.get('/api/almacen/actas-tecnicos', async (req, res) => {
           OR UPPER(COALESCE(c.nombre, '')) LIKE '%GUIA%' 
           OR UPPER(p.nombre) LIKE '%ACTA%' 
           OR UPPER(p.nombre) LIKE '%GUIA%')
-        AND (ts.estado = 'Asignada' OR ts.estado = 'Usada' OR ts.estado = 'Liquidada')
+        AND (ts.estado = 'Asignada' OR ts.estado = 'Usada' OR ts.estado = 'Liquidada' OR ts.estado = 'Anulada')
       ORDER BY ts.id_trabajador ASC, ps.numero_serie ASC
     `);
 
@@ -8763,7 +8763,8 @@ app.get('/api/almacen/actas-tecnicos', async (req, res) => {
       const actasDelTecnico = actasSeries.filter((a) => a.id_trabajador === tec.id_trabajador);
       const totalAsignadas = actasDelTecnico.length;
       const totalUsadas = actasDelTecnico.filter((a) => a.estado === 'Usada').length;
-      const totalDisponibles = totalAsignadas - totalUsadas;
+      const totalAnuladas = actasDelTecnico.filter((a) => a.estado === 'Anulada').length;
+      const totalDisponibles = Math.max(0, totalAsignadas - totalUsadas - totalAnuladas);
 
       // Agrupar números correlativos consecutivos
       const rangos = [];
@@ -8803,6 +8804,7 @@ app.get('/api/almacen/actas-tecnicos', async (req, res) => {
         telefono: tec.telefono,
         total_asignadas: totalAsignadas,
         total_usadas: totalUsadas,
+        total_anuladas: totalAnuladas,
         total_disponibles: totalDisponibles,
         rangos: rangos.length > 0 ? rangos : ['Sin talonarios asignados'],
         actas: actasDelTecnico
@@ -8814,6 +8816,175 @@ app.get('/api/almacen/actas-tecnicos', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// --- 📋 4.1 ANULAR ACTA FÍSICA (TÉCNICO O ALMACÉN) ---
+app.post('/api/almacen/actas/anular', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const { id_trabajador, id_usuario, numero_acta, motivo, foto_url, anulado_por } = req.body || {};
+
+    if (!numero_acta || !motivo) {
+      return res.status(400).json({ success: false, error: 'Número de acta y motivo son obligatorios.' });
+    }
+
+    const cleanActa = String(numero_acta).trim();
+    const cleanSufijo = cleanActa.replace(/^001-?/i, '').trim();
+    const formatoCompleto = `001-${cleanSufijo}`;
+
+    await connection.beginTransaction();
+
+    // 1. Resolver id_trabajador si nos pasaron id_usuario
+    let finalIdTrabajador = id_trabajador;
+    if (!finalIdTrabajador && id_usuario) {
+      const [tRows] = await connection.query(`
+        SELECT id_trabajador FROM trabajadores WHERE id_usuario = ? LIMIT 1
+      `, [id_usuario]);
+      if (tRows.length > 0) finalIdTrabajador = tRows[0].id_trabajador;
+    }
+
+    // 2. Buscar la serie del acta en producto_series y trabajador_series
+    let querySerie = `
+      SELECT ps.id_producto_serie, ps.id_producto, ps.numero_serie, ts.id_trabajador_serie, ts.id_trabajador, ts.estado AS estado_ts
+      FROM producto_series ps
+      JOIN trabajador_series ts ON ps.id_producto_serie = ts.id_producto_serie
+      WHERE (ps.numero_serie = ? OR ps.numero_serie = ? OR ps.numero_serie = ?)
+    `;
+    let queryParams = [cleanActa, cleanSufijo, formatoCompleto];
+
+    if (finalIdTrabajador) {
+      querySerie += ' AND ts.id_trabajador = ?';
+      queryParams.push(finalIdTrabajador);
+    }
+
+    const [serieRows] = await connection.query(querySerie + ' LIMIT 1', queryParams);
+
+    let idProductoSerie = null;
+    let idProducto = null;
+    let idTrabajadorSerie = null;
+
+    if (serieRows.length > 0) {
+      const s = serieRows[0];
+      idProductoSerie = s.id_producto_serie;
+      idProducto = s.id_producto;
+      idTrabajadorSerie = s.id_trabajador_serie;
+      finalIdTrabajador = s.id_trabajador;
+
+      if (s.estado_ts === 'Anulada') {
+        await connection.rollback();
+        return res.status(400).json({ success: false, error: `El acta ${formatoCompleto} ya figura como Anulada.` });
+      }
+
+      // Marcar trabajador_series como Anulada
+      await connection.query("UPDATE trabajador_series SET estado = 'Anulada' WHERE id_trabajador_serie = ?", [idTrabajadorSerie]);
+
+      // Marcar producto_series como BAJA / ANULADA
+      await connection.query("UPDATE producto_series SET estado = 'BAJA' WHERE id_producto_serie = ?", [idProductoSerie]);
+
+      // Descontar -1 en trabajador_productos (stock del técnico en camioneta)
+      if (finalIdTrabajador && idProducto) {
+        await connection.query(`
+          UPDATE trabajador_productos 
+          SET stock = GREATEST(0, stock - 1) 
+          WHERE id_trabajador = ? AND id_producto = ?
+        `, [finalIdTrabajador, idProducto]);
+      }
+    } else {
+      // Buscar si al menos existe en producto_series general
+      const [psGeneral] = await connection.query(`
+        SELECT id_producto_serie, id_producto FROM producto_series 
+        WHERE numero_serie = ? OR numero_serie = ? OR numero_serie = ?
+        LIMIT 1
+      `, [cleanActa, cleanSufijo, formatoCompleto]);
+
+      if (psGeneral.length > 0) {
+        idProductoSerie = psGeneral[0].id_producto_serie;
+        idProducto = psGeneral[0].id_producto;
+        await connection.query("UPDATE producto_series SET estado = 'BAJA' WHERE id_producto_serie = ?", [idProductoSerie]);
+      }
+    }
+
+    // 3. Insertar en actas_anuladas
+    await connection.query(`
+      INSERT INTO actas_anuladas (
+        id_trabajador, id_producto_serie, numero_acta, motivo, foto_url, anulado_por, fecha_anulacion
+      ) VALUES (?, ?, ?, ?, ?, ?, NOW())
+    `, [
+      finalIdTrabajador || null,
+      idProductoSerie || null,
+      formatoCompleto,
+      motivo,
+      foto_url || null,
+      anulado_por || 'Técnico en Campo'
+    ]);
+
+    // 4. Registrar en movimientos (Kardex: SALIDA por Anulación de Acta)
+    if (idProducto) {
+      await connection.query(`
+        INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
+        VALUES (?, 1, 'SALIDA', 1, ?, NOW())
+      `, [
+        idProducto,
+        `Acta Física Anulada [${formatoCompleto}]: ${motivo} (Técnico ID: ${finalIdTrabajador || 'N/A'})`
+      ]);
+    }
+
+    // 5. Auditoría
+    try {
+      await connection.query(`
+        INSERT INTO auditoria_actividad (id_usuario, usuario_nombre, id_rol, rol_nombre, area, modulo, accion, id_referencia, descripcion, fecha_creacion)
+        VALUES (1, ?, 1, 'TECNICO', 'OPERACIONES', 'ACTAS', 'ANULAR_ACTA', ?, ?, NOW())
+      `, [
+        anulado_por || 'Técnico en Campo',
+        idProductoSerie || 0,
+        `Acta física ${formatoCompleto} anulada. Motivo: "${motivo}".`
+      ]);
+    } catch (e) {}
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      message: `Acta física ${formatoCompleto} anulada correctamente e invalidada del stock.`,
+      numero_acta: formatoCompleto
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error('Error al anular acta física:', error);
+    res.status(500).json({ success: false, error: error.message });
+  } finally {
+    connection.release();
+  }
+});
+
+// --- 📋 4.2 LISTAR ACTAS ANULADAS (REPORTE ALMACÉN CENTRAL) ---
+app.get('/api/almacen/actas/anuladas', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        aa.id_acta_anulada,
+        aa.id_trabajador,
+        aa.id_producto_serie,
+        aa.numero_acta,
+        aa.motivo,
+        aa.foto_url,
+        aa.anulado_por,
+        aa.fecha_anulacion,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre,
+        COALESCE(u.cuadrilla, 'S/C') AS cuadrilla,
+        COALESCE(v.placa, 'Sin vehículo') AS vehiculo_placa
+      FROM actas_anuladas aa
+      LEFT JOIN trabajadores t ON aa.id_trabajador = t.id_trabajador
+      LEFT JOIN usuarios u ON t.id_usuario = u.id_usuario
+      LEFT JOIN vehiculos v ON t.id_vehiculo = v.id_vehiculo
+      ORDER BY aa.fecha_anulacion DESC
+    `);
+    res.json(rows);
+  } catch (error) {
+    console.error('Error al obtener actas anuladas:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 
 // --- 📦 5. CONSULTAR STOCK EN CAMIONETA DEL TÉCNICO (APP MÓVIL / OPERATIVO) ---
 // Muestra materiales y equipos asignados en campo a técnicos
@@ -9862,7 +10033,7 @@ app.post('/api/almacen/orden-liquidaciones/:id/agregar-material', async (req, re
   const connection = await pool.getConnection();
   try {
     const idLiquidacion = req.params.id;
-    const { id_producto, cantidad, numero_serie, motivo } = req.body || {};
+    const { id_producto, cantidad, numero_serie, motivo, equipo_retirado } = req.body || {};
 
     if (!id_producto || !cantidad) {
       return res.status(400).json({ success: false, error: 'Debe seleccionar un producto y una cantidad.' });
@@ -9987,6 +10158,32 @@ app.post('/api/almacen/orden-liquidaciones/:id/agregar-material', async (req, re
       INSERT INTO orden_liquidacion_detalle (id_liquidacion, id_producto, cantidad, numero_serie)
       VALUES (?, ?, ?, ?)
     `, [idLiquidacion, id_producto, cant, finalSerie]);
+
+    // 4.1 Si viene un equipo retirado o sin recupero, registrar en orden_equipos_retirados
+    if (equipo_retirado && liq.id_orden) {
+      const serieRet = String(equipo_retirado.numero_serie || '').trim().toUpperCase();
+      const tipoRet = equipo_retirado.tipo_equipo || (prod.nombre.toUpperCase().includes('MESH') ? 'MESH' : 'ONT');
+      const motRet = equipo_retirado.motivo_retiro || (equipo_retirado.sin_recupero ? 'Sin Recupero / Cliente no entrega' : 'Cambio por avería');
+      const obsRet = equipo_retirado.sin_recupero ? 'Declarado Sin Recupero en Auditoría' : `Recogido en domicilio (Auditoría Acta ${liq.numero_acta || ''})`;
+      const estadoRet = equipo_retirado.sin_recupero ? 'Sin_Recupero' : 'En_Poder_Tecnico';
+
+      if (serieRet || equipo_retirado.sin_recupero) {
+        await connection.query(`
+          INSERT INTO orden_equipos_retirados (
+            id_orden, id_trabajador, tipo_equipo, numero_serie,
+            motivo_retiro, estado, fecha_recojo, observaciones
+          ) VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)
+        `, [
+          liq.id_orden,
+          idTrabajador || null,
+          tipoRet,
+          serieRet || 'SIN_RECUPERO',
+          motRet,
+          estadoRet,
+          obsRet
+        ]);
+      }
+    }
 
     // 5. Registrar en bitácora de auditoría
     try {
@@ -10792,13 +10989,21 @@ app.post('/api/ordenes/:id/liquidar-acta', async (req, res) => {
             WHERE numero_serie = ?
           `, [serieInst]);
 
-          // Actualizar en trabajador_series si estaba asignado
+          // Actualizar en trabajador_series y descontar stock cuantitativo en trabajador_productos si estaba asignado
           if (realIdTrabajador) {
             await pool.query(`
               UPDATE trabajador_series 
               SET estado = 'Usada'
               WHERE id_trabajador = ? AND id_producto_serie = (SELECT id_producto_serie FROM producto_series WHERE numero_serie = ? LIMIT 1)
             `, [realIdTrabajador, serieInst]);
+
+            if (idProdEquipo) {
+              await pool.query(`
+                UPDATE trabajador_productos
+                SET stock = GREATEST(0, stock - 1)
+                WHERE id_trabajador = ? AND id_producto = ?
+              `, [realIdTrabajador, idProdEquipo]);
+            }
           }
         }
       }

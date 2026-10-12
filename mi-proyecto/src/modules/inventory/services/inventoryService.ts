@@ -415,6 +415,12 @@ export const agregarMaterialLiquidacion = async (
     cantidad: number;
     numero_serie?: string;
     motivo?: string;
+    equipo_retirado?: {
+      numero_serie?: string;
+      tipo_equipo?: string;
+      motivo_retiro?: string;
+      sin_recupero?: boolean;
+    };
   }
 ) => {
   const res = await api.post(`/almacen/orden-liquidaciones/${idLiquidacion}/agregar-material`, payload);
@@ -440,6 +446,23 @@ export const editarNumeroActaLiquidacion = async (
   }
 ) => {
   const res = await api.put(`/almacen/orden-liquidaciones/${idLiquidacion}/editar-acta`, payload);
+  return res.data;
+};
+
+export const anularActaFisica = async (payload: {
+  id_trabajador?: number;
+  id_usuario?: number;
+  numero_acta: string;
+  motivo: string;
+  foto_url?: string;
+  anulado_por?: string;
+}) => {
+  const res = await api.post("/almacen/actas/anular", payload);
+  return res.data;
+};
+
+export const getActasAnuladas = async () => {
+  const res = await api.get("/almacen/actas/anuladas");
   return res.data;
 };
 
