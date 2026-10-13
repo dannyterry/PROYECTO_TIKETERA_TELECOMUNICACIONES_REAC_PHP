@@ -409,7 +409,7 @@ export const RetrievedEquipmentTab: React.FC = () => {
                               {eq.equipo_instalado_serie || eq.equipo_instalado_detalle}
                             </span>
                             <span className="text-[10px] text-emerald-700 font-bold block">
-                              {eq.equipo_instalado_detalle ? eq.equipo_instalado_detalle.split("(")[0].trim() : "Instalado"}
+                              {(eq as any).equipo_instalado_nombre || (eq.equipo_instalado_detalle ? eq.equipo_instalado_detalle.split("(")[0].trim() : "Instalado")}
                             </span>
                           </div>
                         </div>

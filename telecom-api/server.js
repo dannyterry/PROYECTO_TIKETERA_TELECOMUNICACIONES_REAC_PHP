@@ -13,10 +13,27 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-const { uploadFileToS3, getS3ObjectStream, checkS3ObjectExists } = require('./services/s3Service');
+const { uploadFileToS3, uploadBufferToS3, getS3ObjectStream, checkS3ObjectExists, getS3SignedUrl } = require('./services/s3Service');
 
 // 1. Primero intentar servir desde disco local
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// 2.1 Servir cualquier imagen de S3 (tareas, evidencias, actas) mediante proxy streaming seguro
+app.get('/api/s3/foto', async (req, res) => {
+  try {
+    const s3Key = req.query.key;
+    if (!s3Key) return res.status(400).send('Parámetro key requerido');
+    const s3Obj = await getS3ObjectStream(s3Key);
+    if (!s3Obj) return res.status(404).send('Archivo no encontrado en S3');
+    res.setHeader('Content-Type', s3Obj.contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    s3Obj.stream.pipe(res);
+  } catch (err) {
+    console.error('Error sirviendo foto de S3:', err.message);
+    res.status(500).send('Error al obtener foto');
+  }
+});
+
 
 // 2. Si el archivo no está en disco local (o fue migrado a S3 para ahorrar espacio en servidor de 2GB), transmitirlo desde AWS S3
 app.get('/uploads/:filename', async (req, res) => {
@@ -3698,6 +3715,7 @@ app.get('/ordenes/:numero/historial-estados', async (req, res) => {
          SET 
            estado = CASE 
              WHEN UPPER(estado) = 'LIQUIDADA' THEN estado 
+             WHEN asignacion_manual = 1 AND id_tecnico IS NOT NULL AND ? = 'Finalizada Externa' THEN estado
              WHEN ? IS NOT NULL THEN ? 
              ELSE estado 
            END,
@@ -3710,6 +3728,7 @@ app.get('/ordenes/:numero/historial-estados', async (req, res) => {
            tecnico_asignado = CASE WHEN asignacion_manual = 1 THEN tecnico_asignado ELSE ? END
          WHERE numero = ? OR id_orden = ?`,
         [
+          esEstadoFenixSolido ? ultimoEstadoFenix : null,
           esEstadoFenixSolido ? ultimoEstadoFenix : null,
           esEstadoFenixSolido ? ultimoEstadoFenix : null,
           finalHoraCamino,
@@ -3820,6 +3839,8 @@ app.put('/ordenes/:id/tecnico', async (req, res) => {
 
     // Actualizar en tabla ordenes: id_tecnico (T1), id_tecnico_reemplazo (T2), tecnico_asignado y blindaje manual
     // Preservar la cuadrilla_origen_fenix si aún no estaba respaldada
+    // ⚠️ CONDICIÓN ESTRICTA: Solo si la orden estaba como 'Finalizada Externa' y se asigna un técnico de la empresa,
+    // se restituye a 'Finalizada' normal. Si la orden está 'Asignada', 'Agendada', 'Iniciada', 'Cancelada', etc., su estado NO se modifica.
     await pool.query(
       `UPDATE ordenes 
        SET 
@@ -3828,10 +3849,14 @@ app.put('/ordenes/:id/tecnico', async (req, res) => {
          id_tecnico_reemplazo = ?, 
          tecnico_asignado = ?,
          cuadrilla = COALESCE(?, cuadrilla),
+         estado = CASE 
+           WHEN (UPPER(estado) LIKE '%EXTERN%' OR estado = 'Finalizada Externa') AND ? IS NOT NULL THEN 'Finalizada'
+           ELSE estado 
+         END,
          asignacion_manual = 1,
          fecha_asignacion_manual = NOW()
        WHERE id_orden = ? OR numero = ?`,
-      [finalIdTecnico || null, finalIdTecnico2 || null, nombreTitularGuardar || null, finalCuadrilla || null, id, searchParam]
+      [finalIdTecnico || null, finalIdTecnico2 || null, nombreTitularGuardar || null, finalCuadrilla || null, finalIdTecnico || null, id, searchParam]
     );
 
     res.json({
@@ -9687,7 +9712,12 @@ app.get('/api/almacen/orden-liquidaciones', async (req, res) => {
         return (esOntOMesh || esCatEquipo) && (tieneSerie || esOntOMesh);
       };
 
-      const totalEquipos = mats.filter(esEquipoReal).reduce((acc, m) => acc + (Number(m.cantidad) || 0), 0);
+      const esOntPrincipal = (m) => {
+        const nom = (m.nombre_producto || '').toUpperCase();
+        return esEquipoReal(m) && /\b(ONT|MODEM)\b/i.test(nom) && !/\b(TV\s*BOX|WINBOX|DECO|DECODIFICADOR|MESH)\b/i.test(nom);
+      };
+
+      const totalOntsPrincipales = mats.filter(esOntPrincipal).reduce((acc, m) => acc + (Number(m.cantidad) || 0), 0);
 
       const motivosAlerta = [];
       // ⚠️ DROP SUELTO DE BOBINA: Solo evaluar límite de metraje si se usó drop continuo de bobina
@@ -9698,8 +9728,8 @@ app.get('/api/almacen/orden-liquidaciones', async (req, res) => {
       if (itemConectorizado && Number(itemConectorizado.cantidad) > 1) {
         motivosAlerta.push(`Se liquidaron ${itemConectorizado.cantidad} rollos de drop pre-conectorizado en una sola orden.`);
       }
-      if (totalEquipos > 1) {
-        motivosAlerta.push(`Se liquidaron ${totalEquipos} equipos ONT en una sola orden.`);
+      if (totalOntsPrincipales > 1) {
+        motivosAlerta.push(`Se liquidaron ${totalOntsPrincipales} equipos ONT en una sola orden.`);
       }
       // Discrepancia con Fénix solo aplicable a bobina continua
       if (dropBobina > 0 && liq.metraje_fenix && Math.abs(dropBobina - liq.metraje_fenix) > 25) {
@@ -9731,6 +9761,97 @@ app.post('/api/almacen/orden-liquidaciones/:id/aprobar', async (req, res) => {
     await pool.query("UPDATE orden_liquidaciones SET estado = 'Aprobada', motivo_rechazo = NULL WHERE id_liquidacion = ?", [idLiquidacion]);
     res.json({ success: true, message: 'Liquidación aprobada correctamente.' });
   } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// --- 📋 5.2.1 OBTENER ÓRDENES PENDIENTES DE LIQUIDAR DE UN TÉCNICO ---
+app.get('/api/almacen/ordenes-pendientes-tecnico/:idTrabajador', async (req, res) => {
+  try {
+    const paramId = req.params.idTrabajador;
+    const { desde, hasta, search } = req.query;
+
+    // 1. Obtener id_usuario y id_trabajador asociados
+    const [tRows] = await pool.query(`
+      SELECT t.id_trabajador, u.id_usuario, 
+             TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre,
+             COALESCE(u.cuadrilla, '') AS cuadrilla
+      FROM usuarios u
+      LEFT JOIN trabajadores t ON t.id_usuario = u.id_usuario
+      WHERE u.id_usuario = ? OR t.id_trabajador = ?
+      LIMIT 1
+    `, [paramId, paramId]);
+
+    const idUsuario = tRows.length > 0 ? tRows[0].id_usuario : Number(paramId);
+    const idTrabajador = tRows.length > 0 && tRows[0].id_trabajador ? tRows[0].id_trabajador : idUsuario;
+    const tecnicoNombre = tRows.length > 0 ? tRows[0].tecnico_nombre : 'Técnico';
+    const cuadrilla = tRows.length > 0 ? tRows[0].cuadrilla : '';
+
+    let whereCond = `
+      (o.id_tecnico = ? OR o.id_tecnico = ? OR t.id_trabajador = ?)
+      AND (LOWER(o.estado) LIKE '%finaliz%' OR LOWER(o.estado) LIKE '%liquid%')
+      AND NOT EXISTS (
+        SELECT 1 FROM orden_liquidaciones ol 
+        WHERE ol.id_orden = o.id_orden AND ol.estado <> 'Rechazada'
+      )
+    `;
+    const params = [idUsuario, idTrabajador, idTrabajador];
+
+    if (desde) {
+      whereCond += " AND COALESCE(o.fecha_solicitud, o.fecha_visita, o.fecha_creacion) >= ?";
+      params.push(`${desde} 00:00:00`);
+    }
+    if (hasta) {
+      whereCond += " AND COALESCE(o.fecha_solicitud, o.fecha_visita, o.fecha_creacion) <= ?";
+      params.push(`${hasta} 23:59:59`);
+    }
+    if (search && search.trim()) {
+      const q = `%${search.trim()}%`;
+      whereCond += " AND (o.numero LIKE ? OR o.cliente LIKE ? OR o.direccion LIKE ?)";
+      params.push(q, q, q);
+    }
+
+    const [ordenes] = await pool.query(`
+      SELECT 
+        o.id_orden AS id,
+        o.id_orden,
+        o.numero,
+        o.numero AS numero_orden,
+        COALESCE(o.tipo_trabajo_asignado, o.tipo_trabajo, 'VISITA EXTERNA') AS tipo_trabajo,
+        o.tipo_trabajo AS tipo_trabajo_original,
+        COALESCE(o.cliente, 'Cliente no especificado') AS cliente,
+        COALESCE(o.direccion, '') AS direccion,
+        COALESCE(o.cuadrilla, ?) AS cuadrilla,
+        o.estado,
+        o.fecha_solicitud,
+        o.fecha_visita,
+        o.inicio_visita,
+        o.fin_visita,
+        COALESCE(o.fin_visita, o.fecha_visita, o.fecha_solicitud, o.fecha_creacion) AS fecha_referencia,
+        o.georeferencia,
+        o.datos_tecnicos,
+        o.observaciones,
+        o.id_tecnico,
+        ? AS id_trabajador_tecnico,
+        ? AS tecnico_nombre
+      FROM ordenes o
+      LEFT JOIN usuarios u ON o.id_tecnico = u.id_usuario
+      LEFT JOIN trabajadores t ON t.id_usuario = u.id_usuario
+      WHERE ${whereCond}
+      ORDER BY COALESCE(o.fin_visita, o.fecha_visita, o.fecha_solicitud, o.fecha_creacion) DESC
+    `, [cuadrilla, idTrabajador, tecnicoNombre, ...params]);
+
+    res.json({
+      success: true,
+      id_trabajador: idTrabajador,
+      id_usuario: idUsuario,
+      tecnico: tecnicoNombre,
+      cuadrilla: cuadrilla,
+      total_pendientes: ordenes.length,
+      ordenes
+    });
+  } catch (error) {
+    console.error("Error al obtener órdenes pendientes del técnico:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -10560,17 +10681,23 @@ app.get('/api/almacen/orden-liquidaciones/:numeroOrden/foto-acta', async (req, r
         }) || tasks[tasks.length - 1];
 
         if (actaTask && actaTask.detalle && actaTask.detalle.fotografias && actaTask.detalle.fotografias.length > 0) {
-          // Buscar si alguna foto ya tiene imagen_hd
+          // Buscar si alguna foto ya tiene imagen_hd (en Base64 o en AWS S3)
           for (const fotoObj of actaTask.detalle.fotografias) {
-            if (fotoObj.imagen_hd && fotoObj.imagen_hd.length > 5000) {
+            if (fotoObj.imagen_hd && (fotoObj.imagen_hd.length > 5000 || fotoObj.imagen_hd.startsWith('http') || fotoObj.imagen_hd.startsWith('tareas/'))) {
               console.log(`⚡ [Foto Acta] Acta encontrada en caché HD para orden #${cleanNum}`);
+              let finalUrl = fotoObj.imagen_hd;
+              if (finalUrl.includes('amazonaws.com') || finalUrl.startsWith('tareas/')) {
+                const s3Key = finalUrl.replace(/^https?:\/\/[^\/]+\//, '');
+                const signed = await getS3SignedUrl(s3Key, 86400).catch(() => null);
+                if (signed) finalUrl = signed;
+              }
               return res.json({
                 success: true,
                 origen: 'CACHE_LOCAL',
                 numero_orden: cleanNum,
                 titulo: actaTask.titulo,
                 dataId: fotoObj.dataId,
-                foto_url: fotoObj.imagen_hd,
+                foto_url: finalUrl,
                 tiempos: actaTask.detalle.tiempos || null,
                 coordenadas: actaTask.detalle.coordenadas_inicio || null
               });
@@ -10668,6 +10795,23 @@ app.get('/api/almacen/orden-liquidaciones/:numeroOrden/foto-acta', async (req, r
       return res.status(404).json({ success: false, error: 'No se pudo descargar la imagen del acta desde Fénix. Verifique si el técnico subió la foto.' });
     }
 
+    // Subir a S3 para evitar saturar MySQL con megabytes de Base64
+    let fotoUrlFinal = imgBase64;
+    try {
+      const s3KeyActa = `tareas/orden_${cleanNum}/acta_hd_${(selectedFoto && selectedFoto.dataId) || 'foto'}_${Date.now()}.jpg`;
+      const bMatch = imgBase64.match(/^data:(image\/[a-zA-Z0-9.+]+);base64,(.+)$/);
+      const bBuffer = Buffer.from(bMatch ? bMatch[2] : imgBase64, 'base64');
+      const bMime = bMatch ? bMatch[1] : 'image/jpeg';
+      const s3Res = await uploadBufferToS3(bBuffer, s3KeyActa, bMime);
+      if (s3Res && s3Res.s3Url) {
+        if (selectedFoto) selectedFoto.imagen_hd = s3Res.s3Url;
+        const signed = await getS3SignedUrl(s3KeyActa, 86400).catch(() => null);
+        fotoUrlFinal = signed || s3Res.s3Url;
+      }
+    } catch (eS3) {
+      console.warn("⚠️ [Foto Acta] Error subiendo a S3:", eS3.message);
+    }
+
     // Guardar en caché local para que futuras aperturas sean instantáneas (0ms)
     try {
       actaTask.detalle = detalle;
@@ -10676,7 +10820,7 @@ app.get('/api/almacen/orden-liquidaciones/:numeroOrden/foto-acta', async (req, r
         VALUES (?, ?, ?, 100, ?, NOW())
         ON DUPLICATE KEY UPDATE tareas_json = VALUES(tareas_json), fecha_actualizacion = NOW()
       `, [cleanNum, tareas.length, tareas.length, JSON.stringify(tareas)]).catch(() => {});
-      console.log(`💾 [Foto Acta] Guardado con éxito en orden_tareas_cache para orden #${cleanNum}`);
+      console.log(`💾 [Foto Acta] Guardado con éxito en orden_tareas_cache (S3) para orden #${cleanNum}`);
     } catch (e) {}
 
     res.json({
@@ -10685,7 +10829,7 @@ app.get('/api/almacen/orden-liquidaciones/:numeroOrden/foto-acta', async (req, r
       numero_orden: cleanNum,
       titulo: actaTask.titulo,
       dataId: selectedFoto ? selectedFoto.dataId : null,
-      foto_url: imgBase64,
+      foto_url: fotoUrlFinal,
       tiempos: detalle.tiempos || null,
       coordenadas: detalle.coordenadas_inicio || null
     });
@@ -11043,17 +11187,21 @@ app.post('/api/ordenes/:id/liquidar-acta', async (req, res) => {
 
     // E. Registrar Equipos Retirados / Recogidos de Clientes (S/N Retirado)
     if (Array.isArray(equipos_retirados)) {
-      for (const eqRet of equipos_retirados) {
+      for (let i = 0; i < equipos_retirados.length; i++) {
+        const eqRet = equipos_retirados[i];
         const serieRet = String(eqRet.numero_serie || '').trim().toUpperCase();
         if (serieRet) {
+          const serieInstPair = eqRet.serie_instalada || eqRet.serie_instalada_relacionada || (Array.isArray(equipos_instalados) && equipos_instalados[i]?.numero_serie ? String(equipos_instalados[i].numero_serie).trim().toUpperCase() : null);
+
           await pool.query(`
             INSERT INTO orden_equipos_retirados (
-              id_orden, id_trabajador, tipo_equipo, numero_serie,
+              id_orden, id_trabajador, tipo_equipo, numero_serie, serie_instalada,
               motivo_retiro, estado, fecha_recojo, observaciones
-            ) VALUES (?, ?, ?, ?, ?, 'En_Poder_Tecnico', NOW(), ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, 'En_Poder_Tecnico', NOW(), ?)
           `, [
             idOrden, realIdTrabajador || null, eqRet.tipo_equipo || 'ONT',
-            serieRet, eqRet.motivo_retiro || 'Cambio por avería / postventa',
+            serieRet, serieInstPair,
+            eqRet.motivo_retiro || 'Cambio por avería / postventa',
             obsFinales || 'Recogido en domicilio del cliente'
           ]);
         }
@@ -11140,13 +11288,27 @@ app.get('/api/almacen/equipos-recogidos', async (req, res) => {
           JOIN productos p_inst ON old_inst.id_producto = p_inst.id_producto
           WHERE ol_inst.id_orden = er.id_orden AND old_inst.numero_serie IS NOT NULL AND old_inst.numero_serie != ''
         ) AS equipo_instalado_detalle,
-        (
-          SELECT old_inst.numero_serie
-          FROM orden_liquidaciones ol_inst
-          JOIN orden_liquidacion_detalle old_inst ON ol_inst.id_liquidacion = old_inst.id_liquidacion
-          WHERE ol_inst.id_orden = er.id_orden AND old_inst.numero_serie IS NOT NULL AND old_inst.numero_serie != ''
-          LIMIT 1
-        ) AS equipo_instalado_serie
+        COALESCE(
+          er.serie_instalada,
+          (
+            SELECT old_inst.numero_serie
+            FROM orden_liquidaciones ol_inst
+            JOIN orden_liquidacion_detalle old_inst ON ol_inst.id_liquidacion = old_inst.id_liquidacion
+            WHERE ol_inst.id_orden = er.id_orden AND old_inst.numero_serie IS NOT NULL AND old_inst.numero_serie != ''
+            LIMIT 1
+          )
+        ) AS equipo_instalado_serie,
+        COALESCE(
+          (SELECT p.nombre FROM producto_series ps JOIN productos p ON ps.id_producto = p.id_producto WHERE ps.numero_serie = er.serie_instalada LIMIT 1),
+          (
+            SELECT p_inst.nombre
+            FROM orden_liquidaciones ol_inst
+            JOIN orden_liquidacion_detalle old_inst ON ol_inst.id_liquidacion = old_inst.id_liquidacion
+            JOIN productos p_inst ON old_inst.id_producto = p_inst.id_producto
+            WHERE ol_inst.id_orden = er.id_orden AND old_inst.numero_serie IS NOT NULL AND old_inst.numero_serie != ''
+            LIMIT 1
+          )
+        ) AS equipo_instalado_nombre
       FROM orden_equipos_retirados er
       LEFT JOIN ordenes o ON er.id_orden = o.id_orden
       LEFT JOIN trabajadores t ON er.id_trabajador = t.id_trabajador

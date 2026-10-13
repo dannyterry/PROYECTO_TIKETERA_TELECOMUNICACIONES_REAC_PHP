@@ -138,6 +138,8 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
         const tecObj = tecnicos.find((t) => String(t.id_trabajador) === String(tecnicoFiltro));
         if (tecObj) {
           const nomUpper = (tecObj.nombre_completo || "").toUpperCase();
+          const nomPartes = nomUpper.split(" ").filter(Boolean);
+          const nomCorto = nomPartes.length >= 2 ? `${nomPartes[0]} ${nomPartes[1]}` : nomUpper;
           const userUpper = (tecObj.usuario || "").toUpperCase();
           const doc = (tecObj.documento || "").toUpperCase();
           const idStr = String(tecObj.id_trabajador);
@@ -149,6 +151,7 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
             refUpper.includes(`SUPERVISOR #${idStr}`) ||
             refUpper.includes(`CUADRILLA #${idStr}`) ||
             (nomUpper && refUpper.includes(nomUpper)) ||
+            (nomCorto && refUpper.includes(nomCorto)) ||
             (userUpper && refUpper.includes(userUpper)) ||
             (doc && refUpper.includes(doc));
 

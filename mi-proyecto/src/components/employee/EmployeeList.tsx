@@ -56,7 +56,10 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
 
   // Estados para nuestros filtros
   const [searchTerm, setSearchTerm] = useState("");
-  const [filtroEstado, setFiltroEstado] = useState("Activo"); // Por defecto, es mejor ver a los activos
+  // Filtro multiselección por Estado Laboral
+  const [estadosSeleccionados, setEstadosSeleccionados] = useState<string[]>(["Activo"]);
+  const [isOpenEstados, setIsOpenEstados] = useState(false);
+  const dropdownEstadosRef = useRef<HTMLDivElement>(null);
   const [filtroOpcionPersonal, setFiltroOpcionPersonal] = useState("Todos");
   const [filtroSubcontrata, setFiltroSubcontrata] = useState("Todos");
   const [filtroAlertaDoc, setFiltroAlertaDoc] = useState("Todos");
@@ -105,11 +108,14 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
     cargarRoles();
   }, [listaLocal]);
 
-  // Listener para cerrar el menú desplegable de roles al hacer clic fuera
+  // Listener para cerrar los menús desplegables al hacer clic fuera
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRolesRef.current && !dropdownRolesRef.current.contains(event.target as Node)) {
         setIsOpenRoles(false);
+      }
+      if (dropdownEstadosRef.current && !dropdownEstadosRef.current.contains(event.target as Node)) {
+        setIsOpenEstados(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -125,6 +131,33 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
 
   const limpiarRoles = () => {
     setRolesSeleccionados([]);
+  };
+
+  // Lista y utilidades para Estado Laboral con Multiselección
+  const ESTADOS_LABORALES = [
+    { id: "Activo", label: "Activo", icon: "🟢" },
+    { id: "Vacaciones", label: "Vacaciones", icon: "🔵" },
+    { id: "Descanso Médico", label: "Descanso Médico", icon: "🟡" },
+    { id: "Inactivo", label: "Inactivo", icon: "🔴" },
+    { id: "Cesado", label: "Cesado", icon: "⚫" },
+  ];
+
+  const toggleEstado = (est: string) => {
+    setEstadosSeleccionados((prev) =>
+      prev.includes(est) ? prev.filter((e) => e !== est) : [...prev, est]
+    );
+  };
+
+  const limpiarEstados = () => {
+    setEstadosSeleccionados([]);
+  };
+
+  const seleccionarSoloActivos = () => {
+    setEstadosSeleccionados(["Activo"]);
+  };
+
+  const getCountPorEstado = (estadoId: string) => {
+    return listaLocal.filter((e) => (e.estado || "Activo").trim().toLowerCase() === estadoId.trim().toLowerCase()).length;
   };
 
   // Conteo de empleados por rol
@@ -337,8 +370,12 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
       matchSearch = words.every((word) => fullText.includes(word));
     }
 
-    // B) Filtro por Estado Laboral
-    const matchEstado = filtroEstado === "Todos" || emp.estado === filtroEstado;
+    // B) Filtro por Estado Laboral (Multiselección)
+    let matchEstado = true;
+    if (estadosSeleccionados.length > 0) {
+      const empEstado = (emp.estado || "Activo").trim().toLowerCase();
+      matchEstado = estadosSeleccionados.some((est) => est.trim().toLowerCase() === empEstado);
+    }
 
     // 🎭 C) Filtro por Rol (Multiselección)
     let matchRol = true;
@@ -548,20 +585,131 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
             />
           </div>
           
-          {/* 2. Filtro Estado */}
-          <div className="w-full">
-            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">Estado Laboral</label>
-            <select 
-              value={filtroEstado} 
-              onChange={(e) => setFiltroEstado(e.target.value)}
-              className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer"
+          {/* 2. Filtro Estado Laboral con Multiselección */}
+          <div className="w-full relative" ref={dropdownEstadosRef}>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">
+                Estado Laboral {estadosSeleccionados.length > 0 && `(${estadosSeleccionados.length})`}
+              </label>
+              {estadosSeleccionados.length > 0 && (
+                <button 
+                  type="button" 
+                  onClick={limpiarEstados} 
+                  className="text-[10px] text-sky-600 hover:text-red-500 font-semibold cursor-pointer"
+                  title="Ver todos los estados"
+                >
+                  Limpiar
+                </button>
+              )}
+            </div>
+
+            {/* Botón selector que abre el dropdown */}
+            <button
+              type="button"
+              onClick={() => setIsOpenEstados(!isOpenEstados)}
+              className={`w-full h-10 rounded-md border px-3 py-2 text-sm flex items-center justify-between bg-background transition-all cursor-pointer ${
+                isOpenEstados ? "ring-2 ring-sky-500 border-sky-500" : "border-input hover:border-gray-400"
+              } ${estadosSeleccionados.length > 0 ? "bg-sky-50/50 font-semibold text-sky-900 border-sky-300 shadow-2xs" : "text-gray-700"}`}
             >
-              <option value="Todos">👥 Todos los estados</option>
-              <option value="Activo">🟢 Solo Activos</option>
-              <option value="Vacaciones">🔵 Vacaciones</option>
-              <option value="Descanso Médico">🟡 Descanso Médico</option>
-              <option value="Inactivo">🔴 Inactivos</option>
-            </select>
+              <div className="flex items-center gap-1.5 truncate">
+                <span className="truncate text-xs">
+                  {estadosSeleccionados.length === 0
+                    ? "👥 Todos los estados"
+                    : estadosSeleccionados.length === 1
+                    ? `${ESTADOS_LABORALES.find(e => e.id === estadosSeleccionados[0])?.icon || "🏷️"} ${estadosSeleccionados[0]}`
+                    : `${estadosSeleccionados.length} estados seleccionados`}
+                </span>
+              </div>
+              <span className={`text-[10px] text-gray-400 transition-transform duration-200 shrink-0 ml-1 ${isOpenEstados ? "rotate-180" : ""}`}>
+                ▼
+              </span>
+            </button>
+
+            {/* Dropdown flotante con opciones y checkboxes */}
+            {isOpenEstados && (
+              <div className="absolute left-0 top-full mt-1.5 w-72 bg-white rounded-xl shadow-xl border border-gray-200 z-50 p-3 space-y-2.5">
+                
+                {/* Acciones rápidas */}
+                <div className="flex items-center justify-between text-[11px] pb-1.5 border-b border-gray-100 text-gray-500 font-semibold px-1">
+                  <button
+                    type="button"
+                    onClick={limpiarEstados}
+                    className={`hover:text-sky-700 transition-colors cursor-pointer ${estadosSeleccionados.length === 0 ? "text-sky-700 font-bold" : ""}`}
+                  >
+                    {estadosSeleccionados.length === 0 ? "✓ Mostrando todos" : "Mostrar todos"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={seleccionarSoloActivos}
+                    className={`hover:text-emerald-700 transition-colors cursor-pointer ${
+                      estadosSeleccionados.length === 1 && estadosSeleccionados[0] === "Activo"
+                        ? "text-emerald-700 font-bold"
+                        : "text-emerald-600"
+                    }`}
+                  >
+                    Solo Activos
+                  </button>
+                  {estadosSeleccionados.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={limpiarEstados}
+                      className="text-red-500 hover:text-red-700 transition-colors cursor-pointer"
+                    >
+                      Deseleccionar ({estadosSeleccionados.length})
+                    </button>
+                  )}
+                </div>
+
+                {/* Lista de Checkboxes con scroll */}
+                <div className="max-h-60 overflow-y-auto space-y-1 pr-1">
+                  {ESTADOS_LABORALES.map((item) => {
+                    const isChecked = estadosSeleccionados.includes(item.id);
+                    const count = getCountPorEstado(item.id);
+                    return (
+                      <div
+                        key={item.id}
+                        onClick={() => toggleEstado(item.id)}
+                        className={`flex items-center justify-between p-2 rounded-lg text-xs cursor-pointer select-none transition-colors ${
+                          isChecked
+                            ? "bg-sky-50 text-sky-900 font-bold border border-sky-200"
+                            : "hover:bg-gray-50 text-gray-700"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {}} // Manejado por onClick del div
+                            className="rounded border-gray-300 text-sky-600 focus:ring-sky-500 h-4 w-4 cursor-pointer accent-sky-600"
+                          />
+                          <span className="flex items-center gap-1.5">
+                            <span>{item.icon}</span>
+                            <span>{item.label}</span>
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-600 font-semibold">
+                          {count}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Botón Aplicar / Cerrar */}
+                <div className="pt-2 border-t border-gray-100 flex items-center justify-between">
+                  <span className="text-[10px] text-gray-400">
+                    {estadosSeleccionados.length === 0 ? "Todos seleccionados" : `${estadosSeleccionados.length} seleccionados`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsOpenEstados(false)}
+                    className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-lg shadow-xs transition-colors cursor-pointer"
+                  >
+                    Listo
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 3. 🎭 NUEVO: Filtro Rol con Multiselección */}
@@ -1119,6 +1267,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                             emp.estado === "Inactivo" ? "bg-red-500" : 
                             emp.estado === "Vacaciones" ? "bg-blue-500" : 
                             emp.estado === "Descanso Médico" ? "bg-yellow-500" : 
+                            emp.estado === "Cesado" ? "bg-gray-600" : 
                             "bg-gray-400"
                           }`} />
                           <span>{emp.estado || "Activo"}</span>

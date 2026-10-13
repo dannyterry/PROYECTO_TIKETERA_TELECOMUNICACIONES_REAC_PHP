@@ -820,9 +820,9 @@ async function guardarOrdenesEnBD(ordenes) {
           region_zona = COALESCE(?, region_zona),
           fecha_visita = COALESCE(?, ?, fecha_visita),
           cod_seguimiento_cliente = COALESCE(?, cod_seguimiento_cliente),
-          direccion = COALESCE(?, direccion),
           estado = CASE 
             WHEN UPPER(estado) = 'LIQUIDADA' OR EXISTS(SELECT 1 FROM orden_liquidaciones ol WHERE ol.id_orden = ordenes.id_orden) THEN 'Liquidada' 
+            WHEN asignacion_manual = 1 AND id_tecnico IS NOT NULL AND ? = 'Finalizada Externa' THEN estado
             ELSE COALESCE(?, estado) 
           END,
           cuadrilla_origen_fenix = COALESCE(?, cuadrilla_origen_fenix),
@@ -859,7 +859,7 @@ async function guardarOrdenesEnBD(ordenes) {
           o.motivo_finalizacion, o.datos_tecnicos, autoTipoTrabajo || o.tipo_trabajo, autoTipoTrabajo, o.georeferencia,
           o.motivo_cancelacion, o.numero_documento, o.movil, o.codigo_seguimiento,
           o.region_zona, o.fecha_visita, o.fecha_solicitud, o.cod_seguimiento_cliente, o.direccion,
-          autoEstado, o.cuadrilla, o.cuadrilla, autoIdTecnico, autoNombreTecnico, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
+          autoEstado, autoEstado, o.cuadrilla, o.cuadrilla, autoIdTecnico, autoNombreTecnico, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
           o.motivo_anulacion, o.motivo_regestion, o.motivo_suspension, o.pais_empresa,
           o.email, o.tipo_ubicacion, o.codigo_postal, o.tipo_documento, o.producto,
           o.id_proyecto, o.proveedor, o.localidad, o.tipo_trabajo || o.motivo_trabajo, o.prioridad,
@@ -1519,13 +1519,22 @@ function extraerTiemposDeHistorial(historial) {
     const st = (h.estado || '').toUpperCase();
     const u = (h.usuario || '').trim().toUpperCase();
     if (!u) return false;
-    if (/^(ADMINISTRADOR|ADMIN|SISTEMA|CENTRAL|GRECIA JAZMIN|CESAR GONZALO COLCHADO|LIZ JHOSSELIN GUTIERREZ|LAURA ANDREA CASTA)/i.test(u)) return false;
+    if (/^(ADMINISTRADOR|ADMIN|SISTEMA|CENTRAL|GRECIA JAZMIN|CESAR GONZALO COLCHADO|LIZ JHOSSELIN GUTIERREZ|LAURA ANDREA CASTA|ANGELA KIRAM)/i.test(u)) return false;
     return st.includes('CAMINO') || st.includes('INICIA') || st.includes('PROCESO') || st.includes('REVISI');
   });
 
   if (filasCampo.length > 0) {
-    // Ordenar de más reciente a más antiguo para que el ejecutor sea el último técnico operativo que trabajó
-    const ordenada = [...filasCampo].sort((a, b) => {
+    // Si hay un técnico con 'CAMINO', 'REVISIÓN' o duración real (> 0 min), priorizarlo sobre reaperturas de 0 min
+    const conTrabajoReal = filasCampo.filter((h) => {
+      const st = (h.estado || '').toUpperCase();
+      const dur = String(h.duracion || '').toLowerCase();
+      return st.includes('CAMINO') || st.includes('REVISI') || (!dur.includes('0 min') && !dur.includes('0 seg'));
+    });
+
+    const listaEvaluar = conTrabajoReal.length > 0 ? conTrabajoReal : filasCampo;
+
+    // Ordenar de más reciente a más antiguo
+    const ordenada = [...listaEvaluar].sort((a, b) => {
       const da = parseDateToMySQL(a.fecha) || '';
       const db = parseDateToMySQL(b.fecha) || '';
       return db.localeCompare(da);

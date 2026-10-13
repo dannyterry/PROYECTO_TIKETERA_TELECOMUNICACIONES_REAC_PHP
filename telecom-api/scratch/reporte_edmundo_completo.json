@@ -1,0 +1,1644 @@
+{
+  "usuario": {
+    "id_usuario": 78,
+    "nombres": "EDMUNDO",
+    "primer_apellido": "FLORES",
+    "segundo_apellido": "GUIZABALDO",
+    "cuadrilla": "K 6 CESPEDES",
+    "estado": "Activo",
+    "id_trabajador": 78,
+    "estado_trabajador": "Activo",
+    "id_vehiculo": null,
+    "vehiculo_placa": null
+  },
+  "reporteBalance": [
+    {
+      "id": 47,
+      "producto": "PATCH COR",
+      "categoria": "MATERIALES",
+      "entregado": 11,
+      "gastado": 11,
+      "deberia_tener": 0,
+      "stock_actual_movil": 0,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 48,
+      "producto": "PATCH COR AZUL VERDE",
+      "categoria": "MATERIALES",
+      "entregado": 1,
+      "gastado": 0,
+      "deberia_tener": 1,
+      "stock_actual_movil": 1,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 49,
+      "producto": "TEMPLADORES",
+      "categoria": "MATERIALES",
+      "entregado": 73,
+      "gastado": 42,
+      "deberia_tener": 31,
+      "stock_actual_movil": 31,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 50,
+      "producto": "ROSETAS",
+      "categoria": "MATERIALES",
+      "entregado": 5,
+      "gastado": 1,
+      "deberia_tener": 4,
+      "stock_actual_movil": 4,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 51,
+      "producto": "ACOPLES",
+      "categoria": "MATERIALES",
+      "entregado": 12,
+      "gastado": 4,
+      "deberia_tener": 8,
+      "stock_actual_movil": 8,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 54,
+      "producto": "CINTILLO DE IDENTIFICACION  -  ROTULADOR",
+      "categoria": "MATERIALES",
+      "entregado": 25,
+      "gastado": 7,
+      "deberia_tener": 18,
+      "stock_actual_movil": 18,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 55,
+      "producto": "DROP",
+      "categoria": "MATERIALES",
+      "entregado": 517,
+      "gastado": 132,
+      "deberia_tener": 385,
+      "stock_actual_movil": 385,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 58,
+      "producto": "ANCLAJE T/P",
+      "categoria": "MATERIALES",
+      "entregado": 12,
+      "gastado": 0,
+      "deberia_tener": 12,
+      "stock_actual_movil": 12,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 59,
+      "producto": "CLEVIS",
+      "categoria": "MATERIALES",
+      "entregado": 6,
+      "gastado": 0,
+      "deberia_tener": 6,
+      "stock_actual_movil": 6,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 60,
+      "producto": "HEBILLAS 1/2",
+      "categoria": "MATERIALES",
+      "entregado": 10,
+      "gastado": 0,
+      "deberia_tener": 10,
+      "stock_actual_movil": 10,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 61,
+      "producto": "C. BANDIX",
+      "categoria": "MATERIALES",
+      "entregado": 5,
+      "gastado": 0,
+      "deberia_tener": 5,
+      "stock_actual_movil": 5,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 62,
+      "producto": "SPLITER",
+      "categoria": "MATERIALES",
+      "entregado": 1,
+      "gastado": 0,
+      "deberia_tener": 1,
+      "stock_actual_movil": 1,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 64,
+      "producto": "C. DOBLE CONTACTO",
+      "categoria": "MATERIALES",
+      "entregado": 3,
+      "gastado": 12,
+      "deberia_tener": -9,
+      "stock_actual_movil": 0,
+      "diferencia": 9,
+      "estado": "⚠️ Tiene de más (+9)"
+    },
+    {
+      "id": 65,
+      "producto": "ACTAS",
+      "categoria": "MATERIALES",
+      "entregado": 60,
+      "gastado": 0,
+      "deberia_tener": 60,
+      "stock_actual_movil": 60,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 68,
+      "producto": "ONT HUAWEI",
+      "categoria": "EQUIPOS",
+      "entregado": 8,
+      "gastado": 7,
+      "deberia_tener": 1,
+      "stock_actual_movil": 2,
+      "diferencia": 1,
+      "estado": "⚠️ Tiene de más (+1)"
+    },
+    {
+      "id": 69,
+      "producto": "ONT ZTE",
+      "categoria": "EQUIPOS",
+      "entregado": 1,
+      "gastado": 0,
+      "deberia_tener": 1,
+      "stock_actual_movil": 1,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 70,
+      "producto": "SMART HUAWEI",
+      "categoria": "EQUIPOS",
+      "entregado": 2,
+      "gastado": 1,
+      "deberia_tener": 1,
+      "stock_actual_movil": 2,
+      "diferencia": 1,
+      "estado": "⚠️ Tiene de más (+1)"
+    },
+    {
+      "id": 71,
+      "producto": "SMART ZTE",
+      "categoria": "EQUIPOS",
+      "entregado": 1,
+      "gastado": 0,
+      "deberia_tener": 1,
+      "stock_actual_movil": 1,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 72,
+      "producto": "FONO WIN TELEFONO ANALOGICO SIN PANTALLA",
+      "categoria": "EQUIPOS",
+      "entregado": 1,
+      "gastado": 0,
+      "deberia_tener": 1,
+      "stock_actual_movil": 1,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 73,
+      "producto": "TV BOX ZTE",
+      "categoria": "EQUIPOS",
+      "entregado": 1,
+      "gastado": 0,
+      "deberia_tener": 1,
+      "stock_actual_movil": 1,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 76,
+      "producto": "CONECTOR WIN",
+      "categoria": "MATERIALES",
+      "entregado": 45,
+      "gastado": 29,
+      "deberia_tener": 16,
+      "stock_actual_movil": 16,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 81,
+      "producto": "GRAPAS #6",
+      "categoria": "MATERIALES",
+      "entregado": 100,
+      "gastado": 50,
+      "deberia_tener": 50,
+      "stock_actual_movil": 50,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 82,
+      "producto": "AMARRE CINTILLO #150",
+      "categoria": "MATERIALES",
+      "entregado": 200,
+      "gastado": 87,
+      "deberia_tener": 113,
+      "stock_actual_movil": 113,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 90,
+      "producto": "CINTA VULCANIZANTE  MT",
+      "categoria": "MATERIALES",
+      "entregado": 2,
+      "gastado": 0,
+      "deberia_tener": 2,
+      "stock_actual_movil": 2,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 91,
+      "producto": "DROP CONECTORIZADO * 50MT",
+      "categoria": "MATERIALES",
+      "entregado": 2,
+      "gastado": 1,
+      "deberia_tener": 1,
+      "stock_actual_movil": 1,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 92,
+      "producto": "DROP CONECTORIZADO *100MT",
+      "categoria": "MATERIALES",
+      "entregado": 7,
+      "gastado": 3,
+      "deberia_tener": 4,
+      "stock_actual_movil": 4,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    },
+    {
+      "id": 93,
+      "producto": "DROP CONECTORIZADO *150MT",
+      "categoria": "MATERIALES",
+      "entregado": 8,
+      "gastado": 2,
+      "deberia_tener": 6,
+      "stock_actual_movil": 3,
+      "diferencia": -3,
+      "estado": "🚨 Falta (-3)"
+    },
+    {
+      "id": 94,
+      "producto": "DROP CONECTORIZADO *200MT",
+      "categoria": "MATERIALES",
+      "entregado": 1,
+      "gastado": 0,
+      "deberia_tener": 1,
+      "stock_actual_movil": 1,
+      "diferencia": 0,
+      "estado": "✅ Cuadrado exacto"
+    }
+  ],
+  "seriesResumen": {
+    "65": {
+      "id_producto": 65,
+      "nombre": "ACTAS",
+      "categoria": "MATERIALES",
+      "asignadas_disponibles": 21,
+      "usadas_liquidadas": 39,
+      "otras": 0,
+      "total": 60
+    },
+    "68": {
+      "id_producto": 68,
+      "nombre": "ONT HUAWEI",
+      "categoria": "EQUIPOS",
+      "asignadas_disponibles": 1,
+      "usadas_liquidadas": 7,
+      "otras": 0,
+      "total": 8
+    },
+    "69": {
+      "id_producto": 69,
+      "nombre": "ONT ZTE",
+      "categoria": "EQUIPOS",
+      "asignadas_disponibles": 1,
+      "usadas_liquidadas": 0,
+      "otras": 0,
+      "total": 1
+    },
+    "70": {
+      "id_producto": 70,
+      "nombre": "SMART HUAWEI",
+      "categoria": "EQUIPOS",
+      "asignadas_disponibles": 1,
+      "usadas_liquidadas": 1,
+      "otras": 0,
+      "total": 2
+    },
+    "71": {
+      "id_producto": 71,
+      "nombre": "SMART ZTE",
+      "categoria": "EQUIPOS",
+      "asignadas_disponibles": 1,
+      "usadas_liquidadas": 0,
+      "otras": 0,
+      "total": 1
+    },
+    "72": {
+      "id_producto": 72,
+      "nombre": "FONO WIN TELEFONO ANALOGICO SIN PANTALLA",
+      "categoria": "EQUIPOS",
+      "asignadas_disponibles": 1,
+      "usadas_liquidadas": 0,
+      "otras": 0,
+      "total": 1
+    },
+    "73": {
+      "id_producto": 73,
+      "nombre": "TV BOX ZTE",
+      "categoria": "EQUIPOS",
+      "asignadas_disponibles": 1,
+      "usadas_liquidadas": 0,
+      "otras": 0,
+      "total": 1
+    }
+  },
+  "equiposHardware": [
+    {
+      "equipo": "ONT HUAWEI",
+      "serie": "48575443DF8431B8",
+      "estado": "Asignada"
+    },
+    {
+      "equipo": "ONT HUAWEI",
+      "serie": "485754438CA3D8B8",
+      "estado": "Usada"
+    },
+    {
+      "equipo": "ONT HUAWEI",
+      "serie": "485754438CA8C3B8",
+      "estado": "Usada"
+    },
+    {
+      "equipo": "ONT HUAWEI",
+      "serie": "485754438CACB5B8",
+      "estado": "Usada"
+    },
+    {
+      "equipo": "ONT HUAWEI",
+      "serie": "48575443DF89BAB8",
+      "estado": "Usada"
+    },
+    {
+      "equipo": "ONT HUAWEI",
+      "serie": "48575443DF8A92B8",
+      "estado": "Usada"
+    },
+    {
+      "equipo": "ONT HUAWEI",
+      "serie": "48575443DF8BE8B8",
+      "estado": "Usada"
+    },
+    {
+      "equipo": "ONT HUAWEI",
+      "serie": "48575443DF910FB8",
+      "estado": "Usada"
+    },
+    {
+      "equipo": "ONT ZTE",
+      "serie": "ZTEGDA04A7B8",
+      "estado": "Asignada"
+    },
+    {
+      "equipo": "SMART HUAWEI",
+      "serie": "4857544308F84EB3",
+      "estado": "Asignada"
+    },
+    {
+      "equipo": "SMART HUAWEI",
+      "serie": "4857544308F878B3",
+      "estado": "Usada"
+    },
+    {
+      "equipo": "SMART ZTE",
+      "serie": "ZTE0H8TR7204248",
+      "estado": "Asignada"
+    },
+    {
+      "equipo": "FONO WIN TELEFONO ANALOGICO SIN PANTALLA",
+      "serie": "2FWS000000069947",
+      "estado": "Asignada"
+    },
+    {
+      "equipo": "TV BOX ZTE",
+      "serie": "Z6406003250011410",
+      "estado": "Asignada"
+    }
+  ],
+  "actasFisicas": [
+    {
+      "serie": "001-44406",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44415",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44422",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44424",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44434",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44435",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44436",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44437",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44438",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44439",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44440",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44441",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44442",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44443",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44444",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44445",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44446",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44447",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44448",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44449",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44450",
+      "estado": "Asignada"
+    },
+    {
+      "serie": "001-44091",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44092",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44093",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44094",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44095",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44096",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44097",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44098",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44099",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44100",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44401",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44402",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44403",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44404",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44405",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44407",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44408",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44409",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44410",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44411",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44412",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44413",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44414",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44416",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44417",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44418",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44419",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44420",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44421",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44423",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44425",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44426",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44427",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44428",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44429",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44430",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44431",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44432",
+      "estado": "Usada"
+    },
+    {
+      "serie": "001-44433",
+      "estado": "Usada"
+    }
+  ],
+  "ordenes": [
+    {
+      "id_orden": 11677,
+      "numero_ticket": "3465897",
+      "numero_acta": "001-44093",
+      "tipo_trabajo": "CAMBIO DE CONECTOR CTO/NAP",
+      "fecha": "2026-09-24 16:44:31",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 11669,
+      "numero_ticket": "3465474",
+      "numero_acta": "001-44092",
+      "tipo_trabajo": "CAMBIO DE CONECTOR EN ROSETA",
+      "fecha": "2026-09-24 16:50:14",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 11651,
+      "numero_ticket": "3464598",
+      "numero_acta": "001-44091",
+      "tipo_trabajo": "CAMBIO DE ONT - NO SINCRONIZA / NO EMITE SEÑAL",
+      "fecha": "2026-09-24 16:59:59",
+      "materiales": [
+        {
+          "nombre": "PATCH COR",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "ONT HUAWEI",
+          "cantidad": 1,
+          "numero_serie": "485754438CA3D8B8",
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 11742,
+      "numero_ticket": "3468997",
+      "numero_acta": "001-44094",
+      "tipo_trabajo": "RECABLEADO - POST VENTA",
+      "fecha": "2026-09-25 16:44:41",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "DROP CONECTORIZADO *100MT",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "C. DOBLE CONTACTO",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "TEMPLADORES",
+          "cantidad": 5,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "CINTILLO DE IDENTIFICACION  -  ROTULADOR",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "AMARRE CINTILLO #150",
+          "cantidad": 12,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 11769,
+      "numero_ticket": "3470153",
+      "numero_acta": "001-44100",
+      "tipo_trabajo": "RECABLEADO - AVERIADO POR TERCEROS",
+      "fecha": "2026-09-26 18:49:04",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "AMARRE CINTILLO #150",
+          "cantidad": 12,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "DROP CONECTORIZADO *150MT",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "TEMPLADORES",
+          "cantidad": 5,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "CINTILLO DE IDENTIFICACION  -  ROTULADOR",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 11785,
+      "numero_ticket": "3472109",
+      "numero_acta": "001-44095",
+      "tipo_trabajo": "CAMBIO DE ONT - NO SINCRONIZA / NO EMITE SEÑAL",
+      "fecha": "2026-09-26 19:05:37",
+      "materiales": [
+        {
+          "nombre": "PATCH COR",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "ONT HUAWEI",
+          "cantidad": 1,
+          "numero_serie": "485754438CA8C3B8",
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 11787,
+      "numero_ticket": "3472799",
+      "numero_acta": "001-44096",
+      "tipo_trabajo": "CAMBIO DE CONECTOR EN ROSETA",
+      "fecha": "2026-09-26 19:38:22",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 11831,
+      "numero_ticket": "3474954",
+      "numero_acta": "001-44097",
+      "tipo_trabajo": "RECABLEADO - AVERIADO POR TERCEROS",
+      "fecha": "2026-09-28 16:10:32",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 2,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "AMARRE CINTILLO #150",
+          "cantidad": 12,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "TEMPLADORES",
+          "cantidad": 13,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "CINTILLO DE IDENTIFICACION  -  ROTULADOR",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "C. DOBLE CONTACTO",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "DROP",
+          "cantidad": 132,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 11887,
+      "numero_ticket": "3477594",
+      "numero_acta": "001-44099",
+      "tipo_trabajo": "CAMBIO DE CABLE PATCH CORD",
+      "fecha": "2026-09-29 13:18:31",
+      "materiales": [
+        {
+          "nombre": "PATCH COR",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 11883,
+      "numero_ticket": "3477675",
+      "numero_acta": "001-44401",
+      "tipo_trabajo": "CAMBIO DE CONECTOR EN ROSETA",
+      "fecha": "2026-09-29 19:43:15",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 11929,
+      "numero_ticket": "3482467",
+      "numero_acta": "001-44402",
+      "tipo_trabajo": "RECABLEADO - AVERIADO POR TERCEROS",
+      "fecha": "2026-09-30 23:23:04",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "ROSETAS",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "DROP CONECTORIZADO *100MT",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "ACOPLES",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "AMARRE CINTILLO #150",
+          "cantidad": 12,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "CINTILLO DE IDENTIFICACION  -  ROTULADOR",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "C. DOBLE CONTACTO",
+          "cantidad": 10,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "GRAPAS #6",
+          "cantidad": 20,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 11938,
+      "numero_ticket": "3482760",
+      "numero_acta": "001-44403",
+      "tipo_trabajo": "CAMBIO DE CONECTOR EN ROSETA",
+      "fecha": "2026-09-30 23:24:12",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 11943,
+      "numero_ticket": "3483224",
+      "numero_acta": "001-44404",
+      "tipo_trabajo": "RECABLEADO - AVERIADO POR TERCEROS",
+      "fecha": "2026-09-30 23:32:27",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "DROP CONECTORIZADO * 50MT",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "AMARRE CINTILLO #150",
+          "cantidad": 12,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "TEMPLADORES",
+          "cantidad": 5,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "CINTILLO DE IDENTIFICACION  -  ROTULADOR",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "GRAPAS #6",
+          "cantidad": 20,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 11960,
+      "numero_ticket": "3484166",
+      "numero_acta": "001-44405",
+      "tipo_trabajo": "CAMBIO DE ONT - NO SINCRONIZA / NO EMITE SEÑAL",
+      "fecha": "2026-10-01 11:10:22",
+      "materiales": [
+        {
+          "nombre": "PATCH COR",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "ONT HUAWEI",
+          "cantidad": 1,
+          "numero_serie": "485754438CACB5B8",
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12005,
+      "numero_ticket": "3486975",
+      "numero_acta": "001-44407",
+      "tipo_trabajo": "CAMBIO DE CABLE PATCH CORD",
+      "fecha": "2026-10-02 13:03:47",
+      "materiales": [
+        {
+          "nombre": "PATCH COR",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "ACOPLES",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12025,
+      "numero_ticket": "3488497",
+      "numero_acta": "001-44408",
+      "tipo_trabajo": "CAMBIO DE CONECTOR EN ROSETA",
+      "fecha": "2026-10-02 13:06:23",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 11870,
+      "numero_ticket": "3477372",
+      "numero_acta": "001-44098",
+      "tipo_trabajo": "CAMBIO DE CONECTOR CTO/NAP",
+      "fecha": "2026-10-02 15:19:12",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12024,
+      "numero_ticket": "3488498",
+      "numero_acta": "001-44409",
+      "tipo_trabajo": "CAMBIO DE CONECTOR EN ROSETA",
+      "fecha": "2026-10-02 15:22:45",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12045,
+      "numero_ticket": "3489125",
+      "numero_acta": "001-44410",
+      "tipo_trabajo": "CAMBIO DE ONT - ONT INOPERATIVA",
+      "fecha": "2026-10-02 19:15:31",
+      "materiales": [
+        {
+          "nombre": "PATCH COR",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "ONT HUAWEI",
+          "cantidad": 1,
+          "numero_serie": "48575443DF8BE8B8",
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12093,
+      "numero_ticket": "3493203",
+      "numero_acta": "001-44411",
+      "tipo_trabajo": "CAMBIO DE CABLE PATCH CORD",
+      "fecha": "2026-10-04 15:16:43",
+      "materiales": [
+        {
+          "nombre": "PATCH COR",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12112,
+      "numero_ticket": "3493062",
+      "numero_acta": "001-44412",
+      "tipo_trabajo": "REUBICACION CON RESERVA",
+      "fecha": "2026-10-04 15:18:24",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "GRAPAS #6",
+          "cantidad": 10,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12114,
+      "numero_ticket": "3494438",
+      "numero_acta": "001-44413",
+      "tipo_trabajo": "CAMBIO DE CABLE PATCH CORD",
+      "fecha": "2026-10-04 15:19:27",
+      "materiales": [
+        {
+          "nombre": "PATCH COR",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12131,
+      "numero_ticket": "3494852",
+      "numero_acta": "001-44414",
+      "tipo_trabajo": "RECABLEADO - AVERIADO POR TERCEROS",
+      "fecha": "2026-10-05 19:35:59",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "DROP CONECTORIZADO *100MT",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "AMARRE CINTILLO #150",
+          "cantidad": 12,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "TEMPLADORES",
+          "cantidad": 5,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "CINTILLO DE IDENTIFICACION  -  ROTULADOR",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12143,
+      "numero_ticket": "3495914",
+      "numero_acta": "001-44417",
+      "tipo_trabajo": "CAMBIO DE CONECTOR EN ROSETA",
+      "fecha": "2026-10-05 19:37:32",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "ACOPLES",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12173,
+      "numero_ticket": "3497565",
+      "numero_acta": "001-44418",
+      "tipo_trabajo": "CAMBIO DE CONECTOR EN ROSETA",
+      "fecha": "2026-10-06 13:00:54",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12193,
+      "numero_ticket": "3499285",
+      "numero_acta": "001-44419",
+      "tipo_trabajo": "CAMBIO DE ONT - ONT INOPERATIVA",
+      "fecha": "2026-10-06 13:06:06",
+      "materiales": [
+        {
+          "nombre": "ONT HUAWEI",
+          "cantidad": 1,
+          "numero_serie": "48575443DF910FB8",
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12161,
+      "numero_ticket": "3497419",
+      "numero_acta": "001-44416",
+      "tipo_trabajo": "CAMBIO DE CONECTOR CTO/NAP",
+      "fecha": "2026-10-06 14:24:34",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12198,
+      "numero_ticket": "3499761",
+      "numero_acta": "001-44420",
+      "tipo_trabajo": "CAMBIO DE ONT - MEJORA TECNOLÓGICA",
+      "fecha": "2026-10-06 18:52:01",
+      "materiales": [
+        {
+          "nombre": "ONT HUAWEI",
+          "cantidad": 1,
+          "numero_serie": "48575443DF89BAB8",
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12205,
+      "numero_ticket": "3500366",
+      "numero_acta": "001-44421",
+      "tipo_trabajo": "ENTREGA + CONFIG 1 MESH",
+      "fecha": "2026-10-06 19:59:48",
+      "materiales": [
+        {
+          "nombre": "SMART HUAWEI",
+          "cantidad": 1,
+          "numero_serie": "4857544308F878B3",
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12292,
+      "numero_ticket": "3505037",
+      "numero_acta": "001-44423",
+      "tipo_trabajo": "CAMBIO DE CONECTOR EN ROSETA",
+      "fecha": "2026-10-08 19:31:11",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12316,
+      "numero_ticket": "3505994",
+      "numero_acta": "001-44425",
+      "tipo_trabajo": "CAMBIO DE CONECTOR EN ROSETA",
+      "fecha": "2026-10-08 19:32:23",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12326,
+      "numero_ticket": "3506669",
+      "numero_acta": "001-44426",
+      "tipo_trabajo": "CAMBIO DE CONECTOR EN ROSETA",
+      "fecha": "2026-10-09 17:43:28",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12399,
+      "numero_ticket": "3509187",
+      "numero_acta": "001-44427",
+      "tipo_trabajo": "CAMBIO DE CONECTOR CTO/NAP",
+      "fecha": "2026-10-10 10:42:49",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12421,
+      "numero_ticket": "3509376",
+      "numero_acta": "001-44428",
+      "tipo_trabajo": "CAMBIO DE CONECTOR EN ROSETA",
+      "fecha": "2026-10-10 15:29:53",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12417,
+      "numero_ticket": "3509374",
+      "numero_acta": "001-44429",
+      "tipo_trabajo": "CAMBIO DE ONT - NO SINCRONIZA / NO EMITE SEÑAL",
+      "fecha": "2026-10-10 19:06:06",
+      "materiales": [
+        {
+          "nombre": "PATCH COR",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "ONT HUAWEI",
+          "cantidad": 1,
+          "numero_serie": "48575443DF8A92B8",
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12493,
+      "numero_ticket": "3514297",
+      "numero_acta": "001-44431",
+      "tipo_trabajo": "CAMBIO DE CONECTOR EN ROSETA",
+      "fecha": "2026-10-12 19:16:37",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "ACOPLES",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12504,
+      "numero_ticket": "3514225",
+      "numero_acta": "001-44433",
+      "tipo_trabajo": "CAMBIO DE CABLE PATCH CORD",
+      "fecha": "2026-10-12 19:18:46",
+      "materiales": [
+        {
+          "nombre": "PATCH COR",
+          "cantidad": 2,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12517,
+      "numero_ticket": "3514128",
+      "numero_acta": "001-44430",
+      "tipo_trabajo": "CAMBIO DE CONECTOR CTO/NAP",
+      "fecha": "2026-10-12 19:22:09",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    },
+    {
+      "id_orden": 12543,
+      "numero_ticket": "3515604",
+      "numero_acta": "001-44432",
+      "tipo_trabajo": "RECABLEADO - AVERIADO POR TERCEROS",
+      "fecha": "2026-10-12 19:27:54",
+      "materiales": [
+        {
+          "nombre": "CONECTOR WIN",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "AMARRE CINTILLO #150",
+          "cantidad": 15,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "TEMPLADORES",
+          "cantidad": 9,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "CINTILLO DE IDENTIFICACION  -  ROTULADOR",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        },
+        {
+          "nombre": "DROP CONECTORIZADO *150MT",
+          "cantidad": 1,
+          "numero_serie": null,
+          "drop_inicio": null,
+          "drop_fin": null
+        }
+      ]
+    }
+  ]
+}

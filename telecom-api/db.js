@@ -171,6 +171,14 @@ pool.getConnection()
       await connection.query("ALTER TABLE trabajador_descansos MODIFY COLUMN estado VARCHAR(50) NOT NULL DEFAULT 'Programado'");
     } catch (err) {}
 
+    // Asegurar columna serie_instalada en orden_equipos_retirados
+    try {
+      const [colInst] = await connection.query("SHOW COLUMNS FROM orden_equipos_retirados LIKE 'serie_instalada'");
+      if (colInst.length === 0) {
+        await connection.query("ALTER TABLE orden_equipos_retirados ADD COLUMN serie_instalada VARCHAR(100) NULL AFTER numero_serie");
+      }
+    } catch (err) {}
+
     // Asegurar tabla despachos, despacho_detalles y fecha_actualizacion
     try {
       const [colAct] = await connection.query("SHOW COLUMNS FROM trabajador_productos LIKE 'fecha_actualizacion'");

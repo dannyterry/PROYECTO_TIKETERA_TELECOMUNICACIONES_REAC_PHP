@@ -169,6 +169,15 @@ export const TechnicalActModal: React.FC<Props> = ({
   const [snMeshInstalado, setSnMeshInstalado] = useState("");
   const [snMeshRetirado, setSnMeshRetirado] = useState("");
 
+  // 6.1 Equipos Adicionales (ej: 2do o 3er Winbox / Mesh / Deco)
+  interface EquipoExtraItem {
+    id: string;
+    snInstalado: string;
+    snRetirado: string;
+    motivoRetiro: string;
+  }
+  const [equiposAdicionales, setEquiposAdicionales] = useState<EquipoExtraItem[]>([]);
+
   // 7. Test de Velocidad & Observaciones
   const [speedDownload, setSpeedDownload] = useState("");
   const [speedUpload, setSpeedUpload] = useState("");
@@ -180,12 +189,12 @@ export const TechnicalActModal: React.FC<Props> = ({
 
   // 8. Escáner de Código de Barras / QR con Cámara Móvil
   const [scannerOpen, setScannerOpen] = useState(false);
-  const [scannerTarget, setScannerTarget] = useState<"acta" | "ont_instalado" | "ont_retirado" | "mesh_instalado" | "mesh_retirado">("ont_instalado");
+  const [scannerTarget, setScannerTarget] = useState<string>("ont_instalado");
   const [scannerTitle, setScannerTitle] = useState("Escanear Código");
   const [scannerSubtitle, setScannerSubtitle] = useState("Apunta al código de barras del equipo");
 
   const abrirEscaner = (
-    target: "acta" | "ont_instalado" | "ont_retirado" | "mesh_instalado" | "mesh_retirado",
+    target: string,
     titulo: string,
     subtitulo: string
   ) => {
@@ -221,6 +230,16 @@ export const TechnicalActModal: React.FC<Props> = ({
       const numOnly = clean.replace(/^001-?/i, "");
       setGuiaCorrelativo(numOnly);
       setAlertaActaVisible(false);
+    } else if (scannerTarget.startsWith("extra_instalado_")) {
+      const extraId = scannerTarget.replace("extra_instalado_", "");
+      setEquiposAdicionales((prev) =>
+        prev.map((it) => (it.id === extraId ? { ...it, snInstalado: clean } : it))
+      );
+    } else if (scannerTarget.startsWith("extra_retirado_")) {
+      const extraId = scannerTarget.replace("extra_retirado_", "");
+      setEquiposAdicionales((prev) =>
+        prev.map((it) => (it.id === extraId ? { ...it, snRetirado: clean } : it))
+      );
     }
   };
 
@@ -665,7 +684,7 @@ export const TechnicalActModal: React.FC<Props> = ({
             if (res.materiales && res.materiales.length > 0) {
               const soloConsumiblesGuardados = res.materiales.filter((m: any) => {
                 const nom = String(m.nombre || "").toUpperCase().trim();
-                return m.es_drop !== 1 && Number(m.id_producto) !== 55 && nom !== "DROP" && !nom.includes("CABLE DROP") && !nom.includes("FIBRA DROP");
+                return m.es_drop !== 1 && Number(m.id_producto) !== 55 && nom !== "DROP" && !nom.includes("CABLE DROP") && !nom.includes("FIBRA DROP") && !m.numero_serie;
               });
               setMateriales(
                 soloConsumiblesGuardados.map((m: any) => ({
@@ -675,12 +694,42 @@ export const TechnicalActModal: React.FC<Props> = ({
                   unidad: "UND",
                 }))
               );
+
+              // Cargar series de equipos instalados
+              const equiposConSerie = res.materiales.filter((m: any) => m.numero_serie);
+              if (equiposConSerie.length > 0) {
+                setSnOntInstalado(equiposConSerie[0].numero_serie);
+              }
             }
 
             if (res.equiposRetirados && res.equiposRetirados.length > 0) {
               const primerRet = res.equiposRetirados[0];
               setSnOntRetirado(primerRet.numero_serie || "");
               setMotivoOntRetiro(primerRet.motivo_retiro || "");
+
+              // Si hay más de 1 equipo recogido o instalado, poblar equiposAdicionales
+              const maxExtra = Math.max(
+                (res.equiposRetirados.length || 1) - 1,
+                ((res.materiales?.filter((m: any) => m.numero_serie)?.length || 1) - 1)
+              );
+
+              if (maxExtra > 0) {
+                const extras: EquipoExtraItem[] = [];
+                const seriesInstExtra = (res.materiales || []).filter((m: any) => m.numero_serie).slice(1);
+                const seriesRetExtra = (res.equiposRetirados || []).slice(1);
+
+                for (let k = 0; k < maxExtra; k++) {
+                  const inst = seriesInstExtra[k];
+                  const ret = seriesRetExtra[k];
+                  extras.push({
+                    id: String(k + 1),
+                    snInstalado: inst?.numero_serie || ret?.serie_instalada || "",
+                    snRetirado: ret?.numero_serie || "",
+                    motivoRetiro: ret?.motivo_retiro || "Cambio / Avería",
+                  });
+                }
+                setEquiposAdicionales(extras);
+              }
             }
           }
         })
@@ -1217,6 +1266,27 @@ export const TechnicalActModal: React.FC<Props> = ({
       }
     }
 
+    // Validación estricta para equipos adicionales (2do o 3er Winbox / Mesh)
+    for (let k = 0; k < equiposAdicionales.length; k++) {
+      const eqExtra = equiposAdicionales[k];
+      if (eqExtra.snInstalado) {
+        const cleanExtra = eqExtra.snInstalado.trim().replace(/^(?:S\/N|SN|SERIE)[:\s-]+/i, "").trim().toUpperCase();
+        const serieValida = seriesAsignadasTecnico.some((s: any) => {
+          const num = String(s.numero_serie || "").trim().replace(/^(?:S\/N|SN|SERIE)[:\s-]+/i, "").trim().toUpperCase();
+          return num === cleanExtra || num.endsWith(cleanExtra) || cleanExtra.endsWith(num);
+        });
+
+        if (!serieValida) {
+          alert(
+            `❌ SERIE DE EQUIPO ADICIONAL (#${k + 2}) NO ASIGNADA AL TÉCNICO:\n\n` +
+            `La serie "${cleanExtra}" no se encuentra en la dotación de equipos asignados a este técnico en Almacén.\n\n` +
+            `Por favor verifica la serie correcta del equipo o solicita su despacho/asignación a Almacén.`
+          );
+          return;
+        }
+      }
+    }
+
     try {
       setGuardando(true);
       const gps = await getGps();
@@ -1231,16 +1301,22 @@ export const TechnicalActModal: React.FC<Props> = ({
       }
 
       const tipoEquipoDetectado = isFono ? "FONOWIN" : isMesh ? "MESH" : isTvBox ? "TV_BOX" : "ONT";
-      const equiposInstaladosPayload = [];
+      const equiposInstaladosPayload: any[] = [];
       if (snOntInstalado) equiposInstaladosPayload.push({ numero_serie: snOntInstalado, tipo_equipo: tipoEquipoDetectado });
       if (snMeshInstalado) equiposInstaladosPayload.push({ numero_serie: snMeshInstalado, tipo_equipo: "MESH" });
+      equiposAdicionales.forEach((eqExtra) => {
+        if (eqExtra.snInstalado) {
+          equiposInstaladosPayload.push({ numero_serie: eqExtra.snInstalado, tipo_equipo: tipoEquipoDetectado });
+        }
+      });
 
-      const equiposRetiradosPayload = [];
+      const equiposRetiradosPayload: any[] = [];
       if (snOntRetirado) {
         equiposRetiradosPayload.push({
           tipo_equipo: tipoEquipoDetectado,
           numero_serie: snOntRetirado,
           motivo_retiro: motivoOntRetiro || "Cambio / Avería",
+          serie_instalada_relacionada: snOntInstalado || undefined,
         });
       }
       if (snMeshRetirado) {
@@ -1248,8 +1324,19 @@ export const TechnicalActModal: React.FC<Props> = ({
           tipo_equipo: "MESH",
           numero_serie: snMeshRetirado,
           motivo_retiro: "Cambio / Devolución",
+          serie_instalada_relacionada: snMeshInstalado || undefined,
         });
       }
+      equiposAdicionales.forEach((eqExtra) => {
+        if (eqExtra.snRetirado) {
+          equiposRetiradosPayload.push({
+            tipo_equipo: tipoEquipoDetectado,
+            numero_serie: eqExtra.snRetirado,
+            motivo_retiro: eqExtra.motivoRetiro || "Cambio / Avería",
+            serie_instalada_relacionada: eqExtra.snInstalado || undefined,
+          });
+        }
+      });
 
       const finalTrabajadorId =
         idTrabajadorActual ||
@@ -2049,6 +2136,151 @@ export const TechnicalActModal: React.FC<Props> = ({
                     )}
                   </div>
                 </div>
+
+                {/* Equipos Adicionales (ej: 2do Winbox, 3er Winbox, Mesh adicional) */}
+                {equiposAdicionales.map((eqExtra, idx) => (
+                  <div key={eqExtra.id} className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white p-3 rounded-xl border border-indigo-200/80 shadow-xs relative">
+                    <div className="sm:col-span-2 flex items-center justify-between pb-1 border-b border-indigo-50">
+                      <span className="text-[11px] font-black text-indigo-900 flex items-center gap-1.5">
+                        <span className="w-4 h-4 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[9px] font-extrabold">
+                          {idx + 2}
+                        </span>
+                        Equipo Adicional #{idx + 2} ({eqTipoNombre})
+                      </span>
+                      {!isAlreadyLiquidated && (
+                        <button
+                          type="button"
+                          onClick={() => setEquiposAdicionales((prev) => prev.filter((it) => it.id !== eqExtra.id))}
+                          className="text-[11px] text-rose-500 hover:text-rose-700 hover:bg-rose-50 px-2 py-0.5 rounded font-bold transition-colors cursor-pointer flex items-center gap-1"
+                          title="Quitar este equipo adicional"
+                        >
+                          <Trash2 size={12} />
+                          <span>Quitar</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block mb-1 text-slate-600 font-bold flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1">
+                          <ArrowUpRight size={14} className="text-emerald-600" />
+                          S/N #{idx + 2} Instalado
+                        </span>
+                        {!isAlreadyLiquidated && (
+                          <span className="text-[10px] text-emerald-700 font-medium bg-emerald-50 px-1.5 py-0.5 rounded">
+                            Cámara o Digitar
+                          </span>
+                        )}
+                      </label>
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          list="ont-asignadas-list"
+                          placeholder={`Serie instalada #${idx + 2}...`}
+                          disabled={isAlreadyLiquidated}
+                          value={eqExtra.snInstalado}
+                          onChange={(e) => {
+                            const val = e.target.value.toUpperCase();
+                            setEquiposAdicionales((prev) =>
+                              prev.map((it) => (it.id === eqExtra.id ? { ...it, snInstalado: val } : it))
+                            );
+                          }}
+                          className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:bg-white font-bold disabled:bg-slate-100"
+                        />
+                        {!isAlreadyLiquidated && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              abrirEscaner(
+                                `extra_instalado_${eqExtra.id}`,
+                                `Escanear #${idx + 2} Instalado`,
+                                `Apunta al código de barras del equipo #${idx + 2}`
+                              )
+                            }
+                            className="px-2.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-xs"
+                            title="Escanear con la cámara del celular"
+                          >
+                            <Camera size={14} />
+                            <span className="hidden sm:inline">Cámara</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block mb-1 text-slate-600 font-bold flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1">
+                          <ArrowDownLeft size={14} className="text-rose-600" />
+                          S/N #{idx + 2} Retirado (Recogido)
+                        </span>
+                        {!isAlreadyLiquidated && (
+                          <span className="text-[10px] text-rose-700 font-medium bg-rose-50 px-1.5 py-0.5 rounded">
+                            Cámara o Digitar
+                          </span>
+                        )}
+                      </label>
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          placeholder={`Serie retirada #${idx + 2}...`}
+                          disabled={isAlreadyLiquidated}
+                          value={eqExtra.snRetirado}
+                          onChange={(e) => {
+                            const val = e.target.value.toUpperCase();
+                            setEquiposAdicionales((prev) =>
+                              prev.map((it) => (it.id === eqExtra.id ? { ...it, snRetirado: val } : it))
+                            );
+                          }}
+                          className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:bg-white font-bold text-rose-800 disabled:bg-slate-100"
+                        />
+                        {!isAlreadyLiquidated && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              abrirEscaner(
+                                `extra_retirado_${eqExtra.id}`,
+                                `Escanear #${idx + 2} Retirado`,
+                                `Apunta al código del equipo recogido #${idx + 2}`
+                              )
+                            }
+                            className="px-2.5 py-2 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-xs"
+                            title="Escanear con la cámara del celular"
+                          >
+                            <Camera size={14} />
+                            <span className="hidden sm:inline">Cámara</span>
+                          </button>
+                        )}
+                      </div>
+                      {eqExtra.motivoRetiro && (
+                        <span className="text-[10px] text-slate-500 mt-1 block">Motivo: {eqExtra.motivoRetiro}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {/* Botón para agregar otro equipo (ej: 2do Winbox / Mesh) */}
+                {!isAlreadyLiquidated && (
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEquiposAdicionales((prev) => [
+                          ...prev,
+                          {
+                            id: Date.now().toString(),
+                            snInstalado: "",
+                            snRetirado: "",
+                            motivoRetiro: "Cambio / Avería",
+                          },
+                        ])
+                      }
+                      className="px-3 py-1.5 bg-indigo-100/80 hover:bg-indigo-600 hover:text-white text-indigo-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-indigo-200 shadow-2xs active:scale-95"
+                    >
+                      <Plus size={14} />
+                      <span>+ Agregar otro equipo ({eqTipoNombre})</span>
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               !isAlreadyLiquidated && (

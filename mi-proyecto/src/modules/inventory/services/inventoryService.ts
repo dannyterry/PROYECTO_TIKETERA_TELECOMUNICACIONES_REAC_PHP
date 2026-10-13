@@ -267,6 +267,14 @@ export const getActasTecnicos = async (): Promise<ActaTecnicoResumen[]> => {
   return res.data;
 };
 
+export const getOrdenesPendientesTecnico = async (
+  idTrabajador: number | string,
+  params?: { desde?: string; hasta?: string; search?: string }
+) => {
+  const res = await api.get(`/almacen/ordenes-pendientes-tecnico/${idTrabajador}`, { params });
+  return res.data;
+};
+
 export const getProductoSeries = async (idProducto: number | string): Promise<any> => {
   const res = await api.get(`/almacen/producto-series/${idProducto}`);
   return res.data;

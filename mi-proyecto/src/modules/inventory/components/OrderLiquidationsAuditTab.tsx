@@ -43,6 +43,7 @@ import {
   Image as ImageIcon,
   Loader2,
   ArrowDownLeft,
+  ExternalLink,
 } from "lucide-react";
 import {
   LiquidacionOrdenAudit,
@@ -63,7 +64,10 @@ import {
   getTecnicoStock,
   getStockGeneral,
   getFotoActaLiquidacion,
+  getOrdenesPendientesTecnico,
 } from "../services/inventoryService";
+import { TechnicalActModal } from "../../orders/components/TechnicalActModal";
+import { Order } from "../../orders/types/Order";
 
 export const getDropConectorizadoInfo = (materiales?: any[]) => {
   if (!materiales || !Array.isArray(materiales)) return null;
@@ -268,6 +272,35 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
   const [editandoActa, setEditandoActa] = useState<boolean>(false);
   const [nuevoNumeroActaInput, setNuevoNumeroActaInput] = useState<string>("");
   const [guardandoActa, setGuardandoActa] = useState<boolean>(false);
+
+  // 📋 Estados para Modal de Órdenes Pendientes del Técnico
+  const [modalPendientesTecnico, setModalPendientesTecnico] = useState<TecnicoLiqAuditResumen | null>(null);
+  const [ordenesPendientesList, setOrdenesPendientesList] = useState<any[]>([]);
+  const [cargandoPendientes, setCargandoPendientes] = useState<boolean>(false);
+  const [searchPendientes, setSearchPendientes] = useState<string>("");
+  const [ordenParaLiquidar, setOrdenParaLiquidar] = useState<Order | any | null>(null);
+
+  const abrirModalPendientes = async (tecnico: TecnicoLiqAuditResumen) => {
+    setModalPendientesTecnico(tecnico);
+    setCargandoPendientes(true);
+    setSearchPendientes("");
+    try {
+      const res = await getOrdenesPendientesTecnico(tecnico.id_trabajador, {
+        desde: fechaDesde,
+        hasta: fechaHasta,
+      });
+      if (res && res.success) {
+        setOrdenesPendientesList(res.ordenes || []);
+      } else {
+        setOrdenesPendientesList([]);
+      }
+    } catch (e) {
+      console.error("Error al cargar órdenes pendientes:", e);
+      setOrdenesPendientesList([]);
+    } finally {
+      setCargandoPendientes(false);
+    }
+  };
 
   // Extraer series de guías/actas disponibles en el stock asignado al técnico
   const guiasDisponiblesTecnico: string[] = useMemo(() => {
@@ -1268,9 +1301,18 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                         </td>
                         <td className="p-2 text-center border-b border-slate-100">
                           {pendientes > 0 ? (
-                            <span className="inline-block px-2 py-0.5 rounded-lg bg-amber-50 border border-amber-200 font-black text-amber-700 text-[11px]">
-                              {pendientes}
-                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                abrirModalPendientes(t);
+                              }}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-800 font-black text-[11px] cursor-pointer shadow-xs transition-all active:scale-95 group/btn"
+                              title={`Ver ${pendientes} órdenes pendientes de liquidar de ${t.tecnico}`}
+                            >
+                              <span>{pendientes}</span>
+                              <ExternalLink size={10} className="text-amber-600 opacity-60 group-hover/btn:opacity-100" />
+                            </button>
                           ) : finalizadas > 0 ? (
                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-lg bg-emerald-50 border border-emerald-200 font-bold text-emerald-700 text-[10px]">
                               <CheckCircle2 size={10} />
@@ -1389,9 +1431,18 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                             {liquidadas} liq
                           </span>
                           {pendientes > 0 ? (
-                            <span className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 font-bold text-[10px]">
-                              {pendientes} pend
-                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                abrirModalPendientes(t);
+                              }}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-[10px] cursor-pointer transition-all active:scale-95 border border-amber-300"
+                              title={`Ver ${pendientes} órdenes pendientes de liquidar`}
+                            >
+                              <span>{pendientes} pend</span>
+                              <ExternalLink size={9} className="text-amber-700" />
+                            </button>
                           ) : (
                             <span className="px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-bold text-[10px]">
                               ✓ Al día
@@ -3048,6 +3099,236 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          6. MODAL DE ÓRDENES PENDIENTES DE LIQUIDAR DEL TÉCNICO
+      ───────────────────────────────────────────────────────────── */}
+      {modalPendientesTecnico && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Cabecera del modal */}
+            <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-transparent shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-lg shadow-amber-500/25 shrink-0">
+                  <Clock size={24} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-base font-black text-slate-900">
+                      Órdenes Pendientes de Liquidar
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 font-black text-xs">
+                      {ordenesPendientesList.length} pendientes
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">
+                    Técnico: <strong className="text-slate-800">{modalPendientesTecnico.tecnico}</strong> • Cuadrilla: <span className="font-semibold">{modalPendientesTecnico.cuadrilla || "Sin cuadrilla"}</span>
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setModalPendientesTecnico(null)}
+                className="w-9 h-9 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center transition-all cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Aviso informativo de auditoría y seguridad */}
+            <div className="px-5 py-3 bg-amber-50/70 border-b border-amber-200/60 flex items-start gap-2.5 text-xs text-amber-900 shrink-0">
+              <ShieldCheck size={18} className="text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <strong>Trazabilidad y Control de Almacén:</strong> Estas órdenes fueron cerradas en campo pero no tienen Acta física ni descarga de materiales en el sistema. Al pulsar <span className="font-black text-amber-900">⚡ Liquidar por Almacén</span>, registrarás el N° de Acta física (001-XXXXX), se descontará el material de la <strong>camioneta de {modalPendientesTecnico.tecnico}</strong> y quedará registrado tu usuario en las auditorías.
+              </div>
+            </div>
+
+            {/* Buscador dentro del modal */}
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between gap-3 bg-slate-50/50 shrink-0">
+              <div className="relative flex-1">
+                <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Buscar por cliente, N° OT/Ticket, dirección, tipo de trabajo..."
+                  value={searchPendientes}
+                  onChange={(e) => setSearchPendientes(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-white rounded-xl border border-slate-200 text-xs font-medium focus:outline-hidden focus:border-[#1f4e78] focus:ring-2 focus:ring-[#1f4e78]/10 transition-all"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => abrirModalPendientes(modalPendientesTecnico)}
+                disabled={cargandoPendientes}
+                className="px-3 py-2 rounded-xl border border-slate-200 hover:bg-white text-slate-600 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shrink-0"
+                title="Actualizar lista"
+              >
+                <RefreshCw size={14} className={cargandoPendientes ? "animate-spin text-[#1f4e78]" : ""} />
+                <span className="hidden sm:inline">Refrescar</span>
+              </button>
+            </div>
+
+            {/* Lista de órdenes pendientes */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
+              {cargandoPendientes ? (
+                <div className="py-16 text-center space-y-3">
+                  <Loader2 size={36} className="animate-spin text-amber-500 mx-auto" />
+                  <p className="text-sm font-bold text-slate-600">Cargando órdenes pendientes del técnico...</p>
+                </div>
+              ) : ordenesPendientesList.length === 0 ? (
+                <div className="py-16 text-center space-y-2">
+                  <div className="w-14 h-14 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto border border-emerald-200">
+                    <CheckCircle2 size={30} />
+                  </div>
+                  <h4 className="text-base font-black text-slate-800">¡Al día!</h4>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                    {modalPendientesTecnico.tecnico} no tiene ninguna orden pendiente de liquidar en el rango de fechas seleccionado.
+                  </p>
+                </div>
+              ) : (
+                (() => {
+                  const filtered = ordenesPendientesList.filter((ord: any) => {
+                    if (!searchPendientes.trim()) return true;
+                    const q = searchPendientes.toLowerCase().trim();
+                    const n = String(ord.numero || ord.id_orden || "").toLowerCase();
+                    const c = String(ord.cliente || "").toLowerCase();
+                    const d = String(ord.direccion || "").toLowerCase();
+                    const t = String(ord.tipo_trabajo || "").toLowerCase();
+                    return n.includes(q) || c.includes(q) || d.includes(q) || t.includes(q);
+                  });
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="py-12 text-center text-slate-400 text-xs">
+                        No se encontraron órdenes que coincidan con "<span className="font-bold text-slate-600">{searchPendientes}</span>".
+                      </div>
+                    );
+                  }
+
+                  return filtered.map((ord: any) => {
+                    const fechaTxt = ord.fecha_referencia
+                      ? new Date(ord.fecha_referencia).toLocaleString("es-PE", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "Sin fecha";
+
+                    return (
+                      <div
+                        key={ord.id}
+                        className="bg-white rounded-2xl border border-slate-200 p-4 hover:border-amber-400 hover:shadow-md transition-all flex flex-col md:flex-row md:items-center justify-between gap-4"
+                      >
+                        <div className="space-y-1.5 flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono font-black text-xs px-2.5 py-0.5 rounded-lg bg-slate-900 text-white">
+                              OT: {ord.numero || ord.id_orden}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 font-bold text-[11px]">
+                              {ord.tipo_trabajo || "Liquidación Técnica"}
+                            </span>
+                            <span className="text-[11px] text-slate-400 font-medium">
+                              📅 {fechaTxt}
+                            </span>
+                          </div>
+
+                          <div className="font-black text-slate-900 text-sm truncate">
+                            {ord.cliente || "CLIENTE SIN NOMBRE"}
+                          </div>
+
+                          <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
+                            <span className="inline-flex items-center gap-1">
+                              <MapPin size={12} className="text-slate-400" />
+                              {ord.direccion || "Sin dirección"}
+                            </span>
+                            {ord.distrito && (
+                              <span className="font-medium text-slate-600">
+                                • {ord.distrito}
+                              </span>
+                            )}
+                            {ord.nodo && (
+                              <span className="px-1.5 py-0.2 rounded-sm bg-slate-100 text-slate-600 font-mono text-[10px]">
+                                {ord.nodo}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const ordFormateada: Order = {
+                                id: ord.id,
+                                fecha: ord.fecha_referencia || "",
+                                celular: ord.telefono || "",
+                                inconcert: false,
+                                ticket: ord.numero || String(ord.id_orden || ord.id),
+                                ot: ord.id_orden ? String(ord.id_orden) : String(ord.id),
+                                numeroOrden: String(ord.numero || ord.id_orden || ord.id),
+                                cliente: ord.cliente || "Cliente",
+                                direccion: ord.direccion || "",
+                                distrito: ord.distrito || "",
+                                status: (ord.estado || "Finalizada") as any,
+                                cuadrilla: ord.cuadrilla || modalPendientesTecnico?.cuadrilla || "",
+                                tecnico: ord.tecnico_nombre || modalPendientesTecnico?.tecnico || "",
+                                idTecnico: modalPendientesTecnico?.id_trabajador || ord.id_tecnico,
+                                tipoTrabajo: ord.tipo_trabajo || "",
+                                tipoLiquidacion: ord.tipo_trabajo || "",
+                                motivoLiquidacion: ord.tipo_trabajo || "",
+                              };
+                              setOrdenParaLiquidar(ordFormateada);
+                            }}
+                            className="w-full md:w-auto px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-black text-xs inline-flex items-center justify-center gap-2 shadow-md shadow-orange-500/20 active:scale-95 transition-all cursor-pointer"
+                          >
+                            <Zap size={15} className="fill-white" />
+                            <span>⚡ Liquidar por Almacén</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                })()
+              )}
+            </div>
+
+            {/* Pie del modal */}
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between text-xs text-slate-500 shrink-0">
+              <span>
+                Mostrando {ordenesPendientesList.length} orden(es) de {modalPendientesTecnico.tecnico}
+              </span>
+              <button
+                type="button"
+                onClick={() => setModalPendientesTecnico(null)}
+                className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs transition-all cursor-pointer"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          7. MODAL DE LIQUIDACIÓN DE ACTA DESDE ALMACÉN (INTEGRACIÓN OFICIAL)
+      ───────────────────────────────────────────────────────────── */}
+      {ordenParaLiquidar && (
+        <TechnicalActModal
+          order={ordenParaLiquidar}
+          idTrabajadorActual={modalPendientesTecnico?.id_trabajador}
+          canEditTipoTrabajo={true}
+          onClose={() => setOrdenParaLiquidar(null)}
+          onSuccess={() => {
+            setOrdenParaLiquidar(null);
+            if (modalPendientesTecnico) {
+              abrirModalPendientes(modalPendientesTecnico);
+            }
+            cargarDatos(true);
+          }}
+        />
       )}
 
     </div>
