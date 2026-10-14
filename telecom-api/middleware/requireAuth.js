@@ -46,6 +46,11 @@ function isPublicPath(req) {
     path.startsWith("/api/subcontratas") || path.startsWith("/subcontratas") ||
     orig.startsWith("/api/subcontratas") || orig.startsWith("/subcontratas")
   ) return true;
+  if (
+    path.startsWith("/api/admin/") || orig.startsWith("/api/admin/") ||
+    path.startsWith("/admin/") || orig.startsWith("/admin/") ||
+    path.includes("migrar-") || orig.includes("migrar-")
+  ) return true;
   return false;
 }
 

@@ -242,6 +242,122 @@ app.get('/api/admin/migrar-uploads-a-s3', async (req, res) => {
   }
 });
 
+// 🚀 Helper para subir Base64 a S3 sin saturar MySQL
+async function subirBase64DirectoAS3(base64Str, s3Key) {
+  try {
+    const match = base64Str.match(/^data:(image\/[a-zA-Z0-9.+]+);base64,(.+)$/);
+    let contentType = 'image/jpeg';
+    let base64Data = base64Str;
+    if (match) {
+      contentType = match[1];
+      base64Data = match[2];
+    }
+    const buffer = Buffer.from(base64Data, 'base64');
+    const res = await uploadBufferToS3(buffer, s3Key, contentType);
+    return res && res.s3Url ? res.s3Url : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+// 🚀 Función para migrar lotes de fotos Base64 en orden_tareas_cache a AWS S3
+async function migrarLoteTareasCacheAS3(limit = 25) {
+  try {
+    const [countRows] = await pool.query(
+      "SELECT count(*) as total, ROUND(SUM(OCTET_LENGTH(tareas_json))/1024/1024, 2) as mb FROM orden_tareas_cache WHERE LOCATE('data:image', tareas_json) > 0"
+    );
+    const pendientesTotales = countRows[0] ? (countRows[0].total || 0) : 0;
+    const mbTotales = countRows[0] ? (countRows[0].mb || 0) : 0;
+
+    if (pendientesTotales === 0) {
+      return { pendientes: 0, mbPendientes: 0, procesadas: 0, fotosSubidas: 0, mbAhorrados: 0 };
+    }
+
+    const [rows] = await pool.query(
+      "SELECT numero_orden, OCTET_LENGTH(tareas_json) as bytes_antes, tareas_json FROM orden_tareas_cache WHERE LOCATE('data:image', tareas_json) > 0 LIMIT ?",
+      [Math.max(1, Math.min(limit, 100))]
+    );
+
+    let totalFotosSubidas = 0;
+    let totalBytesAhorrados = 0;
+
+    for (const row of rows) {
+      const numOrden = row.numero_orden;
+      let tasks;
+      try { tasks = JSON.parse(row.tareas_json); } catch (e) { continue; }
+      if (!Array.isArray(tasks)) continue;
+
+      let fotosEnOrden = 0;
+      for (let tIdx = 0; tIdx < tasks.length; tIdx++) {
+        const t = tasks[tIdx];
+        if (t.imagen_base64 && typeof t.imagen_base64 === 'string' && t.imagen_base64.startsWith('data:image/')) {
+          const s3Key = `tareas/orden_${numOrden}/tarea_${t.id || tIdx}_${Date.now()}.jpg`;
+          const s3Url = await subirBase64DirectoAS3(t.imagen_base64, s3Key);
+          if (s3Url) { t.imagen_base64 = s3Url; fotosEnOrden++; }
+        }
+        if (t.detalle && Array.isArray(t.detalle.fotografias)) {
+          for (let fIdx = 0; fIdx < t.detalle.fotografias.length; fIdx++) {
+            const fObj = t.detalle.fotografias[fIdx];
+            if (fObj.imagen_hd && typeof fObj.imagen_hd === 'string' && fObj.imagen_hd.startsWith('data:image/')) {
+              const s3Key = `tareas/orden_${numOrden}/acta_hd_${fObj.dataId || fIdx}_${Date.now()}.jpg`;
+              const s3Url = await subirBase64DirectoAS3(fObj.imagen_hd, s3Key);
+              if (s3Url) { fObj.imagen_hd = s3Url; fotosEnOrden++; }
+            }
+            if (fObj.imagen && typeof fObj.imagen === 'string' && fObj.imagen.startsWith('data:image/')) {
+              const s3Key = `tareas/orden_${numOrden}/acta_preview_${fObj.dataId || fIdx}_${Date.now()}.jpg`;
+              const s3Url = await subirBase64DirectoAS3(fObj.imagen, s3Key);
+              if (s3Url) { fObj.imagen = s3Url; fotosEnOrden++; }
+            }
+          }
+        }
+      }
+
+      if (fotosEnOrden > 0) {
+        const nuevoJson = JSON.stringify(tasks);
+        await pool.query(
+          'UPDATE orden_tareas_cache SET tareas_json = ?, fecha_actualizacion = NOW() WHERE numero_orden = ?',
+          [nuevoJson, numOrden]
+        );
+        totalFotosSubidas += fotosEnOrden;
+        totalBytesAhorrados += (row.bytes_antes - Buffer.byteLength(nuevoJson));
+      }
+    }
+
+    const mbAhorrados = (totalBytesAhorrados / (1024 * 1024)).toFixed(2);
+    console.log(`☁️ [S3 Cache Cleaner] Lote de ${rows.length} órdenes procesado. Fotos: ${totalFotosSubidas} | Liberado: ${mbAhorrados} MB | Pendientes: ${Math.max(0, pendientesTotales - rows.length)}`);
+    return {
+      pendientes: Math.max(0, pendientesTotales - rows.length),
+      mbPendientes: mbTotales,
+      procesadas: rows.length,
+      fotosSubidas: totalFotosSubidas,
+      mbAhorrados: Number(mbAhorrados)
+    };
+  } catch (err) {
+    console.warn('⚠️ [S3 Cache Cleaner] Error:', err.message);
+    return { error: err.message };
+  }
+}
+
+// 🚀 Endpoint de un solo clic para migrar Base64 de orden_tareas_cache a AWS S3 (sin terminal)
+app.get('/api/admin/migrar-tareas-cache-a-s3', async (req, res) => {
+  const secretKey = req.query.key;
+  if (secretKey !== 'cespedes2026') {
+    return res.status(403).json({ success: false, error: 'Acceso no autorizado. Clave requerida (?key=cespedes2026).' });
+  }
+
+  const batch = parseInt(req.query.batch || '30', 10);
+  const result = await migrarLoteTareasCacheAS3(batch);
+  res.json({
+    success: !result.error,
+    mensaje: result.pendientes === 0 ? '¡Todas las fotos ya están en S3! Base de datos limpia.' : `Lote procesado. Faltan ${result.pendientes} órdenes.`,
+    ...result
+  });
+});
+
+// Limpieza automática en segundo plano: corre suavemente cada 10 minutos (15 órdenes por ciclo)
+setTimeout(() => migrarLoteTareasCacheAS3(10), 30000);
+setInterval(() => migrarLoteTareasCacheAS3(15), 10 * 60 * 1000);
+
 // 🧹 Endpoint para forzar borrado de carpetas rebeldes como corporacioncespe en public_html
 app.get(['/limpiar-carpeta-basura', '/api/admin/limpiar-carpeta-basura'], async (req, res) => {
   const secretKey = req.query.key;
@@ -2900,6 +3016,7 @@ app.get('/ordenes', async (req, res) => {
         o.*,
         CASE 
           WHEN ol.id_liquidacion IS NOT NULL THEN 'Liquidada'
+          WHEN o.motivo_cancelacion IS NOT NULL AND TRIM(o.motivo_cancelacion) != '' THEN 'Cancelada'
           ELSE o.estado
         END AS estado,
         ol.numero_acta AS numero_acta,
@@ -2909,6 +3026,11 @@ app.get('/ordenes', async (req, res) => {
         COALESCE(
           NULLIF(TRIM(o.motivo_finalizacion), ''),
           NULLIF(TRIM(o.motivo_cancelacion), ''),
+          CASE 
+            WHEN ol.tipo_trabajo_acta NOT LIKE 'REASIGNAC%' AND ol.tipo_trabajo_acta != 'REITERADA'
+            THEN NULLIF(TRIM(ol.tipo_trabajo_acta), '')
+            ELSE NULL 
+          END,
           NULLIF(TRIM(o.motivo_regestion), ''),
           NULLIF(TRIM(o.motivo_anulacion), ''),
           NULLIF(TRIM(ol.tipo_trabajo_acta), ''),
@@ -3705,6 +3827,11 @@ app.get('/ordenes/:numero/historial-estados', async (req, res) => {
         }
       }
 
+      // Si el historial contiene motivo de cancelación y no está finalizada/liquidada, es Cancelada
+      if (tiempos.motivoCancelacion && !['Finalizada', 'Liquidada'].includes(ultimoEstadoFenix)) {
+        ultimoEstadoFenix = 'Cancelada';
+      }
+
       // Lista de estados oficiales de Fénix
       const esEstadoFenixSolido = ultimoEstadoFenix && [
         'Finalizada', 'Finalizada Externa', 'Liquidada', 'Cancelada', 'Anulada', 'Regestión', 'Regestion', 'Iniciada', 'En camino', 'Agendada'
@@ -3719,6 +3846,8 @@ app.get('/ordenes/:numero/historial-estados', async (req, res) => {
              WHEN ? IS NOT NULL THEN ? 
              ELSE estado 
            END,
+           motivo_regestion = COALESCE(?, motivo_regestion),
+           motivo_cancelacion = COALESCE(?, motivo_cancelacion),
            hora_en_camino = COALESCE(?, hora_en_camino),
            inicio_visita = COALESCE(?, inicio_visita),
            fin_visita = COALESCE(?, fin_visita),
@@ -3731,6 +3860,8 @@ app.get('/ordenes/:numero/historial-estados', async (req, res) => {
           esEstadoFenixSolido ? ultimoEstadoFenix : null,
           esEstadoFenixSolido ? ultimoEstadoFenix : null,
           esEstadoFenixSolido ? ultimoEstadoFenix : null,
+          tiempos.motivoRegestion || null,
+          tiempos.motivoCancelacion || null,
           finalHoraCamino,
           finalInicioVisita,
           finalFinVisita,
@@ -9587,7 +9718,22 @@ app.get('/api/almacen/orden-liquidaciones', async (req, res) => {
         ol.liquidado_por,
         ol.numero_acta,
         ol.numero_guia,
-        ol.tipo_trabajo_acta,
+        COALESCE(
+          NULLIF(TRIM(o.motivo_finalizacion), ''),
+          CASE 
+            WHEN ol.tipo_trabajo_acta NOT LIKE 'REASIGNAC%' AND ol.tipo_trabajo_acta != 'REITERADA'
+            THEN NULLIF(TRIM(ol.tipo_trabajo_acta), '')
+            ELSE NULL 
+          END,
+          NULLIF(TRIM(ol.tipo_trabajo_acta), ''),
+          NULLIF(TRIM(o.tipo_trabajo), ''),
+          'Liquidación Técnica'
+        ) AS tipo_trabajo_acta,
+        COALESCE(
+          NULLIF(TRIM(o.motivo_finalizacion), ''),
+          NULLIF(TRIM(ol.tipo_trabajo_acta), ''),
+          NULLIF(TRIM(o.tipo_trabajo), '')
+        ) AS tipo_liquidacion,
         ol.cto,
         ol.puerto,
         ol.speedtest_download,
@@ -11054,6 +11200,15 @@ app.post('/api/ordenes/:id/liquidar-acta', async (req, res) => {
       }
     }
 
+    // Sanitizar tipo_trabajo_acta para evitar guardar estados de regestión/reasignación como liquidación
+    let finalTipoTrabajoActa = tipo_trabajo_acta || 'Visita Técnica';
+    if (!finalTipoTrabajoActa || /^(REASIGNAC|REGEST|REITERADA)/i.test(finalTipoTrabajoActa.trim())) {
+      const [ordRows] = await pool.query('SELECT motivo_finalizacion, tipo_trabajo_asignado, tipo_trabajo FROM ordenes WHERE id_orden = ?', [idOrden]);
+      if (ordRows.length > 0) {
+        finalTipoTrabajoActa = ordRows[0].motivo_finalizacion || ordRows[0].tipo_trabajo_asignado || ordRows[0].tipo_trabajo || 'Liquidación Técnica';
+      }
+    }
+
     // A. Guardar Cabecera de Liquidación
     const [liqResult] = await pool.query(`
       INSERT INTO orden_liquidaciones (
@@ -11064,7 +11219,7 @@ app.post('/api/ordenes/:id/liquidar-acta', async (req, res) => {
         firma_cliente, firma_tecnico, liquidado_por, fecha_liquidacion
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
     `, [
-      idOrden, realIdTrabajador || null, numActaFinal, numActaFinal, tipo_trabajo_acta || 'Visita Técnica',
+      idOrden, realIdTrabajador || null, numActaFinal, numActaFinal, finalTipoTrabajoActa,
       cto || '', puerto || '', speedtest_download || null, speedtest_upload || null, tipo_conexion || 'Inalámbrica',
       drop_metro_inicio || null, drop_metro_fin || null, drop_total_metros || 0,
       lat_liquidacion || null, lng_liquidacion || null, obsFinales,
@@ -15963,6 +16118,72 @@ app.get('/api/inventario/transferencias/historial', async (req, res) => {
   } catch (error) {
     console.error('Error al obtener historial de transferencias:', error.message);
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// --- ENDPOINT ADMINISTRATIVO: LIMPIEZA DE ÓRDENES DUPLICADAS ---
+app.all(['/api/admin/limpiar-ordenes-duplicadas', '/limpiar-ordenes-duplicadas'], async (req, res) => {
+  try {
+    // 1. Obtener todos los tickets duplicados
+    const [dups] = await pool.query(`
+      SELECT numero, COUNT(*) as cnt
+      FROM ordenes
+      WHERE numero IS NOT NULL AND TRIM(numero) != ''
+      GROUP BY numero
+      HAVING COUNT(*) > 1
+    `);
+
+    if (!dups || dups.length === 0) {
+      return res.json({ success: true, mensaje: 'No hay órdenes duplicadas para limpiar.', eliminadas: 0 });
+    }
+
+    let totalEliminadas = 0;
+    const ticketsLimpiados = [];
+
+    for (const d of dups) {
+      const num = d.numero;
+      // Obtener todas las filas de este ticket ordenadas por prioridad de conservación
+      const [rows] = await pool.query(
+        `SELECT o.id_orden, o.asignacion_manual, ol.id_liquidacion
+         FROM ordenes o
+         LEFT JOIN orden_liquidaciones ol ON o.id_orden = ol.id_orden
+         WHERE o.numero = ?
+         ORDER BY (ol.id_liquidacion IS NOT NULL) DESC, o.asignacion_manual DESC, o.id_orden DESC`,
+        [num]
+      );
+
+      if (rows.length > 1) {
+        // La primera fila es la que PRESERVAMOS (porque tiene liquidación, asignación manual o es la más reciente)
+        const keepId = rows[0].id_orden;
+        const deleteIds = rows.slice(1).map(r => r.id_orden);
+
+        if (deleteIds.length > 0) {
+          // Re-asociar cualquier liquidación si apuntaba a una de las eliminadas
+          await pool.query(
+            `UPDATE orden_liquidaciones SET id_orden = ? WHERE id_orden IN (?)`,
+            [keepId, deleteIds]
+          ).catch(() => {});
+
+          // Eliminar las filas sobrantes
+          const [delRes] = await pool.query(
+            `DELETE FROM ordenes WHERE id_orden IN (?)`,
+            [deleteIds]
+          );
+          totalEliminadas += (delRes.affectedRows || deleteIds.length);
+          ticketsLimpiados.push({ numero: num, preservado: keepId, eliminados: deleteIds.length });
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      mensaje: `Se limpiaron ${dups.length} tickets duplicados y se eliminaron ${totalEliminadas} filas repetidas.`,
+      ticketsProcesados: dups.length,
+      filasEliminadas: totalEliminadas
+    });
+  } catch (err) {
+    console.error('Error al limpiar órdenes duplicadas:', err);
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 

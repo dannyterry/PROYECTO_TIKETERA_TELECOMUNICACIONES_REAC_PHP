@@ -799,78 +799,90 @@ async function guardarOrdenesEnBD(ordenes) {
         }
       }
 
-      // 1. Intentar UPDATE blindado (si gestión ya asignó manualmente con asignacion_manual = 1, PRESERVAR id_tecnico, tecnico_asignado y cuadrilla)
-      const [updateRes] = await pool.query(
-        `UPDATE ordenes SET
-          fecha_solicitud = COALESCE(?, fecha_solicitud),
-          cliente = COALESCE(?, cliente),
-          inicio_visita = COALESCE(?, inicio_visita),
-          fin_visita = COALESCE(?, fin_visita),
-          hora_en_camino = COALESCE(?, hora_en_camino),
-          hora_asignacion = COALESCE(?, hora_asignacion),
-          motivo_finalizacion = COALESCE(?, motivo_finalizacion),
-          datos_tecnicos = COALESCE(?, datos_tecnicos),
-          tipo_trabajo_asignado = COALESCE(tipo_trabajo_asignado, ?),
-          tipo_trabajo = COALESCE(tipo_trabajo, ?),
-          georeferencia = COALESCE(?, georeferencia),
-          motivo_cancelacion = COALESCE(?, motivo_cancelacion),
-          numero_documento = COALESCE(?, numero_documento),
-          movil = COALESCE(?, movil),
-          codigo_seguimiento = COALESCE(?, codigo_seguimiento),
-          region_zona = COALESCE(?, region_zona),
-          fecha_visita = COALESCE(?, ?, fecha_visita),
-          cod_seguimiento_cliente = COALESCE(?, cod_seguimiento_cliente),
-          estado = CASE 
-            WHEN UPPER(estado) = 'LIQUIDADA' OR EXISTS(SELECT 1 FROM orden_liquidaciones ol WHERE ol.id_orden = ordenes.id_orden) THEN 'Liquidada' 
-            WHEN asignacion_manual = 1 AND id_tecnico IS NOT NULL AND ? = 'Finalizada Externa' THEN estado
-            ELSE COALESCE(?, estado) 
-          END,
-          cuadrilla_origen_fenix = COALESCE(?, cuadrilla_origen_fenix),
-          cuadrilla = CASE WHEN asignacion_manual = 1 THEN cuadrilla ELSE COALESCE(?, cuadrilla) END,
-          id_tecnico = CASE WHEN asignacion_manual = 1 THEN id_tecnico ELSE COALESCE(?, id_tecnico) END,
-          tecnico_asignado = CASE WHEN asignacion_manual = 1 THEN tecnico_asignado ELSE COALESCE(?, tecnico_asignado) END,
-          tipo_orden = COALESCE(?, tipo_orden),
-          motivo = COALESCE(?, motivo),
-          ubicacion = COALESCE(?, ubicacion),
-          fecha_estado = COALESCE(?, fecha_estado),
-          motivo_anulacion = COALESCE(?, motivo_anulacion),
-          motivo_regestion = COALESCE(?, motivo_regestion),
-          motivo_suspension = COALESCE(?, motivo_suspension),
-          pais_empresa = COALESCE(?, pais_empresa),
-          email = COALESCE(?, email),
-          tipo_ubicacion = COALESCE(?, tipo_ubicacion),
-          codigo_postal = COALESCE(?, codigo_postal),
-          tipo_documento = COALESCE(?, tipo_documento),
-          producto = COALESCE(NULLIF(?, ''), NULLIF(producto, '')),
-          id_proyecto = COALESCE(?, id_proyecto),
-          proveedor = COALESCE(?, proveedor),
-          localidad = COALESCE(?, localidad),
-          motivo_trabajo = COALESCE(?, motivo_trabajo),
-          prioridad = COALESCE(?, prioridad),
-          historial_estados = COALESCE(?, historial_estados),
-          fijo = COALESCE(?, fijo),
-          sector_operativo = COALESCE(?, sector_operativo),
-          suscripcion = COALESCE(NULLIF(?, ''), NULLIF(suscripcion, '')),
-          usuario_ejecutor_fenix = COALESCE(?, usuario_ejecutor_fenix)
-        WHERE numero = ?`,
-        [
-          o.fecha_solicitud, o.cliente, o.inicio_visita, o.fin_visita,
-          o.hora_en_camino, o.hora_asignacion,
-          o.motivo_finalizacion, o.datos_tecnicos, autoTipoTrabajo || o.tipo_trabajo, autoTipoTrabajo, o.georeferencia,
-          o.motivo_cancelacion, o.numero_documento, o.movil, o.codigo_seguimiento,
-          o.region_zona, o.fecha_visita, o.fecha_solicitud, o.cod_seguimiento_cliente, o.direccion,
-          autoEstado, autoEstado, o.cuadrilla, o.cuadrilla, autoIdTecnico, autoNombreTecnico, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
-          o.motivo_anulacion, o.motivo_regestion, o.motivo_suspension, o.pais_empresa,
-          o.email, o.tipo_ubicacion, o.codigo_postal, o.tipo_documento, o.producto,
-          o.id_proyecto, o.proveedor, o.localidad, o.tipo_trabajo || o.motivo_trabajo, o.prioridad,
-          o.historial_estados, o.fijo, o.sector_operativo, o.suscripcion,
-          o.usuario_ejecutor_fenix,
-          o.numero
-        ]
+      const cleanNumero = String(o.numero || "").trim();
+      if (!cleanNumero) {
+        continue;
+      }
+
+      // 1. Verificar primero si la orden ya existe en la base de datos por su número de ticket
+      const [existingRows] = await pool.query(
+        "SELECT id_orden FROM ordenes WHERE numero = ? LIMIT 1",
+        [cleanNumero]
       );
 
-      // 2. Si no existía fila afectada, INSERTAR con el técnico auto-vinculado y tipo de trabajo oficial
-      if (updateRes.affectedRows === 0) {
+      if (existingRows && existingRows.length > 0) {
+        // 🔄 YA EXISTE: Ejecutar UPDATE blindado (preserva asignaciones manuales de gestión)
+        await pool.query(
+          `UPDATE ordenes SET
+            fecha_solicitud = COALESCE(?, fecha_solicitud),
+            cliente = COALESCE(?, cliente),
+            inicio_visita = COALESCE(?, inicio_visita),
+            fin_visita = COALESCE(?, fin_visita),
+            hora_en_camino = COALESCE(?, hora_en_camino),
+            hora_asignacion = COALESCE(?, hora_asignacion),
+            motivo_finalizacion = COALESCE(?, motivo_finalizacion),
+            datos_tecnicos = COALESCE(?, datos_tecnicos),
+            tipo_trabajo_asignado = COALESCE(tipo_trabajo_asignado, ?),
+            tipo_trabajo = COALESCE(tipo_trabajo, ?),
+            georeferencia = COALESCE(?, georeferencia),
+            motivo_cancelacion = COALESCE(?, motivo_cancelacion),
+            numero_documento = COALESCE(?, numero_documento),
+            movil = COALESCE(?, movil),
+            codigo_seguimiento = COALESCE(?, codigo_seguimiento),
+            region_zona = COALESCE(?, region_zona),
+            fecha_visita = COALESCE(?, ?, fecha_visita),
+            cod_seguimiento_cliente = COALESCE(?, cod_seguimiento_cliente),
+            direccion = COALESCE(?, direccion),
+            estado = CASE 
+              WHEN UPPER(estado) = 'LIQUIDADA' OR EXISTS(SELECT 1 FROM orden_liquidaciones ol WHERE ol.id_orden = ordenes.id_orden) THEN 'Liquidada' 
+              WHEN asignacion_manual = 1 AND id_tecnico IS NOT NULL AND ? = 'Finalizada Externa' THEN estado
+              ELSE COALESCE(?, estado) 
+            END,
+            cuadrilla_origen_fenix = COALESCE(?, cuadrilla_origen_fenix),
+            cuadrilla = CASE WHEN asignacion_manual = 1 THEN cuadrilla ELSE COALESCE(?, cuadrilla) END,
+            id_tecnico = CASE WHEN asignacion_manual = 1 THEN id_tecnico ELSE COALESCE(?, id_tecnico) END,
+            tecnico_asignado = CASE WHEN asignacion_manual = 1 THEN tecnico_asignado ELSE COALESCE(?, tecnico_asignado) END,
+            tipo_orden = COALESCE(?, tipo_orden),
+            motivo = COALESCE(?, motivo),
+            ubicacion = COALESCE(?, ubicacion),
+            fecha_estado = COALESCE(?, fecha_estado),
+            motivo_anulacion = COALESCE(?, motivo_anulacion),
+            motivo_regestion = COALESCE(?, motivo_regestion),
+            motivo_suspension = COALESCE(?, motivo_suspension),
+            pais_empresa = COALESCE(?, pais_empresa),
+            email = COALESCE(?, email),
+            tipo_ubicacion = COALESCE(?, tipo_ubicacion),
+            codigo_postal = COALESCE(?, codigo_postal),
+            tipo_documento = COALESCE(?, tipo_documento),
+            producto = COALESCE(NULLIF(?, ''), NULLIF(producto, '')),
+            id_proyecto = COALESCE(?, id_proyecto),
+            proveedor = COALESCE(?, proveedor),
+            localidad = COALESCE(?, localidad),
+            motivo_trabajo = COALESCE(?, motivo_trabajo),
+            prioridad = COALESCE(?, prioridad),
+            historial_estados = COALESCE(?, historial_estados),
+            fijo = COALESCE(?, fijo),
+            sector_operativo = COALESCE(?, sector_operativo),
+            suscripcion = COALESCE(NULLIF(?, ''), NULLIF(suscripcion, '')),
+            usuario_ejecutor_fenix = COALESCE(?, usuario_ejecutor_fenix)
+          WHERE numero = ?`,
+          [
+            o.fecha_solicitud, o.cliente, o.inicio_visita, o.fin_visita,
+            o.hora_en_camino, o.hora_asignacion,
+            o.motivo_finalizacion, o.datos_tecnicos, autoTipoTrabajo || o.tipo_trabajo, autoTipoTrabajo, o.georeferencia,
+            o.motivo_cancelacion, o.numero_documento, o.movil, o.codigo_seguimiento,
+            o.region_zona, o.fecha_visita, o.fecha_solicitud, o.cod_seguimiento_cliente, o.direccion,
+            autoEstado, autoEstado, o.cuadrilla, o.cuadrilla, autoIdTecnico, autoNombreTecnico, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
+            o.motivo_anulacion, o.motivo_regestion, o.motivo_suspension, o.pais_empresa,
+            o.email, o.tipo_ubicacion, o.codigo_postal, o.tipo_documento, o.producto,
+            o.id_proyecto, o.proveedor, o.localidad, o.tipo_trabajo || o.motivo_trabajo, o.prioridad,
+            o.historial_estados, o.fijo, o.sector_operativo, o.suscripcion,
+            o.usuario_ejecutor_fenix,
+            cleanNumero
+          ]
+        );
+      } else {
+        // ➕ NO EXISTE: Insertar con el técnico auto-vinculado y tipo de trabajo oficial
         await pool.query(
           `INSERT INTO ordenes (
             numero, fecha_solicitud, cliente, inicio_visita, fin_visita,
@@ -885,7 +897,7 @@ async function guardarOrdenesEnBD(ordenes) {
             historial_estados, fijo, sector_operativo, suscripcion, usuario_ejecutor_fenix, fecha_creacion
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
           [
-            o.numero, o.fecha_solicitud, o.cliente, o.inicio_visita, o.fin_visita,
+            cleanNumero, o.fecha_solicitud, o.cliente, o.inicio_visita, o.fin_visita,
             o.hora_en_camino, o.hora_asignacion,
             o.motivo_finalizacion, o.datos_tecnicos, autoTipoTrabajo, autoTipoTrabajo || o.tipo_trabajo, o.georeferencia,
             o.motivo_cancelacion, o.numero_documento, o.movil, o.codigo_seguimiento,
@@ -905,6 +917,88 @@ async function guardarOrdenesEnBD(ordenes) {
   }
 
   return { totalGuardadas: guardadas };
+}
+
+let isEnrichingHistory = false;
+
+/**
+ * 🛡️ ENRIQUECIMIENTO EN SEGUNDO PLANO (PROTEGIDO ANTI-BAN)
+ * Consulta los historiales de tiempo (hora en camino, inicio, fin, ejecutor)
+ * de forma estrictamente secuencial, en pequeños lotes de 2 y con pausa de cortesía
+ * para evitar bloqueos de IP y nunca saturar la sesión de WIN/Fénix.
+ */
+async function enriquecerHistorialOrdenesEnBackground(todasLasOrdenes) {
+  if (isEnrichingHistory || !Array.isArray(todasLasOrdenes) || todasLasOrdenes.length === 0) return;
+  isEnrichingHistory = true;
+
+  try {
+    // Filtrar solo las órdenes que realmente requieren hitos de tiempo o validación de estado real
+    // ⚡ PRIORIDAD: Primero las órdenes activas de hoy (En camino, Iniciada, Agendada) para actualizar cancelaciones/regestiones al instante
+    const pendientes = todasLasOrdenes.filter(ord => {
+      if (!ord || !ord.numero) return false;
+      const esCerrada = ['Finalizada', 'Liquidada', 'Cancelada', 'Anulada'].includes(String(ord.estado || '').trim());
+      const tieneTiempos = ord.inicio_visita && ord.fin_visita && ord.usuario_ejecutor_fenix;
+      return !esCerrada || !tieneTiempos;
+    }).sort((a, b) => {
+      const aActiva = (!['Finalizada', 'Liquidada', 'Cancelada', 'Anulada'].includes(String(a.estado || '').trim())) ? 1 : 0;
+      const bActiva = (!['Finalizada', 'Liquidada', 'Cancelada', 'Anulada'].includes(String(b.estado || '').trim())) ? 1 : 0;
+      return bActiva - aActiva;
+    });
+
+    if (pendientes.length === 0) {
+      console.log('✨ [Fénix Scraper - Background] Todas las órdenes ya tienen hitos de tiempo completos.');
+      return;
+    }
+
+    console.log(`⏱️ [Fénix Scraper - Background] Enriqueciendo tiempos y estados de forma protegida para ${pendientes.length} órdenes...`);
+    let huboCambios = false;
+    const batchSize = 2; // Máximo 2 peticiones a la vez para cuidar la IP
+    for (let i = 0; i < pendientes.length; i += batchSize) {
+      const batch = pendientes.slice(i, i + batchSize);
+      await Promise.all(
+        batch.map(async (ord) => {
+          try {
+            const hist = await obtenerHistorialEstados(ord.numero);
+            if (hist && hist.length > 0) {
+              ord.historial_estados = JSON.stringify(hist);
+              const tiempos = extraerTiemposDeHistorial(hist);
+              if (tiempos.horaEnCamino) ord.hora_en_camino = tiempos.horaEnCamino;
+              if (tiempos.inicioVisita) ord.inicio_visita = tiempos.inicioVisita;
+              if (tiempos.finVisita) ord.fin_visita = tiempos.finVisita;
+              if (tiempos.horaAsignacion) ord.hora_asignacion = tiempos.horaAsignacion;
+              if (tiempos.usuarioEjecutor) ord.usuario_ejecutor_fenix = tiempos.usuarioEjecutor;
+
+              if (tiempos.motivoRegestion) ord.motivo_regestion = tiempos.motivoRegestion;
+              if (tiempos.motivoCancelacion) ord.motivo_cancelacion = tiempos.motivoCancelacion;
+
+              // ⚡ ACTUALIZACIÓN DE ESTADO REAL DESDE HISTORIAL FÉNIX:
+              const ultimoEstadoFenix = hist[0]?.estado ? String(hist[0].estado).trim() : null;
+              if (ultimoEstadoFenix && ['Iniciada', 'En camino', 'Finalizada', 'Cancelada', 'Regestion', 'Regestión', 'Liquidada', 'Agendada'].includes(ultimoEstadoFenix)) {
+                ord.estado = ultimoEstadoFenix;
+                await pool.query(
+                  "UPDATE ordenes SET estado = ?, motivo_regestion = COALESCE(?, motivo_regestion), motivo_cancelacion = COALESCE(?, motivo_cancelacion), inicio_visita = COALESCE(?, inicio_visita), fin_visita = COALESCE(?, fin_visita), hora_en_camino = COALESCE(?, hora_en_camino), usuario_ejecutor_fenix = COALESCE(?, usuario_ejecutor_fenix) WHERE numero = ?",
+                  [ultimoEstadoFenix, tiempos.motivoRegestion || null, tiempos.motivoCancelacion || null, tiempos.inicioVisita || null, tiempos.finVisita || null, tiempos.horaEnCamino || null, tiempos.usuarioEjecutor || null, ord.numero]
+                ).catch((errUp) => console.error(`⚠️ Error al actualizar estado de orden ${ord.numero}:`, errUp.message));
+              }
+              huboCambios = true;
+            }
+          } catch (errHist) {}
+        })
+      );
+      // Pausa de cortesía entre llamadas (800ms) para proteger la IP
+      await new Promise(r => setTimeout(r, 800));
+    }
+
+    if (huboCambios) {
+      console.log(`💾 [Fénix Scraper - Background] Guardando tiempos enriquecidos en BD local...`);
+      await guardarOrdenesEnBD(todasLasOrdenes);
+      console.log(`✅ [Fénix Scraper - Background] ¡Tiempos enriquecidos actualizados en BD!`);
+    }
+  } catch (err) {
+    console.warn('⚠️ [Fénix Scraper - Background] Aviso en enriquecimiento:', err.message);
+  } finally {
+    isEnrichingHistory = false;
+  }
 }
 
 let isSyncing = false;
@@ -1000,51 +1094,27 @@ async function sincronizarFenix({ fechaDesde = null, fechaHasta = null } = {}) {
     // FASE 1: GUARDADO INMEDIATO DE ESTADOS Y GRILLA BASE (~1-2 seg)
     // Permite que las órdenes cambien de color (ej. Iniciada -> Finalizada) al instante
     // =========================================================================
+
+    // =========================================================================
+    // FASE 1: GUARDADO INMEDIATO DE ESTADOS Y GRILLA BASE (~1-2 seg)
+    // Permite que las órdenes cambien de color (ej. Iniciada -> Finalizada) al instante
+    // =========================================================================
     if (todasLasOrdenes.length > 0) {
       console.log(`⚡ [Fénix Scraper - Fase 1] Guardando inmediatamente ${todasLasOrdenes.length} órdenes en BD (estados y datos de grilla)...`);
       resultadoBD = await guardarOrdenesEnBD(todasLasOrdenes);
       console.log(`✅ [Fénix Scraper - Fase 1] ¡Órdenes guardadas al instante! ${resultadoBD.totalGuardadas} procesadas.`);
-    }
 
-    // =========================================================================
-    // FASE 2: ENRIQUECIMIENTO DETALLADO DE HISTORIAL Y EJECUTORES
-    // Extrae CargarHistoEstaGrilla para tiempos exactos y detectar técnicos externos
-    // =========================================================================
-    if (todasLasOrdenes.length > 0) {
-      console.log(`⏱️ [Fénix Scraper - Fase 2] Extrayendo tiempos exactos (En camino, Inicio, Fin) para ${todasLasOrdenes.length} órdenes...`);
-      let huboCambios = false;
-      const batchSize = 5;
-      for (let i = 0; i < todasLasOrdenes.length; i += batchSize) {
-        const batch = todasLasOrdenes.slice(i, i + batchSize);
-        await Promise.all(
-          batch.map(async (ord) => {
-            if (!ord.numero) return;
-            // ⚡ Optimización: si ya cuenta con inicio, fin y usuario ejecutor identificado, no saturar WIN
-            if (ord.inicio_visita && ord.fin_visita && ord.usuario_ejecutor_fenix) return;
-            try {
-              const hist = await obtenerHistorialEstados(ord.numero);
-              if (hist && hist.length > 0) {
-                ord.historial_estados = JSON.stringify(hist);
-                const tiempos = extraerTiemposDeHistorial(hist);
-                if (tiempos.horaEnCamino) ord.hora_en_camino = tiempos.horaEnCamino;
-                if (tiempos.inicioVisita) ord.inicio_visita = tiempos.inicioVisita;
-                if (tiempos.finVisita) ord.fin_visita = tiempos.finVisita;
-                if (tiempos.horaAsignacion) ord.hora_asignacion = tiempos.horaAsignacion;
-                if (tiempos.usuarioEjecutor) ord.usuario_ejecutor_fenix = tiempos.usuarioEjecutor;
-                huboCambios = true;
-              }
-            } catch (errHist) {}
-          })
+      // 🛡️ FASE 2 EN SEGUNDO PLANO (PROTEGIDA ANTI-BAN):
+      // El usuario ya tiene los estados en 1-2 segundos. Los tiempos detallados se
+      // enriquecen en segundo plano con pausa de cortesía para NO saturar la IP.
+      setImmediate(() => {
+        enriquecerHistorialOrdenesEnBackground(todasLasOrdenes).catch(e => 
+          console.warn('Aviso en enriquecimiento en background:', e.message)
         );
-      }
-
-      if (huboCambios) {
-        console.log(`💾 [Fénix Scraper - Fase 2] Actualizando órdenes con datos de historial enriquecidos...`);
-        resultadoBD = await guardarOrdenesEnBD(todasLasOrdenes);
-      }
+      });
     }
 
-    console.log(`✅ [Fénix Scraper] ¡Sincronización completada con éxito! ${resultadoBD.totalGuardadas} órdenes procesadas.`);
+    console.log(`⚡ [Fénix Scraper] ¡Respondiendo al instante con los estados actualizados! (${resultadoBD.totalGuardadas} procesadas)`);
 
     return {
       success: true,
@@ -1542,12 +1612,27 @@ function extraerTiemposDeHistorial(historial) {
     usuarioEjecutor = ordenada[0].usuario.trim();
   }
 
+  // 3. Extraer motivos de regestión o cancelación registrados en el historial
+  let motivoRegestion = null;
+  let motivoCancelacion = null;
+  for (const h of historial) {
+    const st = (h.estado || '').toUpperCase();
+    if (st.includes('REGEST') && !motivoRegestion) {
+      motivoRegestion = (h.datosAdicionales || h.observaciones || '').replace(/^Motivo de [rR]egesti[oó]n:\s*/i, '').trim() || null;
+    }
+    if (st.includes('CANCEL') && !motivoCancelacion) {
+      motivoCancelacion = (h.datosAdicionales || h.observaciones || '').replace(/^Motivo de [cC]ancelaci[oó]n:\s*/i, '').trim() || null;
+    }
+  }
+
   return {
     horaAsignacion,
     horaEnCamino,
     inicioVisita,
     finVisita,
-    usuarioEjecutor
+    usuarioEjecutor,
+    motivoRegestion,
+    motivoCancelacion
   };
 }
 

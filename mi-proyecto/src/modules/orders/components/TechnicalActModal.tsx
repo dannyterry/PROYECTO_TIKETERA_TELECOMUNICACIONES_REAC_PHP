@@ -96,11 +96,18 @@ export const TechnicalActModal: React.FC<Props> = ({
   const fileInputFotoAnuladaRef = useRef<HTMLInputElement>(null);
   
   // Tipo de Liquidación (reemplaza Tipo de Trabajo)
+  const isValidLiqType = (s?: string) => {
+    if (!s) return false;
+    const clean = s.trim().toUpperCase();
+    return !clean.startsWith("REASIGNAC") && !clean.startsWith("REGEST") && clean !== "REITERADA";
+  };
+
   const initialTipoLiq = (
-    order.tipoLiquidacion ||
-    order.motivoLiquidacion ||
-    order.motivoFinalizacion ||
-    order.tipoTrabajo ||
+    (isValidLiqType(order.motivoFinalizacion) && order.motivoFinalizacion) ||
+    (isValidLiqType(order.tipoLiquidacion) && order.tipoLiquidacion) ||
+    (isValidLiqType(order.motivoLiquidacion) && order.motivoLiquidacion) ||
+    (isValidLiqType(order.tipoTrabajoAsignado) && order.tipoTrabajoAsignado) ||
+    (isValidLiqType(order.tipoTrabajo) && order.tipoTrabajo) ||
     "CAMBIO DE CABLE PATCH CORD"
   ).trim();
 
@@ -110,10 +117,11 @@ export const TechnicalActModal: React.FC<Props> = ({
 
   useEffect(() => {
     const t = (
-      order.tipoLiquidacion ||
-      order.motivoLiquidacion ||
-      order.motivoFinalizacion ||
-      order.tipoTrabajo ||
+      (isValidLiqType(order.motivoFinalizacion) && order.motivoFinalizacion) ||
+      (isValidLiqType(order.tipoLiquidacion) && order.tipoLiquidacion) ||
+      (isValidLiqType(order.motivoLiquidacion) && order.motivoLiquidacion) ||
+      (isValidLiqType(order.tipoTrabajoAsignado) && order.tipoTrabajoAsignado) ||
+      (isValidLiqType(order.tipoTrabajo) && order.tipoTrabajo) ||
       ""
     ).trim();
     if (t) {

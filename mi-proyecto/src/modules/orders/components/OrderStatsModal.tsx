@@ -334,48 +334,26 @@ export const OrderStatsModal: React.FC<OrderStatsModalProps> = ({
     const currentOrders = timelineOrdersRef.current;
     if (!currentOrders || currentOrders.length === 0) return;
 
-    const activeOrders = currentOrders.filter((o) => {
-      const st = (o.status || "").toLowerCase();
-      return st.includes("inicia") || st.includes("camino") || st.includes("proceso") || st.includes("finaliz");
+    // ⚡ Prioridad a 0ms: Cargar progreso de tareas directamente de las órdenes en memoria/BD local
+    const newMap: Record<string, { total: number; done: number; pct: number }> = {};
+    currentOrders.forEach((o) => {
+      const total = o.totalTareas !== undefined && o.totalTareas !== null ? Number(o.totalTareas) : null;
+      const done = o.tareasFinalizadas !== undefined && o.tareasFinalizadas !== null ? Number(o.tareasFinalizadas) : null;
+      const pct = o.progresoPorcentaje !== undefined && o.progresoPorcentaje !== null 
+        ? Number(o.progresoPorcentaje) 
+        : (total && total > 0 && done !== null ? Math.round((done / total) * 100) : 0);
+
+      if (total !== null && total > 0) {
+        const data = { total, done: done || 0, pct };
+        if (o.id) newMap[String(o.id)] = data;
+        if (o.ot) newMap[String(o.ot)] = data;
+        if (o.ticket) newMap[String(o.ticket)] = data;
+        if (o.numeroOrden) newMap[String(o.numeroOrden)] = data;
+      }
     });
 
-    if (activeOrders.length === 0) return;
-
-    try {
-      const results = await Promise.allSettled(
-        activeOrders.map(async (o) => {
-          // En Fénix, la búsqueda de tareas funciona por número de orden / OT
-          const orderNum = o.numeroOrden || o.ot || o.ticket;
-          if (!orderNum) return null;
-          try {
-            const res = await getOrderTasks(orderNum);
-            const tareas = res.tareas || [];
-            const done = tareas.filter((t) => {
-              const raw = (t.estado || "").toLowerCase().trim();
-              return raw.includes("finaliz") || raw.includes("realiz") || raw.includes("complet");
-            }).length;
-            const total = tareas.length;
-            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-            return { id: o.id, ot: o.ot, ticket: o.ticket, numeroOrden: o.numeroOrden, data: { total, done, pct } };
-          } catch {
-            return null;
-          }
-        })
-      );
-
-      const newMap: Record<string, { total: number; done: number; pct: number }> = {};
-      results.forEach((r) => {
-        if (r.status === "fulfilled" && r.value) {
-          const v = r.value;
-          if (v.id) newMap[String(v.id)] = v.data;
-          if (v.ot) newMap[String(v.ot)] = v.data;
-          if (v.ticket) newMap[String(v.ticket)] = v.data;
-          if (v.numeroOrden) newMap[String(v.numeroOrden)] = v.data;
-        }
-      });
+    if (Object.keys(newMap).length > 0) {
       setTasksProgressMap((prev) => ({ ...prev, ...newMap }));
-    } catch {
-      // Silencioso
     }
   }, []);
 

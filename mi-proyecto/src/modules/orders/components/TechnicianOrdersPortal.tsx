@@ -1082,21 +1082,6 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
               const isIniciada = s.includes("INICIAD") || s.includes("PROCESO");
               const esReiterada = Boolean(ord.esReiterada || (ord.totalOrdenesCliente && ord.totalOrdenesCliente > 1));
 
-              // Progreso de tareas en Fénix (debe tener más del 50% de tareas completadas para habilitar el escaneo en domicilio)
-              const pctTareas = ord.progresoPorcentaje !== undefined && ord.progresoPorcentaje !== null
-                ? ord.progresoPorcentaje
-                : (ord.totalTareas && ord.totalTareas > 0 ? Math.round(((ord.tareasFinalizadas || 0) / ord.totalTareas) * 100) : 0);
-              const tieneMasDe50PorcientoTareas = pctTareas >= 50;
-
-              // Detectar si la orden amerita cambio de ONT / Equipo o Instalación (solo en campos de tipo de trabajo/avería con palabra exacta)
-              const tipoTrabajoStr = `${ord.tipoTrabajo || ""} ${ord.tipoLiquidacion || ""} ${ord.motivoLiquidacion || ""} ${ord.motivoFinalizacion || ""} ${ord.tipoTrabajoAsignado || ""} ${ord.tipoAveria || ""}`.toUpperCase();
-              const requiereCambioEquipo = 
-                /\b(CAMBIO DE ONT|CAMBIO ONT|REEMPLAZO DE ONT|REEMPLAZO ONT|CAMBIO DE EQUIPO|CAMBIO DE ROUTER|CAMBIO DE MESH|CAMBIO MESH|INSTALACION|INSTALACIÓN|ALTA|MIGRACION|MIGRACIÓN|MEJORA TECNOLOGICA|MEJORA TECNOLÓGICA)\b/i.test(tipoTrabajoStr) ||
-                /\b(ONT|ROUTER|MESH)\b/i.test(tipoTrabajoStr);
-
-              // Solo se habilita si: NO está finalizada + está INICIADA en casa del cliente + tiene >50% de tareas + es tipo de trabajo de equipo
-              const habilitarParaEscanearEquipo = !isFinalizada && isIniciada && tieneMasDe50PorcientoTareas && requiereCambioEquipo;
-
               // Tipo de liquidación / motivo de finalización
               const tipoLiq = (ord.tipoLiquidacion || ord.motivoLiquidacion || ord.motivoFinalizacion || ord.tipoTrabajo || "").trim();
               // Solo mostrar tipo de liquidación/trabajo si existe y la orden está finalizada (o tiene liquidación real)
@@ -1252,16 +1237,6 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
                     >
                       <FileText size={16} />
                       <span>📝 Llenar Acta WIN & Liquidar Materiales</span>
-                    </button>
-                  ) : habilitarParaEscanearEquipo ? (
-                    <button
-                      type="button"
-                      onClick={() => abrirActa(ord)}
-                      className="w-full py-2.5 px-4 bg-gradient-to-r from-indigo-600 via-purple-600 to-sky-600 hover:from-indigo-700 hover:to-sky-700 text-white rounded-2xl font-black text-xs shadow-md shadow-indigo-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
-                      title="Cambio de equipo detectado: Toca para escanear y registrar series de ONT/Mesh en el domicilio del cliente"
-                    >
-                      <QrCode size={16} className="text-amber-300 animate-pulse" />
-                      <span>📦 Escanear ONT / Equipos en Domicilio</span>
                     </button>
                   ) : (
                     <div

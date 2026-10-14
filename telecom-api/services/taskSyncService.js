@@ -539,6 +539,27 @@ async function sincronizarTareasOrdenSeguro(numeroOrden, idOrdenOpt = null, forz
           });
           const actaFenixFinalizada = actaFenix && !String(actaFenix.estado || '').toLowerCase().includes('pend');
 
+          // 🚀 Si la orden tiene tareas avanzadas o completadas y figuraba "En camino" o "Agendada":
+          // Significa que el técnico ya está operando en el domicilio del cliente -> Pasar a INICIADA de inmediato
+          const tareasAvanzadas = tareasFenix.filter(t => {
+            const e = (t.estado || '').toLowerCase().trim();
+            return e.includes('finaliz') || e.includes('realiz') || e.includes('complet') || e.includes('inicia') || e.includes('proceso');
+          }).length;
+
+          if (tareasAvanzadas > 0) {
+            await pool.query(`
+              UPDATE ordenes 
+              SET estado = CASE 
+                WHEN estado = 'En camino' 
+                     AND (motivo_regestion IS NULL OR TRIM(motivo_regestion) = '')
+                     AND (motivo_cancelacion IS NULL OR TRIM(motivo_cancelacion) = '')
+                THEN 'Iniciada' 
+                ELSE estado 
+              END
+              WHERE numero = ?
+            `, [cleanNum]).catch(() => {});
+          }
+
           // Si el acta de cierre ya está finalizada, enriquecerla de inmediato para guardar fotos del acta
           // y registrar la hora de finalización en el estado de la orden
           if (actaFenixFinalizada && actaFenix.id) {
@@ -550,8 +571,7 @@ async function sincronizarTareasOrdenSeguro(numeroOrden, idOrdenOpt = null, forz
                   await pool.query(`
                     UPDATE ordenes 
                     SET fin_visita = COALESCE(fin_visita, ?), 
-                        estado = CASE WHEN estado IN ('Iniciada', 'En camino') THEN 'Finalizada' ELSE estado END,
-                        fecha_actualizacion = NOW() 
+                        estado = CASE WHEN estado IN ('Iniciada', 'En camino') THEN 'Finalizada' ELSE estado END
                     WHERE numero = ?
                   `, [horaFin, cleanNum]).catch(() => {});
                 }

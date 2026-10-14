@@ -186,35 +186,37 @@ export const OrderTasksModal: React.FC<OrderTasksModalProps> = ({
       setError(null);
 
       try {
-        const [tasksRes, historyRes] = await Promise.allSettled([
-          getOrderTasks(orderNumber, { forceFresh: isManual, signal: controller.signal }),
-          getOrderStatusHistory(orderNumber, { forceFresh: isManual, signal: controller.signal }),
-        ]);
+        // ⚡ 1. ESTADOS PRIMERO (Ultrarrápido): actualizar inmediatamente el estado en cuanto responde
+        getOrderStatusHistory(orderNumber, { forceFresh: isManual, signal: controller.signal })
+          .then((histList) => {
+            if (Array.isArray(histList)) {
+              setHistory(histList);
+              if (histList.length > 0) {
+                const rawSt = String(histList[0]?.estado || '').trim();
+                const tieneCancel = histList.some(h => (h.estado || '').toLowerCase().includes('cancel'));
+                const tieneRegest = histList.some(h => (h.estado || '').toLowerCase().includes('regest'));
 
-        if (tasksRes.status === "fulfilled") {
-          const loadedTasks = tasksRes.value.tareas || [];
-          setTasks(loadedTasks);
-          notifyProgress(loadedTasks);
-          enrichObservationCandidates(loadedTasks);
-        }
-        if (historyRes.status === "fulfilled") {
-          const histList = historyRes.value || [];
-          setHistory(histList);
-          if (histList.length > 0 && histList[0]?.estado) {
-            const nuevoEstado = String(histList[0].estado).trim();
-            if (nuevoEstado && nuevoEstado !== currentEstado) {
-              setCurrentEstado(nuevoEstado);
-              if (orderNumber) onEstadoUpdate?.(String(orderNumber), nuevoEstado);
-              if (orderId) onEstadoUpdate?.(String(orderId), nuevoEstado);
+                let nuevoEstado = rawSt;
+                if (tieneCancel && !['Finalizada', 'Liquidada'].includes(rawSt)) {
+                  nuevoEstado = 'Cancelada';
+                }
+
+                if (nuevoEstado && nuevoEstado !== currentEstado) {
+                  setCurrentEstado(nuevoEstado);
+                  if (orderNumber) onEstadoUpdate?.(String(orderNumber), nuevoEstado);
+                  if (orderId) onEstadoUpdate?.(String(orderId), nuevoEstado);
+                }
+              }
             }
-          }
-        }
+          })
+          .catch(() => {});
 
-        if (tasksRes.status === "rejected" && !cachedTasks) {
-          if (tasksRes.reason?.name !== "AbortError") {
-            setError(tasksRes.reason?.message || "Error al obtener las tareas de la orden.");
-          }
-        }
+        // ⚡ 2. TAREAS: se cargan en paralelo sin retener el estado
+        const tasksRes = await getOrderTasks(orderNumber, { forceFresh: isManual, signal: controller.signal });
+        const loadedTasks = tasksRes?.tareas || [];
+        setTasks(loadedTasks);
+        notifyProgress(loadedTasks);
+        enrichObservationCandidates(loadedTasks);
       } catch (err: any) {
         if (!cachedTasks && err?.name !== "AbortError") {
           setError(err?.message || "Error al obtener la información de Fénix.");

@@ -1756,11 +1756,18 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                     </div>
                   )}
 
-                  {(modalLiq.tipo_trabajo_acta || modalLiq.tipo_trabajo) && (
-                    <span className="px-3 py-1 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 text-xs font-black uppercase tracking-wider">
-                      {modalLiq.tipo_trabajo_acta || modalLiq.tipo_trabajo}
-                    </span>
-                  )}
+                  {(() => {
+                    const isInvalid = (s?: string) => !s || /^(REASIGNAC|REGEST|REITERADA)/i.test(s.trim());
+                    const txt = (!isInvalid(modalLiq.tipo_trabajo_acta) && modalLiq.tipo_trabajo_acta) ||
+                                (!isInvalid(modalLiq.tipo_averia) && modalLiq.tipo_averia) ||
+                                (!isInvalid(modalLiq.tipo_trabajo) && modalLiq.tipo_trabajo) ||
+                                modalLiq.tipo_trabajo_acta || modalLiq.tipo_averia || modalLiq.tipo_trabajo || "Liquidación Técnica";
+                    return (
+                      <span className="px-3 py-1 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 text-xs font-black uppercase tracking-wider">
+                        {txt}
+                      </span>
+                    );
+                  })()}
                 </div>
                 <div className="hidden sm:block h-4 w-px bg-white/20"></div>
                 <h3 className="text-sm font-black tracking-tight text-white flex items-center gap-2">
@@ -1833,7 +1840,13 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                       <div className="flex items-center gap-1.5">
                         <span className="text-slate-500 font-bold uppercase text-[10px]">Tipo de Liquidación:</span>
                         <span className="font-extrabold text-indigo-900 bg-indigo-50 border border-indigo-200/80 px-2 py-0.5 rounded-md uppercase">
-                          {modalLiq.tipo_trabajo_acta || modalLiq.tipo_trabajo || "Liquidación Técnica"}
+                          {(() => {
+                            const isInvalid = (s?: string) => !s || /^(REASIGNAC|REGEST|REITERADA)/i.test(s.trim());
+                            return (!isInvalid(modalLiq.tipo_trabajo_acta) && modalLiq.tipo_trabajo_acta) ||
+                                   (!isInvalid(modalLiq.tipo_averia) && modalLiq.tipo_averia) ||
+                                   (!isInvalid(modalLiq.tipo_trabajo) && modalLiq.tipo_trabajo) ||
+                                   modalLiq.tipo_trabajo_acta || modalLiq.tipo_averia || modalLiq.tipo_trabajo || "Liquidación Técnica";
+                          })()}
                         </span>
                       </div>
                       {modalLiq.tipo_conexion && (
