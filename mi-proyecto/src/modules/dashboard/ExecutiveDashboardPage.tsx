@@ -501,14 +501,15 @@ export const ExecutiveDashboardPage: React.FC = () => {
       mapa[item.estado] = Number(item.total) || 0;
     });
     return {
-      finalizada: mapa["Finalizada"] ?? stats?.kpis?.ordenes_finalizadas ?? 0,
+      finalizada: mapa["Finalizada"] ?? 0,
+      liquidada: mapa["Liquidada"] ?? 0,
       cancelada: mapa["Cancelada"] ?? 0,
       regestion: (mapa["Regestión"] || mapa["Regestion"]) ?? 0,
       anulada: mapa["Anulada"] ?? 0,
       agendada: mapa["Agendada"] ?? 0,
       iniciada: (mapa["Iniciada"] || mapa["En proceso"] || mapa["En camino"]) ?? stats?.kpis?.ordenes_en_proceso ?? 0,
     };
-  }, [stats?.ordenes_por_estado, stats?.kpis?.ordenes_finalizadas, stats?.kpis?.ordenes_en_proceso]);
+  }, [stats?.ordenes_por_estado, stats?.kpis?.ordenes_en_proceso]);
 
   // 1. Gráfico Donut de Efectividad Operativa (EXCLUSIVO: Finalizadas vs Canceladas/Observadas/Anuladas)
   const dataEfectividadPie = [
@@ -756,6 +757,22 @@ export const ExecutiveDashboardPage: React.FC = () => {
                     <span>Finalizada:</span>
                     <span className="font-mono font-black">{conteoEstados.finalizada}</span>
                   </button>
+
+                  {/* 1.1 Liquidada */}
+                  {conteoEstados.liquidada > 0 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleOpenClassificationModal("Liquidada", "Órdenes Liquidadas", "#0284c7")
+                      }
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#e0f2fe] hover:bg-[#bae6fd] active:scale-95 text-[#0369a1] border border-[#7dd3fc] hover:border-sky-500 shadow-2xs hover:shadow-xs transition-all cursor-pointer shrink-0 group"
+                      title="📋 Clic para ver órdenes Liquidadas"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-[#0284c7] inline-block group-hover:scale-125 transition-transform"></span>
+                      <span>Liquidada:</span>
+                      <span className="font-mono font-black">{conteoEstados.liquidada}</span>
+                    </button>
+                  )}
 
                   {/* 2. Cancelada */}
                   <button

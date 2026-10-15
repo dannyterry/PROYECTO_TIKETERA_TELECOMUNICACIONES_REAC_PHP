@@ -75,6 +75,30 @@ function resolverTipoTrabajoConCatalogo(motivoLiquidacion, motivoAveria = "", es
   const normLiq = normalizeText(motivoLiquidacion);
   const normAveria = normalizeText(motivoAveria);
 
+  // 🌟 PREVALENCIA DE TIPO DE TRABAJO OFICIAL ASIGNADO / MANUAL:
+  // Si ya viene un tipo de trabajo oficial asignado (ej: 'GARANTIA', 'NORMALIZACIÓN', 'RECABLEADO', etc.),
+  // se debe respetar esa clasificación directamente en lugar de deducirla por el motivo.
+  const TIPOS_OFICIALES = [
+    "ADICIONAL",
+    "GARANTIA",
+    "GARANTIA NO REALIZADA",
+    "NORMALIZACIÓN",
+    "PEX",
+    "RECABLEADO",
+    "RECABLEADO EN CONDOMINIO",
+    "REUBICACIÓN CON RESERVA",
+    "REUBICACIÓN SIN RESERVA",
+    "TRASALDO EN CONDOMINIO",
+    "TRASLADO",
+    "VISITA EXTERNA"
+  ];
+  if (normAveria) {
+    const matchOficial = TIPOS_OFICIALES.find(t => normalizeText(t) === normAveria);
+    if (matchOficial) {
+      return matchOficial;
+    }
+  }
+
   if (!normLiq) {
     if (normAveria.includes("PLANTA EXTERNA")) return "PEX";
     if (normAveria.includes("TRASLADO")) return "TRASLADO";

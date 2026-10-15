@@ -224,10 +224,24 @@ export const ClassificationOrdersModal: React.FC<ClassificationOrdersModalProps>
           );
         }
 
-        // 2. Filtrado específico para Finalizada (interna)
-        if (keyNorm === "finalizada" || keyNorm === "finalizadas") {
+        // 2. Filtrado para Finalizadas (Liquidadas) - Tarjeta Principal
+        if (
+          keyNorm === "finalizadas" ||
+          keyNorm === "finalizadas_liquidadas" ||
+          (keyNorm.includes("liquidada") && keyNorm.includes("finalizada"))
+        ) {
+          return (
+            (estNorm === "finalizada" || estNorm.includes("fin") || estNorm.includes("liquid")) &&
+            !estNorm.includes("extern") &&
+            !(ord.tecnico_asignado && ord.tecnico_asignado.toUpperCase().includes("EXTERNO:"))
+          );
+        }
+
+        // 2.1 Filtrado exclusivo para Finalizada (pendiente de liquidar)
+        if (keyNorm === "finalizada") {
           return (
             (estNorm === "finalizada" || estNorm.includes("fin")) &&
+            !estNorm.includes("liquid") &&
             !estNorm.includes("extern") &&
             !(ord.tecnico_asignado && ord.tecnico_asignado.toUpperCase().includes("EXTERNO:"))
           );

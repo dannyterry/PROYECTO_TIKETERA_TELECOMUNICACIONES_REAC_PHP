@@ -57,7 +57,7 @@ app.get('/uploads/:filename', async (req, res) => {
 });
 
 const { sincronizarTareasOrdenSeguro, getTareasDeBD, sincronizarTareasOrdenesActivas, guardarDetalleTareaEnBD, getMetrajeDeclaradoFenix } = require('./services/taskSyncService');
-const { getMotivosCatalogo, resolverTipoTrabajoConCatalogo, resolverTipoTrabajoOficial } = require('./services/tipoTrabajoHelper');
+const { getMotivosCatalogo, resolverTipoTrabajoConCatalogo, resolverTipoTrabajoOficial, normalizeText } = require('./services/tipoTrabajoHelper');
 const { hashPassword, verifyPassword, isHashed } = require("./lib/password");
 const { signToken, requireAuth } = require("./middleware/requireAuth");
 // [WIN-AUDIT] Layer enabled v1.1 - Reload: 2026-09-29T15:54:00
@@ -262,7 +262,13 @@ async function subirBase64DirectoAS3(base64Str, s3Key) {
 
 // 🚀 Función para migrar lotes de fotos Base64 en orden_tareas_cache a AWS S3
 async function migrarLoteTareasCacheAS3(limit = 25) {
+  const isLinuxHosting = process.platform === 'linux' || __dirname.includes('corporacioncespe');
+  if (!isLinuxHosting) {
+    return { pendientes: 0, mbPendientes: 0, procesadas: 0, fotosSubidas: 0, mbAhorrados: 0, motivo: "Omitido en entorno local" };
+  }
+
   try {
+
     const [countRows] = await pool.query(
       "SELECT count(*) as total, ROUND(SUM(OCTET_LENGTH(tareas_json))/1024/1024, 2) as mb FROM orden_tareas_cache WHERE LOCATE('data:image', tareas_json) > 0"
     );
@@ -354,9 +360,14 @@ app.get('/api/admin/migrar-tareas-cache-a-s3', async (req, res) => {
   });
 });
 
-// Limpieza automática en segundo plano: corre suavemente cada 10 minutos (15 órdenes por ciclo)
-setTimeout(() => migrarLoteTareasCacheAS3(10), 30000);
-setInterval(() => migrarLoteTareasCacheAS3(15), 10 * 60 * 1000);
+// Limpieza automática en segundo plano: SOLO en producción (Hosting Linux / cPanel)
+const isLinuxHosting = process.platform === 'linux' || __dirname.includes('corporacioncespe');
+if (isLinuxHosting) {
+  setTimeout(() => migrarLoteTareasCacheAS3(10), 30000);
+  setInterval(() => migrarLoteTareasCacheAS3(15), 10 * 60 * 1000);
+} else {
+  console.log("🛑 [S3 Cache Cleaner] Tarea automática en segundo plano DESACTIVADA en entorno LOCAL (Windows).");
+}
 
 // 🧹 Endpoint para forzar borrado de carpetas rebeldes como corporacioncespe en public_html
 app.get(['/limpiar-carpeta-basura', '/api/admin/limpiar-carpeta-basura'], async (req, res) => {
@@ -2779,9 +2790,11 @@ app.get('/api/asistencias/matriz', async (req, res) => {
     `, params.slice(2));
 
     const [asistencias] = await pool.query(`
-      SELECT a.id_asistencia, a.id_trabajador, t.id_usuario, a.fecha, a.hora_entrada, a.estado, a.minutos_tarde, a.observacion
+      SELECT a.id_asistencia, a.id_trabajador, t.id_usuario, a.fecha, a.hora_entrada, a.estado, a.minutos_tarde, a.observacion,
+             a.tipo, a.id_orden, o.numero AS numero_orden, o.hora_asignacion, o.inicio_visita, o.hora_en_camino, o.fin_visita
       FROM asistencias a
       LEFT JOIN trabajadores t ON a.id_trabajador = t.id_trabajador
+      LEFT JOIN ordenes o ON a.id_orden = o.id_orden
       WHERE a.fecha BETWEEN ? AND ?
     `, [desde, hasta]);
 
@@ -3016,7 +3029,9 @@ app.get('/ordenes', async (req, res) => {
         o.*,
         CASE 
           WHEN ol.id_liquidacion IS NOT NULL THEN 'Liquidada'
-          WHEN o.motivo_cancelacion IS NOT NULL AND TRIM(o.motivo_cancelacion) != '' THEN 'Cancelada'
+          WHEN o.estado IN ('Iniciada', 'En camino', 'Finalizada', 'Liquidada', 'Observada', 'Anulada') THEN o.estado
+          WHEN o.motivo_regestion IS NOT NULL AND TRIM(o.motivo_regestion) != '' AND o.estado != 'Cancelada' THEN o.estado
+          WHEN o.motivo_cancelacion IS NOT NULL AND TRIM(o.motivo_cancelacion) != '' AND (o.motivo_finalizacion IS NULL OR TRIM(o.motivo_finalizacion) = '') THEN 'Cancelada'
           ELSE o.estado
         END AS estado,
         ol.numero_acta AS numero_acta,
@@ -12039,7 +12054,7 @@ app.get(['/api/dashboard/estadisticas', '/dashboard/estadisticas'], async (req, 
 
     // 1. KPIs
     const [ordenesCount] = await pool.query(`SELECT COUNT(*) AS total FROM ordenes ${dateCondOrdenes}`, paramsOrdenes);
-    const [finalizadasCount] = await pool.query(`SELECT COUNT(*) AS total FROM ordenes ${dateCondOrdenes ? dateCondOrdenes + " AND estado = 'Finalizada'" : "WHERE estado = 'Finalizada'"}`, paramsOrdenes);
+    const [finalizadasCount] = await pool.query(`SELECT COUNT(*) AS total FROM ordenes ${dateCondOrdenes ? dateCondOrdenes + " AND estado IN ('Finalizada', 'Liquidada')" : "WHERE estado IN ('Finalizada', 'Liquidada')"}`, paramsOrdenes);
     const [canceladasCount] = await pool.query(`
       SELECT COUNT(*) AS total 
       FROM ordenes 
@@ -12086,7 +12101,7 @@ app.get(['/api/dashboard/estadisticas', '/dashboard/estadisticas'], async (req, 
       SELECT 
         MONTH(fecha_visita) AS mes, 
         COUNT(*) AS total, 
-        SUM(CASE WHEN estado = 'Finalizada' THEN 1 ELSE 0 END) AS finalizadas 
+        SUM(CASE WHEN estado IN ('Finalizada', 'Liquidada') THEN 1 ELSE 0 END) AS finalizadas 
       FROM ordenes 
       WHERE YEAR(fecha_visita) = ? 
       GROUP BY MONTH(fecha_visita) 
@@ -12271,8 +12286,20 @@ app.get(['/api/dashboard/rendimiento-tecnicos', '/dashboard/rendimiento-tecnicos
         techName = parts[parts.length - 1].trim();
       }
 
-      // Homologar siempre contra la tabla oficial `motivos` de MySQL
-      const tipo = resolverTipoTrabajoConCatalogo(r.motivo_finalizacion, r.tipo_trabajo || r.motivo_trabajo, r.estado, catalogoMotivos);
+      // Prioridad 1: Tipo de trabajo oficial ya asignado o modificado manualmente en BD
+      let tipo = null;
+      if (r.tipo_trabajo && r.tipo_trabajo !== 'SIN TIPO') {
+        const normR = normalizeText(r.tipo_trabajo);
+        const matchOficial = catalogoOficial.find(c => normalizeText(c) === normR);
+        if (matchOficial) {
+          tipo = matchOficial;
+        }
+      }
+
+      // Prioridad 2: Homologar contra la tabla oficial `motivos` de MySQL
+      if (!tipo) {
+        tipo = resolverTipoTrabajoConCatalogo(r.motivo_finalizacion, r.tipo_trabajo || r.motivo_trabajo, r.estado, catalogoMotivos);
+      }
       const estado = (r.estado || 'Sin Estado').trim();
       const cant = Number(r.cantidad) || 0;
       const liq = Number(r.liquidadas) || 0;
@@ -12521,6 +12548,12 @@ app.get(['/api/dashboard/ordenes-detalle-matriz', '/dashboard/ordenes-detalle-ma
     `, queryParams);
 
     const catalogoMotivos = await getMotivosCatalogo(pool);
+    const [dbTipos] = await pool.query("SELECT nombre FROM tipos_trabajo WHERE estado = 'Activo' ORDER BY nombre ASC");
+    const catalogoOficial = dbTipos.length > 0 ? dbTipos.map(t => t.nombre) : [
+      "ADICIONAL", "GARANTIA", "GARANTIA NO REALIZADA", "NORMALIZACIÓN", "PEX", "RECABLEADO",
+      "RECABLEADO EN CONDOMINIO", "REUBICACIÓN CON RESERVA", "REUBICACIÓN SIN RESERVA",
+      "TRASALDO EN CONDOMINIO", "TRASLADO", "VISITA EXTERNA"
+    ];
 
     const ordenesFiltradas = [];
     for (const r of rows) {
@@ -12528,7 +12561,20 @@ app.get(['/api/dashboard/ordenes-detalle-matriz', '/dashboard/ordenes-detalle-ma
       const esFinalizada = estLower.includes('finaliz') || estLower.includes('liquid');
       if (!esFinalizada) continue;
 
-      const tipoResuelto = resolverTipoTrabajoConCatalogo(r.motivo_finalizacion, r.tipo_trabajo || r.motivo_trabajo, r.estado, catalogoMotivos);
+      // Prioridad 1: Tipo oficial ya asignado o modificado manualmente en BD
+      let tipoResuelto = null;
+      if (r.tipo_trabajo && r.tipo_trabajo !== 'SIN TIPO') {
+        const normR = normalizeText(r.tipo_trabajo);
+        const matchOficial = catalogoOficial.find(c => normalizeText(c) === normR);
+        if (matchOficial) {
+          tipoResuelto = matchOficial;
+        }
+      }
+
+      // Prioridad 2: Homologar contra motivo de finalización y catálogo
+      if (!tipoResuelto) {
+        tipoResuelto = resolverTipoTrabajoConCatalogo(r.motivo_finalizacion, r.tipo_trabajo || r.motivo_trabajo, r.estado, catalogoMotivos);
+      }
 
       if (!tipo_trabajo || tipo_trabajo === 'TOTAL' || tipoResuelto === tipo_trabajo) {
         ordenesFiltradas.push({

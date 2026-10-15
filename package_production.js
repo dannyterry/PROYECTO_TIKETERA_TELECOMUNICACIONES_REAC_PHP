@@ -78,6 +78,9 @@ if (fs.existsSync(path.join(apiDir, 'services', 's3Service.js'))) {
 if (fs.existsSync(path.join(apiDir, 'services', 'taskSyncService.js'))) {
   fs.copyFileSync(path.join(apiDir, 'services', 'taskSyncService.js'), path.join(tempCambios, 'services', 'taskSyncService.js'));
 }
+if (fs.existsSync(path.join(apiDir, 'services', 'tipoTrabajoHelper.js'))) {
+  fs.copyFileSync(path.join(apiDir, 'services', 'tipoTrabajoHelper.js'), path.join(tempCambios, 'services', 'tipoTrabajoHelper.js'));
+}
 if (fs.existsSync(path.join(apiDir, 'scripts', 'migrar_base64_a_s3.js'))) {
   fs.copyFileSync(path.join(apiDir, 'scripts', 'migrar_base64_a_s3.js'), path.join(tempCambios, 'scripts', 'migrar_base64_a_s3.js'));
 }

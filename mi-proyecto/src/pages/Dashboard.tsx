@@ -311,8 +311,17 @@ export default function Dashboard({ selectedEmpProp, onDataUpdated }: DashboardP
                       >
                         <div className="flex items-center gap-2.5 min-w-0 pr-2">
                           <img
-                            src={emp.foto ? `${API_URL}/uploads/${emp.foto}` : "https://i.pravatar.cc/150?img=12"}
+                            src={
+                              emp.foto
+                                ? `${API_URL}/uploads/${emp.foto}`
+                                : `https://ui-avatars.com/api/?name=${encodeURIComponent((emp.nombres || "") + " " + (emp.primerApellido || ""))}&background=0D9488&color=fff&bold=true`
+                            }
                             alt=""
+                            loading="lazy"
+                            decoding="async"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent((emp.nombres || "") + " " + (emp.primerApellido || ""))}&background=0D9488&color=fff&bold=true`;
+                            }}
                             className="w-7 h-7 rounded-full object-cover border border-gray-200 shrink-0"
                           />
                           <div className="truncate">
@@ -423,7 +432,18 @@ export default function Dashboard({ selectedEmpProp, onDataUpdated }: DashboardP
             
             <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm print:break-inside-avoid">
               <div className="flex items-center gap-8">
-                <img src={selectedEmpleado.foto ? `${API_URL}/uploads/${selectedEmpleado.foto}` : "https://i.pravatar.cc/150?img=12"} alt="Perfil Empleado" className="h-32 w-32 rounded-full border-4 border-gray-50 object-cover shadow-sm" />
+                <img
+                  src={
+                    selectedEmpleado.foto
+                      ? `${API_URL}/uploads/${selectedEmpleado.foto}`
+                      : `https://ui-avatars.com/api/?name=${encodeURIComponent((selectedEmpleado.nombres || "") + " " + (selectedEmpleado.primerApellido || ""))}&background=0284C7&color=fff&bold=true`
+                  }
+                  alt="Perfil Empleado"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent((selectedEmpleado.nombres || "") + " " + (selectedEmpleado.primerApellido || ""))}&background=0284C7&color=fff&bold=true`;
+                  }}
+                  className="h-32 w-32 rounded-full border-4 border-gray-50 object-cover shadow-sm"
+                />
                 <div className="flex-1">
                   <h2 className="text-3xl font-extrabold text-gray-900 uppercase tracking-tight">{selectedEmpleado.nombres} {selectedEmpleado.primerApellido} {selectedEmpleado.segundoApellido}</h2>
                   <div className="mt-2.5 flex flex-wrap items-center gap-x-6 gap-y-1.5 text-sm text-gray-600">

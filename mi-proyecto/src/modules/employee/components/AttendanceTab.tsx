@@ -16,6 +16,7 @@ import {
   Users,
   Car,
   Check,
+  X,
   Plus,
   Trash2,
   Edit2,
@@ -106,6 +107,14 @@ export const AttendanceTab: React.FC = () => {
     asistencias: any[];
     descansos: any[];
   }>({ trabajadores: [], asistencias: [], descansos: [] });
+
+  // Modal de Detalle de Asistencia / Tardanza al hacer clic en un día de la Matriz
+  const [detalleDiaModal, setDetalleDiaModal] = useState<{
+    trabajador: any;
+    dia: { fechaStr: string; diaSemana: string; diaNum: number };
+    asist?: any;
+    desc?: any;
+  } | null>(null);
 
   // --- SubTab 3: Descansos Programados ---
   const [descansos, setDescansos] = useState<any[]>([]);
@@ -207,6 +216,54 @@ export const AttendanceTab: React.FC = () => {
     const month = String(d.getMonth() + 1).padStart(2, "0");
     const day = String(d.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
+  };
+
+  // Helper para extraer de forma limpia la hora "HH:mm" sin sufijos ni fechas completas
+  const formatHoraCorta = (val: any): string => {
+    if (!val) return "-";
+    if (typeof val === "string") {
+      const s = val.trim();
+      if (!s || s === "-" || s === "null" || s === "undefined") return "-";
+
+      // 1. Si viene con formato ISO o incluye T: "2026-09-15T06:54:00"
+      if (s.includes("T")) {
+        const parts = s.split("T");
+        if (parts[1]) return parts[1].slice(0, 5);
+      }
+
+      // 2. Si viene como "YYYY-MM-DD HH:mm:ss"
+      if (s.includes(" ")) {
+        const parts = s.split(" ");
+        if (parts[1]) return parts[1].slice(0, 5);
+      }
+
+      // 3. Si viene con formato de hora "HH:mm:ss" o "HH:mm"
+      const m = s.match(/(\d{1,2}):(\d{2})/);
+      if (m) {
+        return `${m[1].padStart(2, "0")}:${m[2]}`;
+      }
+
+      return s;
+    }
+    if (val instanceof Date) {
+      const pad = (n: number) => String(n).padStart(2, "0");
+      return `${pad(val.getHours())}:${pad(val.getMinutes())}`;
+    }
+    return String(val);
+  };
+
+  // Helper para estimar el Tramo según la hora de visita/asignación
+  const getTramoLabel = (val: any): string => {
+    if (!val) return "-";
+    const horaStr = formatHoraCorta(val);
+    if (!horaStr || horaStr === "-") return "-";
+    const m = horaStr.match(/(\d{1,2}):(\d{2})/);
+    if (!m) return "-";
+    const h = parseInt(m[1], 10);
+    if (h >= 6 && h < 12) return "08:00 - 12:00";
+    if (h >= 12 && h < 16) return "12:00 - 16:00";
+    if (h >= 16 && h <= 22) return "16:00 - 20:00";
+    return "-";
   };
 
   // Cargar Matriz
@@ -888,6 +945,100 @@ export const AttendanceTab: React.FC = () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Asistencia");
     XLSX.writeFile(wb, `Asistencia_${fechaSeleccionada}.xlsx`);
+  };
+
+  // Exportar Excel Matriz (Semanal o Mensual con Totales)
+  const handleExportarExcelMatriz = () => {
+    try {
+      const header = [
+        "N°",
+        "Personal",
+        ...(canVerDetallesPersonal ? ["DNI", "Rol", "Cargo", "Tipo Servicio", "Personal"] : []),
+        "Cuadrilla",
+        ...diasMatriz.map((d) => `${d.diaSemana} ${d.diaNum} (${d.fechaStr})`),
+        "Total Puntual (P)",
+        "Total Tardanza (T)",
+        "Total Falta (F)",
+        "Total Descanso (D)",
+        "Total Permiso (J)",
+      ];
+
+      const rows = trabajadoresMatrizFiltrados.map((t: any, idx: number) => {
+        let countP = 0;
+        let countT = 0;
+        let countF = 0;
+        let countD = 0;
+        let countJ = 0;
+
+        const diasValores = diasMatriz.map((dia) => {
+          const curStr = dia.fechaStr;
+          const asist = matrizData.asistencias?.find(
+            (a: any) =>
+              ((t.id_trabajador && a.id_trabajador === t.id_trabajador) ||
+                (t.id_usuario && a.id_usuario === t.id_usuario)) &&
+              a.fecha.slice(0, 10) === curStr
+          );
+          const desc = matrizData.descansos?.find(
+            (d: any) =>
+              ((t.id_trabajador && d.id_trabajador === t.id_trabajador) ||
+                (t.id_usuario && d.id_usuario === t.id_usuario)) &&
+              curStr >= d.fecha_inicio.slice(0, 10) &&
+              curStr <= d.fecha_fin.slice(0, 10)
+          );
+
+          if (asist) {
+            if (asist.estado === "Asistio") {
+              countP++;
+              return "P";
+            } else if (asist.estado === "Tardanza") {
+              countT++;
+              return `T (+${asist.minutos_tarde || 0}m)`;
+            } else if (asist.estado === "Falta") {
+              countF++;
+              return "F";
+            } else if (asist.estado === "Descanso") {
+              countD++;
+              return "D";
+            } else if (asist.estado === "Permiso") {
+              countJ++;
+              return "J";
+            }
+          } else if (desc) {
+            countD++;
+            return "D";
+          }
+          return "-";
+        });
+
+        return [
+          idx + 1,
+          t.nombre_completo || "",
+          ...(canVerDetallesPersonal
+            ? [t.documento || "-", t.rol_nombre || "-", t.cargo || "-", t.tipo_trabajo || "-", t.opcion_personal || "-"]
+            : []),
+          t.cuadrilla || "-",
+          ...diasValores,
+          countP,
+          countT,
+          countF,
+          countD,
+          countJ,
+        ];
+      });
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+      XLSX.utils.book_append_sheet(wb, ws, "Matriz Asistencias");
+
+      const nombrePeriodo =
+        rangoTipo === "mes"
+          ? `Mes_${fechaInicioMatriz.slice(0, 7)}`
+          : `Semana_${fechaInicioMatriz}`;
+      XLSX.writeFile(wb, `Matriz_Asistencias_${nombrePeriodo}.xlsx`);
+    } catch (err: any) {
+      console.error("Error al exportar matriz a Excel:", err);
+      alert("Hubo un error al generar el archivo Excel: " + (err.message || err));
+    }
   };
 
   return (
@@ -1658,16 +1809,31 @@ export const AttendanceTab: React.FC = () => {
                 )}
               </div>
 
-              {/* Buscador de Personal en la Matriz */}
-              <div className="relative min-w-[220px]">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                <input
-                  type="text"
-                  value={filtroTexto}
-                  onChange={(e) => setFiltroTexto(e.target.value)}
-                  placeholder="Buscar en la matriz..."
-                  className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:border-teal-500 transition-all shadow-2xs"
-                />
+              <div className="flex items-center gap-2">
+                {/* Buscador de Personal en la Matriz */}
+                <div className="relative min-w-[200px]">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                  <input
+                    type="text"
+                    value={filtroTexto}
+                    onChange={(e) => setFiltroTexto(e.target.value)}
+                    placeholder="Buscar en la matriz..."
+                    className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:border-teal-500 transition-all shadow-2xs"
+                  />
+                </div>
+
+                {/* Botón Exportar Matriz a Excel */}
+                {canExportarAsistencia && (
+                  <button
+                    type="button"
+                    onClick={handleExportarExcelMatriz}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow transition-all cursor-pointer shrink-0"
+                    title="Exportar matriz completa con totales a Excel"
+                  >
+                    <FileSpreadsheet size={14} />
+                    <span className="hidden sm:inline">Exportar Excel</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1706,102 +1872,180 @@ export const AttendanceTab: React.FC = () => {
                           </span>
                         </th>
                       ))}
+                      {/* Columnas de Totales Acumulados */}
+                      <th className="py-2 px-1 text-center min-w-[34px] sm:min-w-[38px] bg-emerald-100 text-emerald-900 border-l border-slate-300 shadow-2xs" title="Total Puntual (P)">
+                        <span className="block text-[8px] uppercase font-bold text-emerald-700">Punt.</span>
+                        <span className="block text-xs font-mono font-black text-emerald-950">P</span>
+                      </th>
+                      <th className="py-2 px-1 text-center min-w-[34px] sm:min-w-[38px] bg-amber-100 text-amber-900 shadow-2xs" title="Total Tardanzas (T)">
+                        <span className="block text-[8px] uppercase font-bold text-amber-700">Tard.</span>
+                        <span className="block text-xs font-mono font-black text-amber-950">T</span>
+                      </th>
+                      <th className="py-2 px-1 text-center min-w-[34px] sm:min-w-[38px] bg-red-100 text-red-900 shadow-2xs" title="Total Faltas (F)">
+                        <span className="block text-[8px] uppercase font-bold text-red-700">Falta</span>
+                        <span className="block text-xs font-mono font-black text-red-950">F</span>
+                      </th>
+                      <th className="py-2 px-1 text-center min-w-[34px] sm:min-w-[38px] bg-blue-100 text-blue-900 shadow-2xs" title="Total Descansos (D)">
+                        <span className="block text-[8px] uppercase font-bold text-blue-700">Desc.</span>
+                        <span className="block text-xs font-mono font-black text-blue-950">D</span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-mono">
-                    {trabajadoresMatrizFiltrados.map((t, idx) => (
-                      <tr key={t.id_usuario ? `matriz-u-${t.id_usuario}` : (t.id_trabajador ? `matriz-t-${t.id_trabajador}` : `matriz-idx-${idx}`)} className="hover:bg-slate-50/70">
-                        <td className="py-2.5 px-3 font-sans font-bold text-slate-800 text-xs min-w-[240px] max-w-[280px] sticky left-0 z-10 bg-white border-r border-slate-200/80 shadow-2xs">
-                          <div className="flex flex-col gap-1">
-                            <span className="truncate font-extrabold text-slate-900">{t.nombre_completo}</span>
-                            {canVerDetallesPersonal && (
-                              <div className="flex items-center flex-wrap gap-1 text-[9px] font-sans">
-                                {t.rol_nombre && (
-                                  <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-bold border border-slate-200 uppercase">
-                                    {t.rol_nombre}
-                                  </span>
-                                )}
-                                {t.cargo && (
-                                  <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold border border-blue-200">
-                                    {t.cargo}
-                                  </span>
-                                )}
-                                {t.tipo_trabajo && (
-                                  <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200">
-                                    {t.tipo_trabajo}
-                                  </span>
-                                )}
-                                {t.opcion_personal && (
-                                  <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 font-semibold border border-amber-200">
-                                    {t.opcion_personal}
-                                  </span>
-                                )}
-                                {t.cuadrilla && (
-                                  <span className="px-1.5 py-0.5 rounded bg-teal-50 text-teal-800 font-mono font-bold border border-teal-200">
-                                    {t.cuadrilla}
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        {diasMatriz.map((dia) => {
-                          const curStr = dia.fechaStr;
+                    {trabajadoresMatrizFiltrados.map((t, idx) => {
+                      let totalP = 0;
+                      let totalT = 0;
+                      let totalF = 0;
+                      let totalD = 0;
 
-                          const asist = matrizData.asistencias?.find(
-                            (a) =>
-                              ((t.id_trabajador && a.id_trabajador === t.id_trabajador) ||
-                               (t.id_usuario && a.id_usuario === t.id_usuario)) &&
-                              a.fecha.slice(0, 10) === curStr
-                          );
-                          const desc = matrizData.descansos?.find(
-                            (d) =>
-                              ((t.id_trabajador && d.id_trabajador === t.id_trabajador) ||
-                               (t.id_usuario && d.id_usuario === t.id_usuario)) &&
-                              curStr >= d.fecha_inicio.slice(0, 10) &&
-                              curStr <= d.fecha_fin.slice(0, 10)
-                          );
+                      const dayCells = diasMatriz.map((dia) => {
+                        const curStr = dia.fechaStr;
 
-                          let bgClass = dia.esFinDeSemana ? "bg-slate-100/60 text-slate-300" : "bg-slate-50/70 text-slate-300";
-                          let iconText = "-";
+                        const asist = matrizData.asistencias?.find(
+                          (a) =>
+                            ((t.id_trabajador && a.id_trabajador === t.id_trabajador) ||
+                             (t.id_usuario && a.id_usuario === t.id_usuario)) &&
+                            a.fecha.slice(0, 10) === curStr
+                        );
+                        const desc = matrizData.descansos?.find(
+                          (d) =>
+                            ((t.id_trabajador && d.id_trabajador === t.id_trabajador) ||
+                             (t.id_usuario && d.id_usuario === t.id_usuario)) &&
+                            curStr >= d.fecha_inicio.slice(0, 10) &&
+                            curStr <= d.fecha_fin.slice(0, 10)
+                        );
 
-                          if (asist) {
-                            if (asist.estado === "Asistio") {
-                              bgClass = "bg-emerald-100 text-emerald-800 font-bold border border-emerald-300 shadow-2xs";
-                              iconText = "P";
-                            } else if (asist.estado === "Tardanza") {
-                              bgClass = "bg-amber-100 text-amber-800 font-bold border border-amber-300 shadow-2xs";
-                              iconText = "T";
-                            } else if (asist.estado === "Falta") {
-                              bgClass = "bg-red-100 text-red-800 font-bold border border-red-300 shadow-2xs";
-                              iconText = "F";
-                            } else if (asist.estado === "Descanso") {
-                              bgClass = "bg-blue-100 text-blue-800 font-bold border border-blue-300 shadow-2xs";
-                              iconText = "D";
-                            } else if (asist.estado === "Permiso") {
-                              bgClass = "bg-purple-100 text-purple-800 font-bold border border-purple-300 shadow-2xs";
-                              iconText = "J";
-                            }
-                          } else if (desc) {
-                            bgClass = "bg-blue-50 text-blue-700 font-bold border border-blue-200 shadow-2xs";
+                        let bgClass = dia.esFinDeSemana ? "bg-slate-100/60 text-slate-300" : "bg-slate-50/70 text-slate-300";
+                        let iconText = "-";
+
+                        if (asist) {
+                          if (asist.estado === "Asistio") {
+                            bgClass = "bg-emerald-100 text-emerald-800 font-bold border border-emerald-300 shadow-2xs hover:bg-emerald-200";
+                            iconText = "P";
+                            totalP++;
+                          } else if (asist.estado === "Tardanza") {
+                            bgClass = "bg-amber-100 text-amber-800 font-bold border border-amber-300 shadow-2xs hover:bg-amber-200 animate-pulse";
+                            iconText = "T";
+                            totalT++;
+                          } else if (asist.estado === "Falta") {
+                            bgClass = "bg-red-100 text-red-800 font-bold border border-red-300 shadow-2xs hover:bg-red-200";
+                            iconText = "F";
+                            totalF++;
+                          } else if (asist.estado === "Descanso") {
+                            bgClass = "bg-blue-100 text-blue-800 font-bold border border-blue-300 shadow-2xs hover:bg-blue-200";
                             iconText = "D";
+                            totalD++;
+                          } else if (asist.estado === "Permiso") {
+                            bgClass = "bg-purple-100 text-purple-800 font-bold border border-purple-300 shadow-2xs hover:bg-purple-200";
+                            iconText = "J";
                           }
+                        } else if (desc) {
+                          bgClass = "bg-blue-50 text-blue-700 font-bold border border-blue-200 shadow-2xs hover:bg-blue-100";
+                          iconText = "D";
+                          totalD++;
+                        }
 
-                          return (
-                            <td key={dia.fechaStr} className="py-1.5 px-0.5 text-center">
-                              <span
-                                className={`inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs transition-transform hover:scale-110 ${bgClass}`}
-                                title={`${t.nombre_completo} - ${dia.diaSemana} ${dia.diaNum} (${dia.fechaStr}): ${
-                                  asist?.estado ? `${asist.estado}${asist.hora_entrada ? ` a las ${asist.hora_entrada.slice(0, 5)}` : ""}` : (desc ? `Descanso: ${desc.motivo || ""}` : "Sin registro")
-                                }`}
-                              >
-                                {iconText}
+                        const hasData = Boolean(asist || desc);
+
+                        return (
+                          <td key={dia.fechaStr} className="py-1.5 px-0.5 text-center">
+                            <button
+                              type="button"
+                              onClick={() => setDetalleDiaModal({ trabajador: t, dia, asist, desc })}
+                              className={`inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs transition-transform hover:scale-115 active:scale-95 ${bgClass} ${
+                                hasData ? "cursor-pointer font-black" : "cursor-pointer hover:bg-slate-200"
+                              }`}
+                              title={`${t.nombre_completo} - ${dia.diaSemana} ${dia.diaNum} (${dia.fechaStr}): ${
+                                asist?.estado
+                                  ? `${asist.estado}${asist.hora_entrada ? ` a las ${asist.hora_entrada.slice(0, 5)}` : ""}${asist.minutos_tarde ? ` (+${asist.minutos_tarde}m)` : ""}`
+                                  : desc
+                                  ? `Descanso: ${desc.motivo || "Programado"}`
+                                  : "Clic para ver detalle"
+                              }`}
+                            >
+                              {iconText}
+                            </button>
+                          </td>
+                        );
+                      });
+
+                      return (
+                        <tr key={t.id_usuario ? `matriz-u-${t.id_usuario}` : (t.id_trabajador ? `matriz-t-${t.id_trabajador}` : `matriz-idx-${idx}`)} className="hover:bg-slate-50/70">
+                          <td className="py-2.5 px-3 font-sans font-bold text-slate-800 text-xs min-w-[240px] max-w-[280px] sticky left-0 z-10 bg-white border-r border-slate-200/80 shadow-2xs">
+                            <div className="flex flex-col gap-1">
+                              <span className="truncate font-extrabold text-slate-900">{t.nombre_completo}</span>
+                              {canVerDetallesPersonal && (
+                                <div className="flex items-center flex-wrap gap-1 text-[9px] font-sans">
+                                  {t.rol_nombre && (
+                                    <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-bold border border-slate-200 uppercase">
+                                      {t.rol_nombre}
+                                    </span>
+                                  )}
+                                  {t.cargo && (
+                                    <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold border border-blue-200">
+                                      {t.cargo}
+                                    </span>
+                                  )}
+                                  {t.tipo_trabajo && (
+                                    <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200">
+                                      {t.tipo_trabajo}
+                                    </span>
+                                  )}
+                                  {t.opcion_personal && (
+                                    <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 font-semibold border border-amber-200">
+                                      {t.opcion_personal}
+                                    </span>
+                                  )}
+                                  {t.cuadrilla && (
+                                    <span className="px-1.5 py-0.5 rounded bg-teal-50 text-teal-800 font-mono font-bold border border-teal-200">
+                                      {t.cuadrilla}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          {dayCells}
+                          {/* Columnas de Totales Acumulados */}
+                          <td className="py-1.5 px-1 text-center font-bold text-xs bg-emerald-50/40 text-emerald-800 border-l border-slate-200">
+                            {totalP > 0 ? (
+                              <span className="inline-flex items-center justify-center min-w-[22px] px-1 py-0.5 rounded-md bg-emerald-100 text-emerald-900 font-black">
+                                {totalP}
                               </span>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
+                            ) : (
+                              <span className="text-slate-300 font-normal">0</span>
+                            )}
+                          </td>
+                          <td className="py-1.5 px-1 text-center font-bold text-xs bg-amber-50/40 text-amber-800">
+                            {totalT > 0 ? (
+                              <span className="inline-flex items-center justify-center min-w-[22px] px-1 py-0.5 rounded-md bg-amber-100 text-amber-900 font-black">
+                                {totalT}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 font-normal">0</span>
+                            )}
+                          </td>
+                          <td className="py-1.5 px-1 text-center font-bold text-xs bg-red-50/40 text-red-800">
+                            {totalF > 0 ? (
+                              <span className="inline-flex items-center justify-center min-w-[22px] px-1 py-0.5 rounded-md bg-red-100 text-red-900 font-black">
+                                {totalF}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 font-normal">0</span>
+                            )}
+                          </td>
+                          <td className="py-1.5 px-1 text-center font-bold text-xs bg-blue-50/40 text-blue-800">
+                            {totalD > 0 ? (
+                              <span className="inline-flex items-center justify-center min-w-[22px] px-1 py-0.5 rounded-md bg-blue-100 text-blue-900 font-black">
+                                {totalD}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 font-normal">0</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -2432,6 +2676,204 @@ export const AttendanceTab: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          5. MODAL DETALLE DE ASISTENCIA / TARDANZA (AL HACER CLIC EN UN DÍA)
+      ───────────────────────────────────────────────────────────── */}
+      {detalleDiaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4 max-h-[90vh] overflow-y-auto">
+            {/* Header del Modal */}
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-11 h-11 rounded-2xl flex items-center justify-center font-black text-white text-lg shadow-md ${
+                    detalleDiaModal.asist?.estado === "Asistio"
+                      ? "bg-emerald-600 shadow-emerald-600/30"
+                      : detalleDiaModal.asist?.estado === "Tardanza"
+                      ? "bg-amber-600 shadow-amber-600/30"
+                      : detalleDiaModal.asist?.estado === "Falta"
+                      ? "bg-red-600 shadow-red-600/30"
+                      : (detalleDiaModal.asist?.estado === "Descanso" || detalleDiaModal.desc)
+                      ? "bg-blue-600 shadow-blue-600/30"
+                      : "bg-slate-500 shadow-slate-500/20"
+                  }`}
+                >
+                  {detalleDiaModal.asist?.estado === "Asistio"
+                    ? "P"
+                    : detalleDiaModal.asist?.estado === "Tardanza"
+                    ? "T"
+                    : detalleDiaModal.asist?.estado === "Falta"
+                    ? "F"
+                    : (detalleDiaModal.asist?.estado === "Descanso" || detalleDiaModal.desc)
+                    ? "D"
+                    : "-"}
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 leading-tight">
+                    {detalleDiaModal.trabajador.nombre_completo}
+                  </h3>
+                  <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
+                    {detalleDiaModal.trabajador.cuadrilla && (
+                      <span className="font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200">
+                        {detalleDiaModal.trabajador.cuadrilla}
+                      </span>
+                    )}
+                    <span className="capitalize font-medium">
+                      {detalleDiaModal.dia.diaSemana} {detalleDiaModal.dia.diaNum} ({detalleDiaModal.dia.fechaStr})
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetalleDiaModal(null)}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Estado General */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Estado Registrado:</span>
+              <span
+                className={`px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wide border shadow-2xs ${
+                  detalleDiaModal.asist?.estado === "Asistio"
+                    ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                    : detalleDiaModal.asist?.estado === "Tardanza"
+                    ? "bg-amber-100 text-amber-800 border-amber-300"
+                    : detalleDiaModal.asist?.estado === "Falta"
+                    ? "bg-red-100 text-red-800 border-red-300"
+                    : (detalleDiaModal.asist?.estado === "Descanso" || detalleDiaModal.desc)
+                    ? "bg-blue-100 text-blue-800 border-blue-300"
+                    : "bg-slate-100 text-slate-600 border-slate-300"
+                }`}
+              >
+                {detalleDiaModal.asist?.estado || (detalleDiaModal.desc ? "Descanso Programado" : "Sin Registro")}
+              </span>
+            </div>
+
+            {/* Si es Tardanza: Alerta visual con retraso */}
+            {detalleDiaModal.asist?.estado === "Tardanza" && (
+              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-300/80 text-amber-900 flex items-start gap-3">
+                <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={20} />
+                <div>
+                  <div className="text-sm font-black text-amber-950">
+                    Tardanza Registrada: +{detalleDiaModal.asist.minutos_tarde || 0} min de retraso
+                  </div>
+                  <p className="text-xs text-amber-800 mt-0.5">
+                    La hora oficial de entrada es 07:45 AM (tolerancia máxima 07:47 AM). El inicio de visita o salida se registró posterior al límite permitido.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Grilla con Desglose de Horas y Entrada */}
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/70">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Hora Oficial Entrada</span>
+                <span className="font-mono font-black text-slate-900 text-sm">07:45:00 AM</span>
+                <span className="text-[10px] text-slate-500 block">Tolerancia límite: 07:47 AM</span>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/70">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Hora Marcada / Inicio</span>
+                <span className="font-mono font-black text-teal-900 text-sm">
+                  {formatHoraCorta(detalleDiaModal.asist?.hora_entrada)}
+                </span>
+                <span className="text-[10px] text-slate-500 block">
+                  {detalleDiaModal.asist?.tipo || "Registro de Asistencia"}
+                </span>
+              </div>
+            </div>
+
+            {/* Datos de la Orden de Trabajo si existe */}
+            {(detalleDiaModal.asist?.numero_orden || detalleDiaModal.asist?.id_orden) ? (
+              <div className="p-4 rounded-2xl bg-teal-50/60 border border-teal-200 text-xs space-y-3">
+                <div className="flex items-center justify-between border-b border-teal-200/60 pb-2">
+                  <span className="font-bold text-teal-900 flex items-center gap-1.5">
+                    <FileCheck size={14} className="text-teal-600" />
+                    Orden de Trabajo Vinculada
+                  </span>
+                  <span className="font-mono font-black text-teal-950 bg-white px-2.5 py-0.5 rounded-lg border border-teal-300 shadow-2xs">
+                    OT #{detalleDiaModal.asist.numero_orden || detalleDiaModal.asist.id_orden}
+                  </span>
+                </div>
+
+                {/* Tiempos de la Orden (Asignación, Camino, Inicio, Fin, Tramo) */}
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px] pt-1">
+                  <div className="bg-white/80 p-2 rounded-xl border border-teal-100 text-center">
+                    <span className="text-[9px] uppercase tracking-wider text-teal-700 block font-extrabold mb-0.5">Asignación</span>
+                    <span className="font-mono font-black text-slate-900 text-xs">
+                      {formatHoraCorta(detalleDiaModal.asist.hora_asignacion)}
+                    </span>
+                  </div>
+                  <div className="bg-white/80 p-2 rounded-xl border border-teal-100 text-center">
+                    <span className="text-[9px] uppercase tracking-wider text-teal-700 block font-extrabold mb-0.5">Camino</span>
+                    <span className="font-mono font-black text-slate-900 text-xs">
+                      {formatHoraCorta(detalleDiaModal.asist.hora_en_camino)}
+                    </span>
+                  </div>
+                  <div className="bg-white/80 p-2 rounded-xl border border-teal-100 text-center">
+                    <span className="text-[9px] uppercase tracking-wider text-teal-700 block font-extrabold mb-0.5">Inicio</span>
+                    <span className="font-mono font-black text-teal-900 text-xs">
+                      {formatHoraCorta(detalleDiaModal.asist.inicio_visita)}
+                    </span>
+                  </div>
+                  <div className="bg-white/80 p-2 rounded-xl border border-teal-100 text-center">
+                    <span className="text-[9px] uppercase tracking-wider text-teal-700 block font-extrabold mb-0.5">Fin</span>
+                    <span className="font-mono font-black text-slate-900 text-xs">
+                      {formatHoraCorta(detalleDiaModal.asist.fin_visita)}
+                    </span>
+                  </div>
+                  <div className="bg-white/80 p-2 rounded-xl border border-teal-100 text-center col-span-2 sm:col-span-1">
+                    <span className="text-[9px] uppercase tracking-wider text-teal-700 block font-extrabold mb-0.5">Tramo</span>
+                    <span className="font-mono font-bold text-teal-950 text-[10px] leading-tight block">
+                      {getTramoLabel(detalleDiaModal.asist.inicio_visita || detalleDiaModal.asist.hora_asignacion)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : detalleDiaModal.desc ? (
+              <div className="p-4 rounded-2xl bg-blue-50/70 border border-blue-200 text-xs space-y-2">
+                <span className="font-bold text-blue-900 flex items-center gap-1.5">
+                  <Coffee size={14} className="text-blue-600" />
+                  Descanso Programado
+                </span>
+                <div className="text-[11px] text-blue-950 space-y-1">
+                  <div><strong className="text-blue-800">Motivo:</strong> {detalleDiaModal.desc.motivo || "Descanso semanal"}</div>
+                  <div><strong className="text-blue-800">Vigencia:</strong> Desde {detalleDiaModal.desc.fecha_inicio.slice(0, 10)} hasta {detalleDiaModal.desc.fecha_fin.slice(0, 10)}</div>
+                  <div><strong className="text-blue-800">Estado:</strong> {detalleDiaModal.desc.estado || "Aprobado"}</div>
+                </div>
+              </div>
+            ) : null}
+
+            {/* Observación / Auditoría */}
+            {detalleDiaModal.asist?.observacion && (
+              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/70 text-xs">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">
+                  Observación de Auditoría
+                </span>
+                <p className="font-mono text-slate-700 bg-white p-2 rounded-xl border border-slate-200/60 break-words">
+                  {detalleDiaModal.asist.observacion}
+                </p>
+              </div>
+            )}
+
+            {/* Botón Cerrar */}
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setDetalleDiaModal(null)}
+                className="px-5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-sm"
+              >
+                Cerrar Detalle
+              </button>
+            </div>
           </div>
         </div>
       )}

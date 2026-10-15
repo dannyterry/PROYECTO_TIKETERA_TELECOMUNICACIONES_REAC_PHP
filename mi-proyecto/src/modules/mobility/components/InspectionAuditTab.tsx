@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Search,
   CheckCircle2,
@@ -16,6 +16,8 @@ import {
   Check,
   X,
   Sparkles,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { Inspeccion, Vehiculo, Tecnico } from "../types/mobilityTypes";
 import { auditarInspeccion, getImageUrl } from "../services/mobilityService";
@@ -41,6 +43,10 @@ export const InspectionAuditTab: React.FC<Props> = ({
   const [filtroCombustible, setFiltroCombustible] = useState<string>("Todos");
   const [filtroVehiculo, setFiltroVehiculo] = useState<string>("");
   const [filtroFecha, setFiltroFecha] = useState<string>("");
+
+  // Paginación optimizada (reduce carga masiva de fotos)
+  const [paginaActual, setPaginaActual] = useState(1);
+  const ITEMS_POR_PAGINA = 9;
 
   // Estado para visor de fotos modal
   const [viewerPhotos, setViewerPhotos] = useState<PhotoItem[] | null>(null);
@@ -76,6 +82,17 @@ export const InspectionAuditTab: React.FC<Props> = ({
 
     return coincideTexto && coincideEstado && coincideCombustible && coincideVehiculo && coincideFecha;
   });
+
+  // Resetear a la página 1 cuando el usuario aplica cualquier filtro
+  useEffect(() => {
+    setPaginaActual(1);
+  }, [filtroTexto, filtroEstado, filtroCombustible, filtroVehiculo, filtroFecha]);
+
+  const totalPaginas = Math.max(1, Math.ceil(inspeccionesFiltradas.length / ITEMS_POR_PAGINA));
+  const inspeccionesPaginadas = useMemo(() => {
+    const inicio = (paginaActual - 1) * ITEMS_POR_PAGINA;
+    return inspeccionesFiltradas.slice(inicio, inicio + ITEMS_POR_PAGINA);
+  }, [inspeccionesFiltradas, paginaActual]);
 
   const handleOpenPhotos = (insp: Inspeccion, startIndex = 0) => {
     const list: PhotoItem[] = [];
@@ -276,7 +293,7 @@ export const InspectionAuditTab: React.FC<Props> = ({
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {inspeccionesFiltradas.map((insp) => {
+          {inspeccionesPaginadas.map((insp) => {
             const fotosDisponibles = [
               insp.foto_tablero_inicio,
               insp.foto_aceite,
@@ -473,6 +490,11 @@ export const InspectionAuditTab: React.FC<Props> = ({
                             <img
                               src={getImageUrl(insp.foto_tablero_inicio)}
                               alt="Tablero Inicio"
+                              loading="lazy"
+                              decoding="async"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).style.display = "none";
+                              }}
                               className="w-full h-full object-cover rounded-xl"
                             />
                             <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[7px] font-bold text-white text-center rounded py-0.5 truncate">
@@ -499,6 +521,11 @@ export const InspectionAuditTab: React.FC<Props> = ({
                             <img
                               src={getImageUrl(insp.foto_aceite)}
                               alt="Aceite"
+                              loading="lazy"
+                              decoding="async"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).style.display = "none";
+                              }}
                               className="w-full h-full object-cover rounded-xl"
                             />
                             <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[7px] font-bold text-white text-center rounded py-0.5 truncate">
@@ -525,6 +552,11 @@ export const InspectionAuditTab: React.FC<Props> = ({
                             <img
                               src={getImageUrl(insp.foto_agua)}
                               alt="Agua"
+                              loading="lazy"
+                              decoding="async"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).style.display = "none";
+                              }}
                               className="w-full h-full object-cover rounded-xl"
                             />
                             <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[7px] font-bold text-white text-center rounded py-0.5 truncate">
@@ -551,6 +583,11 @@ export const InspectionAuditTab: React.FC<Props> = ({
                             <img
                               src={getImageUrl(insp.foto_estado_general)}
                               alt="Marcador Gas Inicio"
+                              loading="lazy"
+                              decoding="async"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).style.display = "none";
+                              }}
                               className="w-full h-full object-cover rounded-xl"
                             />
                             <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[7px] font-bold text-white text-center rounded py-0.5 truncate">
@@ -577,6 +614,11 @@ export const InspectionAuditTab: React.FC<Props> = ({
                             <img
                               src={getImageUrl(insp.foto_tablero_fin)}
                               alt="Tablero Cierre"
+                              loading="lazy"
+                              decoding="async"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).style.display = "none";
+                              }}
                               className="w-full h-full object-cover rounded-xl"
                             />
                             <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[7px] font-bold text-white text-center rounded py-0.5 truncate">
@@ -603,6 +645,11 @@ export const InspectionAuditTab: React.FC<Props> = ({
                             <img
                               src={getImageUrl(insp.foto_combustible_fin)}
                               alt="Marcador Gas Cierre"
+                              loading="lazy"
+                              decoding="async"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).style.display = "none";
+                              }}
                               className="w-full h-full object-cover rounded-xl"
                             />
                             <span className="absolute bottom-1 inset-x-0.5 bg-black/70 text-[7px] font-bold text-white text-center rounded py-0.5 truncate">
@@ -713,6 +760,70 @@ export const InspectionAuditTab: React.FC<Props> = ({
               </button>
             </div>
           </div>
+
+          {/* Paginador Rápido y Limpio */}
+          {totalPaginas > 1 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-4 rounded-3xl border border-slate-200/80 shadow-xs mt-4">
+              <span className="text-xs font-bold text-slate-500">
+                Mostrando página <strong className="text-slate-800 font-mono">{paginaActual}</strong> de <strong className="text-slate-800 font-mono">{totalPaginas}</strong> ({inspeccionesFiltradas.length} inspecciones)
+              </span>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setPaginaActual((p) => Math.max(1, p - 1))}
+                  disabled={paginaActual === 1}
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer transition-all"
+                >
+                  <ChevronLeft size={14} />
+                  <span>Anterior</span>
+                </button>
+
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: totalPaginas }, (_, i) => i + 1).map((num) => {
+                    if (
+                      num === 1 ||
+                      num === totalPaginas ||
+                      (num >= paginaActual - 1 && num <= paginaActual + 1)
+                    ) {
+                      return (
+                        <button
+                          key={`pag-${num}`}
+                          type="button"
+                          onClick={() => setPaginaActual(num)}
+                          className={`w-8 h-8 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                            paginaActual === num
+                              ? "bg-cyan-600 text-white shadow-xs"
+                              : "text-slate-600 hover:bg-slate-100"
+                          }`}
+                        >
+                          {num}
+                        </button>
+                      );
+                    }
+                    if (num === paginaActual - 2 || num === paginaActual + 2) {
+                      return (
+                        <span key={`dots-${num}`} className="text-slate-400 text-xs px-0.5">
+                          ...
+                        </span>
+                      );
+                    }
+                    return null;
+                  })}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setPaginaActual((p) => Math.min(totalPaginas, p + 1))}
+                  disabled={paginaActual === totalPaginas}
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer transition-all"
+                >
+                  <span>Siguiente</span>
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

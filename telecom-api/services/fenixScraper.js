@@ -315,9 +315,21 @@ async function cargarGrillaWin(pagina = 1, fechaDesdeStr = null, fechaHastaStr =
   const hoy = new Date();
   const fHoy = formatDateToDMY(hoy);
 
-  // 🚀 Por defecto: sincronizar únicamente la fecha de HOY (máxima velocidad y actualización automática de la jornada)
+  // 🚀 Ventana inteligente por defecto:
+  // Si no se especificaron fechas manuales y la sincronización se lanza después de las 17:00 (5:00 PM),
+  // abarcar automáticamente la jornada de Hoy y la del Día siguiente para no perder órdenes reprogramadas/rescatadas
+  let defaultHasta = fHoy;
+  if (!fechaHastaStr && !fechaDesdeStr) {
+    const horaActual = hoy.getHours();
+    if (horaActual >= 17) {
+      const manana = new Date(hoy);
+      manana.setDate(manana.getDate() + 1);
+      defaultHasta = formatDateToDMY(manana);
+    }
+  }
+
   const fDesde = toDMY(fechaDesdeStr) || fHoy;
-  const fHasta = toDMY(fechaHastaStr) || fDesde;
+  const fHasta = toDMY(fechaHastaStr) || defaultHasta;
 
   const payload = {
     Empresa: "0",
@@ -767,16 +779,37 @@ async function guardarOrdenesEnBD(ordenes) {
       }
       const autoIdTecnico = techInfo?.id || null;
       const autoNombreTecnico = techInfo?.nombre || null;
-      // Auto-clasificación estricta de estado (Reconciliación automática con Fénix):
-      // Si la orden viene como Finalizada/Liquidada pero su motivo_finalizacion o motivo_cancelacion indica CANCELADA / OBSERVADA / NO REALIZADA,
-      // se clasifica como 'Observada' automáticamente para mantener cuadre exacto con Fénix y no pagar indebidamente al técnico.
+      // =========================================================================
+      // AUTO-CLASIFICACIÓN INTELIGENTE DE ESTADOS (CON SOPORTE A RESCATES Y REGESTIÓN)
+      // =========================================================================
       let autoEstado = o.estado || 'Agendada';
       const motivoFinUpper = String(o.motivo_finalizacion || '').toUpperCase();
       const motivoCancUpper = String(o.motivo_cancelacion || '').toUpperCase();
       const motivoAnulUpper = String(o.motivo_anulacion || '').toUpperCase();
+      const motivoRegUpper = String(o.motivo_regestion || '').toUpperCase();
+
+      // Detección de orden rescatada / regestionada con éxito
+      const esRescateValido = Boolean(
+        motivoRegUpper && 
+        /RESCATE|REASIGNA/i.test(motivoRegUpper)
+      );
+
+      let limpiarCancelacion = false;
 
       if (esFinLiq) {
-        if (/CANCELAD|NO REALIZAD|OBSERVAD/i.test(motivoFinUpper) || /CANCELAD/i.test(motivoCancUpper)) {
+        // Si fue un rescate exitoso o cuenta con un motivo de finalización real legítimo,
+        // limpiamos el residuo de cancelación anterior y NO bloqueamos el pase a Finalizada/Liquidada
+        const tieneMotivoFinLegitimo = Boolean(
+          motivoFinUpper && 
+          !/CANCELAD|NO REALIZAD|OBSERVAD/i.test(motivoFinUpper) && 
+          !/CLIENTE NO RESPONDE|REPROGRAMACION|AUSENTE/i.test(motivoFinUpper)
+        );
+
+        if (esRescateValido || tieneMotivoFinLegitimo) {
+          autoEstado = o.estado;
+          o.motivo_cancelacion = null; // Limpiar cancelación obsoleta de la mañana
+          limpiarCancelacion = true;
+        } else if (/CANCELAD|NO REALIZAD|OBSERVAD/i.test(motivoFinUpper) || /CANCELAD/i.test(motivoCancUpper)) {
           autoEstado = 'Observada';
         } else if (/ANULAD/i.test(motivoFinUpper) || /ANULAD/i.test(motivoAnulUpper)) {
           autoEstado = 'Anulada';
@@ -784,6 +817,13 @@ async function guardarOrdenesEnBD(ordenes) {
           autoEstado = 'Finalizada Externa';
         } else {
           autoEstado = o.estado;
+        }
+      } else if (['Iniciada', 'En camino', 'En Curso'].includes(o.estado)) {
+        // Si en Fénix la orden se encuentra activa en campo (Iniciada o En camino),
+        // significa que el técnico la está ejecutando: se limpia cualquier residuo de cancelación matutina
+        if (esRescateValido || o.inicio_visita || o.hora_en_camino) {
+          o.motivo_cancelacion = null;
+          limpiarCancelacion = true;
         }
       }
       const autoTipoTrabajo = resolverTipoTrabajoConCatalogo(o.motivo_finalizacion, o.tipo_trabajo || o.motivo_trabajo, autoEstado, catalogoMotivos);
@@ -825,7 +865,7 @@ async function guardarOrdenesEnBD(ordenes) {
             tipo_trabajo_asignado = COALESCE(tipo_trabajo_asignado, ?),
             tipo_trabajo = COALESCE(tipo_trabajo, ?),
             georeferencia = COALESCE(?, georeferencia),
-            motivo_cancelacion = COALESCE(?, motivo_cancelacion),
+            motivo_cancelacion = CASE WHEN ? = 1 THEN NULL ELSE COALESCE(?, motivo_cancelacion) END,
             numero_documento = COALESCE(?, numero_documento),
             movil = COALESCE(?, movil),
             codigo_seguimiento = COALESCE(?, codigo_seguimiento),
@@ -870,7 +910,7 @@ async function guardarOrdenesEnBD(ordenes) {
             o.fecha_solicitud, o.cliente, o.inicio_visita, o.fin_visita,
             o.hora_en_camino, o.hora_asignacion,
             o.motivo_finalizacion, o.datos_tecnicos, autoTipoTrabajo || o.tipo_trabajo, autoTipoTrabajo, o.georeferencia,
-            o.motivo_cancelacion, o.numero_documento, o.movil, o.codigo_seguimiento,
+            limpiarCancelacion ? 1 : 0, o.motivo_cancelacion, o.numero_documento, o.movil, o.codigo_seguimiento,
             o.region_zona, o.fecha_visita, o.fecha_solicitud, o.cod_seguimiento_cliente, o.direccion,
             autoEstado, autoEstado, o.cuadrilla, o.cuadrilla, autoIdTecnico, autoNombreTecnico, o.tipo_orden, o.motivo, o.ubicacion, o.fecha_estado,
             o.motivo_anulacion, o.motivo_regestion, o.motivo_suspension, o.pais_empresa,
@@ -969,15 +1009,41 @@ async function enriquecerHistorialOrdenesEnBackground(todasLasOrdenes) {
               if (tiempos.usuarioEjecutor) ord.usuario_ejecutor_fenix = tiempos.usuarioEjecutor;
 
               if (tiempos.motivoRegestion) ord.motivo_regestion = tiempos.motivoRegestion;
-              if (tiempos.motivoCancelacion) ord.motivo_cancelacion = tiempos.motivoCancelacion;
-
+              
               // ⚡ ACTUALIZACIÓN DE ESTADO REAL DESDE HISTORIAL FÉNIX:
               const ultimoEstadoFenix = hist[0]?.estado ? String(hist[0].estado).trim() : null;
+              const esCanceladaActual = ultimoEstadoFenix === 'Cancelada';
+
+              if (esCanceladaActual) {
+                if (tiempos.motivoCancelacion) ord.motivo_cancelacion = tiempos.motivoCancelacion;
+              } else {
+                // Si la orden NO está cancelada actualmente (fue rescatada, iniciada o finalizada), limpiar cancelación obsoleta
+                ord.motivo_cancelacion = null;
+              }
+
               if (ultimoEstadoFenix && ['Iniciada', 'En camino', 'Finalizada', 'Cancelada', 'Regestion', 'Regestión', 'Liquidada', 'Agendada'].includes(ultimoEstadoFenix)) {
                 ord.estado = ultimoEstadoFenix;
                 await pool.query(
-                  "UPDATE ordenes SET estado = ?, motivo_regestion = COALESCE(?, motivo_regestion), motivo_cancelacion = COALESCE(?, motivo_cancelacion), inicio_visita = COALESCE(?, inicio_visita), fin_visita = COALESCE(?, fin_visita), hora_en_camino = COALESCE(?, hora_en_camino), usuario_ejecutor_fenix = COALESCE(?, usuario_ejecutor_fenix) WHERE numero = ?",
-                  [ultimoEstadoFenix, tiempos.motivoRegestion || null, tiempos.motivoCancelacion || null, tiempos.inicioVisita || null, tiempos.finVisita || null, tiempos.horaEnCamino || null, tiempos.usuarioEjecutor || null, ord.numero]
+                  `UPDATE ordenes SET 
+                    estado = ?, 
+                    motivo_regestion = COALESCE(?, motivo_regestion), 
+                    motivo_cancelacion = CASE WHEN ? = 1 THEN NULL ELSE COALESCE(?, motivo_cancelacion) END, 
+                    inicio_visita = COALESCE(?, inicio_visita), 
+                    fin_visita = COALESCE(?, fin_visita), 
+                    hora_en_camino = COALESCE(?, hora_en_camino), 
+                    usuario_ejecutor_fenix = COALESCE(?, usuario_ejecutor_fenix) 
+                  WHERE numero = ?`,
+                  [
+                    ultimoEstadoFenix, 
+                    tiempos.motivoRegestion || null, 
+                    esCanceladaActual ? 0 : 1, 
+                    esCanceladaActual ? (tiempos.motivoCancelacion || null) : null, 
+                    tiempos.inicioVisita || null, 
+                    tiempos.finVisita || null, 
+                    tiempos.horaEnCamino || null, 
+                    tiempos.usuarioEjecutor || null, 
+                    ord.numero
+                  ]
                 ).catch((errUp) => console.error(`⚠️ Error al actualizar estado de orden ${ord.numero}:`, errUp.message));
               }
               huboCambios = true;

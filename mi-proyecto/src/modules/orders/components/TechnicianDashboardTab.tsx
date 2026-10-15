@@ -193,6 +193,7 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador, onSelectOr
         documento?: string;
         distrito?: string;
         ordenes: Order[];
+        finalizadas: number;
         esReiterada: boolean;
         totalVisitasMismoTecnico: number;
       }
@@ -200,17 +201,13 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador, onSelectOr
 
     orders.forEach((o) => {
       const s = (o.status || "").toUpperCase();
-      if (s.includes("FINALIZ") || s.includes("LIQUID") || s.includes("TERMIN") || s.includes("CERRAD") || s.includes("FENIX")) {
+      const isFin = s.includes("FINALIZ") || s.includes("LIQUID") || s.includes("TERMIN") || s.includes("CERRAD") || s.includes("FENIX");
+      if (isFin) {
         finalizadas++;
       } else if (s.includes("CANCELAD") || s.includes("REGESTION") || s.includes("OBSERVAD") || s.includes("ANULAD") || s.includes("SUSPENDID")) {
         canceladas++;
       } else {
         agendadas++;
-      }
-
-      // Reiteradas generales (cualquier cuadrilla)
-      if (o.esReiterada || (o.totalOrdenesCliente && o.totalOrdenesCliente > 1)) {
-        reiteradasGenerales++;
       }
 
       // Tipo de Trabajo
@@ -224,6 +221,18 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador, onSelectOr
         distritosMap[dist] = (distritosMap[dist] || 0) + 1;
       }
 
+      // ¿Es esta orden una garantía explícita o reincidencia técnica?
+      const esGarantiaOrden =
+        rawTipo.includes("GARANTIA") ||
+        (o.tipoAveria || "").toUpperCase().includes("GARANTIA") ||
+        ((o as any).motivoTipoTrabajo || "").toUpperCase().includes("GARANTIA") ||
+        Boolean(o.esReiteradaTecnico);
+
+      // Reiteradas generales (cualquier cuadrilla)
+      if (esGarantiaOrden || o.esReiterada || (o.totalOrdenesCliente && o.totalOrdenesCliente > 1)) {
+        reiteradasGenerales++;
+      }
+
       // Agrupar por cliente
       const rawClient = (o.cliente || (o as any).numeroDocumento || (o as any).dni || String(o.id || "")).trim();
       const clientKey = rawClient.toLowerCase();
@@ -234,6 +243,7 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador, onSelectOr
             documento: (o as any).numeroDocumento || (o as any).dni || "",
             distrito: o.distrito,
             ordenes: [],
+            finalizadas: 0,
             esReiterada: false,
             totalVisitasMismoTecnico: 1,
           });
@@ -241,22 +251,31 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador, onSelectOr
         const entry = clientesMap.get(clientKey)!;
         entry.ordenes.push(o);
 
-        if (o.esReiteradaTecnico || (o.totalOrdenesMismoTecnico && o.totalOrdenesMismoTecnico > 1)) {
+        if (isFin) {
+          entry.finalizadas++;
+        }
+
+        if (esGarantiaOrden) {
           entry.esReiterada = true;
         }
 
         entry.totalVisitasMismoTecnico = Math.max(
           entry.totalVisitasMismoTecnico,
           o.totalOrdenesMismoTecnico || 1,
-          entry.ordenes.length
+          entry.finalizadas
         );
       }
     });
 
     const totalClientesUnicos = clientesMap.size;
+    // 💡 REGLA DE ORO DE REINCIDENCIA TÉCNICA:
+    // Solo es reincidencia/reiterada del técnico si:
+    // 1. El técnico tiene 2 o más órdenes FINALIZADAS/LIQUIDADAS con el mismo cliente en el período (atención repetida efectiva).
+    // 2. O si la orden es expresamente de tipo GARANTÍA / REITERADA técnica.
+    // NUNCA marcar como reiterada si la visita previa fue Cancelada / Reprogramada por el cliente.
     const listaClientesReiterados = Array.from(clientesMap.values())
-      .filter((c) => c.esReiterada || c.ordenes.length > 1 || c.totalVisitasMismoTecnico > 1)
-      .sort((a, b) => b.ordenes.length - a.ordenes.length || b.totalVisitasMismoTecnico - a.totalVisitasMismoTecnico);
+      .filter((c) => c.esReiterada || c.finalizadas > 1)
+      .sort((a, b) => b.finalizadas - a.finalizadas || b.ordenes.length - a.ordenes.length);
 
     const totalClientesReiterados = listaClientesReiterados.length;
     const totalClientesSinReincidencia = Math.max(0, totalClientesUnicos - totalClientesReiterados);
@@ -1129,7 +1148,12 @@ export const TechnicianDashboardTab: React.FC<Props> = ({ trabajador, onSelectOr
                         </div>
                         <div className="flex flex-col items-end gap-1 shrink-0">
                           <span className="text-[11px] font-black text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200 font-mono">
-                            {item.ordenes.length} {item.ordenes.length === 1 ? "visita" : "visitas"} (período)
+                            {item.finalizadas > 1
+                              ? `${item.finalizadas} finalizadas`
+                              : item.esReiterada
+                              ? "Garantía"
+                              : `${item.ordenes.length} visitas`}{" "}
+                            (período)
                           </span>
                           {item.totalVisitasMismoTecnico > item.ordenes.length && (
                             <span className="text-[9px] text-slate-500">
