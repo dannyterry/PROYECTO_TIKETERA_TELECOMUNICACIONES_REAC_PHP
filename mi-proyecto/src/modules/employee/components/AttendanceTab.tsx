@@ -23,6 +23,7 @@ import {
   AlertCircle,
   FileSpreadsheet,
   Zap,
+  Trophy,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -39,6 +40,8 @@ import {
   RolItem,
 } from "../../../services/employeeService";
 import { authService } from "../../../services/authService";
+import { TardanzasDetalleModal } from "./TardanzasDetalleModal";
+import { TardanzasDashboard, esOrdenamiento } from "./TardanzasDashboard";
 
 export const AttendanceTab: React.FC = () => {
   const currentUser = authService.getCurrentUser();
@@ -64,11 +67,12 @@ export const AttendanceTab: React.FC = () => {
   const canVerTodosRoles =
     !esSupervisorOGestion || authService.hasPermission("asistencias.ver_todos_roles");
 
-  const [subTab, setSubTab] = useState<"diario" | "matriz" | "descansos">("diario");
+  const [subTab, setSubTab] = useState<"diario" | "matriz" | "descansos" | "ranking">("diario");
   const [loading, setLoading] = useState(true);
   const [roles, setRoles] = useState<RolItem[]>([]);
   const [filtroRol, setFiltroRol] = useState<string>("Todos");
   const [filtroOpcionPersonal, setFiltroOpcionPersonal] = useState<string>("Todos");
+  const [filtroTipoCuadrilla, setFiltroTipoCuadrilla] = useState<"OPERATIVOS" | "ORDENAMIENTOS" | "TODOS">("OPERATIVOS");
 
   // Obtener ID del rol técnico para los perfiles restringidos
   const rolTecnico = roles.find(
@@ -114,6 +118,12 @@ export const AttendanceTab: React.FC = () => {
     dia: { fechaStr: string; diaSemana: string; diaNum: number };
     asist?: any;
     desc?: any;
+  } | null>(null);
+
+  // Modal de Desglose de Tardanzas por Técnico (al hacer clic en la columna TARD. T)
+  const [modalTardanzasTecnico, setModalTardanzasTecnico] = useState<{
+    trabajador: any;
+    tardanzas: any[];
   } | null>(null);
 
   // --- SubTab 3: Descansos Programados ---
@@ -850,6 +860,11 @@ export const AttendanceTab: React.FC = () => {
   // Filtro de texto, opción de personal y estado para pase diario
   const asistenciasFiltradas = useMemo(() => {
     return asistencias.filter((a) => {
+      // Filtro de Ordenamiento (Cuadrillas que empiezan con 'O')
+      const esO = esOrdenamiento(a.cuadrilla);
+      if (filtroTipoCuadrilla === "OPERATIVOS" && esO) return false;
+      if (filtroTipoCuadrilla === "ORDENAMIENTOS" && !esO) return false;
+
       // Filtro por Opción de Personal
       if (filtroOpcionPersonal !== "Todos" && (a.opcion_personal || "").trim().toLowerCase() !== filtroOpcionPersonal.trim().toLowerCase()) {
         return false;
@@ -883,12 +898,17 @@ export const AttendanceTab: React.FC = () => {
         (a.opcion_personal && a.opcion_personal.toLowerCase().includes(txt))
       );
     });
-  }, [asistencias, filtroOpcionPersonal, filtroEstado, filtroTexto]);
+  }, [asistencias, filtroTipoCuadrilla, filtroOpcionPersonal, filtroEstado, filtroTexto]);
 
   // Trabajadores filtrados para la Matriz Mensual / Semanal
   const trabajadoresMatrizFiltrados = useMemo(() => {
     if (!matrizData.trabajadores) return [];
     return matrizData.trabajadores.filter((t: any) => {
+      // Filtro de Ordenamiento (Cuadrillas que empiezan con 'O')
+      const esO = esOrdenamiento(t.cuadrilla);
+      if (filtroTipoCuadrilla === "OPERATIVOS" && esO) return false;
+      if (filtroTipoCuadrilla === "ORDENAMIENTOS" && !esO) return false;
+
       // Filtro Opción de Personal
       if (filtroOpcionPersonal !== "Todos" && (t.opcion_personal || "").trim().toLowerCase() !== filtroOpcionPersonal.trim().toLowerCase()) {
         return false;
@@ -905,17 +925,30 @@ export const AttendanceTab: React.FC = () => {
       }
       return true;
     });
-  }, [matrizData.trabajadores, filtroOpcionPersonal, filtroTexto]);
+  }, [matrizData.trabajadores, filtroTipoCuadrilla, filtroOpcionPersonal, filtroTexto]);
+
+  // Base para métricas del día (respetando si se filtró Operativos vs Ordenamiento)
+  const asistenciasBaseParaMetricas = useMemo(() => {
+    return asistencias.filter((a) => {
+      const esO = esOrdenamiento(a.cuadrilla);
+      if (filtroTipoCuadrilla === "OPERATIVOS" && esO) return false;
+      if (filtroTipoCuadrilla === "ORDENAMIENTOS" && !esO) return false;
+      if (filtroOpcionPersonal !== "Todos" && (a.opcion_personal || "").trim().toLowerCase() !== filtroOpcionPersonal.trim().toLowerCase()) {
+        return false;
+      }
+      return true;
+    });
+  }, [asistencias, filtroTipoCuadrilla, filtroOpcionPersonal]);
 
   // Métricas del Día
   const metricas = {
-    totalAsistieron: asistencias.filter((a) => a.estado === "Asistio" || a.estado === "Tardanza").length,
-    puntuales: asistencias.filter((a) => a.estado === "Asistio").length,
-    tardanzas: asistencias.filter((a) => a.estado === "Tardanza").length,
-    faltas: asistencias.filter((a) => a.estado === "Falta").length,
-    descansos: asistencias.filter((a) => a.estado === "Descanso" || a.tiene_descanso_programado).length,
-    permisos: asistencias.filter((a) => a.estado === "Permiso").length,
-    pendientes: asistencias.filter((a) => !a.estado).length,
+    totalAsistieron: asistenciasBaseParaMetricas.filter((a) => a.estado === "Asistio" || a.estado === "Tardanza").length,
+    puntuales: asistenciasBaseParaMetricas.filter((a) => a.estado === "Asistio").length,
+    tardanzas: asistenciasBaseParaMetricas.filter((a) => a.estado === "Tardanza").length,
+    faltas: asistenciasBaseParaMetricas.filter((a) => a.estado === "Falta").length,
+    descansos: asistenciasBaseParaMetricas.filter((a) => a.estado === "Descanso" || a.tiene_descanso_programado).length,
+    permisos: asistenciasBaseParaMetricas.filter((a) => a.estado === "Permiso").length,
+    pendientes: asistenciasBaseParaMetricas.filter((a) => !a.estado).length,
   };
 
   // Exportar Excel Pase Diario
@@ -1101,6 +1134,19 @@ export const AttendanceTab: React.FC = () => {
             <Coffee size={15} />
             <span>Descansos</span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => setSubTab("ranking")}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              subTab === "ranking"
+                ? "bg-amber-600 text-white shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <Trophy size={15} />
+            <span>Ranking Tardanzas</span>
+          </button>
         </div>
       </div>
 
@@ -1180,6 +1226,25 @@ export const AttendanceTab: React.FC = () => {
                     </select>
                   </div>
                 )}
+
+                {/* Filtro Ordenamiento (Cuadrillas O) */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFiltroTipoCuadrilla((prev) =>
+                      prev === "ORDENAMIENTOS" ? "OPERATIVOS" : "ORDENAMIENTOS"
+                    )
+                  }
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-2xs ${
+                    filtroTipoCuadrilla === "ORDENAMIENTOS"
+                      ? "bg-violet-600 text-white border-violet-700 ring-2 ring-violet-300 shadow-sm font-black"
+                      : "bg-violet-50 text-violet-900 border-violet-200 hover:bg-violet-100"
+                  }`}
+                  title="Filtrar cuadrillas de Ordenamiento (inician con 'O')"
+                >
+                  <span className={`w-2 h-2 rounded-full ${filtroTipoCuadrilla === "ORDENAMIENTOS" ? "bg-white" : "bg-violet-500"}`} />
+                  <span>{filtroTipoCuadrilla === "ORDENAMIENTOS" ? "Viendo Ordenamientos (O)" : "Ordenamientos (Cuadrillas O)"}</span>
+                </button>
               </div>
 
               <div className="flex items-center gap-2.5 flex-1 sm:flex-initial justify-end">
@@ -1223,6 +1288,25 @@ export const AttendanceTab: React.FC = () => {
                 )}
               </div>
             </div>
+
+            {/* Banner cuando se activa Ordenamientos en Pase Diario */}
+            {filtroTipoCuadrilla === "ORDENAMIENTOS" && (
+              <div className="flex items-center justify-between px-3.5 py-2 bg-violet-50 border border-violet-200 rounded-2xl text-xs text-violet-900 font-bold animate-in fade-in duration-200">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-violet-600 animate-pulse" />
+                  <span>
+                    Filtro Activo: Visualizando exclusivamente personal de <strong>Ordenamiento (Cuadrillas que empiezan con 'O')</strong>.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFiltroTipoCuadrilla("OPERATIVOS")}
+                  className="text-violet-700 hover:text-violet-950 underline font-black cursor-pointer text-xs"
+                >
+                  Volver a Operativos
+                </button>
+              </div>
+            )}
 
             {/* Fila 2: Tarjetas Interactivas de Métricas con Filtro al Clic */}
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 pt-3 border-t border-slate-100">
@@ -1278,7 +1362,7 @@ export const AttendanceTab: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setFiltroEstado((prev) => (prev === "Tardanza" ? null : "Tardanza"))}
-                className={`border rounded-2xl px-3 py-2 flex items-center justify-between transition-all cursor-pointer text-left select-none ${
+                className={`border rounded-2xl px-3 py-2 flex items-center justify-between transition-all cursor-pointer text-left select-none relative group ${
                   filtroEstado === "Tardanza"
                     ? "bg-amber-100/95 border-amber-500 ring-2 ring-amber-500 ring-offset-1 shadow-md scale-[1.02]"
                     : "bg-amber-50/70 border-amber-200/70 hover:bg-amber-100/60 shadow-2xs hover:scale-[1.01]"
@@ -1293,9 +1377,21 @@ export const AttendanceTab: React.FC = () => {
                     Demorados
                   </span>
                 </div>
-                <span className="text-lg font-black text-amber-900 font-mono">
-                  {metricas.tardanzas}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-lg font-black text-amber-900 font-mono">
+                    {metricas.tardanzas}
+                  </span>
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSubTab("ranking");
+                    }}
+                    className="p-1 rounded-lg bg-amber-200/70 hover:bg-amber-300 text-amber-900 transition-all opacity-80 hover:opacity-100 cursor-pointer"
+                    title="Abrir Dashboard & Ranking de Tardanzas"
+                  >
+                    <Trophy size={13} />
+                  </span>
+                </div>
               </button>
 
               {/* 4. FALTAS */}
@@ -1807,6 +1903,25 @@ export const AttendanceTab: React.FC = () => {
                     </select>
                   </div>
                 )}
+
+                {/* Filtro Ordenamiento (Cuadrillas O) */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFiltroTipoCuadrilla((prev) =>
+                      prev === "ORDENAMIENTOS" ? "OPERATIVOS" : "ORDENAMIENTOS"
+                    )
+                  }
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-2xs ${
+                    filtroTipoCuadrilla === "ORDENAMIENTOS"
+                      ? "bg-violet-600 text-white border-violet-700 ring-2 ring-violet-300 shadow-sm font-black"
+                      : "bg-violet-50 text-violet-900 border-violet-200 hover:bg-violet-100"
+                  }`}
+                  title="Filtrar cuadrillas de Ordenamiento (inician con 'O')"
+                >
+                  <span className={`w-2 h-2 rounded-full ${filtroTipoCuadrilla === "ORDENAMIENTOS" ? "bg-white" : "bg-violet-500"}`} />
+                  <span>{filtroTipoCuadrilla === "ORDENAMIENTOS" ? "Viendo Ordenamientos (O)" : "Ordenamientos (Cuadrillas O)"}</span>
+                </button>
               </div>
 
               <div className="flex items-center gap-2">
@@ -1836,6 +1951,25 @@ export const AttendanceTab: React.FC = () => {
                 )}
               </div>
             </div>
+
+            {/* Banner cuando se activa Ordenamientos en Matriz */}
+            {filtroTipoCuadrilla === "ORDENAMIENTOS" && (
+              <div className="flex items-center justify-between px-3.5 py-2 bg-violet-50 border border-violet-200 rounded-2xl text-xs text-violet-900 font-bold animate-in fade-in duration-200">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-violet-600 animate-pulse" />
+                  <span>
+                    Filtro Activo: Visualizando exclusivamente personal de <strong>Ordenamiento (Cuadrillas que empiezan con 'O')</strong> en la matriz.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFiltroTipoCuadrilla("OPERATIVOS")}
+                  className="text-violet-700 hover:text-violet-950 underline font-black cursor-pointer text-xs"
+                >
+                  Volver a Operativos
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Matriz Gráfica */}
@@ -2018,9 +2152,25 @@ export const AttendanceTab: React.FC = () => {
                           </td>
                           <td className="py-1.5 px-1 text-center font-bold text-xs bg-amber-50/40 text-amber-800">
                             {totalT > 0 ? (
-                              <span className="inline-flex items-center justify-center min-w-[22px] px-1 py-0.5 rounded-md bg-amber-100 text-amber-900 font-black">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const tardanzasTec = (matrizData.asistencias || []).filter(
+                                    (a: any) =>
+                                      ((t.id_trabajador && a.id_trabajador === t.id_trabajador) ||
+                                        (t.id_usuario && a.id_usuario === t.id_usuario)) &&
+                                      a.estado === "Tardanza"
+                                  );
+                                  setModalTardanzasTecnico({
+                                    trabajador: t,
+                                    tardanzas: tardanzasTec,
+                                  });
+                                }}
+                                className="inline-flex items-center justify-center min-w-[26px] h-[22px] px-1.5 py-0.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-950 font-black border border-amber-300 shadow-2xs hover:scale-110 active:scale-95 transition-all cursor-pointer"
+                                title={`Clic para ver las ${totalT} tardanzas y horas de inicio de ${t.nombre_completo}`}
+                              >
                                 {totalT}
-                              </span>
+                              </button>
                             ) : (
                               <span className="text-slate-300 font-normal">0</span>
                             )}
@@ -2150,6 +2300,19 @@ export const AttendanceTab: React.FC = () => {
           )}
           </div>
         </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          4. VISTA 4: RANKING & DASHBOARD DE TARDANZAS
+      ───────────────────────────────────────────────────────────── */}
+      {subTab === "ranking" && (
+        <TardanzasDashboard
+          onVerDetalleTecnico={(trabajador, tardanzas) =>
+            setModalTardanzasTecnico({ trabajador, tardanzas })
+          }
+          roles={roles}
+          canVerDetallesPersonal={canVerDetallesPersonal}
+        />
       )}
 
       {/* Modal Programar Descanso con Calendario Semanal / Mensual Interactivo */}
@@ -2877,6 +3040,20 @@ export const AttendanceTab: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ⏰ Modal de Desglose de Tardanzas por Técnico con Exportación Excel */}
+      <TardanzasDetalleModal
+        isOpen={Boolean(modalTardanzasTecnico)}
+        onClose={() => setModalTardanzasTecnico(null)}
+        trabajador={modalTardanzasTecnico?.trabajador || null}
+        tardanzas={modalTardanzasTecnico?.tardanzas || []}
+        periodoTexto={
+          rangoTipo === "mes"
+            ? `${parseLocalDate(fechaInicioMatriz).toLocaleDateString("es-ES", { month: "long", year: "numeric" })}`
+            : `Semana ${diasMatriz[0]?.fechaStr || ""} al ${diasMatriz[diasMatriz.length - 1]?.fechaStr || ""}`
+        }
+        canVerDetallesPersonal={canVerDetallesPersonal}
+      />
     </div>
   );
 };

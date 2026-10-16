@@ -114,6 +114,14 @@ export const LatencyFirstLegTab: React.FC = () => {
   // Modal drill-down
   const [selectedTecnicoModal, setSelectedTecnicoModal] = useState<TecnicoRankingLatencia | null>(null);
 
+  // 🇵🇪 Formateador local seguro para evitar desfases UTC
+  const formatLocalDateYMD = (d: Date): string => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
   // Opciones de período
   const opcionesDias = useMemo(() => {
     const list = [];
@@ -121,7 +129,7 @@ export const LatencyFirstLegTab: React.FC = () => {
     for (let i = 0; i < 14; i++) {
       const d = new Date(hoy);
       d.setDate(hoy.getDate() - i);
-      const iso = d.toISOString().slice(0, 10);
+      const iso = formatLocalDateYMD(d);
       const diaNum = d.getDate();
       const mesNombre = NOMBRES_MESES_CORTO[d.getMonth()];
       const label =
@@ -146,8 +154,8 @@ export const LatencyFirstLegTab: React.FC = () => {
       const endOfWeek = new Date(startOfWeek);
       endOfWeek.setDate(startOfWeek.getDate() + 6);
 
-      const fDesde = startOfWeek.toISOString().slice(0, 10);
-      const fHasta = endOfWeek.toISOString().slice(0, 10);
+      const fDesde = formatLocalDateYMD(startOfWeek);
+      const fHasta = formatLocalDateYMD(endOfWeek);
 
       const label =
         i === 0

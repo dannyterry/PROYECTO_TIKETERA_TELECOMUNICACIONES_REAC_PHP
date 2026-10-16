@@ -46,7 +46,8 @@ import { RecableadosDropMatrixTab } from "./components/RecableadosDropMatrixTab"
 import { OnlineChatDropdown } from "../../components/chat/OnlineChatDropdown";
 import { SupervisorDashboardTab } from "./components/SupervisorDashboardTab";
 import { DataExportViewerTab } from "./components/DataExportViewerTab";
-import { Cable, FileSpreadsheet } from "lucide-react";
+import { WinScorecardSection } from "./components/WinScorecardSection";
+import { Cable, FileSpreadsheet, Award } from "lucide-react";
 interface OnlineUser {
   id_usuario: number;
   documento: string;
@@ -125,6 +126,17 @@ interface DashboardStats {
   };
   ordenes_por_estado: Array<{ estado: string; total: number }>;
   ordenes_por_mes: Array<{ mes: number; total: number; finalizadas: number }>;
+  ordenes_evolucion?: {
+    tipo: "hora" | "semana" | "mes" | "anio";
+    titulo: string;
+    data: Array<{
+      name: string;
+      Total: number;
+      Finalizadas: number;
+      fecha?: string;
+      mes?: number;
+    }>;
+  };
   stock_almacen: Array<{
     almacen_nombre: string;
     producto_nombre: string;
@@ -227,8 +239,10 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export const ExecutiveDashboardPage: React.FC = () => {
-  // Pestaña principal activa: Resumen Ejecutivo | Rendimiento Técnicos | Latencia 1er Tramo | Matriz Drop & Recableados | Supervisión & Calidad | Auditoría & Personal | Data & Exportación
-  const [activeMainTab, setActiveMainTab] = useState<"resumen" | "tecnicos" | "latencia" | "recableados_drop" | "supervision_calidad" | "auditoria" | "exportar_data">("resumen");
+  // Pestaña principal activa: Resumen Ejecutivo | Scorecard WIN | Rendimiento Técnicos | Latencia 1er Tramo | Matriz Drop & Recableados | Supervisión & Calidad | Auditoría & Personal | Data & Exportación
+  const [activeMainTab, setActiveMainTab] = useState<
+    "resumen" | "scorecard_win" | "tecnicos" | "latencia" | "recableados_drop" | "supervision_calidad" | "auditoria" | "exportar_data"
+  >("resumen");
 
   // 1. Selector inteligente de período (Días, Semanas, Meses, Año)
   const [periodMode, setPeriodMode] = useState<"dia" | "semana" | "mes" | "anio">("mes");
@@ -294,6 +308,14 @@ export const ExecutiveDashboardPage: React.FC = () => {
     window.location.reload();
   };
 
+  // 🇵🇪 Formateador seguro de fecha local (Evita desfase UTC de toISOString a partir de las 7:00 PM)
+  const formatLocalDateYMD = (d: Date): string => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
   // Generadores de opciones de período
   const opcionesDias = useMemo(() => {
     const list = [];
@@ -301,7 +323,7 @@ export const ExecutiveDashboardPage: React.FC = () => {
     for (let i = 0; i < 14; i++) {
       const d = new Date(hoy);
       d.setDate(hoy.getDate() - i);
-      const iso = d.toISOString().slice(0, 10);
+      const iso = formatLocalDateYMD(d);
       const diaNum = d.getDate();
       const mesNombre = NOMBRES_MESES_CORTO[d.getMonth()];
       const label =
@@ -326,8 +348,8 @@ export const ExecutiveDashboardPage: React.FC = () => {
       const endOfWeek = new Date(startOfWeek);
       endOfWeek.setDate(startOfWeek.getDate() + 6);
 
-      const fDesde = startOfWeek.toISOString().slice(0, 10);
-      const fHasta = endOfWeek.toISOString().slice(0, 10);
+      const fDesde = formatLocalDateYMD(startOfWeek);
+      const fHasta = formatLocalDateYMD(endOfWeek);
 
       const label =
         i === 0
@@ -524,15 +546,30 @@ export const ExecutiveDashboardPage: React.FC = () => {
     color: COLOR_ESTADOS[e.estado] || "#94a3b8",
   }));
 
-  // 3. Gráfico de Barras de Producción Anual
-  const dataMesesBar = Array.from({ length: 12 }, (_, i) => {
-    const found = (stats?.ordenes_por_mes || []).find((m) => Number(m.mes) === i + 1);
-    return {
-      name: NOMBRES_MESES_CORTO[i],
-      Total: found ? Number(found.total) : 0,
-      Finalizadas: found ? Number(found.finalizadas) : 0,
-    };
-  });
+  // 3. Gráfico de Barras de Producción Dinámico (Adaptable a Día, Semana, Mes, Año)
+  const dataEvolucionBar = useMemo(() => {
+    if (stats?.ordenes_evolucion?.data && stats.ordenes_evolucion.data.length > 0) {
+      return stats.ordenes_evolucion.data;
+    }
+    return Array.from({ length: 12 }, (_, i) => {
+      const found = (stats?.ordenes_por_mes || []).find((m) => Number(m.mes) === i + 1);
+      return {
+        name: NOMBRES_MESES_CORTO[i],
+        Total: found ? Number(found.total) : 0,
+        Finalizadas: found ? Number(found.finalizadas) : 0,
+      };
+    });
+  }, [stats?.ordenes_evolucion, stats?.ordenes_por_mes]);
+
+  const tituloEvolucionBar = useMemo(() => {
+    if (stats?.ordenes_evolucion?.titulo) {
+      return stats.ordenes_evolucion.titulo;
+    }
+    if (periodMode === "dia") return "Evolución de Producción por Horas (Total vs Finalizadas)";
+    if (periodMode === "semana") return "Evolución de Producción Semanal (Total vs Finalizadas)";
+    if (periodMode === "mes") return "Evolución de Producción Diaria del Mes (Total vs Finalizadas)";
+    return "Evolución de Producción Anual (Total vs Finalizadas)";
+  }, [stats?.ordenes_evolucion, periodMode]);
 
   return (
     <div className="w-full min-h-screen bg-slate-100/70 text-slate-800 p-3 md:p-4 space-y-3">
@@ -645,6 +682,22 @@ export const ExecutiveDashboardPage: React.FC = () => {
             >
               <Activity size={14} className={activeMainTab === "resumen" ? "text-sky-600" : "text-slate-400"} />
               <span>Resumen</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveMainTab("scorecard_win")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                activeMainTab === "scorecard_win"
+                  ? "bg-white text-orange-950 shadow-xs border border-orange-300 font-black"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+              }`}
+            >
+              <Award size={14} className={activeMainTab === "scorecard_win" ? "text-[#FF5500]" : "text-slate-400"} />
+              <span>Scorecard WIN</span>
+              <span className="px-1.5 py-0.2 rounded-full text-[8.5px] font-black uppercase tracking-wider bg-[#FF5500] text-white shadow-2xs">
+                Oficial
+              </span>
             </button>
 
             <button
@@ -1247,30 +1300,84 @@ export const ExecutiveDashboardPage: React.FC = () => {
           {/* ─────────────────────────────────────────────────────────────
               4. GRÁFICO DE BARRAS: EVOLUCIÓN ANUAL MES A MES
           ───────────────────────────────────────────────────────────── */}
+          {/* ─────────────────────────────────────────────────────────────
+              4. GRÁFICO DE BARRAS: EVOLUCIÓN DINÁMICA DE PRODUCCIÓN
+          ───────────────────────────────────────────────────────────── */}
           <div className="bg-white rounded-3xl border border-slate-200/80 p-5 shadow-xs">
-            <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 mb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3.5 border-b border-slate-100 mb-4 gap-3">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center">
                   <BarChart3 className="w-5 h-5" />
                 </div>
                 <div>
-                  <h2 className="text-sm font-black text-slate-900">Evolución de Producción Anual (Total vs Finalizadas)</h2>
-                  <p className="text-[11px] text-slate-500">Comparativa histórica mensual del rendimiento operativo</p>
+                  <h2 className="text-sm font-black text-slate-900">{tituloEvolucionBar}</h2>
+                  <p className="text-[11px] text-slate-500">
+                    {periodMode === "dia"
+                      ? "Desglose por horas de la jornada diaria (07:00 a 20:00)"
+                      : periodMode === "semana"
+                      ? "Desglose día a día de la semana seleccionada"
+                      : periodMode === "mes"
+                      ? "Comparativa de producción diaria del mes (Día 1 al fin de mes)"
+                      : "Comparativa histórica mensual del rendimiento operativo"}
+                  </p>
                 </div>
               </div>
-              <div className="flex items-center gap-4 text-xs font-bold">
-                <span className="flex items-center gap-1.5 text-slate-600">
-                  <span className="w-3 h-3 rounded-md bg-[#cbd5e1] inline-block"></span> Total
-                </span>
-                <span className="flex items-center gap-1.5 text-[#1f4e78]">
-                  <span className="w-3 h-3 rounded-md bg-[#5b9bd5] inline-block"></span> Finalizadas
-                </span>
+
+              {/* Botones de cambio rápido de vista y Leyenda */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-[11px] font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setPeriodMode("dia")}
+                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                      periodMode === "dia" ? "bg-white text-slate-900 shadow-2xs font-black" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    Día
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPeriodMode("semana")}
+                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                      periodMode === "semana" ? "bg-white text-slate-900 shadow-2xs font-black" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    Semana
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPeriodMode("mes")}
+                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                      periodMode === "mes" ? "bg-white text-slate-900 shadow-2xs font-black" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    Mes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPeriodMode("anio")}
+                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                      periodMode === "anio" ? "bg-white text-slate-900 shadow-2xs font-black" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    Año
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-4 text-xs font-bold">
+                  <span className="flex items-center gap-1.5 text-slate-600">
+                    <span className="w-3 h-3 rounded-md bg-[#cbd5e1] inline-block"></span> Total
+                  </span>
+                  <span className="flex items-center gap-1.5 text-[#1f4e78]">
+                    <span className="w-3 h-3 rounded-md bg-[#5b9bd5] inline-block"></span> Finalizadas
+                  </span>
+                </div>
               </div>
             </div>
 
             <div className="h-72 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={dataMesesBar} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <BarChart data={dataEvolucionBar} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.8} />
                   <XAxis dataKey="name" stroke="#64748b" fontSize={11} tickLine={false} />
                   <YAxis stroke="#64748b" fontSize={11} tickLine={false} />
@@ -1288,6 +1395,9 @@ export const ExecutiveDashboardPage: React.FC = () => {
           <MonthlyEffectivenessSection />
         </div>
       )}
+
+      {/* 🎯 PESTAÑA: SCORECARD OFICIAL WIN (EFECTIVIDAD & VTR REITERADAS 24/7) */}
+      {activeMainTab === "scorecard_win" && <WinScorecardSection />}
 
       {/* ⏱️ PESTAÑA: LATENCIA DE PRIMER TRAMO (08:00 AM) */}
       {activeMainTab === "latencia" && <LatencyFirstLegTab />}

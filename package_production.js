@@ -86,7 +86,11 @@ if (fs.existsSync(path.join(apiDir, 'scripts', 'migrar_base64_a_s3.js'))) {
 }
 
 zipDirectory(tempCambios, cambiosZip);
-fs.rmSync(tempCambios, { recursive: true, force: true });
+try {
+  fs.rmSync(tempCambios, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+} catch (e) {
+  // Ignorar bloqueo temporal en Windows
+}
 console.log('✅ SOLO_CAMBIOS_BACKEND.zip CREADO:', cambiosZip, 'Tamaño:', (fs.statSync(cambiosZip).size / 1024).toFixed(2), 'KB');
 
 console.log('\n🎉 ¡TODOS LOS ARCHIVOS .ZIP LISTOS PARA SUBIR A CPANEL!');

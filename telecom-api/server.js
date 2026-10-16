@@ -144,8 +144,11 @@ app.use((req, res, next) => {
 
 app.get("/", (req, res) => { res.send("API Telecom funcionando con MySQL, Multer y AWS S3"); });
 
-// 🚀 Función automática de barrido y limpieza: respalda todo en S3 y libera el disco de cPanel
+// 🚀 Función automática de barrido y limpieza: respalda todo en S3 y libera el disco de cPanel (SOLO en Producción)
+const isLinuxHosting = process.platform === "linux" || __dirname.includes("corporacioncespe");
+
 async function autoMigrarYLimpiarUploadsAS3() {
+  if (!isLinuxHosting) return;
   try {
     if (!fs.existsSync(uploadDir)) return;
     const files = fs.readdirSync(uploadDir).filter(f => !f.startsWith('.') && fs.statSync(path.join(uploadDir, f)).isFile());
@@ -161,11 +164,8 @@ async function autoMigrarYLimpiarUploadsAS3() {
           await uploadFileToS3(filePath, s3Key);
         }
         // En hosting Linux, liberar el archivo de disco para que nunca consuma los 2GB de cPanel
-        const isLinuxHosting = process.platform === "linux" || __dirname.includes("corporacioncespe");
-        if (isLinuxHosting) {
-          fs.unlinkSync(filePath);
-          console.log(`🧹 [Auto-S3 Sweeper] Archivo '${file}' asegurado en S3 y liberado del disco local cPanel.`);
-        }
+        fs.unlinkSync(filePath);
+        console.log(`🧹 [Auto-S3 Sweeper] Archivo '${file}' asegurado en S3 y liberado del disco local cPanel.`);
       } catch (errFile) {
         console.warn(`⚠️ [Auto-S3 Sweeper] Error con '${file}':`, errFile.message);
       }
@@ -175,9 +175,13 @@ async function autoMigrarYLimpiarUploadsAS3() {
   }
 }
 
-// Ejecutar barrido automático 10 segundos después de iniciar y periódicamente cada 30 minutos
-setTimeout(autoMigrarYLimpiarUploadsAS3, 10000);
-setInterval(autoMigrarYLimpiarUploadsAS3, 30 * 60 * 1000);
+// Ejecutar barrido automático SOLO en producción cPanel/Linux
+if (isLinuxHosting) {
+  setTimeout(autoMigrarYLimpiarUploadsAS3, 10000);
+  setInterval(autoMigrarYLimpiarUploadsAS3, 30 * 60 * 1000);
+} else {
+  console.log("🛑 [Auto-S3 Sweeper] Barrido automático en segundo plano DESACTIVADO en entorno LOCAL (Windows).");
+}
 
 // 🚀 Endpoint de un solo clic para migrar fotos de cPanel a AWS S3 manualmente si se desea
 app.get('/api/admin/migrar-uploads-a-s3', async (req, res) => {
@@ -361,7 +365,6 @@ app.get('/api/admin/migrar-tareas-cache-a-s3', async (req, res) => {
 });
 
 // Limpieza automática en segundo plano: SOLO en producción (Hosting Linux / cPanel)
-const isLinuxHosting = process.platform === 'linux' || __dirname.includes('corporacioncespe');
 if (isLinuxHosting) {
   setTimeout(() => migrarLoteTareasCacheAS3(10), 30000);
   setInterval(() => migrarLoteTareasCacheAS3(15), 10 * 60 * 1000);
@@ -2383,6 +2386,27 @@ async function syncAsistenciasFromOrders(fechaDesde, fechaHasta) {
   try {
     const fDesde = fechaDesde || new Date().toISOString().slice(0, 10);
     const fHasta = fechaHasta || fDesde;
+
+    // 0. Limpiar asistencias automáticas huérfanas (órdenes reasignadas a otro técnico en despacho)
+    try {
+      await pool.query(`
+        DELETE a FROM asistencias a
+        JOIN trabajadores t ON a.id_trabajador = t.id_trabajador
+        JOIN ordenes o ON a.id_orden = o.id_orden
+        WHERE a.tipo = 'Automatico'
+          AND a.fecha BETWEEN ? AND ?
+          AND (
+            (o.id_tecnico != t.id_usuario AND NOT EXISTS (
+              SELECT 1 FROM ordenes valid 
+              WHERE (valid.id_tecnico = t.id_usuario OR valid.id_tecnico_reemplazo = t.id_usuario)
+                AND DATE(valid.fecha_visita) = a.fecha
+            ))
+            OR (o.inicio_visita IS NULL)
+          )
+      `, [fDesde, fHasta]);
+    } catch (cleanErr) {
+      console.warn("Aviso al limpiar asistencias huérfanas o sin inicio de visita:", cleanErr.message);
+    }
     
     // 1. Obtener órdenes con fecha en el rango consultado
     const [ordenRows] = await pool.query(`
@@ -2495,23 +2519,17 @@ async function syncAsistenciasFromOrders(fechaDesde, fechaHasta) {
           return match ? match[0] : null;
         };
 
+        // Estricto: La tardanza se evalúa ÚNICAMENTE con la hora de inicio de visita (inicio_visita).
+        // La hora en camino no cuenta para puntualidad ni tardanza; si no inicia a tiempo es tardanza.
         const rawInicio = getTime(ord.inicio_visita);
-        const rawCamino = getTime(ord.hora_en_camino);
-        
-        let candidateTime = null;
-        if (rawInicio && rawCamino) {
-          candidateTime = rawInicio < rawCamino ? rawInicio : rawCamino;
-        } else {
-          candidateTime = rawInicio || rawCamino;
-        }
 
-        if (candidateTime && candidateTime < earliestStartTimeStr) {
-          earliestStartTimeStr = candidateTime;
+        if (rawInicio && rawInicio < earliestStartTimeStr) {
+          earliestStartTimeStr = rawInicio;
           earliestStartOrder = ord;
         }
       }
 
-      // Si el técnico aún NO ha marcado inicio ni en camino en ninguna orden de hoy, NO generar asistencia automática prematura
+      // Si el técnico aún NO ha marcado inicio de visita en ninguna orden de hoy, no generar asistencia automática prematura
       if (!earliestStartOrder || earliestStartTimeStr === '99:99:99') {
         continue;
       }
@@ -2529,8 +2547,17 @@ async function syncAsistenciasFromOrders(fechaDesde, fechaHasta) {
       let minutosTarde = 0;
       let obsAuto = '';
 
-      // CASO A: Asignada antes de hoy O asignada hoy hasta las 07:45 AM
-      const esCasoA = hasAsignacionPrevia || !earliestAsigEsMismoDia || (earliestAsigEsMismoDia && minAsig <= (7 * 60 + 45));
+      // CASO A: Asignada antes de hoy O asignada hoy hasta las 07:15 AM (al menos 30 min previos de anticipación)
+      const esCasoA = hasAsignacionPrevia || !earliestAsigEsMismoDia || (earliestAsigEsMismoDia && minAsig <= (7 * 60 + 15));
+
+      // La orden principal de la asistencia es la primera orden asignada (establece la hora y tolerancia base de trabajo)
+      const targetOrder = earliestAsigOrder || earliestStartOrder || data;
+      const otDisplay = targetOrder.numero_orden || targetOrder.id_orden;
+
+      const startOtDisplay = earliestStartOrder && (earliestStartOrder.numero_orden || earliestStartOrder.id_orden);
+      const startNota = (startOtDisplay && startOtDisplay !== otDisplay)
+        ? ` - 1er Inicio OT #${startOtDisplay} (${horaInicioStr.slice(0, 5)})`
+        : '';
 
       if (esCasoA) {
         // Horario base 07:45 + 2 min tolerancia = 07:47 AM
@@ -2538,12 +2565,12 @@ async function syncAsistenciasFromOrders(fechaDesde, fechaHasta) {
         if (minInicio > minLimite) {
           estadoCalculado = 'Tardanza';
           minutosTarde = minInicio - minLimite;
-          obsAuto = `Auto (OT #${earliestAsigOrder.numero_orden || earliestAsigOrder.id_orden} - Limite 07:47 - Tarde +${minutosTarde}m)`;
+          obsAuto = `Auto (OT #${otDisplay} - Limite 07:47${startNota} - Tarde +${minutosTarde}m)`;
         } else {
-          obsAuto = `Auto (OT #${earliestAsigOrder.numero_orden || earliestAsigOrder.id_orden} - Puntual)`;
+          obsAuto = `Auto (OT #${otDisplay} - Puntual)`;
         }
       } else {
-        // CASO B: Asignada hoy después de las 07:45 AM -> Asignación + 30m traslado + 2m tolerancia = Asignación + 32m
+        // CASO B: Asignada hoy después de las 07:15 AM -> Asignación + 30m traslado + 2m tolerancia = Asignación + 32m
         minLimite = minAsig + 32;
         const hLim = Math.floor(minLimite / 60).toString().padStart(2, '0') + ':' + (minLimite % 60).toString().padStart(2, '0');
         const hAsigDisplay = earliestAsigTimeStr.slice(0, 5);
@@ -2551,12 +2578,13 @@ async function syncAsistenciasFromOrders(fechaDesde, fechaHasta) {
         if (minInicio > minLimite) {
           estadoCalculado = 'Tardanza';
           minutosTarde = minInicio - minLimite;
-          obsAuto = `Auto (OT #${earliestAsigOrder.numero_orden || earliestAsigOrder.id_orden} - Asig ${hAsigDisplay} Limite ${hLim} - Tarde +${minutosTarde}m)`;
+          obsAuto = `Auto (OT #${otDisplay} - Asig ${hAsigDisplay} Limite ${hLim}${startNota} - Tarde +${minutosTarde}m)`;
         } else {
-          obsAuto = `Auto (OT #${earliestAsigOrder.numero_orden || earliestAsigOrder.id_orden} - Asig ${hAsigDisplay} Limite ${hLim} - Puntual)`;
+          obsAuto = `Auto (OT #${otDisplay} - Asig ${hAsigDisplay} Limite ${hLim} - Puntual)`;
         }
       }
 
+      const idOrdenAsoc = targetOrder.id_orden || data.id_orden;
       const [exist] = await pool.query("SELECT id_asistencia, estado, observacion FROM asistencias WHERE id_trabajador = ? AND fecha = ?", [data.id_trabajador, data.fechaStr]);
 
       if (exist.length > 0) {
@@ -2570,7 +2598,7 @@ async function syncAsistenciasFromOrders(fechaDesde, fechaHasta) {
               tipo = 'Automatico',
               observacion = IF(observacion IS NULL OR observacion = '' OR observacion LIKE 'Auto%', ?, observacion)
             WHERE id_asistencia = ?
-          `, [horaInicioStr, estadoCalculado, minutosTarde, data.id_orden, obsAuto, exist[0].id_asistencia]);
+          `, [horaInicioStr, estadoCalculado, minutosTarde, idOrdenAsoc, obsAuto, exist[0].id_asistencia]);
           syncedCount++;
         }
       } else {
@@ -2578,7 +2606,7 @@ async function syncAsistenciasFromOrders(fechaDesde, fechaHasta) {
           await pool.query(`
             INSERT INTO asistencias (id_trabajador, id_orden, fecha, hora_entrada, estado, minutos_tarde, tipo, observacion)
             VALUES (?, ?, ?, ?, ?, ?, 'Automatico', ?)
-          `, [data.id_trabajador, data.id_orden, data.fechaStr, horaInicioStr, estadoCalculado, minutosTarde, obsAuto]);
+          `, [data.id_trabajador, idOrdenAsoc, data.fechaStr, horaInicioStr, estadoCalculado, minutosTarde, obsAuto]);
           syncedCount++;
         } catch (e) {
           await pool.query(`
@@ -2791,7 +2819,15 @@ app.get('/api/asistencias/matriz', async (req, res) => {
 
     const [asistencias] = await pool.query(`
       SELECT a.id_asistencia, a.id_trabajador, t.id_usuario, a.fecha, a.hora_entrada, a.estado, a.minutos_tarde, a.observacion,
-             a.tipo, a.id_orden, o.numero AS numero_orden, o.hora_asignacion, o.inicio_visita, o.hora_en_camino, o.fin_visita
+             a.tipo, a.id_orden, o.numero AS numero_orden, o.cliente,
+             COALESCE(
+               o.hora_asignacion,
+               (SELECT MIN(o2.hora_asignacion) FROM ordenes o2 
+                WHERE (o2.id_tecnico = t.id_usuario OR o2.id_tecnico = t.id_trabajador)
+                  AND (DATE(o2.fecha_visita) = a.fecha OR DATE(o2.fecha_solicitud) = a.fecha)
+                  AND o2.hora_asignacion IS NOT NULL)
+             ) AS hora_asignacion,
+             o.inicio_visita, o.hora_en_camino, o.fin_visita
       FROM asistencias a
       LEFT JOIN trabajadores t ON a.id_trabajador = t.id_trabajador
       LEFT JOIN ordenes o ON a.id_orden = o.id_orden
@@ -12096,7 +12132,7 @@ app.get(['/api/dashboard/estadisticas', '/dashboard/estadisticas'], async (req, 
       ORDER BY total DESC
     `, paramsOrdenes);
 
-    // 3. Órdenes por mes del año
+    // 3. Órdenes por mes del año (para comparativa anual histórica)
     const [mesesRows] = await pool.query(`
       SELECT 
         MONTH(fecha_visita) AS mes, 
@@ -12107,6 +12143,135 @@ app.get(['/api/dashboard/estadisticas', '/dashboard/estadisticas'], async (req, 
       GROUP BY MONTH(fecha_visita) 
       ORDER BY mes ASC
     `, [yearVal]);
+
+    // 3.1 📈 EVOLUCIÓN DINÁMICA DE PRODUCCIÓN (ADAPTABLE A DÍA, SEMANA, MES, AÑO)
+    let ordenesEvolucion = [];
+    let tipoEvolucion = 'mes';
+    let tituloEvolucion = 'Evolución de Producción Anual';
+
+    if (desde && hasta && desde === hasta) {
+      // 🟢 MODO DÍA: desglose por horas de 07:00 a 20:00
+      tipoEvolucion = 'hora';
+      tituloEvolucion = `Producción por Horas (${desde})`;
+      const [horasRows] = await pool.query(`
+        SELECT 
+          HOUR(fecha_visita) AS hora,
+          COUNT(*) AS total,
+          SUM(CASE WHEN estado IN ('Finalizada', 'Liquidada') THEN 1 ELSE 0 END) AS finalizadas
+        FROM ordenes
+        WHERE DATE(fecha_visita) = ?
+        GROUP BY HOUR(fecha_visita)
+        ORDER BY hora ASC
+      `, [desde]);
+      
+      const mapaHoras = {};
+      horasRows.forEach(h => { mapaHoras[h.hora] = h; });
+      for (let h = 7; h <= 20; h++) {
+        const found = mapaHoras[h];
+        ordenesEvolucion.push({
+          name: `${String(h).padStart(2, '0')}:00`,
+          Total: found ? Number(found.total) : 0,
+          Finalizadas: found ? Number(found.finalizadas) : 0,
+        });
+      }
+    } else if (desde && hasta) {
+      const d1 = new Date(desde + 'T00:00:00');
+      const d2 = new Date(hasta + 'T00:00:00');
+      const diffDias = Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1;
+
+      if (diffDias <= 7) {
+        // 🟢 MODO SEMANA: días de la semana
+        tipoEvolucion = 'semana';
+        tituloEvolucion = `Producción Semanal (${desde} al ${hasta})`;
+        const [diasRows] = await pool.query(`
+          SELECT 
+            DATE_FORMAT(fecha_visita, '%Y-%m-%d') AS fecha,
+            DAYNAME(fecha_visita) AS dia_semana,
+            COUNT(*) AS total,
+            SUM(CASE WHEN estado IN ('Finalizada', 'Liquidada') THEN 1 ELSE 0 END) AS finalizadas
+          FROM ordenes
+          WHERE DATE(fecha_visita) >= ? AND DATE(fecha_visita) <= ?
+          GROUP BY DATE(fecha_visita)
+          ORDER BY fecha ASC
+        `, [desde, hasta]);
+        const mapaDias = {};
+        diasRows.forEach(d => { mapaDias[d.fecha] = d; });
+        const nombresSemana = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+        for (let i = 0; i < diffDias; i++) {
+          const cur = new Date(d1);
+          cur.setDate(d1.getDate() + i);
+          const fStr = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
+          const found = mapaDias[fStr];
+          const diaCorto = nombresSemana[cur.getDay()];
+          ordenesEvolucion.push({
+            name: `${diaCorto} ${cur.getDate()}`,
+            fecha: fStr,
+            Total: found ? Number(found.total) : 0,
+            Finalizadas: found ? Number(found.finalizadas) : 0,
+          });
+        }
+      } else if (diffDias <= 32) {
+        // 🟢 MODO MES: días del mes (1 a N)
+        tipoEvolucion = 'mes';
+        tituloEvolucion = `Producción Diaria del Mes (${desde} al ${hasta})`;
+        const [diasRows] = await pool.query(`
+          SELECT 
+            DATE_FORMAT(fecha_visita, '%Y-%m-%d') AS fecha,
+            DAY(fecha_visita) AS dia,
+            COUNT(*) AS total,
+            SUM(CASE WHEN estado IN ('Finalizada', 'Liquidada') THEN 1 ELSE 0 END) AS finalizadas
+          FROM ordenes
+          WHERE DATE(fecha_visita) >= ? AND DATE(fecha_visita) <= ?
+          GROUP BY DATE(fecha_visita)
+          ORDER BY fecha ASC
+        `, [desde, hasta]);
+        const mapaDias = {};
+        diasRows.forEach(d => { mapaDias[d.fecha] = d; });
+        for (let i = 0; i < diffDias; i++) {
+          const cur = new Date(d1);
+          cur.setDate(d1.getDate() + i);
+          const fStr = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
+          const found = mapaDias[fStr];
+          ordenesEvolucion.push({
+            name: `${String(cur.getDate()).padStart(2, '0')}`,
+            fecha: fStr,
+            Total: found ? Number(found.total) : 0,
+            Finalizadas: found ? Number(found.finalizadas) : 0,
+          });
+        }
+      } else {
+        // 🟢 MODO RANGO AMPLIO / AÑO: meses
+        tipoEvolucion = 'anio';
+        tituloEvolucion = `Producción Anual (Mes a Mes - ${yearVal})`;
+        const nombresMesesCorto = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+        const mapaMeses = {};
+        mesesRows.forEach(m => { mapaMeses[m.mes] = m; });
+        for (let m = 1; m <= 12; m++) {
+          const found = mapaMeses[m];
+          ordenesEvolucion.push({
+            name: nombresMesesCorto[m - 1],
+            mes: m,
+            Total: found ? Number(found.total) : 0,
+            Finalizadas: found ? Number(found.finalizadas) : 0,
+          });
+        }
+      }
+    } else {
+      tipoEvolucion = 'anio';
+      tituloEvolucion = `Evolución de Producción Anual (${yearVal})`;
+      const nombresMesesCorto = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+      const mapaMeses = {};
+      mesesRows.forEach(m => { mapaMeses[m.mes] = m; });
+      for (let m = 1; m <= 12; m++) {
+        const found = mapaMeses[m];
+        ordenesEvolucion.push({
+          name: nombresMesesCorto[m - 1],
+          mes: m,
+          Total: found ? Number(found.total) : 0,
+          Finalizadas: found ? Number(found.finalizadas) : 0,
+        });
+      }
+    }
 
     // 4. Stock por almacén (Top 15)
     const [stockRows] = await pool.query(`
@@ -12144,11 +12309,310 @@ app.get(['/api/dashboard/estadisticas', '/dashboard/estadisticas'], async (req, 
       },
       ordenes_por_estado: estadosRows,
       ordenes_por_mes: mesesRows,
+      ordenes_evolucion: {
+        tipo: tipoEvolucion,
+        titulo: tituloEvolucion,
+        data: ordenesEvolucion,
+      },
       stock_almacen: stockRows,
     });
   } catch (error) {
     console.error("Error en dashboard estadisticas:", error.message);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// 🎯 SCORECARD OFICIAL WIN (EFECTIVIDAD OPERATIVA & % VTR REITERADAS 24/7)
+// ============================================================================
+app.get(['/api/dashboard/win-scorecard', '/dashboard/win-scorecard'], async (req, res) => {
+  try {
+    let { desde, hasta, tecnico } = req.query;
+    
+    // Si no vienen fechas, por defecto el mes actual en curso (Perú UTC-5)
+    if (!desde || !hasta) {
+      const hoy = new Date();
+      const y = hoy.getFullYear();
+      const m = String(hoy.getMonth() + 1).padStart(2, '0');
+      const ult = new Date(y, hoy.getMonth() + 1, 0).getDate();
+      desde = `${y}-${m}-01`;
+      hasta = `${y}-${m}-${String(ult).padStart(2, '0')}`;
+    }
+
+    let whereCond = ' WHERE DATE(fecha_visita) >= ? AND DATE(fecha_visita) <= ?';
+    const params = [desde, hasta];
+
+    if (tecnico && tecnico !== 'Todos') {
+      whereCond += ' AND (id_tecnico = ? OR tecnico LIKE ?)';
+      params.push(tecnico, `%${tecnico}%`);
+    }
+
+    // 1. Resumen general Scorecard WIN
+    const [summaryRows] = await pool.query(`
+      SELECT 
+        COUNT(*) AS total_ordenes,
+        SUM(CASE WHEN estado IN ('Finalizada', 'Liquidada') THEN 1 ELSE 0 END) AS terminadas,
+        SUM(CASE WHEN estado = 'Cancelada' THEN 1 ELSE 0 END) AS canceladas,
+        SUM(CASE WHEN estado IN ('Regestión', 'Regestion') THEN 1 ELSE 0 END) AS regestion,
+        SUM(CASE WHEN estado IN ('Anulada', 'Iniciada', 'En camino', 'Agendada', 'Observada', 'Suspendida') THEN 1 ELSE 0 END) AS excluidas,
+        SUM(CASE WHEN (codigo_seguimiento LIKE 'VTR-%' OR tipo_trabajo = 'REITERADA' OR motivo_trabajo = 'REITERADA') THEN 1 ELSE 0 END) AS vtr_atendidas,
+        SUM(CASE 
+          WHEN estado IN ('Finalizada', 'Liquidada') 
+           AND COALESCE(producto, '') != 'PLANTA EXTERNA' 
+           AND COALESCE(motivo_trabajo, '') != 'REITERADA' 
+          THEN 1 ELSE 0 END) AS vtr_base
+      FROM ordenes
+      ${whereCond}
+    `, params);
+
+    const s = summaryRows[0] || {};
+    const terminadas = Number(s.terminadas) || 0;
+    const canceladas = Number(s.canceladas) || 0;
+    const regestion = Number(s.regestion) || 0;
+    const totalEvaluados = terminadas + canceladas + regestion;
+    const pctEfectividad = totalEvaluados > 0 ? parseFloat(((terminadas / totalEvaluados) * 100).toFixed(2)) : 0.0;
+    
+    // 🎯 VTR EXACTO WIN: Solo penaliza al período si la visita original de ese cliente también ocurrió dentro del período
+    const [vtrOficialRows] = await pool.query(`
+      SELECT COUNT(*) AS vtr_casos
+      FROM ordenes o
+      WHERE DATE(o.fecha_visita) >= ? AND DATE(o.fecha_visita) <= ?
+        AND o.estado IN ('Finalizada', 'Liquidada')
+        AND (o.codigo_seguimiento LIKE 'VTR-%' OR o.tipo_trabajo = 'REITERADA' OR o.motivo_trabajo = 'REITERADA')
+        AND EXISTS (
+          SELECT 1 FROM ordenes prev
+          WHERE (prev.numero_documento = o.numero_documento OR (prev.cliente = o.cliente AND o.cliente IS NOT NULL))
+            AND prev.id_orden != o.id_orden
+            AND DATE(prev.fecha_visita) >= ? AND DATE(prev.fecha_visita) <= ?
+            AND prev.fecha_visita < o.fecha_visita
+            AND prev.estado IN ('Finalizada', 'Liquidada')
+        )
+    `, [desde, hasta, desde, hasta]);
+
+    const vtrCasos = Number(vtrOficialRows[0]?.vtr_casos) || 0;
+    const vtrBase = Number(s.vtr_base) || (terminadas > 0 ? terminadas : 1);
+    const pctVtr = vtrBase > 0 ? parseFloat(((vtrCasos / vtrBase) * 100).toFixed(2)) : 0.0;
+    const vtrAtendidas = Number(s.vtr_atendidas) || 0;
+
+    // 2. Tendencia Diaria de Efectividad y VTR
+    const [dailyRows] = await pool.query(`
+      SELECT 
+        DATE_FORMAT(fecha_visita, '%Y-%m-%d') AS fecha,
+        DAY(fecha_visita) AS dia,
+        DAYNAME(fecha_visita) AS dia_semana,
+        COUNT(*) AS total,
+        SUM(CASE WHEN estado IN ('Finalizada', 'Liquidada') THEN 1 ELSE 0 END) AS terminadas,
+        SUM(CASE WHEN estado = 'Cancelada' THEN 1 ELSE 0 END) AS canceladas,
+        SUM(CASE WHEN estado IN ('Regestión', 'Regestion') THEN 1 ELSE 0 END) AS regestion,
+        SUM(CASE WHEN (codigo_seguimiento LIKE 'VTR-%' OR tipo_trabajo = 'REITERADA') THEN 1 ELSE 0 END) AS vtr_casos
+      FROM ordenes
+      ${whereCond}
+      GROUP BY DATE(fecha_visita)
+      ORDER BY fecha ASC
+    `, params);
+
+    const diasNombresEs = {
+      'Monday': 'Lun', 'Tuesday': 'Mar', 'Wednesday': 'Mié', 'Thursday': 'Jue',
+      'Friday': 'Vie', 'Saturday': 'Sáb', 'Sunday': 'Dom'
+    };
+
+    const tendenciaDiaria = dailyRows.map(r => {
+      const term = Number(r.terminadas) || 0;
+      const canc = Number(r.canceladas) || 0;
+      const reg = Number(r.regestion) || 0;
+      const base = term + canc + reg;
+      const ef = base > 0 ? parseFloat(((term / base) * 100).toFixed(1)) : 0.0;
+      const vtr = Number(r.vtr_casos) || 0;
+      const pVtr = term > 0 ? parseFloat(((vtr / term) * 100).toFixed(1)) : 0.0;
+      return {
+        fecha: r.fecha,
+        dia: r.dia,
+        dia_nombre: diasNombresEs[r.dia_semana] || r.dia_semana,
+        label: `${diasNombresEs[r.dia_semana] || ''} ${r.dia}`,
+        total: Number(r.total) || 0,
+        terminadas: term,
+        canceladas: canc,
+        regestion: reg,
+        evaluados: base,
+        pct_efectividad: ef,
+        cumple_efectividad: ef >= 80.0,
+        vtr_casos: vtr,
+        pct_vtr: pVtr,
+        cumple_vtr: pVtr <= 5.0
+      };
+    });
+
+    // 3. Top Motivos de Cancelación
+    const [cancelMotivos] = await pool.query(`
+      SELECT 
+        COALESCE(motivo_cancelacion, 'Sin motivo especificado') AS motivo,
+        COUNT(*) AS total
+      FROM ordenes
+      ${whereCond} AND estado = 'Cancelada'
+      GROUP BY motivo
+      ORDER BY total DESC
+      LIMIT 10
+    `, params);
+
+    // 4. Ranking de Efectividad por Técnico
+    const [tecnicosRows] = await pool.query(`
+      SELECT 
+        COALESCE(
+          NULLIF(TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))), ''),
+          NULLIF(TRIM(o.tecnico_asignado), ''),
+          NULLIF(TRIM(o.cuadrilla), ''),
+          'Sin Asignar'
+        ) AS tecnico,
+        COUNT(*) AS total,
+        SUM(CASE WHEN o.estado IN ('Finalizada', 'Liquidada') THEN 1 ELSE 0 END) AS terminadas,
+        SUM(CASE WHEN o.estado = 'Cancelada' THEN 1 ELSE 0 END) AS canceladas,
+        SUM(CASE WHEN o.estado IN ('Regestión', 'Regestion') THEN 1 ELSE 0 END) AS regestion,
+        SUM(CASE WHEN (o.codigo_seguimiento LIKE 'VTR-%' OR o.tipo_trabajo = 'REITERADA') THEN 1 ELSE 0 END) AS vtr_casos
+      FROM ordenes o
+      LEFT JOIN usuarios u ON o.id_tecnico = u.id_usuario
+      WHERE DATE(o.fecha_visita) >= ? AND DATE(o.fecha_visita) <= ?
+      GROUP BY tecnico
+      HAVING total >= 3
+      ORDER BY terminadas DESC
+      LIMIT 30
+    `, [desde, hasta]);
+
+    const rankingTecnicos = tecnicosRows.map(t => {
+      const term = Number(t.terminadas) || 0;
+      const canc = Number(t.canceladas) || 0;
+      const reg = Number(t.regestion) || 0;
+      const base = term + canc + reg;
+      const ef = base > 0 ? parseFloat(((term / base) * 100).toFixed(1)) : 0.0;
+      const vtr = Number(t.vtr_casos) || 0;
+      const pVtr = term > 0 ? parseFloat(((vtr / term) * 100).toFixed(1)) : 0.0;
+      return {
+        tecnico: t.tecnico,
+        total: Number(t.total) || 0,
+        terminadas: term,
+        canceladas: canc,
+        regestion: reg,
+        evaluados: base,
+        pct_efectividad: ef,
+        cumple_efectividad: ef >= 80.0,
+        vtr_casos: vtr,
+        pct_vtr: pVtr
+      };
+    });
+
+    res.json({
+      success: true,
+      periodo: { desde, hasta },
+      kpis: {
+        total_ordenes: Number(s.total_ordenes) || 0,
+        terminadas,
+        canceladas,
+        regestion,
+        excluidas: Number(s.excluidas) || 0,
+        total_evaluados: totalEvaluados,
+        pct_efectividad: pctEfectividad,
+        meta_efectividad: 80.0,
+        cumple_efectividad: pctEfectividad >= 80.0,
+        vtr_casos: vtrCasos,
+        vtr_base: vtrBase,
+        vtr_atendidas: vtrAtendidas,
+        pct_vtr: pctVtr,
+        meta_vtr: 5.0,
+        cumple_vtr: pctVtr <= 5.0
+      },
+      tendencia_diaria: tendenciaDiaria,
+      top_cancelaciones: cancelMotivos,
+      ranking_tecnicos: rankingTecnicos
+    });
+  } catch (error) {
+    console.error("Error en win-scorecard:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 📋 DETALLE DRILL-DOWN DE ÓRDENES PARA EL SCORECARD WIN
+app.get(['/api/dashboard/win-scorecard/detalle', '/dashboard/win-scorecard/detalle'], async (req, res) => {
+  try {
+    let { desde, hasta, tipo, q, limite = 100, pagina = 1 } = req.query;
+    
+    if (!desde || !hasta) {
+      const hoy = new Date();
+      const y = hoy.getFullYear();
+      const m = String(hoy.getMonth() + 1).padStart(2, '0');
+      const ult = new Date(y, hoy.getMonth() + 1, 0).getDate();
+      desde = `${y}-${m}-01`;
+      hasta = `${y}-${m}-${String(ult).padStart(2, '0')}`;
+    }
+
+    let whereCond = ' WHERE DATE(o.fecha_visita) >= ? AND DATE(o.fecha_visita) <= ?';
+    const params = [desde, hasta];
+
+    if (tipo === 'terminadas') {
+      whereCond += " AND o.estado IN ('Finalizada', 'Liquidada')";
+    } else if (tipo === 'canceladas') {
+      whereCond += " AND o.estado = 'Cancelada'";
+    } else if (tipo === 'regestion') {
+      whereCond += " AND o.estado IN ('Regestión', 'Regestion')";
+    } else if (tipo === 'vtr') {
+      whereCond += " AND (o.codigo_seguimiento LIKE 'VTR-%' OR o.tipo_trabajo = 'REITERADA')";
+    } else if (tipo === 'excluidas') {
+      whereCond += " AND o.estado IN ('Anulada', 'Iniciada', 'En camino', 'Agendada', 'Observada', 'Suspendida')";
+    }
+
+    if (q && q.trim()) {
+      whereCond += " AND (o.numero LIKE ? OR o.cliente LIKE ? OR o.codigo_seguimiento LIKE ? OR o.direccion LIKE ? OR u.nombres LIKE ? OR o.tecnico_asignado LIKE ?)";
+      const wild = `%${q.trim()}%`;
+      params.push(wild, wild, wild, wild, wild, wild);
+    }
+
+    const offset = (Number(pagina) - 1) * Number(limite);
+    const [countRows] = await pool.query(`
+      SELECT COUNT(*) AS total 
+      FROM ordenes o 
+      LEFT JOIN usuarios u ON o.id_tecnico = u.id_usuario 
+      ${whereCond}
+    `, params);
+    const totalRegistros = countRows[0]?.total || 0;
+
+    const [ordenes] = await pool.query(`
+      SELECT 
+        o.id_orden,
+        o.numero,
+        o.codigo_seguimiento,
+        o.cliente,
+        COALESCE(o.movil, o.fijo, '') AS telefono,
+        o.direccion,
+        COALESCE(o.region_zona, o.localidad, '') AS distrito,
+        COALESCE(
+          NULLIF(TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))), ''),
+          NULLIF(TRIM(o.tecnico_asignado), ''),
+          NULLIF(TRIM(o.cuadrilla), ''),
+          'Sin Asignar'
+        ) AS tecnico,
+        o.id_tecnico,
+        o.estado,
+        o.tipo_trabajo,
+        o.fecha_visita,
+        o.fecha_solicitud,
+        o.motivo_cancelacion,
+        o.motivo_regestion,
+        o.observaciones
+      FROM ordenes o
+      LEFT JOIN usuarios u ON o.id_tecnico = u.id_usuario
+      ${whereCond}
+      ORDER BY o.fecha_visita DESC, o.id_orden DESC
+      LIMIT ? OFFSET ?
+    `, [...params, Number(limite), offset]);
+
+    res.json({
+      success: true,
+      total: totalRegistros,
+      pagina: Number(pagina),
+      limite: Number(limite),
+      ordenes
+    });
+  } catch (error) {
+    console.error("Error en win-scorecard detalle:", error.message);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -12985,7 +13449,7 @@ app.get(['/api/dashboard/rendimiento-tecnicos-fechas', '/dashboard/rendimiento-t
 // ============================================================
 // ⏱️ ENDPOINT: LATENCIA DE PRIMER TRAMO (08:00 AM)
 // ============================================================
-app.get('/api/dashboard/latencia-primer-tramo', async (req, res) => {
+app.get(['/api/dashboard/latencia-primer-tramo', '/dashboard/latencia-primer-tramo'], async (req, res) => {
   try {
     const { desde, hasta, id_tecnico, cuadrilla } = req.query;
 
@@ -13002,8 +13466,9 @@ app.get('/api/dashboard/latencia-primer-tramo', async (req, res) => {
     }
 
     let whereSql = `
-      WHERE DATE(o.inicio_visita) >= ? 
-        AND DATE(o.inicio_visita) <= ? 
+      WHERE DATE(o.fecha_visita) >= ? 
+        AND DATE(o.fecha_visita) <= ? 
+        AND o.inicio_visita IS NOT NULL
         AND TIME(o.inicio_visita) BETWEEN '06:00:00' AND '14:00:00'
         AND o.tecnico_asignado IS NOT NULL 
         AND TRIM(o.tecnico_asignado) != ''
@@ -13032,7 +13497,7 @@ app.get('/api/dashboard/latencia-primer-tramo', async (req, res) => {
         o.cuadrilla,
         TRIM(o.tecnico_asignado) AS tecnico,
         COALESCE(o.id_tecnico_reemplazo, o.id_tecnico, 0) AS id_tecnico,
-        DATE_FORMAT(o.inicio_visita, '%Y-%m-%d') AS fecha,
+        DATE_FORMAT(o.fecha_visita, '%Y-%m-%d') AS fecha,
         TIME_FORMAT(o.inicio_visita, '%H:%i:%s') AS hora_inicio,
         TIME_FORMAT(o.hora_asignacion, '%H:%i:%s') AS hora_asignacion,
         TIME_FORMAT(o.hora_en_camino, '%H:%i:%s') AS hora_en_camino,
@@ -13041,7 +13506,7 @@ app.get('/api/dashboard/latencia-primer-tramo', async (req, res) => {
         ROUND((TIME_TO_SEC(TIME(o.inicio_visita)) - TIME_TO_SEC('08:00:00')) / 60) AS diff_minutos
       FROM ordenes o
       ${whereSql}
-      ORDER BY DATE(o.inicio_visita) ASC, TRIM(o.tecnico_asignado) ASC, TIME(o.inicio_visita) ASC
+      ORDER BY DATE(o.fecha_visita) ASC, TRIM(o.tecnico_asignado) ASC, TIME(o.inicio_visita) ASC
     `;
 
     const [rows] = await pool.query(sql, params);
