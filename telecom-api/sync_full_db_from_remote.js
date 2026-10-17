@@ -6,7 +6,11 @@ const REMOTE_CONFIG = {
   password: 'corporacioncespe_123',
   database: 'corporacioncespe_cespedes',
   dateStrings: true,
-  connectTimeout: 60000
+  connectTimeout: 60000,
+  waitForConnections: true,
+  connectionLimit: 5,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 5000
 };
 
 const LOCAL_CONFIG = {
@@ -16,7 +20,11 @@ const LOCAL_CONFIG = {
   password: '',
   database: 'corporacioncespe_cespedes',
   dateStrings: true,
-  multipleStatements: true
+  multipleStatements: true,
+  waitForConnections: true,
+  connectionLimit: 10,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 5000
 };
 
 async function syncAllDatabase() {
@@ -87,18 +95,30 @@ async function syncAllDatabase() {
           continue;
         }
 
-        // Determinar tamaño de lote (tablas con cache/blobs usan lotes más pequeños)
-        const batchSize = tableName.includes('cache') || tableName.includes('log') || tableName.includes('auditoria') ? 50 : 500;
+        const batchSize = (tableName === 'ordenes' || tableName.includes('cache') || tableName.includes('log') || tableName.includes('auditoria')) ? 100 : 500;
         let offset = 0;
         let tableRowsInserted = 0;
 
         while (offset < totalRows) {
-          const [rows] = await remotePool.query(
-            `SELECT * FROM \`${tableName}\` LIMIT ? OFFSET ?`,
-            [batchSize, offset]
-          );
+          let rows;
+          let retries = 3;
+          while (retries > 0) {
+            try {
+              const res = await remotePool.query(
+                `SELECT * FROM \`${tableName}\` LIMIT ? OFFSET ?`,
+                [batchSize, offset]
+              );
+              rows = res[0];
+              break;
+            } catch (queryErr) {
+              retries--;
+              console.warn(`      ⚠️ Reintentando lectura ${tableName} (offset ${offset}) por error: ${queryErr.message}`);
+              if (retries === 0) throw queryErr;
+              await new Promise(r => setTimeout(r, 1500));
+            }
+          }
 
-          if (rows.length === 0) break;
+          if (!rows || rows.length === 0) break;
 
           const columns = Object.keys(rows[0]);
           const escapedColumns = columns.map(c => `\`${c}\``).join(', ');
@@ -136,6 +156,16 @@ async function syncAllDatabase() {
       } catch (tableErr) {
         tablesFailed++;
         console.error(`${progress} ❌ Error en tabla \`${tableName}\`:`, tableErr.message);
+        // Si la conexión local cayó, reconectar
+        try {
+          await localConn.query('SELECT 1');
+        } catch (connErr) {
+          console.log('🔄 Reconectando localConn...');
+          localConn = await localPool.getConnection();
+          await localConn.query('SET FOREIGN_KEY_CHECKS = 0;');
+          await localConn.query('SET UNIQUE_CHECKS = 0;');
+          await localConn.query('SET SQL_MODE = "";');
+        }
       }
     }
 

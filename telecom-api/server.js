@@ -9432,7 +9432,22 @@ app.get('/api/almacen/trazabilidad-serie/:serie', async (req, res) => {
         ts.fecha_asignacion,
         TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre,
         COALESCE(u.cuadrilla, '') AS tecnico_cuadrilla,
-        COALESCE(v.placa, '') AS vehiculo_placa
+        COALESCE(v.placa, '') AS vehiculo_placa,
+        -- Datos de Liquidación (si la serie fue liquidada en un equipo o como número de acta)
+        CASE 
+          WHEN ol_eq.id_liquidacion IS NOT NULL THEN 1 
+          WHEN ol_acta.id_liquidacion IS NOT NULL THEN 1 
+          ELSE 0 
+        END AS es_liquidada,
+        COALESCE(ol_eq.numero_acta, ol_acta.numero_acta, '') AS liq_acta,
+        COALESCE(o_eq.numero, o_acta.numero, '') AS liq_orden,
+        COALESCE(o_eq.cliente, o_acta.cliente, '') AS liq_cliente,
+        COALESCE(ol_eq.fecha_liquidacion, ol_acta.fecha_liquidacion) AS liq_fecha,
+        TRIM(CONCAT(
+          COALESCE(u_eq.nombres, u_acta.nombres, ''), ' ', 
+          COALESCE(u_eq.primer_apellido, u_eq.apellidos, u_acta.primer_apellido, u_acta.apellidos, '')
+        )) AS liq_tecnico_nombre,
+        COALESCE(u_eq.cuadrilla, u_acta.cuadrilla, '') AS liq_tecnico_cuadrilla
       FROM producto_series ps
       JOIN productos p ON ps.id_producto = p.id_producto
       LEFT JOIN categorias c ON p.id_categoria = c.id_categoria
@@ -9440,8 +9455,19 @@ app.get('/api/almacen/trazabilidad-serie/:serie', async (req, res) => {
       LEFT JOIN trabajadores t ON ts.id_trabajador = t.id_trabajador
       LEFT JOIN usuarios u ON t.id_usuario = u.id_usuario
       LEFT JOIN vehiculos v ON t.id_vehiculo = v.id_vehiculo
+      -- Join si la serie fue instalada en un detalle de liquidación
+      LEFT JOIN orden_liquidacion_detalle old ON (old.numero_serie = ps.numero_serie OR (old.id_producto_serie IS NOT NULL AND old.id_producto_serie = ps.id_producto_serie))
+      LEFT JOIN orden_liquidaciones ol_eq ON old.id_liquidacion = ol_eq.id_liquidacion
+      LEFT JOIN ordenes o_eq ON ol_eq.id_orden = o_eq.id_orden
+      LEFT JOIN trabajadores t_eq ON ol_eq.id_trabajador = t_eq.id_trabajador
+      LEFT JOIN usuarios u_eq ON t_eq.id_usuario = u_eq.id_usuario
+      -- Join si el número de serie es un acta y fue liquidada en orden_liquidaciones
+      LEFT JOIN orden_liquidaciones ol_acta ON ol_acta.numero_acta = ps.numero_serie
+      LEFT JOIN ordenes o_acta ON ol_acta.id_orden = o_acta.id_orden
+      LEFT JOIN trabajadores t_acta ON ol_acta.id_trabajador = t_acta.id_trabajador
+      LEFT JOIN usuarios u_acta ON t_acta.id_usuario = u_acta.id_usuario
       WHERE ps.numero_serie LIKE ? OR ps.codigo_serie LIKE ? OR ps.id_equipo LIKE ? OR ps.proid LIKE ?
-      ORDER BY ps.id_producto_serie DESC
+      ORDER BY es_liquidada DESC, ps.id_producto_serie DESC
       LIMIT 15
     `, [`%${rawSerie}%`, `%${rawSerie}%`, `%${rawSerie}%`, `%${rawSerie}%`]);
 

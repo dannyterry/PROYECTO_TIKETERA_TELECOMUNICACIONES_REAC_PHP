@@ -1021,20 +1021,36 @@ export const StockOverviewTab: React.FC<Props> = ({
 
             <div className="space-y-2">
               {resultadosOmnibox.map((item, idx) => {
-                const enTecnico = !!item.tecnico_nombre;
+                const esLiq = !!item.es_liquidada;
+                const enTecnico = !esLiq && !!item.tecnico_nombre;
                 return (
                   <div
                     key={idx}
-                    className="p-3 bg-slate-50 hover:bg-indigo-50/50 rounded-xl border border-slate-200/70 transition-all flex flex-wrap items-center justify-between gap-3 text-xs"
+                    className={`p-3 rounded-xl border transition-all flex flex-wrap items-center justify-between gap-3 text-xs ${
+                      esLiq 
+                        ? "bg-purple-50/70 hover:bg-purple-50 border-purple-200/80 shadow-xs" 
+                        : "bg-slate-50 hover:bg-indigo-50/50 border-slate-200/70"
+                    }`}
                   >
                     <div className="flex items-center gap-2.5">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${enTecnico ? "bg-cyan-100 text-cyan-800" : "bg-emerald-100 text-emerald-800"}`}>
-                        {enTecnico ? <Truck size={16} /> : <Building2 size={16} />}
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${
+                        esLiq 
+                          ? "bg-purple-600 text-white shadow-xs" 
+                          : enTecnico 
+                            ? "bg-cyan-100 text-cyan-800" 
+                            : "bg-emerald-100 text-emerald-800"
+                      }`}>
+                        {esLiq ? <CheckCircle2 size={17} /> : enTecnico ? <Truck size={16} /> : <Building2 size={16} />}
                       </div>
                       <div>
                         <div className="font-extrabold text-slate-900 flex items-center gap-2">
                           <span>{item.producto_nombre}</span>
                           <span className="font-mono text-[10px] text-slate-400 font-normal">({item.codigo_serie || item.producto_codigo})</span>
+                          {esLiq && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 text-purple-800 border border-purple-300 animate-pulse">
+                              <CheckCircle2 size={10} /> LIQUIDADA
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                           <span className="font-mono font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 text-[11px]">
@@ -1062,9 +1078,32 @@ export const StockOverviewTab: React.FC<Props> = ({
                       </div>
                     </div>
 
-                    {/* Ubicación y Asignación */}
+                    {/* Ubicación y Asignación / Estado Liquidado */}
                     <div className="flex flex-col items-end gap-1">
-                      {enTecnico ? (
+                      {esLiq ? (
+                        <div className="text-right space-y-0.5">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-300">
+                            <CheckCircle2 size={11} /> Instalada / Liquidada en Orden #{item.liq_orden || "-"}
+                          </span>
+                          <div className="text-[11px] font-semibold text-slate-800">
+                            Cliente: <strong className="text-purple-900">{item.liq_cliente || "-"}</strong>
+                          </div>
+                          <div className="text-[10px] text-slate-500">
+                            {item.liq_acta && (
+                              <span className="mr-2 font-mono bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded border border-purple-200">
+                                Acta: {item.liq_acta}
+                              </span>
+                            )}
+                            Por: <strong className="text-slate-700">{item.liq_tecnico_nombre || "Técnico"}</strong>
+                            {item.liq_tecnico_cuadrilla && ` (${item.liq_tecnico_cuadrilla})`}
+                          </div>
+                          {item.liq_fecha && (
+                            <div className="text-[9px] text-slate-400">
+                              Fecha: {String(item.liq_fecha).replace("T", " ").substring(0, 19)}
+                            </div>
+                          )}
+                        </div>
+                      ) : enTecnico ? (
                         <div className="text-right">
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-100 text-cyan-800 border border-cyan-200">
                             <Truck size={11} /> {item.tecnico_nombre} ({item.tecnico_cuadrilla || "Móvil"})
