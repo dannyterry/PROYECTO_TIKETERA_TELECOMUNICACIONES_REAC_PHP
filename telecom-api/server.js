@@ -9067,8 +9067,26 @@ app.post('/api/almacen/actas/anular', async (req, res) => {
     }
 
     const cleanActa = String(numero_acta).trim();
-    const cleanSufijo = cleanActa.replace(/^001-?/i, '').trim();
-    const formatoCompleto = `001-${cleanSufijo}`;
+    const matchPrefAnul = cleanActa.match(/^([A-Z0-9]+)[-–\s]+([0-9]+)$/i);
+    const prefAnul = matchPrefAnul ? matchPrefAnul[1] : '001';
+    const sufAnul = matchPrefAnul ? matchPrefAnul[2] : cleanActa.replace(/^[A-Z0-9]+[-–]?/i, '').trim();
+    const numIntAnul = parseInt(sufAnul, 10);
+    const sufSinCerosAnul = !isNaN(numIntAnul) ? String(numIntAnul) : sufAnul;
+    const sufPad5Anul = !isNaN(numIntAnul) ? String(numIntAnul).padStart(5, '0') : sufAnul;
+    const sufPad6Anul = !isNaN(numIntAnul) ? String(numIntAnul).padStart(6, '0') : sufAnul;
+
+    const variantesAnulacion = Array.from(new Set([
+      cleanActa,
+      `${prefAnul}-${sufAnul}`,
+      `${prefAnul}-${sufSinCerosAnul}`,
+      `${prefAnul}-${sufPad5Anul}`,
+      `${prefAnul}-${sufPad6Anul}`,
+      sufAnul,
+      sufSinCerosAnul,
+      sufPad5Anul,
+      sufPad6Anul
+    ]));
+    const formatoCompleto = `${prefAnul}-${sufAnul}`;
 
     await connection.beginTransaction();
 
@@ -9086,9 +9104,9 @@ app.post('/api/almacen/actas/anular', async (req, res) => {
       SELECT ps.id_producto_serie, ps.id_producto, ps.numero_serie, ts.id_trabajador_serie, ts.id_trabajador, ts.estado AS estado_ts
       FROM producto_series ps
       JOIN trabajador_series ts ON ps.id_producto_serie = ts.id_producto_serie
-      WHERE (ps.numero_serie = ? OR ps.numero_serie = ? OR ps.numero_serie = ?)
+      WHERE ps.numero_serie IN (?)
     `;
-    let queryParams = [cleanActa, cleanSufijo, formatoCompleto];
+    let queryParams = [variantesAnulacion];
 
     if (finalIdTrabajador) {
       querySerie += ' AND ts.id_trabajador = ?';
@@ -10017,6 +10035,15 @@ app.get('/api/almacen/ordenes-pendientes-tecnico/:idTrabajador', async (req, res
         SELECT 1 FROM orden_liquidaciones ol 
         WHERE ol.id_orden = o.id_orden AND ol.estado <> 'Rechazada'
       )
+      AND (
+        o.tipo_trabajo IS NULL 
+        OR (
+          UPPER(o.tipo_trabajo) NOT LIKE '%PEX%' 
+          AND UPPER(COALESCE(o.motivo_finalizacion, '')) NOT LIKE '%PEX%'
+          AND UPPER(COALESCE(o.motivo_finalizacion, '')) NOT LIKE '%PRUEBA DE SERVICIO%'
+          AND UPPER(COALESCE(o.motivo_finalizacion, '')) NOT LIKE '%CONJUNTA%'
+        )
+      )
     `;
     const params = [idUsuario, idTrabajador, idTrabajador];
 
@@ -10091,6 +10118,173 @@ app.post('/api/almacen/orden-liquidaciones/:id/rechazar', async (req, res) => {
     res.json({ success: true, message: 'Liquidación rechazada.' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// --- 📋 5.3.0 RESETEAR / ANULAR LIQUIDACIÓN Y LIBERAR ACTA Y MATERIALES ---
+app.post(['/api/almacen/orden-liquidaciones/:id/resetear', '/almacen/orden-liquidaciones/:id/resetear'], async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const idLiquidacion = req.params.id;
+    const { motivo, reset_por } = req.body || {};
+
+    await connection.beginTransaction();
+
+    // 1. Obtener la liquidación completa
+    const [liqRows] = await connection.query(`
+      SELECT ol.*, o.numero as numero_orden, o.id_tecnico, o.tipo_trabajo, o.motivo_finalizacion
+      FROM orden_liquidaciones ol
+      LEFT JOIN ordenes o ON ol.id_orden = o.id_orden
+      WHERE ol.id_liquidacion = ?
+    `, [idLiquidacion]);
+
+    if (liqRows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, error: 'Liquidación no encontrada.' });
+    }
+
+    const liq = liqRows[0];
+    const idOrden = liq.id_orden;
+    let idTrabajador = liq.id_trabajador;
+
+    if (!idTrabajador && liq.id_tecnico) {
+      const [tRows] = await connection.query("SELECT id_trabajador FROM trabajadores WHERE id_usuario = ? LIMIT 1", [liq.id_tecnico]);
+      if (tRows.length > 0) idTrabajador = tRows[0].id_trabajador;
+    }
+
+    // 2. Obtener todos los materiales consumidos en esta liquidación
+    const [detalles] = await connection.query(`
+      SELECT * FROM orden_liquidacion_detalle WHERE id_liquidacion = ?
+    `, [idLiquidacion]);
+
+    // 3. Devolver Insumos y Materiales al stock del técnico
+    if (idTrabajador && detalles.length > 0) {
+      for (const d of detalles) {
+        const prodId = d.id_producto;
+        const cant = Number(d.cantidad) || 0;
+        if (cant > 0) {
+          await connection.query(`
+            UPDATE trabajador_productos 
+            SET stock = stock + ? 
+            WHERE id_trabajador = ? AND id_producto = ?
+          `, [cant, idTrabajador, prodId]);
+        }
+        // Si tenía serie de equipo asignada, restaurar su estado
+        if (d.numero_serie) {
+          await connection.query("UPDATE producto_series SET estado = 'ASIGNADO' WHERE numero_serie = ?", [d.numero_serie]);
+          await connection.query(`
+            UPDATE trabajador_series ts
+            JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
+            SET ts.estado = 'Asignada'
+            WHERE ts.id_trabajador = ? AND ps.numero_serie = ?
+          `, [idTrabajador, d.numero_serie]);
+        }
+      }
+    }
+
+    // 4. Devolver Metraje de Bobina Drop si no estaba en detalle
+    const metrosDrop = Number(liq.drop_total_metros) || 0;
+    if (idTrabajador && metrosDrop > 0) {
+      // Verificar si ya se devolvió en el bucle de detalles
+      const yaEnDetalle = detalles.some(d => Number(d.cantidad) === metrosDrop);
+      if (!yaEnDetalle) {
+        const [dropRows] = await connection.query(`
+          SELECT p.id_producto 
+          FROM productos p 
+          WHERE (p.es_drop = 1 OR p.id_producto = 55 OR (p.id_categoria = 1 AND UPPER(p.nombre) LIKE '%DROP%'))
+            AND UPPER(p.nombre) NOT LIKE '%PORTA%' 
+            AND UPPER(p.nombre) NOT LIKE '%PELAD%'
+          ORDER BY p.es_drop DESC LIMIT 1
+        `);
+        if (dropRows.length > 0) {
+          await connection.query(`
+            UPDATE trabajador_productos 
+            SET stock = stock + ? 
+            WHERE id_trabajador = ? AND id_producto = ?
+          `, [metrosDrop, idTrabajador, dropRows[0].id_producto]);
+        }
+      }
+    }
+
+    // 5. LIBERAR EL ACTA FÍSICA AL STOCK DEL TÉCNICO
+    const actaNum = liq.numero_acta || liq.numero_guia;
+    if (actaNum && idTrabajador) {
+      const matchP = String(actaNum).trim().match(/^([A-Z0-9]+)[-–\s]+([0-9]+)$/i);
+      const prefA = matchP ? matchP[1] : '001';
+      const sufA = matchP ? matchP[2] : String(actaNum).trim().replace(/^[A-Z0-9]+[-–]?/i, '');
+      const numInt = parseInt(sufA, 10);
+      const sufSinCeros = !isNaN(numInt) ? String(numInt) : sufA;
+      const sufPad5 = !isNaN(numInt) ? String(numInt).padStart(5, '0') : sufA;
+      const sufPad6 = !isNaN(numInt) ? String(numInt).padStart(6, '0') : sufA;
+
+      const variantes = Array.from(new Set([
+        actaNum,
+        `${prefA}-${sufA}`,
+        `${prefA}-${sufSinCeros}`,
+        `${prefA}-${sufPad5}`,
+        `${prefA}-${sufPad6}`,
+        sufA,
+        sufSinCeros,
+        sufPad5,
+        sufPad6
+      ]));
+
+      const [serieRows] = await connection.query(`
+        SELECT ps.id_producto_serie, ps.id_producto
+        FROM producto_series ps
+        JOIN trabajador_series ts ON ps.id_producto_serie = ts.id_producto_serie
+        WHERE ts.id_trabajador = ? 
+          AND ps.numero_serie IN (?)
+        LIMIT 1
+      `, [idTrabajador, variantes]);
+
+      if (serieRows.length > 0) {
+        const idProdSerie = serieRows[0].id_producto_serie;
+        const idProdActa = serieRows[0].id_producto;
+
+        await connection.query("UPDATE producto_series SET estado = 'ASIGNADO' WHERE id_producto_serie = ?", [idProdSerie]);
+        await connection.query("UPDATE trabajador_series SET estado = 'Asignada' WHERE id_trabajador = ? AND id_producto_serie = ?", [idTrabajador, idProdSerie]);
+        await connection.query("UPDATE trabajador_productos SET stock = stock + 1 WHERE id_trabajador = ? AND id_producto = ?", [idTrabajador, idProdActa]);
+      }
+    }
+
+    // 6. Eliminar registros de equipos retirados si se crearon en esta orden
+    if (idOrden) {
+      await connection.query("DELETE FROM orden_equipos_retirados WHERE id_orden = ?", [idOrden]);
+    }
+
+    // 7. Eliminar detalles y la liquidación
+    await connection.query("DELETE FROM orden_liquidacion_detalle WHERE id_liquidacion = ?", [idLiquidacion]);
+    await connection.query("DELETE FROM orden_liquidaciones WHERE id_liquidacion = ?", [idLiquidacion]);
+
+    // 8. Restaurar estado de la orden a 'Finalizada'
+    if (idOrden) {
+      await connection.query("UPDATE ordenes SET estado = 'Finalizada', fecha_estado = NOW() WHERE id_orden = ?", [idOrden]);
+    }
+
+    // 9. Registrar auditoría
+    try {
+      const descAuditoria = `[Reset Liquidación #${idLiquidacion}] Orden #${liq.numero_orden || idOrden}. Acta ${actaNum} liberada y reincorporada al técnico. Materiales y stock devueltos. Motivo: ${motivo || 'Reversión / Reingreso por Almacén'}. Ejecutado por: ${reset_por || 'Almacén'}`;
+      await connection.query(`
+        INSERT INTO auditoria_actividad (id_usuario, usuario_nombre, id_rol, rol_nombre, area, modulo, accion, id_referencia, descripcion, fecha_creacion)
+        VALUES (1, ?, 1, 'ADMINISTRACION', 'ALMACEN', 'LIQUIDACIONES', 'RESET_LIQUIDACION', ?, ?, NOW())
+      `, [reset_por || 'Almacén', idLiquidacion, descAuditoria]);
+    } catch (eAud) {}
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      message: `Liquidación #${idLiquidacion} reseteada exitosamente. El Acta ${actaNum} y los materiales fueron devueltos a la dotación del técnico. La orden #${liq.numero_orden || idOrden} volvió a estado "Finalizada".`,
+      id_orden: idOrden,
+      acta_liberada: actaNum
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Error al resetear liquidación:", error);
+    res.status(500).json({ success: false, error: error.message });
+  } finally {
+    connection.release();
   }
 });
 
@@ -11142,41 +11336,59 @@ app.post('/api/ordenes/:id/liquidar-acta', async (req, res) => {
     }
 
     // A0. Validación de Unicidad de Acta Física (No puede liquidarse dos veces)
+    // A0. Validación de Unicidad de Acta Física (No puede liquidarse dos veces, considerando variantes con o sin 0)
+    const matchPref = String(numActaFinal).trim().match(/^([A-Z0-9]+)[-–\s]+([0-9]+)$/i);
+    const prefActa = matchPref ? matchPref[1] : '001';
+    const sufActa = matchPref ? matchPref[2] : String(numActaFinal).trim().replace(/^[A-Z0-9]+[-–]?/i, '');
+    const numIntActa = parseInt(sufActa, 10);
+    const sufSinCeros = !isNaN(numIntActa) ? String(numIntActa) : sufActa;
+    const sufPad5 = !isNaN(numIntActa) ? String(numIntActa).padStart(5, '0') : sufActa;
+    const sufPad6 = !isNaN(numIntActa) ? String(numIntActa).padStart(6, '0') : sufActa;
+
+    const variantesActa = Array.from(new Set([
+      numActaFinal,
+      `${prefActa}-${sufActa}`,
+      `${prefActa}-${sufSinCeros}`,
+      `${prefActa}-${sufPad5}`,
+      `${prefActa}-${sufPad6}`,
+      sufActa,
+      sufSinCeros,
+      sufPad5,
+      sufPad6
+    ]));
+
     const [actaDuplicada] = await pool.query(
-      "SELECT id_liquidacion, id_orden, numero_acta FROM orden_liquidaciones WHERE (numero_acta = ? OR numero_guia = ?) AND id_orden != ?",
-      [numActaFinal, numActaFinal, idOrden]
+      `SELECT id_liquidacion, id_orden, numero_acta 
+       FROM orden_liquidaciones 
+       WHERE (numero_acta IN (?) OR numero_guia IN (?)) AND id_orden != ?
+       LIMIT 1`,
+      [variantesActa, variantesActa, idOrden]
     );
     if (actaDuplicada.length > 0) {
       return res.status(400).json({
-        error: `El Acta física ${numActaFinal} ya fue liquidada en la orden #${actaDuplicada[0].id_orden}. Las actas de servicio son únicas e irrepetibles.`
+        error: `El Acta física ${numActaFinal} (o su equivalente ${actaDuplicada[0].numero_acta}) ya fue liquidada en la orden #${actaDuplicada[0].id_orden}. Las actas de servicio son únicas e irrepetibles.`
       });
     }
 
     // A0.0.1 Validación Estricta: El Acta Física debe estar asignada al técnico en Almacén
+    let idSerieActaAsignada = null;
+    let idProductoActa = null;
+
     if (numActaFinal && realIdTrabajador) {
-      const sufijoActa = numActaFinal.replace(/^001-?/i, '').trim();
       const [actaAsignada] = await pool.query(`
-        SELECT ts.id_trabajador_serie, ps.numero_serie, ts.estado
+        SELECT ts.id_trabajador_serie, ps.id_producto_serie, ps.id_producto, ps.numero_serie, ts.estado
         FROM trabajador_series ts
         JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
         WHERE ts.id_trabajador = ?
-          AND (
-            ps.numero_serie = ? 
-            OR ps.numero_serie = ? 
-            OR ps.numero_serie = ? 
-            OR ps.numero_serie LIKE CONCAT('%', ?)
-          )
+          AND ps.numero_serie IN (?)
           AND ts.estado = 'Asignada'
         LIMIT 1
-      `, [
-        realIdTrabajador,
-        numActaFinal,
-        sufijoActa,
-        `001-${sufijoActa}`,
-        sufijoActa
-      ]);
+      `, [realIdTrabajador, variantesActa]);
 
-      if (actaAsignada.length === 0) {
+      if (actaAsignada.length > 0) {
+        idSerieActaAsignada = actaAsignada[0].id_producto_serie;
+        idProductoActa = actaAsignada[0].id_producto;
+      } else {
         const [totalActas] = await pool.query(`
           SELECT COUNT(*) as total
           FROM trabajador_series ts
@@ -11187,7 +11399,7 @@ app.post('/api/ordenes/:id/liquidar-acta', async (req, res) => {
               p.nombre LIKE '%ACTA%' 
               OR p.nombre LIKE '%GUIA%' 
               OR p.nombre LIKE '%TALONARIO%'
-              OR ps.numero_serie LIKE '001-%'
+              OR ps.numero_serie LIKE '%-%'
             )
         `, [realIdTrabajador]);
 
@@ -11443,27 +11655,33 @@ app.post('/api/ordenes/:id/liquidar-acta', async (req, res) => {
     // F. Descontar la Guía / Acta Física del Stock del Técnico
     const actaOGuia = numero_acta || numero_guia;
     if (actaOGuia && realIdTrabajador) {
-      const cleanGuiaNum = String(actaOGuia).trim();
-      const numSinPrefijo = cleanGuiaNum.replace(/^001-?/i, '');
-
       try {
-        const [serieRows] = await pool.query(`
-          SELECT ps.id_producto_serie, ps.id_producto
-          FROM producto_series ps
-          JOIN trabajador_series ts ON ps.id_producto_serie = ts.id_producto_serie
-          WHERE ts.id_trabajador = ? 
-            AND (ps.numero_serie = ? OR ps.numero_serie = ? OR ps.numero_serie = ? OR ps.numero_serie LIKE ?)
-            AND ts.estado = 'Asignada'
-          LIMIT 1
-        `, [realIdTrabajador, cleanGuiaNum, numSinPrefijo, `001-${numSinPrefijo}`, `%${cleanGuiaNum}%`]);
+        let idProdSerieDesc = idSerieActaAsignada;
+        let idProdDesc = idProductoActa;
 
-        if (serieRows.length > 0) {
-          const idProdSerie = serieRows[0].id_producto_serie;
-          const idProd = serieRows[0].id_producto;
+        if (!idProdSerieDesc) {
+          const [serieRows] = await pool.query(`
+            SELECT ps.id_producto_serie, ps.id_producto
+            FROM producto_series ps
+            JOIN trabajador_series ts ON ps.id_producto_serie = ts.id_producto_serie
+            WHERE ts.id_trabajador = ? 
+              AND ps.numero_serie IN (?)
+              AND ts.estado = 'Asignada'
+            LIMIT 1
+          `, [realIdTrabajador, variantesActa]);
 
-          await pool.query("UPDATE producto_series SET estado = 'CONSUMIDO' WHERE id_producto_serie = ?", [idProdSerie]);
-          await pool.query("UPDATE trabajador_series SET estado = 'Usada' WHERE id_trabajador = ? AND id_producto_serie = ?", [realIdTrabajador, idProdSerie]);
-          await pool.query("UPDATE trabajador_productos SET stock = GREATEST(0, stock - 1) WHERE id_trabajador = ? AND id_producto = ?", [realIdTrabajador, idProd]);
+          if (serieRows.length > 0) {
+            idProdSerieDesc = serieRows[0].id_producto_serie;
+            idProdDesc = serieRows[0].id_producto;
+          }
+        }
+
+        if (idProdSerieDesc) {
+          await pool.query("UPDATE producto_series SET estado = 'CONSUMIDO' WHERE id_producto_serie = ?", [idProdSerieDesc]);
+          await pool.query("UPDATE trabajador_series SET estado = 'Usada' WHERE id_trabajador = ? AND id_producto_serie = ?", [realIdTrabajador, idProdSerieDesc]);
+          if (idProdDesc) {
+            await pool.query("UPDATE trabajador_productos SET stock = GREATEST(0, stock - 1) WHERE id_trabajador = ? AND id_producto = ?", [realIdTrabajador, idProdDesc]);
+          }
         }
       } catch (errGuia) {
         console.warn("Aviso al descontar serie de guía:", errGuia.message);

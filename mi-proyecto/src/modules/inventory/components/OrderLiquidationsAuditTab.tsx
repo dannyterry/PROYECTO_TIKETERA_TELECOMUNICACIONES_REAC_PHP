@@ -36,6 +36,7 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCw,
+  RotateCcw,
   Maximize2,
   Minimize2,
   Download,
@@ -61,6 +62,7 @@ import {
   agregarMaterialLiquidacion,
   eliminarMaterialLiquidacion,
   editarNumeroActaLiquidacion,
+  resetearLiquidacionOrden,
   getTecnicoStock,
   getStockGeneral,
   getFotoActaLiquidacion,
@@ -935,6 +937,45 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
       }
     } catch (err) {
       console.error("Error al rechazar liquidación:", err);
+    } finally {
+      setProcesandoAccion(false);
+    }
+  };
+
+  const handleResetearLiquidacion = async (liq: LiquidacionOrdenAudit) => {
+    const confirmacion = window.confirm(
+      `⚠️ ¿CONFIRMAS RESETEAR ESTA LIQUIDACIÓN (#${liq.id_liquidacion})?\n\n` +
+      `• Orden: #${liq.numero_orden || liq.id_orden}\n` +
+      `• Acta física: ${liq.numero_acta || "Sin Acta"}\n` +
+      `• Técnico: ${liq.tecnico || "Técnico"}\n\n` +
+      `Acciones automáticas que se realizarán:\n` +
+      `1. Se devolverán todos los materiales y metros de drop al stock móvil del técnico.\n` +
+      `2. El Acta física ${liq.numero_acta || ""} será liberada y devuelta a su talonario activo.\n` +
+      `3. La orden volverá a estado "Finalizada" (sin acta registrada).\n\n` +
+      `¿Deseas continuar?`
+    );
+
+    if (!confirmacion) return;
+
+    const motivo = window.prompt("Ingrese el motivo del reseteo (ej: Liquidación errónea, orden PEX sin acta, duplicidad):", "Corrección / Liberación de Acta en Almacén");
+    if (motivo === null) return;
+
+    setProcesandoAccion(true);
+    try {
+      const res = await resetearLiquidacionOrden(liq.id_liquidacion, {
+        motivo: motivo.trim() || "Reseteo por Almacén",
+        reset_por: "Almacén",
+      });
+      if (res.success) {
+        alert(`✅ ${res.message || "Liquidación reseteada exitosamente."}`);
+        await cargarDatos();
+        setModalLiq(null);
+      } else {
+        alert(`❌ Error al resetear: ${res.error || "Ocurrió un error inesperado"}`);
+      }
+    } catch (err: any) {
+      console.error("Error al resetear liquidación:", err);
+      alert(`❌ Error: ${err.response?.data?.error || err.message}`);
     } finally {
       setProcesandoAccion(false);
     }
@@ -2158,13 +2199,27 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
 
                   {/* Acciones de Liquidación */}
                   <div className="pt-3 border-t border-slate-200 flex items-center justify-between gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setModalLiq(null)}
-                      className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-100 cursor-pointer"
-                    >
-                      Cerrar
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setModalLiq(null)}
+                        className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-100 cursor-pointer"
+                      >
+                        Cerrar
+                      </button>
+
+                      {/* 🔄 Botón Resetear Liquidación: Libera el acta y devuelve todos los materiales al técnico */}
+                      <button
+                        type="button"
+                        onClick={() => handleResetearLiquidacion(modalLiq)}
+                        disabled={procesandoAccion}
+                        className="px-3.5 py-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs inline-flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                        title="Reabrir la orden a estado Finalizada, devolver todos los materiales al técnico y liberar el acta física para su uso"
+                      >
+                        <RotateCcw size={13} className="text-amber-700" />
+                        <span>Resetear / Liberar Acta</span>
+                      </button>
+                    </div>
 
                     <div className="flex items-center gap-2">
                       {!mostrandoRechazoInput && modalLiq.estado_liquidacion !== "Rechazada" && (

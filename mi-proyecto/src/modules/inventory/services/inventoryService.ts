@@ -457,6 +457,17 @@ export const editarNumeroActaLiquidacion = async (
   return res.data;
 };
 
+export const resetearLiquidacionOrden = async (
+  idLiquidacion: number | string,
+  payload?: {
+    motivo?: string;
+    reset_por?: string;
+  }
+) => {
+  const res = await api.post(`/almacen/orden-liquidaciones/${idLiquidacion}/resetear`, payload);
+  return res.data;
+};
+
 export const anularActaFisica = async (payload: {
   id_trabajador?: number;
   id_usuario?: number;

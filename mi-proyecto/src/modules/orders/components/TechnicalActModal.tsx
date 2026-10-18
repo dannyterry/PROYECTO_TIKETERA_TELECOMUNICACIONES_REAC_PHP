@@ -395,7 +395,8 @@ export const TechnicalActModal: React.FC<Props> = ({
   };
 
   // Extraer series de guías/actas disponibles en el stock del técnico
-  const guiasDisponibles: string[] = useMemo(() => {
+  // Soporta cualquier prefijo (001-, 002-, etc.) y mantiene tanto el número completo como el sufijo numérico
+  const guiasStockInfo = useMemo(() => {
     return seriesAsignadasTecnico
       .filter((s: any) => {
         const cat = (s.categoria || "").toUpperCase();
@@ -409,12 +410,39 @@ export const TechnicalActModal: React.FC<Props> = ({
           nom.includes("ACTA") ||
           nom.includes("GUIA") ||
           nom.includes("TALONARIO") ||
-          /^\d{4,8}$/.test(num.replace(/^001-?/i, ""))
+          /^\d{1,4}[-–]\d+$/.test(num) ||
+          /^\d{4,8}$/.test(num.replace(/^\d{1,4}[-–]?/i, ""))
         );
       })
-      .map((s: any) => (s.numero_serie || "").trim().replace(/^001-?/i, ""))
-      .filter(Boolean);
+      .map((s: any) => {
+        const serieCompleta = (s.numero_serie || "").trim().toUpperCase();
+        // Separar prefijo y número correlativo (ej: "001-045274" -> prefijo: "001", sufijo: "045274")
+        const match = serieCompleta.match(/^([A-Z0-9]+)[-–\s]+([0-9]+)$/i);
+        const prefijo = match ? match[1] : "001";
+        const sufijo = match ? match[2] : serieCompleta.replace(/^[A-Z0-9]+[-–]?/i, "");
+        const numValor = parseInt(sufijo, 10) || 0;
+        return {
+          serieCompleta,
+          prefijo,
+          sufijo,
+          numValor,
+        };
+      })
+      .filter((x) => x.serieCompleta && x.numValor > 0);
   }, [seriesAsignadasTecnico]);
+
+  // Prefijo activo por defecto del talonario asignado al técnico (ej: "001", "002")
+  const prefijoTalonarioActivo = useMemo(() => {
+    if (guiasStockInfo.length > 0) {
+      return guiasStockInfo[0].prefijo;
+    }
+    return "001";
+  }, [guiasStockInfo]);
+
+  // Lista de sufijos disponibles para compatibilidad
+  const guiasDisponibles: string[] = useMemo(() => {
+    return guiasStockInfo.map((g) => g.sufijo);
+  }, [guiasStockInfo]);
 
   // 🌟 Filtrar estrictamente solo Materiales e Insumos Consumibles para la liquidación de la orden
   // (Excluyendo herramientas, uniformes, vehículos, equipos serializados y ACTAS/GUIAS que se ingresan únicamente en cabecera)
@@ -579,14 +607,27 @@ export const TechnicalActModal: React.FC<Props> = ({
     );
   }, [stockTecnicoMateriales]);
 
-  // Sugerencias de autocompletado según lo que el técnico va digitando
-  const sugerenciasGuias: string[] = useMemo(() => {
+  // Sugerencias de autocompletado según lo que el técnico va digitando (con o sin ceros a la izquierda)
+  const sugerenciasGuias: Array<{ serieCompleta: string; sufijo: string; prefijo: string }> = useMemo(() => {
     if (!guiaCorrelativo.trim()) {
-      return guiasDisponibles.slice(0, 6);
+      return guiasStockInfo.slice(0, 6);
     }
     const val = guiaCorrelativo.trim();
-    return guiasDisponibles.filter((g: string) => g.includes(val) || g.endsWith(val)).slice(0, 8);
-  }, [guiasDisponibles, guiaCorrelativo]);
+    const valNum = parseInt(val, 10);
+    return guiasStockInfo
+      .filter((g) => {
+        // Coincidencia por texto directo
+        if (g.sufijo.includes(val) || g.sufijo.endsWith(val) || g.serieCompleta.includes(val)) {
+          return true;
+        }
+        // Coincidencia por valor numérico (ej: "45274" coincide con 45274 de "045274")
+        if (!isNaN(valNum) && g.numValor.toString().includes(valNum.toString())) {
+          return true;
+        }
+        return false;
+      })
+      .slice(0, 8);
+  }, [guiasStockInfo, guiaCorrelativo]);
 
   // Motivo seleccionado según tipo de liquidación
   const motivoSeleccionado = useMemo(() => {
@@ -1140,22 +1181,49 @@ export const TechnicalActModal: React.FC<Props> = ({
       return;
     }
 
-    const sufijoNormalizado = cleanSufijo.replace(/^001-?/i, "").trim();
-    const actaValida = guiasDisponibles.some((g) => {
-      const gNorm = g.replace(/^001-?/i, "").trim();
-      return gNorm === sufijoNormalizado || g === cleanSufijo;
+    // Extraer prefijo ingresado si el técnico lo escribió (ej: "002-45274" o solo "45274")
+    let prefijoIngresado = prefijoTalonarioActivo;
+    let sufijoIngresado = cleanSufijo;
+    const matchManual = cleanSufijo.match(/^([A-Z0-9]+)[-–\s]+([0-9]+)$/i);
+    if (matchManual) {
+      prefijoIngresado = matchManual[1];
+      sufijoIngresado = matchManual[2];
+    } else {
+      sufijoIngresado = cleanSufijo.replace(/^[A-Z0-9]+[-–]?/i, "").trim();
+    }
+
+    const numIngresadoValor = parseInt(sufijoIngresado, 10);
+
+    // Buscar coincidencia inteligente en las actas asignadas al técnico
+    const actaMatch = guiasStockInfo.find((g) => {
+      // 1. Coincidencia exacta de serie completa
+      if (g.serieCompleta === cleanSufijo || g.serieCompleta === `${prefijoIngresado}-${sufijoIngresado}`) {
+        return true;
+      }
+      // 2. Coincidencia exacta de sufijo textual
+      if (g.sufijo === sufijoIngresado) {
+        return true;
+      }
+      // 3. Coincidencia numérica pura (ej: técnico digita 45274 y en stock está 045274)
+      if (!isNaN(numIngresadoValor) && g.numValor === numIngresadoValor) {
+        return true;
+      }
+      return false;
     });
 
-    if (!actaValida) {
+    if (!actaMatch) {
       alert(
         `❌ ACTA NO ASIGNADA AL TÉCNICO:\n\n` +
-        `El Acta física N° 001-${cleanSufijo} no se encuentra en el talonario/dotación asignada a este técnico en Almacén.\n\n` +
-        `👉 Actas disponibles en stock (${guiasDisponibles.length}):\n` +
-        `${guiasDisponibles.slice(0, 6).map((g) => `001-${g}`).join(", ")}${guiasDisponibles.length > 6 ? "..." : ""}\n\n` +
+        `El Acta física N° ${prefijoIngresado}-${sufijoIngresado} no se encuentra en el talonario/dotación asignada a este técnico en Almacén.\n\n` +
+        `👉 Actas disponibles en stock (${guiasStockInfo.length}):\n` +
+        `${guiasStockInfo.slice(0, 6).map((g) => g.serieCompleta).join(", ")}${guiasStockInfo.length > 6 ? "..." : ""}\n\n` +
         `Por favor haz clic en la casilla para seleccionar una de las actas asignadas o solicita un nuevo talonario a Almacén.`
       );
       return;
     }
+
+    // Usar la serie oficial exacta que tiene el técnico en su stock asignado
+    const numeroGuiaFinal = actaMatch.serieCompleta;
 
     // ─────────────────────────────────────────────────────────────
     // REGLA DE NEGOCIO 2: VALIDACIÓN DE LÍMITES DE MATERIALES Y CONECTORES
@@ -1352,7 +1420,8 @@ export const TechnicalActModal: React.FC<Props> = ({
         (order as any)?.id_trabajador ||
         (order as any)?.id_tecnico_asignado;
 
-      const numeroGuiaFinal = `001-${cleanSufijo}`;
+      // numeroGuiaFinal ya fue resuelto con la serie oficial de stock (actaMatch.serieCompleta o prefijo correcto)
+      const numeroActaOficial = numeroGuiaFinal || `${prefijoTalonarioActivo}-${cleanSufijo}`;
 
       const currentUser = authService.getCurrentUser();
       const esGestionOAdmin = Boolean(
@@ -1367,8 +1436,8 @@ export const TechnicalActModal: React.FC<Props> = ({
 
       await liquidarActaOrden(order.id, {
         id_trabajador: finalTrabajadorId ? Number(finalTrabajadorId) : undefined,
-        numero_guia: numeroGuiaFinal,
-        numero_acta: numeroGuiaFinal,
+        numero_guia: numeroActaOficial,
+        numero_acta: numeroActaOficial,
         tipo_trabajo_acta: tipoLiquidacion,
         cto,
         puerto,
@@ -1388,7 +1457,7 @@ export const TechnicalActModal: React.FC<Props> = ({
         es_gestion: esGestionOAdmin,
       });
 
-      alert(`✅ ¡Acta ${numeroGuiaFinal} guardada exitosamente! Orden liquidada como "${tipoLiquidacion}".`);
+      alert(`✅ ¡Acta ${numeroActaOficial} guardada exitosamente! Orden liquidada como "${tipoLiquidacion}".`);
       if (onSuccess) onSuccess();
       onClose();
     } catch (err: any) {
@@ -1441,7 +1510,7 @@ export const TechnicalActModal: React.FC<Props> = ({
                       }`}
                     >
                       <span className="text-[11px] font-black text-indigo-700 font-mono select-none bg-indigo-50 px-1.5 py-0.2 rounded mr-1">
-                        N° 001-
+                        N° {prefijoTalonarioActivo}-
                       </span>
                       <input
                         ref={actaInputRef}
@@ -1468,21 +1537,21 @@ export const TechnicalActModal: React.FC<Props> = ({
                       <div className="absolute top-full left-0 mt-1.5 z-50 bg-white border border-indigo-200 rounded-xl shadow-xl p-2 w-52 space-y-1 animate-fade-in">
                         <div className="text-[9px] font-bold text-slate-500 uppercase px-1 flex items-center justify-between border-b border-slate-100 pb-1">
                           <span>Guías en tu stock:</span>
-                          <span className="text-indigo-600 font-mono font-black">{guiasDisponibles.length} disp.</span>
+                          <span className="text-indigo-600 font-mono font-black">{guiasStockInfo.length} disp.</span>
                         </div>
                         <div className="max-h-36 overflow-y-auto space-y-0.5">
                           {sugerenciasGuias.map((sug) => (
                             <button
-                              key={sug}
+                              key={sug.serieCompleta}
                               type="button"
                               onMouseDown={() => {
-                                setGuiaCorrelativo(sug);
+                                setGuiaCorrelativo(sug.sufijo);
                                 setAlertaActaVisible(false);
                                 setShowGuiaSuggestions(false);
                               }}
                               className="w-full text-left px-2 py-1 rounded-lg text-xs font-mono font-bold hover:bg-indigo-50 text-indigo-950 flex items-center justify-between transition-colors cursor-pointer"
                             >
-                              <span>001-{sug}</span>
+                              <span>{sug.serieCompleta}</span>
                               <span className="text-[9px] text-emerald-600 font-sans font-bold">✓ Usar</span>
                             </button>
                           ))}
@@ -1497,7 +1566,7 @@ export const TechnicalActModal: React.FC<Props> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      setActaParaAnular(guiaCorrelativo ? `001-${guiaCorrelativo}` : (guiasDisponibles[0] ? `001-${guiasDisponibles[0]}` : ""));
+                      setActaParaAnular(guiaCorrelativo ? `${prefijoTalonarioActivo}-${guiaCorrelativo}` : (guiasStockInfo[0] ? guiasStockInfo[0].serieCompleta : ""));
                       setModalAnularActaAbierto(true);
                     }}
                     className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs hover:scale-102"
@@ -2723,10 +2792,10 @@ export const TechnicalActModal: React.FC<Props> = ({
                 onChange={(e) => setActaParaAnular(e.target.value)}
                 className="w-full p-2.5 text-xs rounded-xl border border-rose-300 font-mono font-bold text-slate-900 bg-rose-50/30 focus:border-rose-600"
               >
-                <option value="">-- Seleccionar de mis actas asignadas ({guiasDisponibles.length}) --</option>
-                {guiasDisponibles.map((g) => (
-                  <option key={g} value={`001-${g}`}>
-                    001-{g} (Asignada en mi talonario)
+                <option value="">-- Seleccionar de mis actas asignadas ({guiasStockInfo.length}) --</option>
+                {guiasStockInfo.map((g) => (
+                  <option key={g.serieCompleta} value={g.serieCompleta}>
+                    {g.serieCompleta} (Asignada en mi talonario)
                   </option>
                 ))}
               </select>

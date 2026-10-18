@@ -1220,33 +1220,62 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
                   </div>
 
                   {/* 4. Botón Principal: Liquidar o Consultar Acta */}
-                  {isLiquidada ? (
-                    <button
-                      type="button"
-                      onClick={() => abrirActa(ord)}
-                      className="w-full py-2.5 px-4 bg-gradient-to-r from-sky-500 via-sky-600 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white rounded-2xl font-black text-xs shadow-md shadow-sky-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
-                      title="Esta orden ya fue liquidada con su Acta WIN. Toca para ver el detalle."
-                    >
-                      <CheckCircle2 size={16} className="text-white" />
-                      <span>✅ Orden Liquidada • Ver Acta WIN</span>
-                    </button>
-                  ) : isFinalizada ? (
-                    <button
-                      onClick={() => abrirActa(ord)}
-                      className="w-full py-2.5 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-2xl font-black text-xs shadow-md shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
-                    >
-                      <FileText size={16} />
-                      <span>📝 Llenar Acta WIN & Liquidar Materiales</span>
-                    </button>
-                  ) : (
-                    <div
-                      className="w-full py-2.5 px-4 bg-slate-100 border border-slate-200 text-slate-400 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 cursor-not-allowed select-none"
-                      title="La orden debe estar en estado Finalizada para registrar el Acta WIN digital en el sistema"
-                    >
-                      <Lock size={15} className="text-slate-400" />
-                      <span>🔒 Liquidación habilitada al finalizar ({ord.status || "En proceso"})</span>
-                    </div>
-                  )}
+                  {(() => {
+                    const esPex = 
+                      /pex/i.test(String(ord.tipoTrabajo || '')) ||
+                      /pex/i.test(String(ord.tipoLiquidacion || '')) ||
+                      /pex/i.test(String(ord.motivoFinalizacion || '')) ||
+                      /prueba\s*de\s*servicio/i.test(String(ord.motivoFinalizacion || '')) ||
+                      /conjunta/i.test(String(ord.motivoFinalizacion || ''));
+
+                    if (isLiquidada) {
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => abrirActa(ord)}
+                          className="w-full py-2.5 px-4 bg-gradient-to-r from-sky-500 via-sky-600 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white rounded-2xl font-black text-xs shadow-md shadow-sky-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                          title="Esta orden ya fue liquidada con su Acta WIN. Toca para ver el detalle."
+                        >
+                          <CheckCircle2 size={16} className="text-white" />
+                          <span>✅ Orden Liquidada • Ver Acta WIN</span>
+                        </button>
+                      );
+                    }
+
+                    if (isFinalizada && esPex) {
+                      return (
+                        <div
+                          className="w-full py-2.5 px-4 bg-slate-100 border border-slate-300 text-slate-700 rounded-2xl font-black text-xs flex items-center justify-center gap-2 shadow-2xs select-none"
+                          title="Las órdenes con motivo de liquidación PEX / Pruebas de servicio no requieren acta de liquidación física."
+                        >
+                          <CheckCircle2 size={15} className="text-emerald-600" />
+                          <span>✅ Trabajo PEX Finalizado (No requiere Acta)</span>
+                        </div>
+                      );
+                    }
+
+                    if (isFinalizada) {
+                      return (
+                        <button
+                          onClick={() => abrirActa(ord)}
+                          className="w-full py-2.5 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-2xl font-black text-xs shadow-md shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                        >
+                          <FileText size={16} />
+                          <span>📝 Llenar Acta WIN & Liquidar Materiales</span>
+                        </button>
+                      );
+                    }
+
+                    return (
+                      <div
+                        className="w-full py-2.5 px-4 bg-slate-100 border border-slate-200 text-slate-400 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 cursor-not-allowed select-none"
+                        title="La orden debe estar en estado Finalizada para registrar el Acta WIN digital en el sistema"
+                      >
+                        <Lock size={15} className="text-slate-400" />
+                        <span>🔒 Liquidación habilitada al finalizar ({ord.status || "En proceso"})</span>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })

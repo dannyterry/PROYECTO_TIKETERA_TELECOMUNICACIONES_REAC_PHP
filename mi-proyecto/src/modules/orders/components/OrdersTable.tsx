@@ -1191,6 +1191,26 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                           );
                         }
 
+                        // ⚪ CASO PEX: No requiere acta física
+                        const esPex =
+                          /pex/i.test(String(order.tipoTrabajo || '')) ||
+                          /pex/i.test(String(order.tipoLiquidacion || '')) ||
+                          /pex/i.test(String(order.motivoFinalizacion || '')) ||
+                          /prueba\s*de\s*servicio/i.test(String(order.motivoFinalizacion || '')) ||
+                          /conjunta/i.test(String(order.motivoFinalizacion || ''));
+
+                        if (isFinalizada && esPex) {
+                          return (
+                            <span
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-300 whitespace-nowrap cursor-default"
+                              title="Trabajo PEX Finalizado. No requiere acta de servicio físico WIN."
+                            >
+                              <CheckCircle2 size={10} className="text-slate-500 shrink-0" />
+                              <span>PEX (Sin Acta)</span>
+                            </span>
+                          );
+                        }
+
                         // 🟡 ORDEN FINALIZADA (PENDIENTE DE LLENAR ACTA / LIQUIDAR) -> Color Ámbar
                         if (onOpenLiquidar && isFinalizada) {
                           return (
