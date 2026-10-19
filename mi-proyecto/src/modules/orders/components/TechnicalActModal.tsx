@@ -94,39 +94,85 @@ export const TechnicalActModal: React.FC<Props> = ({
   const [fotoAnulacion, setFotoAnulacion] = useState<string | null>(null);
   const [anulandoActa, setAnulandoActa] = useState(false);
   const fileInputFotoAnuladaRef = useRef<HTMLInputElement>(null);
-  
-  // Tipo de Liquidación (reemplaza Tipo de Trabajo)
+
+  // Tipo de Liquidación (Asignado por WIN / Fénix)
   const isValidLiqType = (s?: string) => {
     if (!s) return false;
     const clean = s.trim().toUpperCase();
-    return !clean.startsWith("REASIGNAC") && !clean.startsWith("REGEST") && clean !== "REITERADA";
+    return (
+      !clean.startsWith("REASIGNAC") &&
+      !clean.startsWith("REGEST") &&
+      clean !== "REITERADA" &&
+      clean !== "LOS ROJO" &&
+      clean !== "AVERIAS" &&
+      clean !== "PENDIENTE" &&
+      clean !== "-" &&
+      clean !== "S/N"
+    );
   };
 
-  const initialTipoLiq = (
-    (isValidLiqType(order.motivoFinalizacion) && order.motivoFinalizacion) ||
-    (isValidLiqType(order.tipoLiquidacion) && order.tipoLiquidacion) ||
-    (isValidLiqType(order.motivoLiquidacion) && order.motivoLiquidacion) ||
-    (isValidLiqType(order.tipoTrabajoAsignado) && order.tipoTrabajoAsignado) ||
-    (isValidLiqType(order.tipoTrabajo) && order.tipoTrabajo) ||
-    "CAMBIO DE CABLE PATCH CORD"
-  ).trim();
+  const getTipoLiquidacionDeOrden = (ord: any): string => {
+    if (!ord) return "CAMBIO DE CABLE PATCH CORD";
+    const candidates = [
+      ord.motivoFinalizacion,
+      ord.motivo_finalizacion,
+      ord.motivoLiquidacion,
+      ord.motivo_liquidacion,
+      ord.tipoLiquidacion,
+      ord.tipo_liquidacion,
+      ord.tipoTrabajoAsignado,
+      ord.tipo_trabajo_asignado,
+      ord.tipoTrabajo,
+      ord.tipo_trabajo,
+      ord.motivoTrabajo,
+      ord.motivo_trabajo,
+      ord.motivo,
+      ord.tipo
+    ];
+    for (const c of candidates) {
+      if (c && typeof c === "string" && isValidLiqType(c)) {
+        return c.trim();
+      }
+    }
+    // Fallback si no pasó el filtro pero tiene algún valor no vacío
+    for (const c of candidates) {
+      if (c && typeof c === "string" && c.trim() && c.trim() !== "-" && c.trim() !== "null") {
+        return c.trim();
+      }
+    }
+    return "CAMBIO DE CABLE PATCH CORD";
+  };
 
-  const [tipoLiquidacion, setTipoLiquidacion] = useState(initialTipoLiq);
+  const [tipoLiquidacion, setTipoLiquidacion] = useState(() => getTipoLiquidacionDeOrden(order));
   const [motivosList, setMotivosList] = useState<MotivoItem[]>([]);
   const [mostrarEquiposManual, setMostrarEquiposManual] = useState<boolean | null>(null);
 
+  // Cargar lista oficial de tipos/motivos de liquidación para límites
   useEffect(() => {
-    const t = (
-      (isValidLiqType(order.motivoFinalizacion) && order.motivoFinalizacion) ||
-      (isValidLiqType(order.tipoLiquidacion) && order.tipoLiquidacion) ||
-      (isValidLiqType(order.motivoLiquidacion) && order.motivoLiquidacion) ||
-      (isValidLiqType(order.tipoTrabajoAsignado) && order.tipoTrabajoAsignado) ||
-      (isValidLiqType(order.tipoTrabajo) && order.tipoTrabajo) ||
-      ""
-    ).trim();
+    getMotivos()
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setMotivosList(data);
+        }
+      })
+      .catch((err) => console.error("Error al cargar motivos:", err));
+  }, []);
+
+  useEffect(() => {
+    const t = getTipoLiquidacionDeOrden(order);
     if (t) {
       setTipoLiquidacion(t);
       setMostrarEquiposManual(null);
+    }
+    const ini = (order as any)?.drop_metro_inicio ?? (order as any)?.dropMetroInicio ?? (order as any)?.drop_inicio ?? (order as any)?.metro_inicio;
+    const fin = (order as any)?.drop_metro_fin ?? (order as any)?.dropMetroFin ?? (order as any)?.drop_fin ?? (order as any)?.metro_fin;
+    if (ini !== undefined && ini !== null && String(ini).trim() !== "" && !/null|undefined/i.test(String(ini))) {
+      setDropMetroInicio(String(ini));
+      setMostrarSeccionDropManual(true);
+    }
+    if (fin !== undefined && fin !== null && String(fin).trim() !== "" && !/null|undefined/i.test(String(fin))) {
+      setDropMetroFin(String(fin));
+      setMostrarSeccionDropManual(true);
     }
   }, [order]);
 
@@ -142,8 +188,14 @@ export const TechnicalActModal: React.FC<Props> = ({
   const [horaFin, setHoraFin] = useState("");
 
   // 2. Metraje Drop
-  const [dropMetroInicio, setDropMetroInicio] = useState<string>("");
-  const [dropMetroFin, setDropMetroFin] = useState<string>("");
+  const [dropMetroInicio, setDropMetroInicio] = useState<string>(() => {
+    const ini = (order as any)?.drop_metro_inicio ?? (order as any)?.dropMetroInicio ?? (order as any)?.drop_inicio ?? (order as any)?.metro_inicio;
+    return ini !== undefined && ini !== null && String(ini).trim() !== "" && !/null|undefined/i.test(String(ini)) ? String(ini) : "";
+  });
+  const [dropMetroFin, setDropMetroFin] = useState<string>(() => {
+    const fin = (order as any)?.drop_metro_fin ?? (order as any)?.dropMetroFin ?? (order as any)?.drop_fin ?? (order as any)?.metro_fin;
+    return fin !== undefined && fin !== null && String(fin).trim() !== "" && !/null|undefined/i.test(String(fin)) ? String(fin) : "";
+  });
   const totalDropCalculado = useMemo(() => {
     const ini = Number(dropMetroInicio);
     const fin = Number(dropMetroFin);
@@ -411,7 +463,7 @@ export const TechnicalActModal: React.FC<Props> = ({
           nom.includes("GUIA") ||
           nom.includes("TALONARIO") ||
           /^\d{1,4}[-–]\d+$/.test(num) ||
-          /^\d{4,8}$/.test(num.replace(/^\d{1,4}[-–]?/i, ""))
+          /^\d{4,8}$/.test(num.replace(/^\d{1,4}[-–]/i, ""))
         );
       })
       .map((s: any) => {
@@ -419,7 +471,7 @@ export const TechnicalActModal: React.FC<Props> = ({
         // Separar prefijo y número correlativo (ej: "001-045274" -> prefijo: "001", sufijo: "045274")
         const match = serieCompleta.match(/^([A-Z0-9]+)[-–\s]+([0-9]+)$/i);
         const prefijo = match ? match[1] : "001";
-        const sufijo = match ? match[2] : serieCompleta.replace(/^[A-Z0-9]+[-–]?/i, "");
+        const sufijo = match ? match[2] : serieCompleta.replace(/^[A-Z0-9]+[-–]/i, "");
         const numValor = parseInt(sufijo, 10) || 0;
         return {
           serieCompleta,
@@ -672,7 +724,13 @@ export const TechnicalActModal: React.FC<Props> = ({
       return 1;
     }
 
-    // 2. Revisar si el motivo en BD tiene configurado limites_materiales
+    // 🌟 2. Si el técnico está usando Cable Drop en Bobina Continua (medido en metros):
+    // Toda tirada de bobina de cable drop SIEMPRE requiere 2 conectores mecánicos (uno en CTO y uno en Roseta)
+    if (totalDropCalculado > 0 || mostrarSeccionDropManual || esBobinaSeleccionada) {
+      return 2;
+    }
+
+    // 3. Revisar si el motivo en BD tiene configurado limites_materiales
     if (limitesDelMotivo && limitesDelMotivo.length > 0) {
       const matchConector = limitesDelMotivo.find((l: any) => {
         const id = Number(l.id_producto);
@@ -892,8 +950,10 @@ export const TechnicalActModal: React.FC<Props> = ({
       return;
     }
 
-    const cleanNum = actaParaAnular.trim().replace(/^001-?/i, "");
-    const actaFormateada = `001-${cleanNum}`;
+    const matchPrefAnul = actaParaAnular.trim().match(/^([A-Z0-9]+)[-–\s]+([0-9]+)$/i);
+    const prefAnul = matchPrefAnul ? matchPrefAnul[1] : (prefijoTalonarioActivo || "001");
+    const sufAnul = matchPrefAnul ? matchPrefAnul[2] : actaParaAnular.trim().replace(/^[A-Z0-9]+[-–]/i, "");
+    const actaFormateada = `${prefAnul}-${sufAnul}`;
 
     const currentUser = authService.getCurrentUser();
     const nombreUsuario = currentUser ? `${currentUser.nombres || ''} ${currentUser.apellidos || ''}`.trim() : 'Técnico en Campo';
@@ -912,7 +972,7 @@ export const TechnicalActModal: React.FC<Props> = ({
       if (res && res.success) {
         alert(`✅ ${res.message || `Acta ${actaFormateada} anulada correctamente.`}`);
         // Si el técnico tenía escrita esta misma acta en la cabecera, limpiarla o pasar a la siguiente
-        if (guiaCorrelativo.trim() === cleanNum) {
+        if (guiaCorrelativo.trim() === sufAnul || guiaCorrelativo.trim() === actaFormateada) {
           setGuiaCorrelativo("");
         }
         setModalAnularActaAbierto(false);
@@ -989,6 +1049,59 @@ export const TechnicalActModal: React.FC<Props> = ({
     setMateriales(nuevasFilas);
   }, [tipoLiquidacion, stockTecnicoMateriales, limitesDelMotivo, readOnly]);
 
+  // 🌟 Sincronizar conectores cuando se usa Bobina Continua:
+  // Toda tirada de Bobina de Cable Drop requiere 2 conectores mecánicos (CTO + Roseta)
+  useEffect(() => {
+    if (isAlreadyLiquidated || dropConectorizadoSeleccionado) return;
+    if (totalDropCalculado > 0) {
+      setMateriales((prev) => {
+        let yaTieneConector = false;
+        let cambiado = false;
+        const conAjuste = prev.map((m) => {
+          if (esConectorOptico(m)) {
+            yaTieneConector = true;
+            if (m.cantidad < 2) {
+              cambiado = true;
+              return { ...m, cantidad: 2 };
+            }
+          }
+          return m;
+        });
+
+        if (!yaTieneConector) {
+          const conectorStock = stockTecnicoMateriales.find(
+            (m) => esConectorOptico(m) && Number(m.stock || 0) > 0
+          );
+          if (conectorStock) {
+            return [
+              ...conAjuste,
+              {
+                id_producto: conectorStock.id_producto,
+                nombre: conectorStock.nombre,
+                cantidad: Math.min(2, Number(conectorStock.stock || 2)),
+                unidad: "UND",
+                stockDisponible: conectorStock.stock,
+              },
+            ];
+          }
+        }
+        return cambiado ? conAjuste : prev;
+      });
+    }
+  }, [totalDropCalculado, dropConectorizadoSeleccionado, isAlreadyLiquidated, stockTecnicoMateriales]);
+
+  // Producto seleccionado actualmente en el modal de stock
+  const prodSeleccionadoStock = useMemo(() => {
+    if (!selectedStockProductoId) return null;
+    return (
+      stockTecnicoMateriales.find((p) => p.id_producto === Number(selectedStockProductoId)) || null
+    );
+  }, [selectedStockProductoId, stockTecnicoMateriales]);
+
+  const esBobinaSeleccionada = useMemo(() => {
+    return prodSeleccionadoStock ? esBobinaDrop(prodSeleccionadoStock) : false;
+  }, [prodSeleccionadoStock]);
+
   // Handler para agregar material desde el stock del técnico (+)
   const handleAgregarMaterialDeStock = () => {
     if (!selectedStockProductoId) return;
@@ -997,11 +1110,48 @@ export const TechnicalActModal: React.FC<Props> = ({
 
     // 🌟 Si el usuario seleccionó "DROP (Bobina Continua)":
     if (esBobinaDrop(prod)) {
+      if (totalDropCalculado <= 0) {
+        alert("⚠️ Por favor ingresa el 'Metro Inicio' y 'Metro Fin' del carrete para calcular los metros de Bobina Drop consumidos.");
+        return;
+      }
+      if (totalDropCalculado > stockDropDisponible && stockDropDisponible > 0) {
+        alert(`❌ El metraje ingresado (${totalDropCalculado} m) excede el stock disponible en tu camioneta (${stockDropDisponible} m).`);
+        return;
+      }
       setMostrarSeccionDropManual(true);
+
+      // 🌟 Al usar Bobina Continua se requieren 2 conectores mecánicos (CTO + Roseta)
+      setMateriales((prev) => {
+        let yaTieneConector = false;
+        const conAjuste = prev.map((m) => {
+          if (esConectorOptico(m)) {
+            yaTieneConector = true;
+            return { ...m, cantidad: 2 };
+          }
+          return m;
+        });
+
+        if (!yaTieneConector) {
+          const conectorStock = stockTecnicoMateriales.find(
+            (m) => esConectorOptico(m) && Number(m.stock || 0) > 0
+          );
+          if (conectorStock) {
+            conAjuste.push({
+              id_producto: conectorStock.id_producto,
+              nombre: conectorStock.nombre,
+              cantidad: Math.min(2, Number(conectorStock.stock || 2)),
+              unidad: "UND",
+              stockDisponible: conectorStock.stock,
+            });
+          }
+        }
+        return conAjuste;
+      });
+
       setSelectedStockProductoId("");
       setSelectedStockCantidad(1);
       setMostrarSelectorStock(false);
-      setAlertaLimiteMsg("ℹ️ Se activó la sección de Metraje de Bobina de Cable Drop arriba. Ingresa Metro Inicio y Fin.");
+      setAlertaLimiteMsg(`✅ Metraje de Bobina Drop registrado: ${totalDropCalculado} metros (${dropMetroInicio} m a ${dropMetroFin} m). Se habilitaron 2 conectores.`);
       setTimeout(() => setAlertaLimiteMsg(null), 5000);
       return;
     }
@@ -1189,7 +1339,7 @@ export const TechnicalActModal: React.FC<Props> = ({
       prefijoIngresado = matchManual[1];
       sufijoIngresado = matchManual[2];
     } else {
-      sufijoIngresado = cleanSufijo.replace(/^[A-Z0-9]+[-–]?/i, "").trim();
+      sufijoIngresado = cleanSufijo.replace(/^[A-Z0-9]+[-–]/i, "").trim();
     }
 
     const numIngresadoValor = parseInt(sufijoIngresado, 10);
@@ -1204,8 +1354,13 @@ export const TechnicalActModal: React.FC<Props> = ({
       if (g.sufijo === sufijoIngresado) {
         return true;
       }
-      // 3. Coincidencia numérica pura (ej: técnico digita 45274 y en stock está 045274)
+      // 3. Coincidencia numérica pura (ej: técnico digita 44446 o 044446 y en stock está 001-44446)
       if (!isNaN(numIngresadoValor) && g.numValor === numIngresadoValor) {
+        return true;
+      }
+      // 4. Coincidencia por valor numérico sin ceros a la izquierda
+      const sufSinCeros = !isNaN(numIngresadoValor) ? String(numIngresadoValor) : sufijoIngresado;
+      if (sufSinCeros === String(g.numValor)) {
         return true;
       }
       return false;
@@ -1472,7 +1627,7 @@ export const TechnicalActModal: React.FC<Props> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-2 sm:p-4 animate-fade-in">
       <div className={`bg-white rounded-3xl w-full ${shouldShowPhoto ? "max-w-[1440px]" : "max-w-3xl"} shadow-2xl border border-slate-200 max-h-[96vh] overflow-hidden flex flex-col relative`}>
-        
+
         {/* ─────────────────────────────────────────────────────────────
             HEADER ACTA WIN OFICIAL
         ───────────────────────────────────────────────────────────── */}
@@ -1504,11 +1659,10 @@ export const TechnicalActModal: React.FC<Props> = ({
                 ) : (
                   <div className="relative">
                     <div
-                      className={`flex items-center bg-white border rounded-lg px-2 py-0.5 shadow-2xs transition-all ${
-                        !guiaCorrelativo.trim() && alertaActaVisible
-                          ? "border-rose-500 ring-2 ring-rose-300 animate-pulse"
-                          : "border-indigo-300 focus-within:border-indigo-600 focus-within:ring-2 focus-within:ring-indigo-100"
-                      }`}
+                      className={`flex items-center bg-white border rounded-lg px-2 py-0.5 shadow-2xs transition-all ${!guiaCorrelativo.trim() && alertaActaVisible
+                        ? "border-rose-500 ring-2 ring-rose-300 animate-pulse"
+                        : "border-indigo-300 focus-within:border-indigo-600 focus-within:ring-2 focus-within:ring-indigo-100"
+                        }`}
                     >
                       <span className="text-[11px] font-black text-indigo-700 font-mono select-none bg-indigo-50 px-1.5 py-0.2 rounded mr-1">
                         N° {prefijoTalonarioActivo}-
@@ -1647,7 +1801,7 @@ export const TechnicalActModal: React.FC<Props> = ({
             </div>
           ) : (
             <div className={shouldShowPhoto ? "grid grid-cols-1 lg:grid-cols-12 gap-5 items-start" : "space-y-4"}>
-              
+
               {/* ══════════════════════════════════════════════════════════
                   FORMULARIO TÉCNICO (7 Cols en split desktop, full-width en móvil/técnico)
               ══════════════════════════════════════════════════════════ */}
@@ -1655,1301 +1809,1451 @@ export const TechnicalActModal: React.FC<Props> = ({
                 <form id="form-liquidacion-acta" onSubmit={handleSubmit} className="space-y-4 text-xs font-semibold text-slate-700">
 
                   {/* ─────────────────────────────────────────────────────────────
-                      0. TIPO DE LIQUIDACIÓN AUTOMÁTICO DE LA ORDEN
+                      0. TIPO DE LIQUIDACIÓN DE LA ORDEN (ESTRICTAMENTE DE LECTURA - WIN FÉNIX)
                   ───────────────────────────────────────────────────────────── */}
-                  <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-2xl flex items-center justify-between gap-3 shadow-2xs">
+                  <div className="p-3.5 bg-gradient-to-r from-amber-50 to-orange-50/70 border border-amber-200/90 rounded-2xl flex items-center justify-between gap-3 shadow-2xs">
                     <div className="min-w-0 flex-1">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-amber-800 block">
-                        Tipo de Liquidación (Asignado a la Orden)
+                      <span className="text-[10px] font-black uppercase tracking-wider text-amber-800 flex items-center gap-1.5">
+                        <Layers size={13} className="text-amber-600" />
+                        Tipo de Liquidación :
                       </span>
-                      <p className="text-xs sm:text-sm font-black text-slate-900 mt-0.5 truncate" title={tipoLiquidacion}>
-                        {tipoLiquidacion || "RECABLEADO"}
+                      <p className="text-xs sm:text-sm font-black text-slate-900 mt-1 truncate" title={tipoLiquidacion}>
+                        {tipoLiquidacion || "CAMBIO DE CABLE PATCH CORD"}
                       </p>
                     </div>
-                    <span className="px-2.5 py-1 bg-amber-500 text-white font-bold text-[10px] rounded-xl shadow-2xs shrink-0">
-                      Automático WIN
-                    </span>
+
                   </div>
 
-            {/* ─────────────────────────────────────────────────────────────
+                  {/* ─────────────────────────────────────────────────────────────
                 3. CÁLCULO DE CABLE DROP (BOBINA CONTINUA O CONECTORIZADO)
             ───────────────────────────────────────────────────────────── */}
-            {(mostrarSeccionDropManual || plantillaActual.requiereDrop || Number(dropMetroInicio) > 0 || Number(dropMetroFin) > 0 || Boolean(dropConectorizadoSeleccionado) || (/fibra|drop|recableado|alta|traslado|instalac/i.test(tipoLiquidacion) && !/conector|roseta|patch|ont|mesh|winbox|fono|visita/i.test(tipoLiquidacion))) && (
-              <div className={`p-4 rounded-2xl space-y-3 border transition-all ${
-                dropConectorizadoSeleccionado
-                  ? "bg-emerald-50/60 border-emerald-200"
-                  : stockDropDisponible <= 0
-                  ? "bg-slate-50 border-slate-200"
-                  : "bg-amber-50/50 border-amber-200"
-              }`}>
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <span className={`font-black text-xs flex items-center gap-1.5 ${
-                    dropConectorizadoSeleccionado ? "text-emerald-900" : "text-amber-900"
-                  }`}>
-                    <Package size={16} />
-                    Metraje de Cable Drop (Fibra Óptica)
-                  </span>
-                  
-                  <div className="flex items-center gap-2">
-                    {/* Badge según tipo de Drop utilizado */}
-                    {dropConectorizadoSeleccionado ? (
-                      <span className="text-xs font-bold px-2.5 py-1 bg-emerald-600 text-white rounded-xl font-mono shadow-2xs flex items-center gap-1">
-                        <span>✓ Conectorizado: {dropConectorizadoSeleccionado.nombre} ({dropConectorizadoSeleccionado.cantidad} UND)</span>
-                      </span>
-                    ) : stockDropDisponible > 0 ? (
-                      <span className="text-xs font-bold px-2.5 py-1 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl font-mono shadow-2xs flex items-center gap-1">
-                        <span>✓ En camioneta (Bobina):</span>
-                        <span className="font-black">{stockDropDisponible} m</span>
-                      </span>
-                    ) : (
-                      <span className="text-xs font-bold px-2.5 py-1 bg-slate-200 text-slate-700 rounded-xl shadow-2xs flex items-center gap-1">
-                        <span>ℹ️ Bobina: 0 m</span>
-                      </span>
-                    )}
-
-                    {totalDropCalculado > 0 && !dropConectorizadoSeleccionado && (
-                      <span className={`text-xs font-black px-3 py-1 rounded-xl font-mono shadow-xs ${
-                        totalDropCalculado > stockDropDisponible && stockDropDisponible > 0
-                          ? "bg-rose-600 text-white"
-                          : "bg-amber-500 text-white"
+                  {(mostrarSeccionDropManual || plantillaActual.requiereDrop || Number(dropMetroInicio) > 0 || Number(dropMetroFin) > 0 || Boolean(dropConectorizadoSeleccionado) || (/fibra|drop|recableado|alta|traslado|instalac/i.test(tipoLiquidacion) && !/conector|roseta|patch|ont|mesh|winbox|fono|visita/i.test(tipoLiquidacion))) && (
+                    <div className={`p-4 rounded-2xl space-y-3 border transition-all ${dropConectorizadoSeleccionado
+                      ? "bg-emerald-50/60 border-emerald-200"
+                      : stockDropDisponible <= 0
+                        ? "bg-slate-50 border-slate-200"
+                        : "bg-amber-50/50 border-amber-200"
                       }`}>
-                        Total Consumido: {totalDropCalculado} metros
-                      </span>
-                    )}
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span className={`font-black text-xs flex items-center gap-1.5 ${dropConectorizadoSeleccionado ? "text-emerald-900" : "text-amber-900"
+                          }`}>
+                          <Package size={16} />
+                          Metraje de Cable Drop (Fibra Óptica)
+                        </span>
 
-                    {/* Botón para ocultar sección de Drop si se abrió manualmente y no es obligatoria */}
-                    {mostrarSeccionDropManual && !plantillaActual.requiereDrop && !isAlreadyLiquidated && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMostrarSeccionDropManual(false);
-                          setDropMetroInicio("");
-                          setDropMetroFin("");
-                          setMateriales((prev) => prev.filter((m) => !esDropConectorizado(m)));
-                        }}
-                        className="px-2 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-md text-[10px] font-bold cursor-pointer transition-all"
-                        title="Ocultar sección de Drop"
-                      >
-                        ✕ Ocultar
-                      </button>
-                    )}
-                  </div>
-                </div>
+                        <div className="flex items-center gap-2">
+                          {/* Badge según tipo de Drop utilizado */}
+                          {dropConectorizadoSeleccionado ? (
+                            <span className="text-xs font-bold px-2.5 py-1 bg-emerald-600 text-white rounded-xl font-mono shadow-2xs flex items-center gap-1">
+                              <span>✓ Conectorizado: {dropConectorizadoSeleccionado.nombre} ({dropConectorizadoSeleccionado.cantidad} UND)</span>
+                            </span>
+                          ) : stockDropDisponible > 0 ? (
+                            <span className="text-xs font-bold px-2.5 py-1 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl font-mono shadow-2xs flex items-center gap-1">
+                              <span>✓ En camioneta (Bobina):</span>
+                              <span className="font-black">{stockDropDisponible} m</span>
+                            </span>
+                          ) : (
+                            <span className="text-xs font-bold px-2.5 py-1 bg-slate-200 text-slate-700 rounded-xl shadow-2xs flex items-center gap-1">
+                              <span>ℹ️ Bobina: 0 m</span>
+                            </span>
+                          )}
 
-                {/* Selector rápido de Rollo Drop Conectorizado */}
-                {!isAlreadyLiquidated && rollosConectorizadosDisponibles.length > 0 && (
-                  <div className="p-2.5 rounded-xl bg-white border border-emerald-300/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs shadow-2xs">
-                    <span className="font-bold text-slate-800 flex items-center gap-1.5">
-                      <Sparkles size={14} className="text-emerald-600" />
-                      ¿Utilizaste Rollo Pre-Conectorizado?
-                    </span>
-                    <select
-                      value={dropConectorizadoSeleccionado?.id_producto || ""}
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        if (!val) {
-                          setMateriales((prev) => prev.filter((m) => !esDropConectorizado(m)));
-                        } else {
-                          const prod = rollosConectorizadosDisponibles.find((p) => p.id_producto === val);
-                          if (prod) {
-                            setMateriales((prev) => {
-                              const sinOtros = prev.filter((m) => !esDropConectorizado(m));
-                              // Ajustar conectores ópticos a máx 1
-                              let yaTieneConector = false;
-                              const conAjuste = sinOtros.map((m) => {
-                                if (esConectorOptico(m)) {
-                                  yaTieneConector = true;
-                                  return { ...m, cantidad: Math.min(Number(m.cantidad || 1), 1) };
-                                }
-                                return m;
-                              });
+                          {totalDropCalculado > 0 && !dropConectorizadoSeleccionado && (
+                            <span className={`text-xs font-black px-3 py-1 rounded-xl font-mono shadow-xs ${totalDropCalculado > stockDropDisponible && stockDropDisponible > 0
+                              ? "bg-rose-600 text-white"
+                              : "bg-amber-500 text-white"
+                              }`}>
+                              Total Consumido: {totalDropCalculado} metros
+                            </span>
+                          )}
 
-                              // Si no tenía ningún conector óptico, o el que tenía tenía stock 0, intentar buscar un conector con stock
-                              if (!yaTieneConector) {
-                                const conectorStock = stockTecnicoMateriales.find((m) => esConectorOptico(m) && Number(m.stock || 0) > 0);
-                                if (conectorStock) {
-                                  conAjuste.push({
-                                    id_producto: conectorStock.id_producto,
-                                    nombre: conectorStock.nombre,
-                                    cantidad: 1,
-                                    unidad: "UND",
-                                    stockDisponible: conectorStock.stock,
-                                  });
-                                }
-                              }
-
-                              return [
-                                ...conAjuste,
-                                {
-                                  id_producto: prod.id_producto,
-                                  nombre: prod.nombre,
-                                  cantidad: 1,
-                                  unidad: "UND",
-                                  stockDisponible: prod.stock,
-                                },
-                              ];
-                            });
-                            setDropMetroInicio("");
-                            setDropMetroFin("");
-                          }
-                        }
-                      }}
-                      className="p-1.5 bg-slate-50 border border-slate-300 rounded-lg font-bold text-slate-900 text-xs focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-                    >
-                      <option value="">-- No (Usar Bobina Continua en Metros) --</option>
-                      {rollosConectorizadosDisponibles.map((r) => (
-                        <option key={r.id_producto} value={r.id_producto}>
-                          {r.nombre} ({r.stock} UND en camioneta)
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* Banner: Si está usando Drop Conectorizado */}
-                {dropConectorizadoSeleccionado && (
-                  <div className="p-2.5 bg-emerald-100/90 border border-emerald-300 rounded-xl flex items-center justify-between gap-2 text-emerald-900 text-xs font-bold shadow-2xs">
-                    <div className="flex items-center gap-2">
-                      <span className="text-base">✅</span>
-                      <span>Liquidando con rollo Pre-Conectorizado: &quot;{dropConectorizadoSeleccionado.nombre}&quot; ({dropConectorizadoSeleccionado.cantidad} UND descontada de stock).</span>
-                    </div>
-                    {!isAlreadyLiquidated && (
-                      <button
-                        type="button"
-                        onClick={() => setMateriales((prev) => prev.filter((m) => !esDropConectorizado(m)))}
-                        className="px-2 py-0.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-md text-[10px] font-bold cursor-pointer transition-all"
-                      >
-                        Quitar
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {/* Banner informativo si no tiene bobina continua */}
-                {stockDropDisponible <= 0 && !dropConectorizadoSeleccionado && !isAlreadyLiquidated && (
-                  <div className="p-2.5 bg-amber-100/90 border border-amber-300 rounded-xl flex items-center gap-2 text-amber-900 text-xs font-semibold shadow-2xs">
-                    <span className="text-base">ℹ️</span>
-                    <span>No tienes bobina continua en metros (0 m). Si tu instalación usa un rollo <strong>Drop Conectorizado (50m, 100m, 150m, 200m)</strong>, selecciónalo en el menú desplegable arriba.</span>
-                  </div>
-                )}
-
-                {/* Banner si el metraje calculado excede la bobina */}
-                {totalDropCalculado > stockDropDisponible && stockDropDisponible > 0 && !isAlreadyLiquidated && (
-                  <div className="p-2.5 bg-rose-100/90 border border-rose-300 rounded-xl flex items-center gap-2 text-rose-800 text-xs font-bold shadow-2xs">
-                    <span className="text-base">❌</span>
-                    <span>Consumo ingresado ({totalDropCalculado} m) excede tu stock de bobina en camioneta ({stockDropDisponible} m).</span>
-                  </div>
-                )}
-
-                {!dropConectorizadoSeleccionado && (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 items-center">
-                    <div>
-                      <label className="block mb-1 text-slate-600 font-bold text-xs">Metro Inicio (Carrete)</label>
-                      <input
-                        type="number"
-                        disabled={isAlreadyLiquidated}
-                        value={dropMetroInicio}
-                        onChange={(e) => setDropMetroInicio(e.target.value)}
-                        placeholder={stockDropDisponible <= 0 ? "Opcional" : "Ej: 500"}
-                        className="w-full p-2 bg-white border border-slate-200 rounded-xl font-mono font-bold text-xs disabled:bg-slate-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-200"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block mb-1 text-slate-600 font-bold text-xs">Metro Fin (Carrete)</label>
-                      <input
-                        type="number"
-                        disabled={isAlreadyLiquidated}
-                        value={dropMetroFin}
-                        onChange={(e) => setDropMetroFin(e.target.value)}
-                        placeholder={stockDropDisponible <= 0 ? "Opcional" : "Ej: 435"}
-                        className="w-full p-2 bg-white border border-slate-200 rounded-xl font-mono font-bold text-xs disabled:bg-slate-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-200"
-                      />
-                    </div>
-
-                    <div className="col-span-2 sm:col-span-1 bg-white p-2.5 rounded-xl border border-amber-200 text-center">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase block">Descuento de Bobina</span>
-                      <span className={`text-sm font-black font-mono ${
-                        totalDropCalculado > stockDropDisponible && stockDropDisponible > 0
-                          ? "text-rose-600"
-                          : "text-amber-800"
-                      }`}>
-                        -{totalDropCalculado} mtrs
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ─────────────────────────────────────────────────────────────
-                4. MATERIALES E INSUMOS A LIQUIDAR (CON BOTÓN + DE STOCK)
-            ───────────────────────────────────────────────────────────── */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                  <span className="font-black text-xs text-slate-800 flex items-center gap-1.5">
-                    <Layers size={16} className="text-indigo-600" />
-                    Materiales e Insumos a Liquidar:
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-medium block">
-                    Sugeridos según tipo de liquidación y descontados de tu stock
-                  </span>
-                </div>
-
-                {!isAlreadyLiquidated && (
-                  <button
-                    type="button"
-                    onClick={() => setMostrarSelectorStock(!mostrarSelectorStock)}
-                    className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-black text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs active:scale-95"
-                  >
-                    <Plus size={15} className="text-indigo-600" />
-                    <span>Agregar Material de mi Stock</span>
-                  </button>
-                )}
-              </div>
-
-              {/* Selector emergente para escoger material del Stock del técnico (+) */}
-              {mostrarSelectorStock && !isAlreadyLiquidated && (
-                <div className="p-3 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-2xl space-y-2.5 animate-fade-in shadow-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-black text-indigo-950 flex items-center gap-1.5">
-                      <Package size={15} className="text-indigo-600" />
-                      Seleccionar Material desde tu Camioneta / Stock:
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setMostrarSelectorStock(false)}
-                      className="text-slate-400 hover:text-slate-700 text-xs font-bold cursor-pointer"
-                    >
-                      ✕ Cancelar
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-                    <div className="sm:col-span-2">
-                      <label className="text-[10px] text-slate-600 font-bold block mb-1">Material en Stock</label>
-                      <select
-                        value={selectedStockProductoId}
-                        onChange={(e) => setSelectedStockProductoId(Number(e.target.value) || "")}
-                        className="w-full p-2 bg-white border border-indigo-300 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-200 cursor-pointer"
-                      >
-                        <option value="">-- Elige un material de tu stock --</option>
-                        {soloMaterialesLiquidables.map((m) => {
-                          const esBobina = esBobinaDrop(m);
-                          const esConect = esDropConectorizado(m);
-                          const esConector = esConectorOptico(m);
-                          const lim = esConector ? obtenerLimiteParaMaterial(m.id_producto, m.nombre) : null;
-                          const noPermitido = esConector && lim === 0;
-
-                          return (
-                            <option key={m.id_producto} value={m.id_producto} disabled={noPermitido}>
-                              {esBobina
-                                ? `CABLE DROP (Bobina continua) (Stock: ${m.stock} m)`
-                                : esConect
-                                ? `${m.nombre} (Stock: ${m.stock} und)`
-                                : noPermitido
-                                ? `${m.nombre} 🚫 (No permitido para ${tipoLiquidacion})`
-                                : `${m.nombre} (Stock: ${m.stock} ${m.es_drop ? "m" : "und"})${lim !== null ? ` [Máx: ${lim}]` : ""}`}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] text-slate-600 font-bold block mb-1">Cantidad a Usar</label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={selectedStockCantidad}
-                        onChange={(e) => setSelectedStockCantidad(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                        placeholder="1"
-                        className="w-full p-2 bg-white border border-indigo-300 rounded-xl text-center font-mono font-black text-xs focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="flex items-end">
-                      <button
-                        type="button"
-                        onClick={handleAgregarMaterialDeStock}
-                        disabled={!selectedStockProductoId}
-                        className="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl shadow-md shadow-indigo-600/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
-                      >
-                        <PlusCircle size={15} />
-                        Añadir
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Lista de Filas de Materiales */}
-              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
-                {/* Banner de Advertencia si algún material no tiene suficiente stock */}
-                {!isAlreadyLiquidated && materiales.some((m) => m.cantidad > (m.stockDisponible ?? 0)) && (
-                  <div className="p-2.5 bg-rose-50 border border-rose-300 rounded-xl flex items-center gap-2 text-rose-800 text-[11px] font-bold">
-                    <AlertCircle size={16} className="text-rose-600 shrink-0" />
-                    <span>
-                      ⚠️ No tienes stock suficiente en tu vehículo para uno o más materiales. Solicita dotación en Almacén antes de liquidar.
-                    </span>
-                  </div>
-                )}
-
-                {materiales.length === 0 ? (
-                  <div className="py-4 text-center text-slate-400 text-xs font-bold">
-                    No hay materiales asignados. Toca "+ Agregar Material de mi Stock" para añadir.
-                  </div>
-                ) : (
-                  materiales.map((mat, idx) => {
-                    const limite = obtenerLimiteParaMaterial(mat.id_producto, mat.nombre);
-                    const tieneLimite = limite !== null;
-                    const stockDisp = Number(mat.stockDisponible ?? 0);
-                    const sinStock = stockDisp <= 0;
-                    const excedeStock = mat.cantidad > stockDisp;
-
-                    if (isAlreadyLiquidated) {
-                      return (
-                        <div
-                          key={idx}
-                          className="flex items-center justify-between gap-2 bg-white p-2.5 rounded-xl border border-slate-200/90 shadow-2xs"
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-bold text-xs text-slate-900 truncate">{mat.nombre}</span>
-                              <span className="text-[10px] font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md border border-sky-200 flex items-center gap-1">
-                                ✓ Descontado / Liquidado
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-1.5 bg-slate-100 rounded-lg px-3 py-1 border border-slate-200 shrink-0">
-                            <span className="font-mono font-black text-xs text-slate-800">{mat.cantidad}</span>
-                            <span className="text-[10px] font-bold text-slate-500">{mat.unidad}</span>
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div
-                        key={idx}
-                        className={`flex items-center justify-between gap-2 bg-white p-2.5 rounded-xl border shadow-2xs transition-all ${
-                          sinStock || excedeStock
-                            ? "border-rose-400 bg-rose-50/40 ring-1 ring-rose-200"
-                            : tieneLimite && mat.cantidad >= limite
-                            ? "border-amber-300 bg-amber-50/30"
-                            : "border-slate-200/80"
-                        }`}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-bold text-xs text-slate-900 truncate">{mat.nombre}</span>
-                            {tieneLimite && (
-                              <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300">
-                                Límite: Máx {limite} {mat.unidad}
-                              </span>
-                            )}
-                            {sinStock ? (
-                              <span className="text-[9.5px] font-black px-2 py-0.5 rounded-md bg-rose-100 text-rose-700 border border-rose-300 flex items-center gap-1">
-                                ⚠️ Sin stock en carro (0 disp.)
-                              </span>
-                            ) : excedeStock ? (
-                              <span className="text-[9.5px] font-black px-2 py-0.5 rounded-md bg-rose-100 text-rose-700 border border-rose-300">
-                                ⚠️ Stock insuficiente ({stockDisp} disp.)
-                              </span>
-                            ) : (
-                              <span className="text-[9.5px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                                ✓ En carro: {stockDisp} {mat.unidad}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5 border border-slate-200">
-                            <input
-                              type="number"
-                              min="0"
-                              max={limite !== null ? limite : undefined}
-                              disabled={isAlreadyLiquidated}
-                              value={mat.cantidad}
-                              onChange={(e) => handleCambiarCantidadMaterial(idx, e.target.value)}
-                              className="w-16 p-1.5 bg-white border border-slate-200 rounded-lg text-center font-mono font-black text-xs focus:ring-2 focus:ring-indigo-300 focus:outline-none disabled:bg-slate-100"
-                              title={tieneLimite ? `Máximo permitido: ${limite}` : "Cantidad"}
-                            />
-                            <span className="text-[10px] font-bold text-slate-500 px-1">{mat.unidad}</span>
-                          </div>
-
-                          {!isAlreadyLiquidated && (
+                          {/* Botón para ocultar sección de Drop si se abrió manualmente y no es obligatoria */}
+                          {mostrarSeccionDropManual && !plantillaActual.requiereDrop && !isAlreadyLiquidated && (
                             <button
                               type="button"
-                              onClick={() => handleEliminarMaterial(idx)}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                              title="Quitar material"
+                              onClick={() => {
+                                setMostrarSeccionDropManual(false);
+                                setDropMetroInicio("");
+                                setDropMetroFin("");
+                                setMateriales((prev) => prev.filter((m) => !esDropConectorizado(m)));
+                              }}
+                              className="px-2 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-md text-[10px] font-bold cursor-pointer transition-all"
+                              title="Ocultar sección de Drop"
                             >
-                              <Trash2 size={15} />
+                              ✕ Ocultar
                             </button>
                           )}
                         </div>
                       </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
 
-            {/* ─────────────────────────────────────────────────────────────
-                5. CONTROL DE EQUIPOS SERIALIZADOS (ONT / MESH / FONOWIN / TV BOX)
-            ───────────────────────────────────────────────────────────── */}
-            {seccionEquiposVisible ? (
-              <div className="p-4 bg-gradient-to-r from-indigo-50/60 to-purple-50/60 border border-indigo-200 rounded-2xl space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-black text-xs text-indigo-900 flex items-center gap-1.5">
-                    <QrCode size={16} />
-                    Equipos Serializados ({eqTipoNombre})
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-lg bg-indigo-100 text-indigo-800">
-                      Control de Series & Recojo
-                    </span>
-                    {!isAlreadyLiquidated && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSnOntInstalado("");
-                          setSnOntRetirado("");
-                          setSnMeshInstalado("");
-                          setSnMeshRetirado("");
-                          setMostrarEquiposManual(false);
-                        }}
-                        className="text-[11px] text-slate-400 hover:text-rose-600 hover:bg-rose-50 px-2 py-0.5 rounded-lg font-bold transition-colors cursor-pointer flex items-center gap-1"
-                        title="Omitir o quitar equipos de esta liquidación"
-                      >
-                        <X size={13} />
-                        <span>Omitir / Quitar</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white p-3 rounded-xl border border-indigo-100">
-                  <div>
-                    <label className="block mb-1 text-slate-600 font-bold flex items-center justify-between text-xs">
-                      <span className="flex items-center gap-1">
-                        <ArrowUpRight size={14} className="text-emerald-600" />
-                        S/N {eqTipoNombre} Instalado
-                      </span>
-                      {!isAlreadyLiquidated && (
-                        <span className="text-[10px] text-emerald-700 font-medium bg-emerald-50 px-1.5 py-0.5 rounded">
-                          Cámara o Digitar
-                        </span>
-                      )}
-                    </label>
-                    <div className="flex gap-1.5">
-                      <input
-                        type="text"
-                        list="ont-asignadas-list"
-                        placeholder={`Digita o escanea serie de ${eqTipoNombre}...`}
-                        disabled={isAlreadyLiquidated}
-                        value={snOntInstalado}
-                        onChange={(e) => setSnOntInstalado(e.target.value.toUpperCase())}
-                        className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:bg-white font-bold disabled:bg-slate-100"
-                      />
-                      <datalist id="ont-asignadas-list">
-                        {seriesEquiposDisponibles.map((s: any) => (
-                          <option key={s.id_producto_serie || s.numero_serie} value={s.numero_serie}>
-                            {s.equipo_nombre || "Equipo"} (S/N: {s.numero_serie})
-                          </option>
-                        ))}
-                      </datalist>
-                      {!isAlreadyLiquidated && (
-                        <button
-                          type="button"
-                          onClick={() => abrirEscaner("ont_instalado", `Escanear ${eqTipoNombre} Instalado`, `Apunta al código de barras o serie del ${eqTipoNombre} nuevo`)}
-                          className="px-2.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-xs"
-                          title="Escanear con la cámara del celular"
-                        >
-                          <Camera size={14} />
-                          <span className="hidden sm:inline">Cámara</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block mb-1 text-slate-600 font-bold flex items-center justify-between text-xs">
-                      <span className="flex items-center gap-1">
-                        <ArrowDownLeft size={14} className="text-rose-600" />
-                        S/N {eqTipoNombre} Retirado (Recogido)
-                      </span>
-                      {!isAlreadyLiquidated && (
-                        <span className="text-[10px] text-rose-700 font-medium bg-rose-50 px-1.5 py-0.5 rounded">
-                          Cámara o Digitar
-                        </span>
-                      )}
-                    </label>
-                    <div className="flex gap-1.5">
-                      <input
-                        type="text"
-                        placeholder={`Digita o escanea serie retirada de ${eqTipoNombre}...`}
-                        disabled={isAlreadyLiquidated}
-                        value={snOntRetirado}
-                        onChange={(e) => setSnOntRetirado(e.target.value.toUpperCase())}
-                        className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:bg-white font-bold text-rose-800 disabled:bg-slate-100"
-                      />
-                      {!isAlreadyLiquidated && (
-                        <button
-                          type="button"
-                          onClick={() => abrirEscaner("ont_retirado", `Escanear ${eqTipoNombre} Retirado`, `Apunta al código de barras del equipo recogido al cliente`)}
-                          className="px-2.5 py-2 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-xs"
-                          title="Escanear equipo recogido con la cámara del celular"
-                        >
-                          <Camera size={14} />
-                          <span className="hidden sm:inline">Cámara</span>
-                        </button>
-                      )}
-                    </div>
-                    {motivoOntRetiro && (
-                      <span className="text-[10px] text-slate-500 mt-1 block">Motivo: {motivoOntRetiro}</span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Equipos Adicionales (ej: 2do Winbox, 3er Winbox, Mesh adicional) */}
-                {equiposAdicionales.map((eqExtra, idx) => (
-                  <div key={eqExtra.id} className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white p-3 rounded-xl border border-indigo-200/80 shadow-xs relative">
-                    <div className="sm:col-span-2 flex items-center justify-between pb-1 border-b border-indigo-50">
-                      <span className="text-[11px] font-black text-indigo-900 flex items-center gap-1.5">
-                        <span className="w-4 h-4 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[9px] font-extrabold">
-                          {idx + 2}
-                        </span>
-                        Equipo Adicional #{idx + 2} ({eqTipoNombre})
-                      </span>
-                      {!isAlreadyLiquidated && (
-                        <button
-                          type="button"
-                          onClick={() => setEquiposAdicionales((prev) => prev.filter((it) => it.id !== eqExtra.id))}
-                          className="text-[11px] text-rose-500 hover:text-rose-700 hover:bg-rose-50 px-2 py-0.5 rounded font-bold transition-colors cursor-pointer flex items-center gap-1"
-                          title="Quitar este equipo adicional"
-                        >
-                          <Trash2 size={12} />
-                          <span>Quitar</span>
-                        </button>
-                      )}
-                    </div>
-
-                    <div>
-                      <label className="block mb-1 text-slate-600 font-bold flex items-center justify-between text-xs">
-                        <span className="flex items-center gap-1">
-                          <ArrowUpRight size={14} className="text-emerald-600" />
-                          S/N #{idx + 2} Instalado
-                        </span>
-                        {!isAlreadyLiquidated && (
-                          <span className="text-[10px] text-emerald-700 font-medium bg-emerald-50 px-1.5 py-0.5 rounded">
-                            Cámara o Digitar
+                      {/* Selector rápido de Rollo Drop Conectorizado */}
+                      {!isAlreadyLiquidated && rollosConectorizadosDisponibles.length > 0 && (
+                        <div className="p-2.5 rounded-xl bg-white border border-emerald-300/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs shadow-2xs">
+                          <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                            <Sparkles size={14} className="text-emerald-600" />
+                            ¿Utilizaste Rollo Pre-Conectorizado?
                           </span>
-                        )}
-                      </label>
-                      <div className="flex gap-1.5">
-                        <input
-                          type="text"
-                          list="ont-asignadas-list"
-                          placeholder={`Serie instalada #${idx + 2}...`}
-                          disabled={isAlreadyLiquidated}
-                          value={eqExtra.snInstalado}
-                          onChange={(e) => {
-                            const val = e.target.value.toUpperCase();
-                            setEquiposAdicionales((prev) =>
-                              prev.map((it) => (it.id === eqExtra.id ? { ...it, snInstalado: val } : it))
-                            );
-                          }}
-                          className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:bg-white font-bold disabled:bg-slate-100"
-                        />
-                        {!isAlreadyLiquidated && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              abrirEscaner(
-                                `extra_instalado_${eqExtra.id}`,
-                                `Escanear #${idx + 2} Instalado`,
-                                `Apunta al código de barras del equipo #${idx + 2}`
-                              )
-                            }
-                            className="px-2.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-xs"
-                            title="Escanear con la cámara del celular"
-                          >
-                            <Camera size={14} />
-                            <span className="hidden sm:inline">Cámara</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
+                          <select
+                            value={dropConectorizadoSeleccionado?.id_producto || ""}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              if (!val) {
+                                setMateriales((prev) => prev.filter((m) => !esDropConectorizado(m)));
+                              } else {
+                                const prod = rollosConectorizadosDisponibles.find((p) => p.id_producto === val);
+                                if (prod) {
+                                  setMateriales((prev) => {
+                                    const sinOtros = prev.filter((m) => !esDropConectorizado(m));
+                                    // Ajustar conectores ópticos a máx 1
+                                    let yaTieneConector = false;
+                                    const conAjuste = sinOtros.map((m) => {
+                                      if (esConectorOptico(m)) {
+                                        yaTieneConector = true;
+                                        return { ...m, cantidad: Math.min(Number(m.cantidad || 1), 1) };
+                                      }
+                                      return m;
+                                    });
 
-                    <div>
-                      <label className="block mb-1 text-slate-600 font-bold flex items-center justify-between text-xs">
-                        <span className="flex items-center gap-1">
-                          <ArrowDownLeft size={14} className="text-rose-600" />
-                          S/N #{idx + 2} Retirado (Recogido)
-                        </span>
-                        {!isAlreadyLiquidated && (
-                          <span className="text-[10px] text-rose-700 font-medium bg-rose-50 px-1.5 py-0.5 rounded">
-                            Cámara o Digitar
-                          </span>
-                        )}
-                      </label>
-                      <div className="flex gap-1.5">
-                        <input
-                          type="text"
-                          placeholder={`Serie retirada #${idx + 2}...`}
-                          disabled={isAlreadyLiquidated}
-                          value={eqExtra.snRetirado}
-                          onChange={(e) => {
-                            const val = e.target.value.toUpperCase();
-                            setEquiposAdicionales((prev) =>
-                              prev.map((it) => (it.id === eqExtra.id ? { ...it, snRetirado: val } : it))
-                            );
-                          }}
-                          className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:bg-white font-bold text-rose-800 disabled:bg-slate-100"
-                        />
-                        {!isAlreadyLiquidated && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              abrirEscaner(
-                                `extra_retirado_${eqExtra.id}`,
-                                `Escanear #${idx + 2} Retirado`,
-                                `Apunta al código del equipo recogido #${idx + 2}`
-                              )
-                            }
-                            className="px-2.5 py-2 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-xs"
-                            title="Escanear con la cámara del celular"
+                                    // Si no tenía ningún conector óptico, o el que tenía tenía stock 0, intentar buscar un conector con stock
+                                    if (!yaTieneConector) {
+                                      const conectorStock = stockTecnicoMateriales.find((m) => esConectorOptico(m) && Number(m.stock || 0) > 0);
+                                      if (conectorStock) {
+                                        conAjuste.push({
+                                          id_producto: conectorStock.id_producto,
+                                          nombre: conectorStock.nombre,
+                                          cantidad: 1,
+                                          unidad: "UND",
+                                          stockDisponible: conectorStock.stock,
+                                        });
+                                      }
+                                    }
+
+                                    return [
+                                      ...conAjuste,
+                                      {
+                                        id_producto: prod.id_producto,
+                                        nombre: prod.nombre,
+                                        cantidad: 1,
+                                        unidad: "UND",
+                                        stockDisponible: prod.stock,
+                                      },
+                                    ];
+                                  });
+                                  setDropMetroInicio("");
+                                  setDropMetroFin("");
+                                }
+                              }
+                            }}
+                            className="p-1.5 bg-slate-50 border border-slate-300 rounded-lg font-bold text-slate-900 text-xs focus:ring-2 focus:ring-emerald-500 cursor-pointer"
                           >
-                            <Camera size={14} />
-                            <span className="hidden sm:inline">Cámara</span>
-                          </button>
-                        )}
-                      </div>
-                      {eqExtra.motivoRetiro && (
-                        <span className="text-[10px] text-slate-500 mt-1 block">Motivo: {eqExtra.motivoRetiro}</span>
+                            <option value="">-- No (Usar Bobina Continua en Metros) --</option>
+                            {rollosConectorizadosDisponibles.map((r) => (
+                              <option key={r.id_producto} value={r.id_producto}>
+                                {r.nombre} ({r.stock} UND en camioneta)
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       )}
-                    </div>
-                  </div>
-                ))}
 
-                {/* Botón para agregar otro equipo (ej: 2do Winbox / Mesh) */}
-                {!isAlreadyLiquidated && (
-                  <div className="flex justify-end pt-1">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setEquiposAdicionales((prev) => [
-                          ...prev,
-                          {
-                            id: Date.now().toString(),
-                            snInstalado: "",
-                            snRetirado: "",
-                            motivoRetiro: "Cambio / Avería",
-                          },
-                        ])
-                      }
-                      className="px-3 py-1.5 bg-indigo-100/80 hover:bg-indigo-600 hover:text-white text-indigo-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-indigo-200 shadow-2xs active:scale-95"
-                    >
-                      <Plus size={14} />
-                      <span>+ Agregar otro equipo ({eqTipoNombre})</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              !isAlreadyLiquidated && (
-                <div className="flex items-center justify-between p-3 bg-slate-50 border border-dashed border-slate-200 rounded-xl hover:bg-indigo-50/50 hover:border-indigo-200 transition-colors">
-                  <div className="flex items-center gap-2 text-slate-500 text-xs">
-                    <QrCode size={15} className="text-slate-400" />
-                    <span>¿Hubo cambio o instalación de equipo ({eqTipoNombre})?</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setMostrarEquiposManual(true)}
-                    className="px-2.5 py-1 bg-white hover:bg-indigo-600 hover:text-white text-indigo-600 border border-indigo-200 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer shadow-2xs active:scale-95"
-                  >
-                    <PlusCircle size={13} />
-                    <span>+ Registrar Equipo</span>
-                  </button>
-                </div>
-              )
-            )}
+                      {/* Banner: Si está usando Drop Conectorizado */}
+                      {dropConectorizadoSeleccionado && (
+                        <div className="p-2.5 bg-emerald-100/90 border border-emerald-300 rounded-xl flex items-center justify-between gap-2 text-emerald-900 text-xs font-bold shadow-2xs">
+                          <div className="flex items-center gap-2">
+                            <span className="text-base">✅</span>
+                            <span>Liquidando con rollo Pre-Conectorizado: &quot;{dropConectorizadoSeleccionado.nombre}&quot; ({dropConectorizadoSeleccionado.cantidad} UND descontada de stock).</span>
+                          </div>
+                          {!isAlreadyLiquidated && (
+                            <button
+                              type="button"
+                              onClick={() => setMateriales((prev) => prev.filter((m) => !esDropConectorizado(m)))}
+                              className="px-2 py-0.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-md text-[10px] font-bold cursor-pointer transition-all"
+                            >
+                              Quitar
+                            </button>
+                          )}
+                        </div>
+                      )}
 
-            {/* Observaciones */}
-            <div>
-              <label className="block mb-1 text-slate-600 font-bold">Observaciones del Técnico</label>
-              <textarea
-                rows={2}
-                disabled={isAlreadyLiquidated}
-                value={observaciones}
-                onChange={(e) => setObservaciones(e.target.value)}
-                placeholder="Observaciones de campo..."
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none disabled:bg-slate-100 font-medium text-xs"
-              />
-            </div>
+                      {/* Banner informativo si no tiene bobina continua */}
+                      {stockDropDisponible <= 0 && !dropConectorizadoSeleccionado && !isAlreadyLiquidated && (
+                        <div className="p-2.5 bg-amber-100/90 border border-amber-300 rounded-xl flex items-center gap-2 text-amber-900 text-xs font-semibold shadow-2xs">
+                          <span className="text-base">ℹ️</span>
+                          <span>No tienes bobina continua en metros (0 m). Si tu instalación usa un rollo <strong>Drop Conectorizado (50m, 100m, 150m, 200m)</strong>, selecciónalo en el menú desplegable arriba.</span>
+                        </div>
+                      )}
 
-            {/* ─────────────────────────────────────────────────────────────
-                BOTONES DE ACCIÓN
-            ───────────────────────────────────────────────────────────── */}
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
-              {isAlreadyLiquidated ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => window.print()}
-                    className="px-5 py-2.5 rounded-2xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5"
-                  >
-                    🖨️ Imprimir Acta
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className="px-6 py-2.5 rounded-2xl bg-slate-900 text-white hover:bg-slate-800 font-bold text-xs transition-all cursor-pointer"
-                  >
-                    Cerrar Auditoría
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className="px-5 py-2.5 rounded-2xl text-slate-600 hover:bg-slate-100 font-bold transition-all cursor-pointer"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    form="form-liquidacion-acta"
-                    onClick={(e) => {
-                      // Respaldo de seguridad si el navegador no propaga submit nativo
-                      if (!guardando) {
-                        const form = document.getElementById("form-liquidacion-acta") as HTMLFormElement;
-                        if (form && !form.checkValidity()) {
-                          form.reportValidity();
-                        }
-                      }
-                    }}
-                    disabled={guardando}
-                    className="px-6 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-black rounded-2xl shadow-lg shadow-orange-500/25 transition-all cursor-pointer disabled:opacity-50 flex items-center gap-2 hover:scale-[1.02] active:scale-[0.98]"
-                  >
-                    {guardando ? (
-                      <>
-                        <RefreshCw size={16} className="animate-spin" />
-                        Liquidando...
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 size={16} />
-                        Guardar Acta & Liquidar Orden
-                      </>
-                    )}
-                  </button>
-                </>
-              )}
-            </div>
+                      {/* Banner si el metraje calculado excede la bobina */}
+                      {totalDropCalculado > stockDropDisponible && stockDropDisponible > 0 && !isAlreadyLiquidated && (
+                        <div className="p-2.5 bg-rose-100/90 border border-rose-300 rounded-xl flex items-center gap-2 text-rose-800 text-xs font-bold shadow-2xs">
+                          <span className="text-base">❌</span>
+                          <span>Consumo ingresado ({totalDropCalculado} m) excede tu stock de bobina en camioneta ({stockDropDisponible} m).</span>
+                        </div>
+                      )}
 
-          </form>
-        </div>
+                      {!dropConectorizadoSeleccionado && (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 items-center">
+                          <div>
+                            <label className="block mb-1 text-slate-600 font-bold text-xs">Metro Inicio (Carrete)</label>
+                            <input
+                              type="number"
+                              disabled={isAlreadyLiquidated}
+                              value={dropMetroInicio}
+                              onChange={(e) => setDropMetroInicio(e.target.value)}
+                              placeholder={stockDropDisponible <= 0 ? "Opcional" : "Ej: 500"}
+                              className="w-full p-2 bg-white border border-slate-200 rounded-xl font-mono font-bold text-xs disabled:bg-slate-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-200"
+                            />
+                          </div>
 
-        {/* ══════════════════════════════════════════════════════════
-            COLUMNA DERECHA: VISOR HD INTERACTIVO DEL ACTA DE CONFORMIDAD (5 Cols)
-            (SOLO ACTIVO EN VISTA DE ADMINISTRACIÓN / AUDITORÍA, NO EN CELULAR DEL TÉCNICO)
-        ══════════════════════════════════════════════════════════ */}
-        {shouldShowPhoto && (
-          <div className="lg:col-span-5 flex flex-col space-y-2 bg-slate-900/5 rounded-3xl p-3 border border-slate-200/90 self-start lg:sticky lg:top-0">
-            
-            {/* Toolbar de Controles Interactivos Elevada al Máximo */}
-            <div className="flex items-center justify-between gap-1 p-2 bg-slate-900 text-white rounded-2xl shadow-md text-xs">
-              <div className="flex items-center gap-1.5 shrink-0">
-                <div className="w-6 h-6 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0">
-                  <ImageIcon size={13} />
-                </div>
-                <span className="font-extrabold text-[11px] text-slate-100 hidden sm:inline tracking-tight">
-                  Acta de Conformidad
-                </span>
-                <span className="px-1.5 py-0.2 rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-mono font-bold text-[9px]">
-                  HD
-                </span>
-              </div>
+                          <div>
+                            <label className="block mb-1 text-slate-600 font-bold text-xs">Metro Fin (Carrete)</label>
+                            <input
+                              type="number"
+                              disabled={isAlreadyLiquidated}
+                              value={dropMetroFin}
+                              onChange={(e) => setDropMetroFin(e.target.value)}
+                              placeholder={stockDropDisponible <= 0 ? "Opcional" : "Ej: 435"}
+                              className="w-full p-2 bg-white border border-slate-200 rounded-xl font-mono font-bold text-xs disabled:bg-slate-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-200"
+                            />
+                          </div>
 
-              <div className="flex items-center gap-0.5 sm:gap-1">
-                {/* Zoom Controls */}
-                <button
-                  type="button"
-                  onClick={handleZoomIn}
-                  disabled={!fotoActaUrl}
-                  title="Acercar (+25%)"
-                  className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-200 hover:text-white transition-colors cursor-pointer disabled:opacity-40"
-                >
-                  <ZoomIn size={14} />
-                </button>
-                <button
-                  type="button"
-                  onClick={handleZoomOut}
-                  disabled={!fotoActaUrl}
-                  title="Alejar (-25%)"
-                  className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-200 hover:text-white transition-colors cursor-pointer disabled:opacity-40"
-                >
-                  <ZoomOut size={14} />
-                </button>
-                <button
-                  type="button"
-                  onClick={handleResetZoom}
-                  disabled={!fotoActaUrl}
-                  title="Restablecer tamaño (100%)"
-                  className="px-1.5 py-1 rounded-xl hover:bg-slate-800 text-[11px] font-mono font-bold text-indigo-300 transition-colors cursor-pointer disabled:opacity-40"
-                >
-                  {Math.round(zoomLevel * 100)}%
-                </button>
-
-                <div className="h-3.5 w-px bg-slate-700/80 mx-0.5"></div>
-
-                {/* Modo Lupa */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLupaActiva(!lupaActiva);
-                    if (!lupaActiva) {
-                      setZoomLevel(1);
-                      setPanPos({ x: 0, y: 0 });
-                    }
-                  }}
-                  disabled={!fotoActaUrl}
-                  title={lupaActiva ? "Desactivar Lente Lupa" : "Activar Lente Lupa (Aumento 2.5x al mover el cursor)"}
-                  className={`px-2 py-1 rounded-xl text-[11px] font-bold inline-flex items-center gap-1 transition-all cursor-pointer disabled:opacity-40 ${
-                    lupaActiva
-                      ? "bg-indigo-500 text-white shadow-xs font-black ring-1 ring-white/50"
-                      : "bg-slate-800 hover:bg-slate-700 text-slate-300"
-                  }`}
-                >
-                  <Search size={12} />
-                  <span>{lupaActiva ? "Lupa ON" : "Lupa"}</span>
-                </button>
-
-                {/* Girar */}
-                <button
-                  type="button"
-                  onClick={handleRotate}
-                  disabled={!fotoActaUrl}
-                  title="Girar 90 grados"
-                  className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-200 hover:text-white transition-colors cursor-pointer disabled:opacity-40"
-                >
-                  <RotateCw size={14} />
-                </button>
-
-                {/* Descargar */}
-                <button
-                  type="button"
-                  onClick={handleDownloadFoto}
-                  disabled={!fotoActaUrl}
-                  title="Descargar fotografía en alta resolución"
-                  className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-200 hover:text-white transition-colors cursor-pointer disabled:opacity-40"
-                >
-                  <Download size={14} />
-                </button>
-
-                {/* Pantalla Completa */}
-                <button
-                  type="button"
-                  onClick={() => setFotoFullscreen(true)}
-                  disabled={!fotoActaUrl}
-                  title="Expandir a Pantalla Completa"
-                  className="p-1.5 rounded-xl hover:bg-slate-800 text-indigo-300 hover:text-white transition-colors cursor-pointer disabled:opacity-40"
-                >
-                  <Maximize2 size={14} />
-                </button>
-              </div>
-            </div>
-
-            {/* Viewport Interactivo de la Fotografía */}
-            <div
-              ref={imgWrapperRef}
-              onWheel={handleWheel}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
-              onDoubleClick={() => setZoomLevel((z) => (z > 1 ? 1 : 2))}
-              className={`relative w-full h-[580px] sm:h-[640px] xl:h-[680px] bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 select-none flex items-center justify-center ${
-                lupaActiva ? "cursor-crosshair" : zoomLevel > 1 ? (isDragging ? "cursor-grabbing" : "cursor-grab") : "cursor-default"
-              }`}
-            >
-              {fotoActaLoading ? (
-                <div className="flex flex-col items-center justify-center p-6 text-center space-y-3">
-                  <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-400/30 flex items-center justify-center animate-pulse">
-                    <Loader2 size={24} className="animate-spin text-amber-400" />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-xs font-bold text-white">
-                      Descargando Acta Original en Alta Resolución...
-                    </p>
-                    <p className="text-[11px] text-slate-400 max-w-xs">
-                      Conectando con el servidor oficial de Fénix (WIN) para obtener la fotografía nítida con sello y firmas.
-                    </p>
-                  </div>
-                </div>
-              ) : fotoActaError ? (
-                <div className="flex flex-col items-center justify-center p-6 text-center space-y-3">
-                  <div className="w-12 h-12 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-400/30 flex items-center justify-center">
-                    <AlertTriangle size={24} />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-xs font-bold text-rose-300">
-                      {fotoActaError}
-                    </p>
-                    <p className="text-[11px] text-slate-400 max-w-xs">
-                      Verifique si el técnico ya subió la fotografía del acta de cierre en la tarea finalizada.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={cargarFotoActa}
-                    className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <RefreshCw size={13} />
-                    <span>Reintentar</span>
-                  </button>
-                </div>
-              ) : fotoActaUrl ? (
-                <>
-                  {/* Imagen Principal con Zoom y Pan */}
-                  <img
-                    ref={imgRef}
-                    src={fotoActaUrl}
-                    alt="Acta de Conformidad"
-                    draggable={false}
-                    style={{
-                      transform: `translate(${panPos.x}px, ${panPos.y}px) scale(${zoomLevel}) rotate(${rotation}deg)`,
-                      transition: isDragging ? "none" : "transform 0.15s ease-out",
-                      maxWidth: "94%",
-                      maxHeight: "94%",
-                      objectFit: "contain"
-                    }}
-                    className="shadow-2xl pointer-events-none rounded-lg"
-                  />
-
-                  {/* Lente Lupa Flotante (Magnifier Lens 2.5x) */}
-                  {lupaActiva && (
-                    <div
-                      style={{
-                        left: `${lupaPos.x - 90}px`,
-                        top: `${lupaPos.y - 90}px`,
-                        backgroundImage: `url(${fotoActaUrl})`,
-                        backgroundPosition: `${lupaPos.relX}% ${lupaPos.relY}%`,
-                        backgroundSize: "280%",
-                        backgroundRepeat: "no-repeat"
-                      }}
-                      className="w-44 h-44 rounded-full border-3 border-amber-400 shadow-[0_0_25px_rgba(245,158,11,0.6)] pointer-events-none absolute overflow-hidden z-30 ring-4 ring-black/40"
-                    >
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="w-3 h-3 border border-amber-300/60 rounded-full"></div>
-                      </div>
+                          <div className="col-span-2 sm:col-span-1 bg-white p-2.5 rounded-xl border border-amber-200 text-center">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase block">Descuento de Bobina</span>
+                            <span className={`text-sm font-black font-mono ${totalDropCalculado > stockDropDisponible && stockDropDisponible > 0
+                              ? "text-rose-600"
+                              : "text-amber-800"
+                              }`}>
+                              -{totalDropCalculado} mtrs
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
-                  {/* Barra Inferior de Ayuda y Tips */}
-                  <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between px-3 py-1.5 bg-slate-900/80 backdrop-blur-xs text-white rounded-xl border border-white/10 text-[10px] pointer-events-none">
-                    <span className="font-mono font-bold text-amber-300">
-                      Zoom: {Math.round(zoomLevel * 100)}% {rotation !== 0 ? `• Giro: ${rotation}°` : ""}
-                    </span>
-                    <span className="text-slate-400 hidden sm:inline">
-                      Rueda: Zoom • Doble clic: Alternar • Arrastrar: Mover
-                    </span>
-                  </div>
-                </>
-              ) : null}
-            </div>
+                  {/* Botón rápido para activar Metraje / Drop si la orden no lo activó automáticamente */}
+                  {!mostrarSeccionDropManual && !plantillaActual.requiereDrop && !isAlreadyLiquidated && (
+                    <div className="flex items-center justify-between p-3 bg-amber-50/70 border border-dashed border-amber-300 rounded-2xl text-xs shadow-2xs">
+                      <span className="text-amber-900 font-bold flex items-center gap-1.5">
+                        <Package size={15} className="text-amber-600" />
+                        ¿Se utilizó Cable Drop en la orden (Bobina en metros o Rollo Pre-Conectorizado)?
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setMostrarSeccionDropManual(true)}
+                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-black text-xs rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
+                      >
+                        <Plus size={14} />
+                        <span>Activar Drop / Metraje</span>
+                      </button>
+                    </div>
+                  )}
 
+                  {/* ─────────────────────────────────────────────────────────────
+                4. MATERIALES E INSUMOS A LIQUIDAR (CON BOTÓN + DE STOCK)
+            ───────────────────────────────────────────────────────────── */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <span className="font-black text-xs text-slate-800 flex items-center gap-1.5">
+                          <Layers size={16} className="text-indigo-600" />
+                          Materiales e Insumos a Liquidar:
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-medium block">
+                          Sugeridos según tipo de liquidación y descontados de tu stock
+                        </span>
+                      </div>
+
+                      {!isAlreadyLiquidated && (
+                        <button
+                          type="button"
+                          onClick={() => setMostrarSelectorStock(!mostrarSelectorStock)}
+                          className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-black text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs active:scale-95"
+                        >
+                          <Plus size={15} className="text-indigo-600" />
+                          <span>Agregar Material de mi Stock</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Selector emergente para escoger material del Stock del técnico (+) */}
+                    {mostrarSelectorStock && !isAlreadyLiquidated && (
+                      <div className="p-3 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-2xl space-y-2.5 animate-fade-in shadow-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-indigo-950 flex items-center gap-1.5">
+                            <Package size={15} className="text-indigo-600" />
+                            Seleccionar Material desde tu Camioneta / Stock:
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setMostrarSelectorStock(false)}
+                            className="text-slate-400 hover:text-slate-700 text-xs font-bold cursor-pointer"
+                          >
+                            ✕ Cancelar
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                          <div className={esBobinaSeleccionada ? "col-span-1 sm:col-span-4" : "sm:col-span-2"}>
+                            <label className="text-[10px] text-slate-600 font-bold block mb-1">Material en Stock</label>
+                            <select
+                              value={selectedStockProductoId}
+                              onChange={(e) => {
+                                const val = Number(e.target.value) || "";
+                                setSelectedStockProductoId(val);
+                                const p = stockTecnicoMateriales.find((m) => m.id_producto === val);
+                                if (p && esBobinaDrop(p)) {
+                                  setMostrarSeccionDropManual(true);
+                                }
+                              }}
+                              className="w-full p-2 bg-white border border-indigo-300 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-200 cursor-pointer"
+                            >
+                              <option value="">-- Elige un material de tu stock --</option>
+                              {soloMaterialesLiquidables.map((m) => {
+                                const esBobina = esBobinaDrop(m);
+                                const esConect = esDropConectorizado(m);
+                                const esConector = esConectorOptico(m);
+                                const lim = esConector ? obtenerLimiteParaMaterial(m.id_producto, m.nombre) : null;
+                                const noPermitido = esConector && lim === 0;
+
+                                return (
+                                  <option key={m.id_producto} value={m.id_producto} disabled={noPermitido}>
+                                    {esBobina
+                                      ? `CABLE DROP (Bobina continua) (Stock: ${m.stock} m)`
+                                      : esConect
+                                        ? `${m.nombre} (Stock: ${m.stock} und)`
+                                        : noPermitido
+                                          ? `${m.nombre} 🚫 (No permitido para ${tipoLiquidacion})`
+                                          : `${m.nombre} (Stock: ${m.stock} ${m.es_drop ? "m" : "und"})${lim !== null ? ` [Máx: ${lim}]` : ""}`}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </div>
+
+                          {esBobinaSeleccionada ? (
+                            <div className="col-span-1 sm:col-span-4 bg-gradient-to-r from-amber-50 to-orange-50/70 border border-amber-300 rounded-xl p-3 space-y-2.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-black text-amber-950 flex items-center gap-1.5">
+                                  <Package size={14} className="text-amber-700" />
+                                  Ingresar Metraje de Bobina Drop (Carrete):
+                                </span>
+                                {stockDropDisponible > 0 && (
+                                  <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md border border-amber-200 font-mono">
+                                    En camioneta: {stockDropDisponible} m
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-center">
+                                <div>
+                                  <label className="text-[10px] text-amber-900 font-bold block mb-1">
+                                    Metro Inicio (Carrete)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    value={dropMetroInicio}
+                                    onChange={(e) => {
+                                      setDropMetroInicio(e.target.value);
+                                      setMostrarSeccionDropManual(true);
+                                    }}
+                                    placeholder="Ej: 500"
+                                    className="w-full p-2 bg-white border border-amber-300 rounded-xl text-center font-mono font-bold text-xs focus:ring-2 focus:ring-amber-400 focus:outline-none"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="text-[10px] text-amber-900 font-bold block mb-1">
+                                    Metro Fin (Carrete)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    value={dropMetroFin}
+                                    onChange={(e) => {
+                                      setDropMetroFin(e.target.value);
+                                      setMostrarSeccionDropManual(true);
+                                    }}
+                                    placeholder="Ej: 435"
+                                    className="w-full p-2 bg-white border border-amber-300 rounded-xl text-center font-mono font-bold text-xs focus:ring-2 focus:ring-amber-400 focus:outline-none"
+                                  />
+                                </div>
+
+                                <div className="bg-white p-2 rounded-xl border border-amber-200 text-center">
+                                  <span className="text-[9px] font-bold text-slate-400 uppercase block">
+                                    Descuento Bobina
+                                  </span>
+                                  <span
+                                    className={`text-xs font-black font-mono ${
+                                      totalDropCalculado > stockDropDisponible && stockDropDisponible > 0
+                                        ? "text-rose-600"
+                                        : "text-amber-800"
+                                    }`}
+                                  >
+                                    -{totalDropCalculado} mtrs
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-end gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedStockProductoId("")}
+                                  className="px-3 py-1.5 text-slate-600 hover:text-slate-800 text-xs font-bold cursor-pointer"
+                                >
+                                  Cancelar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleAgregarMaterialDeStock}
+                                  className="py-1.5 px-4 bg-amber-600 hover:bg-amber-700 text-white font-black text-xs rounded-xl shadow-md shadow-amber-600/20 transition-all cursor-pointer flex items-center gap-1.5"
+                                >
+                                  <CheckCircle2 size={15} />
+                                  <span>
+                                    {totalDropCalculado > 0
+                                      ? `Aplicar Metraje (-${totalDropCalculado} m)`
+                                      : "Aplicar Metraje"}
+                                  </span>
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div>
+                                <label className="text-[10px] text-slate-600 font-bold block mb-1">Cantidad a Usar</label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={selectedStockCantidad}
+                                  onChange={(e) => setSelectedStockCantidad(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                                  placeholder="1"
+                                  className="w-full p-2 bg-white border border-indigo-300 rounded-xl text-center font-mono font-black text-xs focus:outline-none"
+                                />
+                              </div>
+
+                              <div className="flex items-end">
+                                <button
+                                  type="button"
+                                  onClick={handleAgregarMaterialDeStock}
+                                  disabled={!selectedStockProductoId}
+                                  className="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl shadow-md shadow-indigo-600/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                                >
+                                  <PlusCircle size={15} />
+                                  Añadir
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Lista de Filas de Materiales */}
+                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
+                      {/* Banner de Advertencia si algún material no tiene suficiente stock */}
+                      {!isAlreadyLiquidated && materiales.some((m) => m.cantidad > (m.stockDisponible ?? 0)) && (
+                        <div className="p-2.5 bg-rose-50 border border-rose-300 rounded-xl flex items-center gap-2 text-rose-800 text-[11px] font-bold">
+                          <AlertCircle size={16} className="text-rose-600 shrink-0" />
+                          <span>
+                            ⚠️ No tienes stock suficiente en tu vehículo para uno o más materiales. Solicita dotación en Almacén antes de liquidar.
+                          </span>
+                        </div>
+                      )}
+
+                      {/* 🌟 Si se ingresó Bobina Drop, mostrarlo de forma destacada en la lista de materiales a liquidar */}
+                      {totalDropCalculado > 0 && !dropConectorizadoSeleccionado && (
+                        <div className="flex items-center justify-between gap-2 bg-gradient-to-r from-amber-50 to-orange-50/60 p-2.5 rounded-xl border border-amber-300 shadow-2xs">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-xs text-amber-950 truncate">
+                                CABLE DROP (Bobina continua)
+                              </span>
+                              <span className="text-[10px] font-mono font-bold text-amber-800 bg-amber-100/90 px-2 py-0.5 rounded-md border border-amber-200">
+                                Inicio: {dropMetroInicio || "0"} m → Fin: {dropMetroFin || "0"} m
+                              </span>
+                              {stockDropDisponible > 0 && (
+                                <span className="text-[9.5px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                                  ✓ En carro: {stockDropDisponible} m
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <div className="flex items-center gap-1 bg-amber-100/80 rounded-lg px-2.5 py-1 border border-amber-200">
+                              <span className="font-mono font-black text-xs text-amber-900">
+                                -{totalDropCalculado}
+                              </span>
+                              <span className="text-[10px] font-bold text-amber-700">m</span>
+                            </div>
+
+                            {!isAlreadyLiquidated && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDropMetroInicio("");
+                                  setDropMetroFin("");
+                                }}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                title="Quitar metraje de Bobina Drop"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {materiales.length === 0 && (!totalDropCalculado || totalDropCalculado <= 0 || Boolean(dropConectorizadoSeleccionado)) ? (
+                        <div className="py-4 text-center text-slate-400 text-xs font-bold">
+                          No hay materiales asignados. Toca "+ Agregar Material de mi Stock" para añadir.
+                        </div>
+                      ) : (
+                        materiales.map((mat, idx) => {
+                          const limite = obtenerLimiteParaMaterial(mat.id_producto, mat.nombre);
+                          const tieneLimite = limite !== null;
+                          const stockDisp = Number(mat.stockDisponible ?? 0);
+                          const sinStock = stockDisp <= 0;
+                          const excedeStock = mat.cantidad > stockDisp;
+
+                          if (isAlreadyLiquidated) {
+                            return (
+                              <div
+                                key={idx}
+                                className="flex items-center justify-between gap-2 bg-white p-2.5 rounded-xl border border-slate-200/90 shadow-2xs"
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-bold text-xs text-slate-900 truncate">{mat.nombre}</span>
+                                    <span className="text-[10px] font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md border border-sky-200 flex items-center gap-1">
+                                      ✓ Descontado / Liquidado
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 bg-slate-100 rounded-lg px-3 py-1 border border-slate-200 shrink-0">
+                                  <span className="font-mono font-black text-xs text-slate-800">{mat.cantidad}</span>
+                                  <span className="text-[10px] font-bold text-slate-500">{mat.unidad}</span>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div
+                              key={idx}
+                              className={`flex items-center justify-between gap-2 bg-white p-2.5 rounded-xl border shadow-2xs transition-all ${sinStock || excedeStock
+                                ? "border-rose-400 bg-rose-50/40 ring-1 ring-rose-200"
+                                : tieneLimite && mat.cantidad >= limite
+                                  ? "border-amber-300 bg-amber-50/30"
+                                  : "border-slate-200/80"
+                                }`}
+                            >
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-bold text-xs text-slate-900 truncate">{mat.nombre}</span>
+                                  {tieneLimite && (
+                                    <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300">
+                                      Límite: Máx {limite} {mat.unidad}
+                                    </span>
+                                  )}
+                                  {sinStock ? (
+                                    <span className="text-[9.5px] font-black px-2 py-0.5 rounded-md bg-rose-100 text-rose-700 border border-rose-300 flex items-center gap-1">
+                                      ⚠️ Sin stock en carro (0 disp.)
+                                    </span>
+                                  ) : excedeStock ? (
+                                    <span className="text-[9.5px] font-black px-2 py-0.5 rounded-md bg-rose-100 text-rose-700 border border-rose-300">
+                                      ⚠️ Stock insuficiente ({stockDisp} disp.)
+                                    </span>
+                                  ) : (
+                                    <span className="text-[9.5px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                                      ✓ En carro: {stockDisp} {mat.unidad}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 shrink-0">
+                                <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5 border border-slate-200">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max={limite !== null ? limite : undefined}
+                                    disabled={isAlreadyLiquidated}
+                                    value={mat.cantidad}
+                                    onChange={(e) => handleCambiarCantidadMaterial(idx, e.target.value)}
+                                    className="w-16 p-1.5 bg-white border border-slate-200 rounded-lg text-center font-mono font-black text-xs focus:ring-2 focus:ring-indigo-300 focus:outline-none disabled:bg-slate-100"
+                                    title={tieneLimite ? `Máximo permitido: ${limite}` : "Cantidad"}
+                                  />
+                                  <span className="text-[10px] font-bold text-slate-500 px-1">{mat.unidad}</span>
+                                </div>
+
+                                {!isAlreadyLiquidated && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEliminarMaterial(idx)}
+                                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                    title="Quitar material"
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  {/* ─────────────────────────────────────────────────────────────
+                5. CONTROL DE EQUIPOS SERIALIZADOS (ONT / MESH / FONOWIN / TV BOX)
+            ───────────────────────────────────────────────────────────── */}
+                  {seccionEquiposVisible ? (
+                    <div className="p-4 bg-gradient-to-r from-indigo-50/60 to-purple-50/60 border border-indigo-200 rounded-2xl space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-black text-xs text-indigo-900 flex items-center gap-1.5">
+                          <QrCode size={16} />
+                          Equipos Serializados ({eqTipoNombre})
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-lg bg-indigo-100 text-indigo-800">
+                            Control de Series & Recojo
+                          </span>
+                          {!isAlreadyLiquidated && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSnOntInstalado("");
+                                setSnOntRetirado("");
+                                setSnMeshInstalado("");
+                                setSnMeshRetirado("");
+                                setMostrarEquiposManual(false);
+                              }}
+                              className="text-[11px] text-slate-400 hover:text-rose-600 hover:bg-rose-50 px-2 py-0.5 rounded-lg font-bold transition-colors cursor-pointer flex items-center gap-1"
+                              title="Omitir o quitar equipos de esta liquidación"
+                            >
+                              <X size={13} />
+                              <span>Omitir / Quitar</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white p-3 rounded-xl border border-indigo-100">
+                        <div>
+                          <label className="block mb-1 text-slate-600 font-bold flex items-center justify-between text-xs">
+                            <span className="flex items-center gap-1">
+                              <ArrowUpRight size={14} className="text-emerald-600" />
+                              S/N {eqTipoNombre} Instalado
+                            </span>
+                            {!isAlreadyLiquidated && (
+                              <span className="text-[10px] text-emerald-700 font-medium bg-emerald-50 px-1.5 py-0.5 rounded">
+                                Cámara o Digitar
+                              </span>
+                            )}
+                          </label>
+                          <div className="flex gap-1.5">
+                            <input
+                              type="text"
+                              list="ont-asignadas-list"
+                              placeholder={`Digita o escanea serie de ${eqTipoNombre}...`}
+                              disabled={isAlreadyLiquidated}
+                              value={snOntInstalado}
+                              onChange={(e) => setSnOntInstalado(e.target.value.toUpperCase())}
+                              className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:bg-white font-bold disabled:bg-slate-100"
+                            />
+                            <datalist id="ont-asignadas-list">
+                              {seriesEquiposDisponibles.map((s: any) => (
+                                <option key={s.id_producto_serie || s.numero_serie} value={s.numero_serie}>
+                                  {s.equipo_nombre || "Equipo"} (S/N: {s.numero_serie})
+                                </option>
+                              ))}
+                            </datalist>
+                            {!isAlreadyLiquidated && (
+                              <button
+                                type="button"
+                                onClick={() => abrirEscaner("ont_instalado", `Escanear ${eqTipoNombre} Instalado`, `Apunta al código de barras o serie del ${eqTipoNombre} nuevo`)}
+                                className="px-2.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-xs"
+                                title="Escanear con la cámara del celular"
+                              >
+                                <Camera size={14} />
+                                <span className="hidden sm:inline">Cámara</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block mb-1 text-slate-600 font-bold flex items-center justify-between text-xs">
+                            <span className="flex items-center gap-1">
+                              <ArrowDownLeft size={14} className="text-rose-600" />
+                              S/N {eqTipoNombre} Retirado (Recogido)
+                            </span>
+                            {!isAlreadyLiquidated && (
+                              <span className="text-[10px] text-rose-700 font-medium bg-rose-50 px-1.5 py-0.5 rounded">
+                                Cámara o Digitar
+                              </span>
+                            )}
+                          </label>
+                          <div className="flex gap-1.5">
+                            <input
+                              type="text"
+                              placeholder={`Digita o escanea serie retirada de ${eqTipoNombre}...`}
+                              disabled={isAlreadyLiquidated}
+                              value={snOntRetirado}
+                              onChange={(e) => setSnOntRetirado(e.target.value.toUpperCase())}
+                              className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:bg-white font-bold text-rose-800 disabled:bg-slate-100"
+                            />
+                            {!isAlreadyLiquidated && (
+                              <button
+                                type="button"
+                                onClick={() => abrirEscaner("ont_retirado", `Escanear ${eqTipoNombre} Retirado`, `Apunta al código de barras del equipo recogido al cliente`)}
+                                className="px-2.5 py-2 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-xs"
+                                title="Escanear equipo recogido con la cámara del celular"
+                              >
+                                <Camera size={14} />
+                                <span className="hidden sm:inline">Cámara</span>
+                              </button>
+                            )}
+                          </div>
+                          {motivoOntRetiro && (
+                            <span className="text-[10px] text-slate-500 mt-1 block">Motivo: {motivoOntRetiro}</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Equipos Adicionales (ej: 2do Winbox, 3er Winbox, Mesh adicional) */}
+                      {equiposAdicionales.map((eqExtra, idx) => (
+                        <div key={eqExtra.id} className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white p-3 rounded-xl border border-indigo-200/80 shadow-xs relative">
+                          <div className="sm:col-span-2 flex items-center justify-between pb-1 border-b border-indigo-50">
+                            <span className="text-[11px] font-black text-indigo-900 flex items-center gap-1.5">
+                              <span className="w-4 h-4 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[9px] font-extrabold">
+                                {idx + 2}
+                              </span>
+                              Equipo Adicional #{idx + 2} ({eqTipoNombre})
+                            </span>
+                            {!isAlreadyLiquidated && (
+                              <button
+                                type="button"
+                                onClick={() => setEquiposAdicionales((prev) => prev.filter((it) => it.id !== eqExtra.id))}
+                                className="text-[11px] text-rose-500 hover:text-rose-700 hover:bg-rose-50 px-2 py-0.5 rounded font-bold transition-colors cursor-pointer flex items-center gap-1"
+                                title="Quitar este equipo adicional"
+                              >
+                                <Trash2 size={12} />
+                                <span>Quitar</span>
+                              </button>
+                            )}
+                          </div>
+
+                          <div>
+                            <label className="block mb-1 text-slate-600 font-bold flex items-center justify-between text-xs">
+                              <span className="flex items-center gap-1">
+                                <ArrowUpRight size={14} className="text-emerald-600" />
+                                S/N #{idx + 2} Instalado
+                              </span>
+                              {!isAlreadyLiquidated && (
+                                <span className="text-[10px] text-emerald-700 font-medium bg-emerald-50 px-1.5 py-0.5 rounded">
+                                  Cámara o Digitar
+                                </span>
+                              )}
+                            </label>
+                            <div className="flex gap-1.5">
+                              <input
+                                type="text"
+                                list="ont-asignadas-list"
+                                placeholder={`Serie instalada #${idx + 2}...`}
+                                disabled={isAlreadyLiquidated}
+                                value={eqExtra.snInstalado}
+                                onChange={(e) => {
+                                  const val = e.target.value.toUpperCase();
+                                  setEquiposAdicionales((prev) =>
+                                    prev.map((it) => (it.id === eqExtra.id ? { ...it, snInstalado: val } : it))
+                                  );
+                                }}
+                                className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:bg-white font-bold disabled:bg-slate-100"
+                              />
+                              {!isAlreadyLiquidated && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    abrirEscaner(
+                                      `extra_instalado_${eqExtra.id}`,
+                                      `Escanear #${idx + 2} Instalado`,
+                                      `Apunta al código de barras del equipo #${idx + 2}`
+                                    )
+                                  }
+                                  className="px-2.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-xs"
+                                  title="Escanear con la cámara del celular"
+                                >
+                                  <Camera size={14} />
+                                  <span className="hidden sm:inline">Cámara</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block mb-1 text-slate-600 font-bold flex items-center justify-between text-xs">
+                              <span className="flex items-center gap-1">
+                                <ArrowDownLeft size={14} className="text-rose-600" />
+                                S/N #{idx + 2} Retirado (Recogido)
+                              </span>
+                              {!isAlreadyLiquidated && (
+                                <span className="text-[10px] text-rose-700 font-medium bg-rose-50 px-1.5 py-0.5 rounded">
+                                  Cámara o Digitar
+                                </span>
+                              )}
+                            </label>
+                            <div className="flex gap-1.5">
+                              <input
+                                type="text"
+                                placeholder={`Serie retirada #${idx + 2}...`}
+                                disabled={isAlreadyLiquidated}
+                                value={eqExtra.snRetirado}
+                                onChange={(e) => {
+                                  const val = e.target.value.toUpperCase();
+                                  setEquiposAdicionales((prev) =>
+                                    prev.map((it) => (it.id === eqExtra.id ? { ...it, snRetirado: val } : it))
+                                  );
+                                }}
+                                className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:bg-white font-bold text-rose-800 disabled:bg-slate-100"
+                              />
+                              {!isAlreadyLiquidated && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    abrirEscaner(
+                                      `extra_retirado_${eqExtra.id}`,
+                                      `Escanear #${idx + 2} Retirado`,
+                                      `Apunta al código del equipo recogido #${idx + 2}`
+                                    )
+                                  }
+                                  className="px-2.5 py-2 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-xs"
+                                  title="Escanear con la cámara del celular"
+                                >
+                                  <Camera size={14} />
+                                  <span className="hidden sm:inline">Cámara</span>
+                                </button>
+                              )}
+                            </div>
+                            {eqExtra.motivoRetiro && (
+                              <span className="text-[10px] text-slate-500 mt-1 block">Motivo: {eqExtra.motivoRetiro}</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* Botón para agregar otro equipo (ej: 2do Winbox / Mesh) */}
+                      {!isAlreadyLiquidated && (
+                        <div className="flex justify-end pt-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setEquiposAdicionales((prev) => [
+                                ...prev,
+                                {
+                                  id: Date.now().toString(),
+                                  snInstalado: "",
+                                  snRetirado: "",
+                                  motivoRetiro: "Cambio / Avería",
+                                },
+                              ])
+                            }
+                            className="px-3 py-1.5 bg-indigo-100/80 hover:bg-indigo-600 hover:text-white text-indigo-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-indigo-200 shadow-2xs active:scale-95"
+                          >
+                            <Plus size={14} />
+                            <span>+ Agregar otro equipo ({eqTipoNombre})</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    !isAlreadyLiquidated && (
+                      <div className="flex items-center justify-between p-3 bg-slate-50 border border-dashed border-slate-200 rounded-xl hover:bg-indigo-50/50 hover:border-indigo-200 transition-colors">
+                        <div className="flex items-center gap-2 text-slate-500 text-xs">
+                          <QrCode size={15} className="text-slate-400" />
+                          <span>¿Hubo cambio o instalación de equipo ({eqTipoNombre})?</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setMostrarEquiposManual(true)}
+                          className="px-2.5 py-1 bg-white hover:bg-indigo-600 hover:text-white text-indigo-600 border border-indigo-200 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer shadow-2xs active:scale-95"
+                        >
+                          <PlusCircle size={13} />
+                          <span>+ Registrar Equipo</span>
+                        </button>
+                      </div>
+                    )
+                  )}
+
+                  {/* Observaciones */}
+                  <div>
+                    <label className="block mb-1 text-slate-600 font-bold">Observaciones del Técnico</label>
+                    <textarea
+                      rows={2}
+                      disabled={isAlreadyLiquidated}
+                      value={observaciones}
+                      onChange={(e) => setObservaciones(e.target.value)}
+                      placeholder="Observaciones de campo..."
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none disabled:bg-slate-100 font-medium text-xs"
+                    />
+                  </div>
+
+                  {/* ─────────────────────────────────────────────────────────────
+                BOTONES DE ACCIÓN
+            ───────────────────────────────────────────────────────────── */}
+                  <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+                    {isAlreadyLiquidated ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => window.print()}
+                          className="px-5 py-2.5 rounded-2xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5"
+                        >
+                          🖨️ Imprimir Acta
+                        </button>
+                        <button
+                          type="button"
+                          onClick={onClose}
+                          className="px-6 py-2.5 rounded-2xl bg-slate-900 text-white hover:bg-slate-800 font-bold text-xs transition-all cursor-pointer"
+                        >
+                          Cerrar Auditoría
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={onClose}
+                          className="px-5 py-2.5 rounded-2xl text-slate-600 hover:bg-slate-100 font-bold transition-all cursor-pointer"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="submit"
+                          form="form-liquidacion-acta"
+                          onClick={(e) => {
+                            // Respaldo de seguridad si el navegador no propaga submit nativo
+                            if (!guardando) {
+                              const form = document.getElementById("form-liquidacion-acta") as HTMLFormElement;
+                              if (form && !form.checkValidity()) {
+                                form.reportValidity();
+                              }
+                            }
+                          }}
+                          disabled={guardando}
+                          className="px-6 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-black rounded-2xl shadow-lg shadow-orange-500/25 transition-all cursor-pointer disabled:opacity-50 flex items-center gap-2 hover:scale-[1.02] active:scale-[0.98]"
+                        >
+                          {guardando ? (
+                            <>
+                              <RefreshCw size={16} className="animate-spin" />
+                              Liquidando...
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 size={16} />
+                              Guardar Acta & Liquidar Orden
+                            </>
+                          )}
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                </form>
+              </div>
+
+              {/* ══════════════════════════════════════════════════════════
+            COLUMNA DERECHA: VISOR HD INTERACTIVO DEL ACTA DE CONFORMIDAD (5 Cols)
+            (SOLO ACTIVO EN VISTA DE ADMINISTRACIÓN / AUDITORÍA, NO EN CELULAR DEL TÉCNICO)
+        ══════════════════════════════════════════════════════════ */}
+              {shouldShowPhoto && (
+                <div className="lg:col-span-5 flex flex-col space-y-2 bg-slate-900/5 rounded-3xl p-3 border border-slate-200/90 self-start lg:sticky lg:top-0">
+
+                  {/* Toolbar de Controles Interactivos Elevada al Máximo */}
+                  <div className="flex items-center justify-between gap-1 p-2 bg-slate-900 text-white rounded-2xl shadow-md text-xs">
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <div className="w-6 h-6 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0">
+                        <ImageIcon size={13} />
+                      </div>
+                      <span className="font-extrabold text-[11px] text-slate-100 hidden sm:inline tracking-tight">
+                        Acta de Conformidad
+                      </span>
+                      <span className="px-1.5 py-0.2 rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-mono font-bold text-[9px]">
+                        HD
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-0.5 sm:gap-1">
+                      {/* Zoom Controls */}
+                      <button
+                        type="button"
+                        onClick={handleZoomIn}
+                        disabled={!fotoActaUrl}
+                        title="Acercar (+25%)"
+                        className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-200 hover:text-white transition-colors cursor-pointer disabled:opacity-40"
+                      >
+                        <ZoomIn size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleZoomOut}
+                        disabled={!fotoActaUrl}
+                        title="Alejar (-25%)"
+                        className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-200 hover:text-white transition-colors cursor-pointer disabled:opacity-40"
+                      >
+                        <ZoomOut size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleResetZoom}
+                        disabled={!fotoActaUrl}
+                        title="Restablecer tamaño (100%)"
+                        className="px-1.5 py-1 rounded-xl hover:bg-slate-800 text-[11px] font-mono font-bold text-indigo-300 transition-colors cursor-pointer disabled:opacity-40"
+                      >
+                        {Math.round(zoomLevel * 100)}%
+                      </button>
+
+                      <div className="h-3.5 w-px bg-slate-700/80 mx-0.5"></div>
+
+                      {/* Modo Lupa */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLupaActiva(!lupaActiva);
+                          if (!lupaActiva) {
+                            setZoomLevel(1);
+                            setPanPos({ x: 0, y: 0 });
+                          }
+                        }}
+                        disabled={!fotoActaUrl}
+                        title={lupaActiva ? "Desactivar Lente Lupa" : "Activar Lente Lupa (Aumento 2.5x al mover el cursor)"}
+                        className={`px-2 py-1 rounded-xl text-[11px] font-bold inline-flex items-center gap-1 transition-all cursor-pointer disabled:opacity-40 ${lupaActiva
+                          ? "bg-indigo-500 text-white shadow-xs font-black ring-1 ring-white/50"
+                          : "bg-slate-800 hover:bg-slate-700 text-slate-300"
+                          }`}
+                      >
+                        <Search size={12} />
+                        <span>{lupaActiva ? "Lupa ON" : "Lupa"}</span>
+                      </button>
+
+                      {/* Girar */}
+                      <button
+                        type="button"
+                        onClick={handleRotate}
+                        disabled={!fotoActaUrl}
+                        title="Girar 90 grados"
+                        className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-200 hover:text-white transition-colors cursor-pointer disabled:opacity-40"
+                      >
+                        <RotateCw size={14} />
+                      </button>
+
+                      {/* Descargar */}
+                      <button
+                        type="button"
+                        onClick={handleDownloadFoto}
+                        disabled={!fotoActaUrl}
+                        title="Descargar fotografía en alta resolución"
+                        className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-200 hover:text-white transition-colors cursor-pointer disabled:opacity-40"
+                      >
+                        <Download size={14} />
+                      </button>
+
+                      {/* Pantalla Completa */}
+                      <button
+                        type="button"
+                        onClick={() => setFotoFullscreen(true)}
+                        disabled={!fotoActaUrl}
+                        title="Expandir a Pantalla Completa"
+                        className="p-1.5 rounded-xl hover:bg-slate-800 text-indigo-300 hover:text-white transition-colors cursor-pointer disabled:opacity-40"
+                      >
+                        <Maximize2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Viewport Interactivo de la Fotografía */}
+                  <div
+                    ref={imgWrapperRef}
+                    onWheel={handleWheel}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onMouseLeave={handleMouseUp}
+                    onDoubleClick={() => setZoomLevel((z) => (z > 1 ? 1 : 2))}
+                    className={`relative w-full h-[580px] sm:h-[640px] xl:h-[680px] bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 select-none flex items-center justify-center ${lupaActiva ? "cursor-crosshair" : zoomLevel > 1 ? (isDragging ? "cursor-grabbing" : "cursor-grab") : "cursor-default"
+                      }`}
+                  >
+                    {fotoActaLoading ? (
+                      <div className="flex flex-col items-center justify-center p-6 text-center space-y-3">
+                        <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-400/30 flex items-center justify-center animate-pulse">
+                          <Loader2 size={24} className="animate-spin text-amber-400" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-bold text-white">
+                            Descargando Acta Original en Alta Resolución...
+                          </p>
+                          <p className="text-[11px] text-slate-400 max-w-xs">
+                            Conectando con el servidor oficial de Fénix (WIN) para obtener la fotografía nítida con sello y firmas.
+                          </p>
+                        </div>
+                      </div>
+                    ) : fotoActaError ? (
+                      <div className="flex flex-col items-center justify-center p-6 text-center space-y-3">
+                        <div className="w-12 h-12 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-400/30 flex items-center justify-center">
+                          <AlertTriangle size={24} />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-bold text-rose-300">
+                            {fotoActaError}
+                          </p>
+                          <p className="text-[11px] text-slate-400 max-w-xs">
+                            Verifique si el técnico ya subió la fotografía del acta de cierre en la tarea finalizada.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={cargarFotoActa}
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <RefreshCw size={13} />
+                          <span>Reintentar</span>
+                        </button>
+                      </div>
+                    ) : fotoActaUrl ? (
+                      <>
+                        {/* Imagen Principal con Zoom y Pan */}
+                        <img
+                          ref={imgRef}
+                          src={fotoActaUrl}
+                          alt="Acta de Conformidad"
+                          draggable={false}
+                          style={{
+                            transform: `translate(${panPos.x}px, ${panPos.y}px) scale(${zoomLevel}) rotate(${rotation}deg)`,
+                            transition: isDragging ? "none" : "transform 0.15s ease-out",
+                            maxWidth: "94%",
+                            maxHeight: "94%",
+                            objectFit: "contain"
+                          }}
+                          className="shadow-2xl pointer-events-none rounded-lg"
+                        />
+
+                        {/* Lente Lupa Flotante (Magnifier Lens 2.5x) */}
+                        {lupaActiva && (
+                          <div
+                            style={{
+                              left: `${lupaPos.x - 90}px`,
+                              top: `${lupaPos.y - 90}px`,
+                              backgroundImage: `url(${fotoActaUrl})`,
+                              backgroundPosition: `${lupaPos.relX}% ${lupaPos.relY}%`,
+                              backgroundSize: "280%",
+                              backgroundRepeat: "no-repeat"
+                            }}
+                            className="w-44 h-44 rounded-full border-3 border-amber-400 shadow-[0_0_25px_rgba(245,158,11,0.6)] pointer-events-none absolute overflow-hidden z-30 ring-4 ring-black/40"
+                          >
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <div className="w-3 h-3 border border-amber-300/60 rounded-full"></div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Barra Inferior de Ayuda y Tips */}
+                        <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between px-3 py-1.5 bg-slate-900/80 backdrop-blur-xs text-white rounded-xl border border-white/10 text-[10px] pointer-events-none">
+                          <span className="font-mono font-bold text-amber-300">
+                            Zoom: {Math.round(zoomLevel * 100)}% {rotation !== 0 ? `• Giro: ${rotation}°` : ""}
+                          </span>
+                          <span className="text-slate-400 hidden sm:inline">
+                            Rueda: Zoom • Doble clic: Alternar • Arrastrar: Mover
+                          </span>
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+
+                </div>
+              )}
+
+            </div>
+          )}
+        </div>
+
+        {/* ─────────────────────────────────────────────────────────────
+      ALARMA / EMERGENTE: NÚMERO DE ACTA FÍSICA OBLIGATORIO
+  ───────────────────────────────────────────────────────────── */}
+        {alertaActaVisible && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-fade-in">
+            <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border-2 border-rose-500 text-center space-y-4 animate-bounce">
+              <div className="w-16 h-16 rounded-full bg-rose-100 text-rose-600 border-4 border-rose-200 flex items-center justify-center mx-auto shadow-lg shadow-rose-500/20">
+                <ShieldAlert size={36} className="animate-pulse" />
+              </div>
+
+              <div className="space-y-1.5">
+                <h3 className="text-base font-black text-rose-900 uppercase tracking-tight">
+                  🚨 ¡Número de Acta Obligatorio!
+                </h3>
+                <p className="text-xs text-slate-600 font-semibold leading-relaxed">
+                  Por regla de negocio, <strong>no se puede liquidar la orden</strong> sin ingresar el número correlativo del <strong>Acta de Servicio Técnico física</strong>.
+                </p>
+              </div>
+
+              <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 text-xs text-amber-900 font-bold">
+                👉 Ingresa el número de acta (ej: <strong>001-04235</strong>) en la parte superior del formulario.
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setAlertaActaVisible(false);
+                  if (actaInputRef.current) {
+                    actaInputRef.current.focus();
+                  }
+                }}
+                className="w-full py-3 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-700 hover:to-red-700 text-white rounded-2xl font-black text-xs shadow-lg shadow-rose-600/30 transition-all cursor-pointer active:scale-95"
+              >
+                Entendido / Ingresar Número de Acta
+              </button>
+            </div>
           </div>
         )}
 
-      </div>
-    )}
-  </div>
-
-  {/* ─────────────────────────────────────────────────────────────
-      ALARMA / EMERGENTE: NÚMERO DE ACTA FÍSICA OBLIGATORIO
-  ───────────────────────────────────────────────────────────── */}
-  {alertaActaVisible && (
-    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-fade-in">
-      <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border-2 border-rose-500 text-center space-y-4 animate-bounce">
-        <div className="w-16 h-16 rounded-full bg-rose-100 text-rose-600 border-4 border-rose-200 flex items-center justify-center mx-auto shadow-lg shadow-rose-500/20">
-          <ShieldAlert size={36} className="animate-pulse" />
-        </div>
-
-        <div className="space-y-1.5">
-          <h3 className="text-base font-black text-rose-900 uppercase tracking-tight">
-            🚨 ¡Número de Acta Obligatorio!
-          </h3>
-          <p className="text-xs text-slate-600 font-semibold leading-relaxed">
-            Por regla de negocio, <strong>no se puede liquidar la orden</strong> sin ingresar el número correlativo del <strong>Acta de Servicio Técnico física</strong>.
-          </p>
-        </div>
-
-        <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 text-xs text-amber-900 font-bold">
-          👉 Ingresa el número de acta (ej: <strong>001-04235</strong>) en la parte superior del formulario.
-        </div>
-
-        <button
-          type="button"
-          onClick={() => {
-            setAlertaActaVisible(false);
-            if (actaInputRef.current) {
-              actaInputRef.current.focus();
-            }
-          }}
-          className="w-full py-3 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-700 hover:to-red-700 text-white rounded-2xl font-black text-xs shadow-lg shadow-rose-600/30 transition-all cursor-pointer active:scale-95"
-        >
-          Entendido / Ingresar Número de Acta
-        </button>
-      </div>
-    </div>
-  )}
-
-  {/* ─────────────────────────────────────────────────────────────
+        {/* ─────────────────────────────────────────────────────────────
       MODAL FULLSCREEN DE FOTOGRAFÍA EN ALTA RESOLUCIÓN
   ───────────────────────────────────────────────────────────── */}
-  {shouldShowPhoto && fotoFullscreen && fotoActaUrl && (
-    <div className="fixed inset-0 z-70 bg-black/95 flex flex-col p-4 animate-fade-in">
-      <div className="flex items-center justify-between pb-3 border-b border-white/10 text-white">
-        <div className="flex items-center gap-3">
-          <span className="font-black text-sm text-amber-400 font-mono">
-            Orden #{numeroOrdenStr}
-          </span>
-          <span className="text-xs text-slate-300 font-bold">
-            Acta de Conformidad HD
-          </span>
-          <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-mono text-[10px] font-bold">
-            HD 100%
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleDownloadFoto}
-            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white transition-colors cursor-pointer"
-            title="Descargar imagen"
-          >
-            <Download size={16} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setFotoFullscreen(false)}
-            className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
-            title="Salir de pantalla completa"
-          >
-            <X size={18} />
-          </button>
-        </div>
-      </div>
-      <div className="flex-1 flex items-center justify-center overflow-hidden p-2">
-        <img
-          src={fotoActaUrl}
-          alt="Acta Fullscreen"
-          style={{
-            transform: `rotate(${rotation}deg)`,
-            maxHeight: "92vh",
-            maxWidth: "92vw",
-            objectFit: "contain"
-          }}
-          className="rounded-xl shadow-2xl"
-        />
-      </div>
-    </div>
-  )}
-
-  {/* ─────────────────────────────────────────────────────────────
-      MODAL EMERGENTE: ANULAR ACTA FÍSICA (ROTA, DAÑADA, ERROR)
-  ───────────────────────────────────────────────────────────── */}
-  {modalAnularActaAbierto && (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-fade-in">
-      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden space-y-4">
-        
-        {/* Encabezado */}
-        <div className="p-4 bg-gradient-to-r from-rose-50 to-orange-50 border-b border-rose-200/80 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-2xl bg-rose-600 text-white flex items-center justify-center shadow-md shadow-rose-600/30">
-              <Trash2 size={18} />
-            </div>
-            <div>
-              <h3 className="text-sm font-black text-rose-950">Anular Acta Física</h3>
-              <p className="text-[11px] text-rose-800 font-medium">Invalida este número y quémalo del talonario</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setModalAnularActaAbierto(false)}
-            className="p-1.5 rounded-xl bg-white/80 hover:bg-white text-slate-500 hover:text-slate-800 transition-all cursor-pointer border border-rose-200"
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        {/* Formulario */}
-        <div className="p-5 space-y-3.5">
-          {/* Selector / Input de Acta */}
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-700 block">
-              Número de Acta a Anular:
-            </label>
-            <div className="space-y-1.5">
-              <select
-                value={actaParaAnular}
-                onChange={(e) => setActaParaAnular(e.target.value)}
-                className="w-full p-2.5 text-xs rounded-xl border border-rose-300 font-mono font-bold text-slate-900 bg-rose-50/30 focus:border-rose-600"
-              >
-                <option value="">-- Seleccionar de mis actas asignadas ({guiasStockInfo.length}) --</option>
-                {guiasStockInfo.map((g) => (
-                  <option key={g.serieCompleta} value={g.serieCompleta}>
-                    {g.serieCompleta} (Asignada en mi talonario)
-                  </option>
-                ))}
-              </select>
-
-              <div className="text-[11px] text-slate-500 flex items-center gap-1">
-                <span>O digita el número:</span>
-                <input
-                  type="text"
-                  placeholder="001-XXXXX"
-                  value={actaParaAnular}
-                  onChange={(e) => setActaParaAnular(e.target.value.toUpperCase())}
-                  className="p-1 px-2 text-xs font-mono font-bold border border-slate-300 rounded-lg w-28 bg-white uppercase"
-                />
+        {shouldShowPhoto && fotoFullscreen && fotoActaUrl && (
+          <div className="fixed inset-0 z-70 bg-black/95 flex flex-col p-4 animate-fade-in">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10 text-white">
+              <div className="flex items-center gap-3">
+                <span className="font-black text-sm text-amber-400 font-mono">
+                  Orden #{numeroOrdenStr}
+                </span>
+                <span className="text-xs text-slate-300 font-bold">
+                  Acta de Conformidad HD
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-mono text-[10px] font-bold">
+                  HD 100%
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleDownloadFoto}
+                  className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white transition-colors cursor-pointer"
+                  title="Descargar imagen"
+                >
+                  <Download size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFotoFullscreen(false)}
+                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                  title="Salir de pantalla completa"
+                >
+                  <X size={18} />
+                </button>
               </div>
             </div>
+            <div className="flex-1 flex items-center justify-center overflow-hidden p-2">
+              <img
+                src={fotoActaUrl}
+                alt="Acta Fullscreen"
+                style={{
+                  transform: `rotate(${rotation}deg)`,
+                  maxHeight: "92vh",
+                  maxWidth: "92vw",
+                  objectFit: "contain"
+                }}
+                className="rounded-xl shadow-2xl"
+              />
+            </div>
           </div>
+        )}
 
-          {/* Motivo */}
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-700 block">
-              Motivo de Anulación:
-            </label>
-            <select
-              value={motivoAnulacion}
-              onChange={(e) => setMotivoAnulacion(e.target.value)}
-              className="w-full p-2.5 text-xs rounded-xl border border-slate-300 font-semibold text-slate-900 bg-white"
-            >
-              <option value="Error de llenado">Error de llenado (datos erróneos)</option>
-              <option value="Hoja rota / Daño físico">Hoja rota / Daño físico</option>
-              <option value="Mancha de tinta / Ilegible">Mancha de tinta / Ilegible</option>
-              <option value="Tachón o borrón no admisible">Tachón o borrón no admisible</option>
-              <option value="Falla de impresión del talonario">Falla de impresión del talonario</option>
-              <option value="Otro motivo técnico">Otro motivo técnico</option>
-            </select>
-          </div>
+        {/* ─────────────────────────────────────────────────────────────
+      MODAL EMERGENTE: ANULAR ACTA FÍSICA (ROTA, DAÑADA, ERROR)
+  ───────────────────────────────────────────────────────────── */}
+        {modalAnularActaAbierto && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-fade-in">
+            <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden space-y-4">
 
-          {/* Adjuntar foto opcional del acta rota / tachada */}
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-700 block">
-              Foto del Acta Dañada / Tachada (Opcional):
-            </label>
-            <input
-              ref={fileInputFotoAnuladaRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) {
-                  const reader = new FileReader();
-                  reader.onloadend = () => {
-                    setFotoAnulacion(reader.result as string);
-                  };
-                  reader.readAsDataURL(file);
-                }
-              }}
-            />
-
-            {fotoAnulacion ? (
-              <div className="relative p-2 rounded-2xl bg-slate-50 border border-slate-200 flex items-center gap-2">
-                <img src={fotoAnulacion} alt="Acta Anulada" className="w-14 h-14 object-cover rounded-xl border border-slate-200" />
-                <div className="flex-1 text-[11px] text-slate-600 font-medium">
-                  <span className="font-bold text-emerald-700 block">✓ Foto adjuntada</span>
-                  Comprobante visual del acta inutilizada
+              {/* Encabezado */}
+              <div className="p-4 bg-gradient-to-r from-rose-50 to-orange-50 border-b border-rose-200/80 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-2xl bg-rose-600 text-white flex items-center justify-center shadow-md shadow-rose-600/30">
+                    <Trash2 size={18} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-rose-950">Anular Acta Física</h3>
+                    <p className="text-[11px] text-rose-800 font-medium">Invalida este número y quémalo del talonario</p>
+                  </div>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setFotoAnulacion(null)}
-                  className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                  onClick={() => setModalAnularActaAbierto(false)}
+                  className="p-1.5 rounded-xl bg-white/80 hover:bg-white text-slate-500 hover:text-slate-800 transition-all cursor-pointer border border-rose-200"
                 >
                   <X size={16} />
                 </button>
               </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => fileInputFotoAnuladaRef.current?.click()}
-                className="w-full py-2.5 border-2 border-dashed border-slate-300 hover:border-rose-400 rounded-2xl text-slate-600 text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer bg-slate-50/50 hover:bg-rose-50/30"
-              >
-                <Camera size={15} className="text-slate-500" />
-                <span>Tomar / Subir Foto del Acta Rota</span>
-              </button>
-            )}
-          </div>
 
-          <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-[11px] text-amber-900 space-y-1">
-            <span className="font-black flex items-center gap-1">
-              <AlertTriangle size={13} className="text-amber-700" /> Importante:
-            </span>
-            <p>
-              Al anular esta acta, saldrá de tu stock móvil y quedará registrada en el reporte de <strong>Actas Anuladas</strong> en Almacén Central para la liquidación física del talonario. Podrás usar la siguiente acta correlativa sin trabas.
-            </p>
-          </div>
-        </div>
+              {/* Formulario */}
+              <div className="p-5 space-y-3.5">
+                {/* Selector / Input de Acta */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Número de Acta a Anular:
+                  </label>
+                  <div className="space-y-1.5">
+                    <select
+                      value={actaParaAnular}
+                      onChange={(e) => setActaParaAnular(e.target.value)}
+                      className="w-full p-2.5 text-xs rounded-xl border border-rose-300 font-mono font-bold text-slate-900 bg-rose-50/30 focus:border-rose-600"
+                    >
+                      <option value="">-- Seleccionar de mis actas asignadas ({guiasStockInfo.length}) --</option>
+                      {guiasStockInfo.map((g) => (
+                        <option key={g.serieCompleta} value={g.serieCompleta}>
+                          {g.serieCompleta} (Asignada en mi talonario)
+                        </option>
+                      ))}
+                    </select>
 
-        {/* Footer */}
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={() => setModalAnularActaAbierto(false)}
-            className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs cursor-pointer hover:bg-white"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={handleConfirmarAnularActa}
-            disabled={anulandoActa || !actaParaAnular.trim()}
-            className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md shadow-rose-600/30 flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {anulandoActa ? (
-              <>
-                <Loader2 size={13} className="animate-spin" />
-                <span>Anulando...</span>
-              </>
-            ) : (
-              <>
-                <Trash2 size={13} />
-                <span>Confirmar Anulación</span>
-              </>
-            )}
-          </button>
-        </div>
+                    <div className="text-[11px] text-slate-500 flex items-center gap-1">
+                      <span>O digita el número:</span>
+                      <input
+                        type="text"
+                        placeholder="001-XXXXX"
+                        value={actaParaAnular}
+                        onChange={(e) => setActaParaAnular(e.target.value.toUpperCase())}
+                        className="p-1 px-2 text-xs font-mono font-bold border border-slate-300 rounded-lg w-28 bg-white uppercase"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Motivo */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Motivo de Anulación:
+                  </label>
+                  <select
+                    value={motivoAnulacion}
+                    onChange={(e) => setMotivoAnulacion(e.target.value)}
+                    className="w-full p-2.5 text-xs rounded-xl border border-slate-300 font-semibold text-slate-900 bg-white"
+                  >
+                    <option value="Error de llenado">Error de llenado (datos erróneos)</option>
+                    <option value="Hoja rota / Daño físico">Hoja rota / Daño físico</option>
+                    <option value="Mancha de tinta / Ilegible">Mancha de tinta / Ilegible</option>
+                    <option value="Tachón o borrón no admisible">Tachón o borrón no admisible</option>
+                    <option value="Falla de impresión del talonario">Falla de impresión del talonario</option>
+                    <option value="Otro motivo técnico">Otro motivo técnico</option>
+                  </select>
+                </div>
+
+                {/* Adjuntar foto opcional del acta rota / tachada */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Foto del Acta Dañada / Tachada (Opcional):
+                  </label>
+                  <input
+                    ref={fileInputFotoAnuladaRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          setFotoAnulacion(reader.result as string);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                  />
+
+                  {fotoAnulacion ? (
+                    <div className="relative p-2 rounded-2xl bg-slate-50 border border-slate-200 flex items-center gap-2">
+                      <img src={fotoAnulacion} alt="Acta Anulada" className="w-14 h-14 object-cover rounded-xl border border-slate-200" />
+                      <div className="flex-1 text-[11px] text-slate-600 font-medium">
+                        <span className="font-bold text-emerald-700 block">✓ Foto adjuntada</span>
+                        Comprobante visual del acta inutilizada
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setFotoAnulacion(null)}
+                        className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => fileInputFotoAnuladaRef.current?.click()}
+                      className="w-full py-2.5 border-2 border-dashed border-slate-300 hover:border-rose-400 rounded-2xl text-slate-600 text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer bg-slate-50/50 hover:bg-rose-50/30"
+                    >
+                      <Camera size={15} className="text-slate-500" />
+                      <span>Tomar / Subir Foto del Acta Rota</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-[11px] text-amber-900 space-y-1">
+                  <span className="font-black flex items-center gap-1">
+                    <AlertTriangle size={13} className="text-amber-700" /> Importante:
+                  </span>
+                  <p>
+                    Al anular esta acta, saldrá de tu stock móvil y quedará registrada en el reporte de <strong>Actas Anuladas</strong> en Almacén Central para la liquidación física del talonario. Podrás usar la siguiente acta correlativa sin trabas.
+                  </p>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModalAnularActaAbierto(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs cursor-pointer hover:bg-white"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmarAnularActa}
+                  disabled={anulandoActa || !actaParaAnular.trim()}
+                  className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md shadow-rose-600/30 flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {anulandoActa ? (
+                    <>
+                      <Loader2 size={13} className="animate-spin" />
+                      <span>Anulando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 size={13} />
+                      <span>Confirmar Anulación</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* ─────────────────────────────────────────────────────────────
+      MODAL DE ESCANEO POR CÁMARA MÓVIL (CÓDIGO DE BARRAS & QR)
+  ───────────────────────────────────────────────────────────── */}
+        <CameraBarcodeScannerModal
+          isOpen={scannerOpen}
+          onClose={() => setScannerOpen(false)}
+          onScan={handleScanResult}
+          title={scannerTitle}
+          subtitle={scannerSubtitle}
+        />
 
       </div>
     </div>
-  )}
-
-  {/* ─────────────────────────────────────────────────────────────
-      MODAL DE ESCANEO POR CÁMARA MÓVIL (CÓDIGO DE BARRAS & QR)
-  ───────────────────────────────────────────────────────────── */}
-  <CameraBarcodeScannerModal
-    isOpen={scannerOpen}
-    onClose={() => setScannerOpen(false)}
-    onScan={handleScanResult}
-    title={scannerTitle}
-    subtitle={scannerSubtitle}
-  />
-
-</div>
-</div>
-);
+  );
 };
 
 export default TechnicalActModal;

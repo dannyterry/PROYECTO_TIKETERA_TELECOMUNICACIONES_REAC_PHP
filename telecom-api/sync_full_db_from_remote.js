@@ -6,6 +6,7 @@ const REMOTE_CONFIG = {
   password: 'corporacioncespe_123',
   database: 'corporacioncespe_cespedes',
   dateStrings: true,
+  timezone: '-05:00',
   connectTimeout: 60000,
   waitForConnections: true,
   connectionLimit: 5,
@@ -20,6 +21,7 @@ const LOCAL_CONFIG = {
   password: '',
   database: 'corporacioncespe_cespedes',
   dateStrings: true,
+  timezone: '-05:00',
   multipleStatements: true,
   waitForConnections: true,
   connectionLimit: 10,
@@ -32,6 +34,7 @@ async function syncAllDatabase() {
   console.log('🔄 SINCRONIZACIÓN COMPLETA Y ROBUSTA: HOSTING ➔ LOCAL');
   console.log('📡 Origen: corporacioncespedes.com (corporacioncespe_cespedes)');
   console.log('💻 Destino: 127.0.0.1:3306 (corporacioncespe_cespedes)');
+  console.log('🇵🇪 Zona Horaria forzada: América/Lima (-05:00 Perú)');
   console.log('================================================================\n');
 
   let remotePool, localConn;
@@ -39,6 +42,10 @@ async function syncAllDatabase() {
   try {
     console.log('🔌 Conectando a ambos servidores...');
     remotePool = mysql.createPool(REMOTE_CONFIG);
+    remotePool.on('connection', (c) => {
+      c.query("SET time_zone = '-05:00'");
+    });
+
     const localPool = mysql.createPool(LOCAL_CONFIG);
 
     localConn = await localPool.getConnection();
@@ -48,7 +55,8 @@ async function syncAllDatabase() {
     await localConn.query('SELECT 1');
     console.log('✅ Conexión con MySQL Local establecida.\n');
 
-    // 🔒 Desactivar completamente validaciones de claves foráneas y modo estricto en la conexión local
+    // 🔒 Desactivar completamente validaciones de claves foráneas y fijar zona horaria Perú en la conexión local
+    await localConn.query("SET time_zone = '-05:00';");
     await localConn.query('SET FOREIGN_KEY_CHECKS = 0;');
     await localConn.query('SET UNIQUE_CHECKS = 0;');
     await localConn.query('SET SQL_MODE = "";');

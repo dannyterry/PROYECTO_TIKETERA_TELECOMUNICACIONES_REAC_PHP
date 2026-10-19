@@ -8822,6 +8822,11 @@ app.get('/api/almacen/kardex-movimientos', async (req, res) => {
 
     movs.forEach(m => {
       if (m.referencia) {
+        const matchTecId = m.referencia.match(/(?:Técnico|Tecnico|Cuadrilla)\s*#(\d+)/i);
+        if (matchTecId && matchTecId[1]) {
+          m.id_trabajador = Number(matchTecId[1]);
+        }
+
         m.referencia = m.referencia.replace(/(?:Técnico|Tecnico|Cuadrilla)\s*#(\d+)/gi, (match, id) => {
           const w = workerMap.get(String(id));
           if (w && w.nombre_completo) {
@@ -8864,6 +8869,7 @@ app.get('/api/almacen/kardex-movimientos', async (req, res) => {
         'ORDEN_CAMPO' AS origen,
         old.id_detalle_liq AS id_movimiento,
         old.id_producto,
+        ol.id_trabajador,
         p.codigo AS producto_codigo,
         p.nombre AS producto_nombre,
         p.es_drop,
@@ -8874,7 +8880,11 @@ app.get('/api/almacen/kardex-movimientos', async (req, res) => {
         old.cantidad,
         COALESCE(old.numero_serie, '') AS numero_serie,
         '' AS codigo_serie,
-        CONCAT('Descargo en Orden #', COALESCE(o.numero, old.id_liquidacion), ' - Técnico: ', TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, '')))) AS referencia,
+        CONCAT(
+          'Descargo en Orden #', COALESCE(o.numero, old.id_liquidacion),
+          ' - Técnico: ', TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))),
+          IF(COALESCE(u.cuadrilla, '') != '', CONCAT(' (', u.cuadrilla, ')'), '')
+        ) AS referencia,
         ol.fecha_liquidacion AS fecha
       FROM orden_liquidacion_detalle old
       JOIN orden_liquidaciones ol ON old.id_liquidacion = ol.id_liquidacion
@@ -8908,8 +8918,14 @@ app.get('/api/almacen/kardex-movimientos', async (req, res) => {
         const nomTec = (uInfo.nombre || '').toUpperCase();
         const userTec = (uInfo.usuario || '').toUpperCase();
         const nomSimple = `${(uInfo.nombres || '').split(' ')[0]} ${(uInfo.primer_apellido || '').split(' ')[0]}`.trim().toUpperCase();
+        const apellidoPart = (uInfo.primer_apellido || '').split(' ')[0].toUpperCase();
 
         unificados = unificados.filter(m => {
+          // Si tiene id_trabajador coincidente
+          if (m.id_trabajador && Number(m.id_trabajador) === Number(idTrabajador)) return true;
+          // Si proviene de ordenes de campo y ya fue filtrado en la consulta SQL por ol.id_trabajador = ?
+          if (m.origen === 'ORDEN_CAMPO') return true;
+
           const refUpper = (m.referencia || '').toUpperCase();
           return refUpper.includes(`TÉCNICO #${idTrabajador}`) || 
                  refUpper.includes(`TECNICO #${idTrabajador}`) || 
@@ -8917,7 +8933,8 @@ app.get('/api/almacen/kardex-movimientos', async (req, res) => {
                  refUpper.includes(`CUADRILLA #${idTrabajador}`) ||
                  (nomTec && refUpper.includes(nomTec)) ||
                  (userTec && refUpper.includes(userTec)) ||
-                 (nomSimple.length > 4 && refUpper.includes(nomSimple));
+                 (nomSimple.length > 4 && refUpper.includes(nomSimple)) ||
+                 (apellidoPart.length >= 4 && refUpper.includes(apellidoPart));
         });
       }
     }
@@ -9096,7 +9113,7 @@ app.post('/api/almacen/actas/anular', async (req, res) => {
     const cleanActa = String(numero_acta).trim();
     const matchPrefAnul = cleanActa.match(/^([A-Z0-9]+)[-–\s]+([0-9]+)$/i);
     const prefAnul = matchPrefAnul ? matchPrefAnul[1] : '001';
-    const sufAnul = matchPrefAnul ? matchPrefAnul[2] : cleanActa.replace(/^[A-Z0-9]+[-–]?/i, '').trim();
+    const sufAnul = matchPrefAnul ? matchPrefAnul[2] : cleanActa.replace(/^[A-Z0-9]+[-–]/i, '').trim();
     const numIntAnul = parseInt(sufAnul, 10);
     const sufSinCerosAnul = !isNaN(numIntAnul) ? String(numIntAnul) : sufAnul;
     const sufPad5Anul = !isNaN(numIntAnul) ? String(numIntAnul).padStart(5, '0') : sufAnul;
@@ -9178,7 +9195,7 @@ app.post('/api/almacen/actas/anular', async (req, res) => {
         SELECT id_producto_serie, id_producto FROM producto_series 
         WHERE numero_serie = ? OR numero_serie = ? OR numero_serie = ?
         LIMIT 1
-      `, [cleanActa, cleanSufijo, formatoCompleto]);
+      `, [cleanActa, sufAnul, formatoCompleto]);
 
       if (psGeneral.length > 0) {
         idProductoSerie = psGeneral[0].id_producto_serie;
@@ -10094,7 +10111,15 @@ app.get('/api/almacen/ordenes-pendientes-tecnico/:idTrabajador', async (req, res
         o.id_orden,
         o.numero,
         o.numero AS numero_orden,
-        COALESCE(o.tipo_trabajo_asignado, o.tipo_trabajo, 'VISITA EXTERNA') AS tipo_trabajo,
+        CASE 
+          WHEN o.motivo_finalizacion IS NOT NULL AND TRIM(o.motivo_finalizacion) <> '' AND UPPER(TRIM(o.motivo_finalizacion)) NOT IN ('REASIGNACION', 'REGESTION', 'REITERADA', 'LOS ROJO', 'AVERIAS') THEN TRIM(o.motivo_finalizacion)
+          WHEN o.tipo_trabajo_asignado IS NOT NULL AND TRIM(o.tipo_trabajo_asignado) <> '' AND UPPER(TRIM(o.tipo_trabajo_asignado)) NOT IN ('LOS ROJO', 'AVERIAS') THEN TRIM(o.tipo_trabajo_asignado)
+          WHEN o.tipo_trabajo IS NOT NULL AND TRIM(o.tipo_trabajo) <> '' THEN TRIM(o.tipo_trabajo)
+          ELSE 'VISITA EXTERNA'
+        END AS tipo_trabajo,
+        o.motivo_finalizacion,
+        o.tipo_trabajo_asignado,
+        o.motivo_trabajo,
         o.tipo_trabajo AS tipo_trabajo_original,
         COALESCE(o.cliente, 'Cliente no especificado') AS cliente,
         COALESCE(o.direccion, '') AS direccion,
@@ -10238,7 +10263,7 @@ app.post(['/api/almacen/orden-liquidaciones/:id/resetear', '/almacen/orden-liqui
     if (actaNum && idTrabajador) {
       const matchP = String(actaNum).trim().match(/^([A-Z0-9]+)[-–\s]+([0-9]+)$/i);
       const prefA = matchP ? matchP[1] : '001';
-      const sufA = matchP ? matchP[2] : String(actaNum).trim().replace(/^[A-Z0-9]+[-–]?/i, '');
+      const sufA = matchP ? matchP[2] : String(actaNum).trim().replace(/^[A-Z0-9]+[-–]/i, '');
       const numInt = parseInt(sufA, 10);
       const sufSinCeros = !isNaN(numInt) ? String(numInt) : sufA;
       const sufPad5 = !isNaN(numInt) ? String(numInt).padStart(5, '0') : sufA;
@@ -10436,7 +10461,7 @@ app.put('/api/almacen/orden-liquidaciones/:id/cambiar-producto', async (req, res
   const connection = await pool.getConnection();
   try {
     const idLiquidacion = req.params.id;
-    const { id_detalle_liq, nuevo_id_producto, nueva_cantidad, nuevo_numero_serie, motivo } = req.body || {};
+    const { id_detalle_liq, nuevo_id_producto, nueva_cantidad, nuevo_numero_serie, motivo, drop_inicio, drop_fin } = req.body || {};
 
     if (!id_detalle_liq || !nuevo_id_producto) {
       return res.status(400).json({ success: false, error: 'Faltan parámetros requeridos (id_detalle_liq, nuevo_id_producto).' });
@@ -10588,11 +10613,34 @@ app.put('/api/almacen/orden-liquidaciones/:id/cambiar-producto', async (req, res
     }
 
     // 5. Actualizar el detalle de liquidación
+    const dropIniVal = drop_inicio !== undefined && drop_inicio !== null && drop_inicio !== '' ? parseInt(drop_inicio, 10) : null;
+    const dropFinVal = drop_fin !== undefined && drop_fin !== null && drop_fin !== '' ? parseInt(drop_fin, 10) : null;
+
     await connection.query(`
       UPDATE orden_liquidacion_detalle 
-      SET id_producto = ?, cantidad = ?, numero_serie = ?
+      SET id_producto = ?, cantidad = ?, numero_serie = ?, drop_inicio = ?, drop_fin = ?
       WHERE id_detalle_liq = ?
-    `, [nuevo_id_producto, nCant, finalNuevaSerie, id_detalle_liq]);
+    `, [nuevo_id_producto, nCant, finalNuevaSerie, dropIniVal, dropFinVal, id_detalle_liq]);
+
+    // 5.1 Si el nuevo producto es drop, recalibrar metraje en orden_liquidaciones
+    const esNuevoDrop = Boolean(nuevoProd.es_drop) || String(nuevoProd.nombre || '').toUpperCase().includes('DROP') || String(nuevoProd.nombre || '').toUpperCase().includes('BOBINA');
+    if (esNuevoDrop) {
+      await connection.query(`
+        UPDATE orden_liquidaciones 
+        SET drop_metro_inicio = COALESCE(?, drop_metro_inicio),
+            drop_metro_fin = COALESCE(?, drop_metro_fin),
+            drop_total_metros = COALESCE(drop_total_metros, 0) + ?
+        WHERE id_liquidacion = ?
+      `, [dropIniVal, dropFinVal, nCant, idLiquidacion]);
+
+      if (det.id_orden) {
+        await connection.query(`
+          UPDATE ordenes 
+          SET drop_metros = COALESCE(drop_metros, 0) + ?
+          WHERE id_orden = ?
+        `, [nCant, det.id_orden]);
+      }
+    }
 
     // 6. Registrar en auditoría
     try {
@@ -10630,7 +10678,7 @@ app.post('/api/almacen/orden-liquidaciones/:id/agregar-material', async (req, re
   const connection = await pool.getConnection();
   try {
     const idLiquidacion = req.params.id;
-    const { id_producto, cantidad, numero_serie, motivo, equipo_retirado } = req.body || {};
+    const { id_producto, cantidad, numero_serie, motivo, equipo_retirado, drop_inicio, drop_fin } = req.body || {};
 
     if (!id_producto || !cantidad) {
       return res.status(400).json({ success: false, error: 'Debe seleccionar un producto y una cantidad.' });
@@ -10750,11 +10798,34 @@ app.post('/api/almacen/orden-liquidaciones/:id/agregar-material', async (req, re
       }
     }
 
-    // 4. Insertar en orden_liquidacion_detalle
+    // 4. Insertar en orden_liquidacion_detalle con soporte para drop_inicio y drop_fin
+    const dropIniVal = drop_inicio !== undefined && drop_inicio !== null && drop_inicio !== '' ? parseInt(drop_inicio, 10) : null;
+    const dropFinVal = drop_fin !== undefined && drop_fin !== null && drop_fin !== '' ? parseInt(drop_fin, 10) : null;
+
     const [insRes] = await connection.query(`
-      INSERT INTO orden_liquidacion_detalle (id_liquidacion, id_producto, cantidad, numero_serie)
-      VALUES (?, ?, ?, ?)
-    `, [idLiquidacion, id_producto, cant, finalSerie]);
+      INSERT INTO orden_liquidacion_detalle (id_liquidacion, id_producto, cantidad, numero_serie, drop_inicio, drop_fin)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [idLiquidacion, id_producto, cant, finalSerie, dropIniVal, dropFinVal]);
+
+    // 4.0 Si es bobina drop o cable drop, recalibrar metraje en orden_liquidaciones y ordenes
+    const esDropProd = Boolean(prod.es_drop) || String(prod.nombre || '').toUpperCase().includes('DROP') || String(prod.nombre || '').toUpperCase().includes('BOBINA');
+    if (esDropProd) {
+      await connection.query(`
+        UPDATE orden_liquidaciones 
+        SET drop_metro_inicio = COALESCE(?, drop_metro_inicio),
+            drop_metro_fin = COALESCE(?, drop_metro_fin),
+            drop_total_metros = COALESCE(drop_total_metros, 0) + ?
+        WHERE id_liquidacion = ?
+      `, [dropIniVal, dropFinVal, cant, idLiquidacion]);
+
+      if (liq.id_orden) {
+        await connection.query(`
+          UPDATE ordenes 
+          SET drop_metros = COALESCE(drop_metros, 0) + ?
+          WHERE id_orden = ?
+        `, [cant, liq.id_orden]);
+      }
+    }
 
     // 4.1 Si viene un equipo retirado o sin recupero, registrar en orden_equipos_retirados
     if (equipo_retirado && liq.id_orden) {
@@ -10784,7 +10855,7 @@ app.post('/api/almacen/orden-liquidaciones/:id/agregar-material', async (req, re
 
     // 5. Registrar en bitácora de auditoría
     try {
-      const desc = `[Auditoría Liquidación #${idLiquidacion} / Acta ${liq.numero_acta}] Material agregado: "${prod.nombre}" x ${cant} UND ${finalSerie ? `(Serie: ${finalSerie})` : ''}. Descontado de la camioneta del técnico. Motivo: ${motivo || 'Material agregado por auditoría'}.`;
+      const desc = `[Auditoría Liquidación #${idLiquidacion} / Acta ${liq.numero_acta}] Material agregado: "${prod.nombre}" x ${cant} UND ${finalSerie ? `(Serie: ${finalSerie})` : ''}${dropIniVal !== null && dropFinVal !== null ? ` (Metraje: ${dropIniVal} a ${dropFinVal}m = ${cant}m)` : ''}. Descontado de la camioneta del técnico. Motivo: ${motivo || 'Material agregado por auditoría'}.`;
       await connection.query(`
         INSERT INTO auditoria_actividad (id_usuario, usuario_nombre, id_rol, rol_nombre, area, modulo, accion, id_referencia, descripcion, fecha_creacion)
         VALUES (1, 'Auditoría Almacén', 1, 'ADMINISTRACION', 'ALMACEN', 'LIQUIDACIONES', 'AGREGAR_MATERIAL', ?, ?, NOW())
@@ -11312,7 +11383,7 @@ app.post('/api/ordenes/:id/liquidar-acta', async (req, res) => {
       es_gestion
     } = req.body;
 
-    const numActaFinal = numero_acta || numero_guia || '001-000000';
+    let numActaFinal = numero_acta || numero_guia || '001-000000';
 
     // 🔍 Resolución inteligente y robusta del ID de Trabajador Real
     let realIdTrabajador = null;
@@ -11366,7 +11437,7 @@ app.post('/api/ordenes/:id/liquidar-acta', async (req, res) => {
     // A0. Validación de Unicidad de Acta Física (No puede liquidarse dos veces, considerando variantes con o sin 0)
     const matchPref = String(numActaFinal).trim().match(/^([A-Z0-9]+)[-–\s]+([0-9]+)$/i);
     const prefActa = matchPref ? matchPref[1] : '001';
-    const sufActa = matchPref ? matchPref[2] : String(numActaFinal).trim().replace(/^[A-Z0-9]+[-–]?/i, '');
+    const sufActa = matchPref ? matchPref[2] : String(numActaFinal).trim().replace(/^[A-Z0-9]+[-–]/i, '');
     const numIntActa = parseInt(sufActa, 10);
     const sufSinCeros = !isNaN(numIntActa) ? String(numIntActa) : sufActa;
     const sufPad5 = !isNaN(numIntActa) ? String(numIntActa).padStart(5, '0') : sufActa;
@@ -11415,6 +11486,9 @@ app.post('/api/ordenes/:id/liquidar-acta', async (req, res) => {
       if (actaAsignada.length > 0) {
         idSerieActaAsignada = actaAsignada[0].id_producto_serie;
         idProductoActa = actaAsignada[0].id_producto;
+        if (actaAsignada[0].numero_serie) {
+          numActaFinal = actaAsignada[0].numero_serie;
+        }
       } else {
         const [totalActas] = await pool.query(`
           SELECT COUNT(*) as total
@@ -11589,13 +11663,20 @@ app.post('/api/ordenes/:id/liquidar-acta', async (req, res) => {
     }
 
     // C.2 Marcar la serie del Acta física como 'Usada' en el stock del técnico
-    if (numActaFinal) {
+    if (idSerieActaAsignada) {
       await pool.query(`
         UPDATE trabajador_series ts
         JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
         SET ts.estado = 'Usada', ps.estado = 'USADA'
-        WHERE (ps.numero_serie = ? OR ps.numero_serie = ? OR ps.numero_serie LIKE CONCAT('%', ?))
-      `, [numActaFinal, numActaFinal.replace(/^001-?/i, ''), numActaFinal]);
+        WHERE ts.id_producto_serie = ?
+      `, [idSerieActaAsignada]);
+    } else if (numActaFinal) {
+      await pool.query(`
+        UPDATE trabajador_series ts
+        JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
+        SET ts.estado = 'Usada', ps.estado = 'USADA'
+        WHERE (ps.numero_serie = ? OR ps.numero_serie IN (?))
+      `, [numActaFinal, variantesActa]);
     }
 
     // D. Registrar Equipos Nuevos Instalados

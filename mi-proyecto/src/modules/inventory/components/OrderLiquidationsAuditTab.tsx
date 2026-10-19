@@ -173,17 +173,34 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
 
   const esEquipoAgregar = useMemo(() => {
     if (!prodSeleccionadoAgregar) return false;
+    const nom = String(prodSeleccionadoAgregar.nombre || "").toUpperCase();
+    if (nom.includes("CONECTORIZADO") || nom.includes("DROP") || nom.includes("BOBINA") || nom.includes("HEBILLA") || nom.includes("BANDIX") || nom.includes("CINTA")) {
+      return false;
+    }
     return (
-      Boolean(prodSeleccionadoAgregar.maneja_serie) ||
-      String(prodSeleccionadoAgregar.categoria_liquidar || "").toUpperCase() === "EQUIPO" ||
-      Boolean(
-        stockTecnico?.seriesAsignadas &&
-        stockTecnico.seriesAsignadas.some(
-          (s: any) => s.id_producto === prodSeleccionadoAgregar.id_producto
-        )
-      )
+      Boolean(prodSeleccionadoAgregar.maneja_serie) &&
+      (String(prodSeleccionadoAgregar.categoria_liquidar || "").toUpperCase() === "EQUIPO" ||
+        Boolean(
+          stockTecnico?.seriesAsignadas &&
+          stockTecnico.seriesAsignadas.some(
+            (s: any) => s.id_producto === prodSeleccionadoAgregar.id_producto
+          )
+        ))
     );
   }, [prodSeleccionadoAgregar, stockTecnico]);
+
+  const esDropConectorizadoAgregar = useMemo(() => {
+    if (!prodSeleccionadoAgregar) return false;
+    const nom = String(prodSeleccionadoAgregar.nombre || "").toUpperCase();
+    return nom.includes("CONECTORIZADO") || (nom.includes("DROP") && /50|100|150|200/.test(nom));
+  }, [prodSeleccionadoAgregar]);
+
+  const esBobinaOdropAgregar = useMemo(() => {
+    if (!prodSeleccionadoAgregar) return false;
+    if (esDropConectorizadoAgregar) return false;
+    const nom = String(prodSeleccionadoAgregar.nombre || "").toUpperCase();
+    return Boolean(prodSeleccionadoAgregar.es_drop) || nom.includes("BOBINA") || (nom.includes("DROP") && !nom.includes("PORTA"));
+  }, [prodSeleccionadoAgregar, esDropConectorizadoAgregar]);
 
   const seriesCamionetaAgregar = useMemo(() => {
     if (!nuevoMatProdId || !stockTecnico?.seriesAsignadas) return [];
@@ -205,6 +222,36 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
     }
   }, [esEquipoAgregar, nuevoMatProdId, seriesCamionetaAgregar]);
 
+  // ── 📏 METRAJE DE BOBINA DROP (INICIO / FIN) PARA AGREGAR ──
+  const [nuevoDropMetroInicio, setNuevoDropMetroInicio] = useState<string>("");
+  const [nuevoDropMetroFin, setNuevoDropMetroFin] = useState<string>("");
+
+  const totalDropCalculadoAgregar = useMemo(() => {
+    const ini = parseFloat(nuevoDropMetroInicio);
+    const fin = parseFloat(nuevoDropMetroFin);
+    if (!isNaN(ini) && !isNaN(fin) && ini > 0 && fin > 0) {
+      return Math.abs(Math.round(fin - ini));
+    }
+    const cantNum = parseInt(nuevoMatCant, 10);
+    return !isNaN(cantNum) && cantNum > 0 ? cantNum : 0;
+  }, [nuevoDropMetroInicio, nuevoDropMetroFin, nuevoMatCant]);
+
+  useEffect(() => {
+    const ini = parseFloat(nuevoDropMetroInicio);
+    const fin = parseFloat(nuevoDropMetroFin);
+    if (!isNaN(ini) && !isNaN(fin) && ini > 0 && fin > 0) {
+      const diff = Math.abs(Math.round(fin - ini));
+      if (diff > 0) {
+        setNuevoMatCant(String(diff));
+      }
+    }
+  }, [nuevoDropMetroInicio, nuevoDropMetroFin]);
+
+  useEffect(() => {
+    setNuevoDropMetroInicio("");
+    setNuevoDropMetroFin("");
+  }, [nuevoMatProdId, modalAgregarAbierto]);
+
   // ── 🚚 LÓGICA DE DETECCIÓN Y SERIES DE CAMIONETA PARA CAMBIO ──
   const prodSeleccionadoCambio = useMemo(() => {
     if (!cambioProdId) return null;
@@ -215,17 +262,63 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
     return catalogoGeneral.find((p) => p.id_producto === cambioProdId) || null;
   }, [cambioProdId, origenStockCambio, stockTecnico, catalogoGeneral]);
 
+  const esDropConectorizadoCambio = useMemo(() => {
+    if (!prodSeleccionadoCambio) return false;
+    const nom = String(prodSeleccionadoCambio.nombre || "").toUpperCase();
+    return nom.includes("CONECTORIZADO") || (nom.includes("DROP") && /50|100|150|200/.test(nom));
+  }, [prodSeleccionadoCambio]);
+
+  const esBobinaOdropCambio = useMemo(() => {
+    if (!prodSeleccionadoCambio) return false;
+    if (esDropConectorizadoCambio) return false;
+    const nom = String(prodSeleccionadoCambio.nombre || "").toUpperCase();
+    return Boolean(prodSeleccionadoCambio.es_drop) || nom.includes("BOBINA") || (nom.includes("DROP") && !nom.includes("PORTA"));
+  }, [prodSeleccionadoCambio, esDropConectorizadoCambio]);
+
+  const [cambioDropMetroInicio, setCambioDropMetroInicio] = useState<string>("");
+  const [cambioDropMetroFin, setCambioDropMetroFin] = useState<string>("");
+
+  const totalDropCalculadoCambio = useMemo(() => {
+    const ini = parseFloat(cambioDropMetroInicio);
+    const fin = parseFloat(cambioDropMetroFin);
+    if (!isNaN(ini) && !isNaN(fin) && ini > 0 && fin > 0) {
+      return Math.abs(Math.round(fin - ini));
+    }
+    const cantNum = parseInt(cambioCant, 10);
+    return !isNaN(cantNum) && cantNum > 0 ? cantNum : 0;
+  }, [cambioDropMetroInicio, cambioDropMetroFin, cambioCant]);
+
+  useEffect(() => {
+    const ini = parseFloat(cambioDropMetroInicio);
+    const fin = parseFloat(cambioDropMetroFin);
+    if (!isNaN(ini) && !isNaN(fin) && ini > 0 && fin > 0) {
+      const diff = Math.abs(Math.round(fin - ini));
+      if (diff > 0) {
+        setCambioCant(String(diff));
+      }
+    }
+  }, [cambioDropMetroInicio, cambioDropMetroFin]);
+
+  useEffect(() => {
+    setCambioDropMetroInicio("");
+    setCambioDropMetroFin("");
+  }, [cambioProdId, materialACambiar]);
+
   const esEquipoCambio = useMemo(() => {
     if (!prodSeleccionadoCambio) return false;
+    const nom = String(prodSeleccionadoCambio.nombre || "").toUpperCase();
+    if (nom.includes("CONECTORIZADO") || nom.includes("DROP") || nom.includes("BOBINA") || nom.includes("HEBILLA") || nom.includes("BANDIX") || nom.includes("CINTA")) {
+      return false;
+    }
     return (
-      Boolean(prodSeleccionadoCambio.maneja_serie) ||
-      String(prodSeleccionadoCambio.categoria_liquidar || "").toUpperCase() === "EQUIPO" ||
-      Boolean(
-        stockTecnico?.seriesAsignadas &&
-        stockTecnico.seriesAsignadas.some(
-          (s: any) => s.id_producto === prodSeleccionadoCambio.id_producto
-        )
-      )
+      Boolean(prodSeleccionadoCambio.maneja_serie) &&
+      (String(prodSeleccionadoCambio.categoria_liquidar || "").toUpperCase() === "EQUIPO" ||
+        Boolean(
+          stockTecnico?.seriesAsignadas &&
+          stockTecnico.seriesAsignadas.some(
+            (s: any) => s.id_producto === prodSeleccionadoCambio.id_producto
+          )
+        ))
     );
   }, [prodSeleccionadoCambio, stockTecnico]);
 
@@ -562,7 +655,9 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
         cantidad: nCant,
         numero_serie: nuevoMatSerie.trim() || undefined,
         motivo: nuevoMatMotivo.trim() || "Material agregado por auditoría de almacén",
-        equipo_retirado: equipoRetiradoPayload
+        equipo_retirado: equipoRetiradoPayload,
+        drop_inicio: nuevoDropMetroInicio ? parseInt(nuevoDropMetroInicio, 10) : undefined,
+        drop_fin: nuevoDropMetroFin ? parseInt(nuevoDropMetroFin, 10) : undefined,
       });
 
       if (res && res.success) {
@@ -648,7 +743,9 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
         nuevo_id_producto: Number(cambioProdId),
         nueva_cantidad: nCant,
         nuevo_numero_serie: cambioSerie.trim() || undefined,
-        motivo: cambioMotivo.trim() || "Cambio de producto por corrección en auditoría"
+        motivo: cambioMotivo.trim() || "Cambio de producto por corrección en auditoría",
+        drop_inicio: cambioDropMetroInicio ? parseInt(cambioDropMetroInicio, 10) : undefined,
+        drop_fin: cambioDropMetroFin ? parseInt(cambioDropMetroFin, 10) : undefined,
       });
 
       if (res && res.success) {
@@ -2841,20 +2938,140 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
               ) : (
                 /* ── CASO MATERIAL / INSUMO COMÚN (SIN SERIE) ── */
                 <div className="space-y-3">
-                  <div className="space-y-1">
-                    <label className="font-bold text-slate-700 block">Cantidad a Liquidar:</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={nuevoMatCant}
-                      onChange={(e) => setNuevoMatCant(e.target.value)}
-                      className="w-full p-2.5 rounded-xl border border-slate-300 font-mono font-bold text-slate-900 bg-white"
-                    />
-                  </div>
-                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-[11px] flex items-center gap-2">
-                    <Check size={14} className="text-emerald-600 shrink-0" />
-                    <span>Este producto es un material/insumo común, no requiere número de serie.</span>
-                  </div>
+                  {esBobinaOdropAgregar ? (
+                    <div className="p-3.5 bg-gradient-to-r from-amber-50 to-orange-50/60 rounded-2xl border border-amber-200/90 space-y-3 shadow-2xs">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span className="font-extrabold text-amber-950 flex items-center gap-1.5 text-xs">
+                          <Package size={15} className="text-amber-700" />
+                          Metraje de Cable Drop (Fibra Óptica)
+                        </span>
+                        {prodSeleccionadoAgregar?.stock !== undefined ? (
+                          <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-amber-200 text-amber-900 font-mono shadow-2xs">
+                            ℹ️ Bobina: {prodSeleccionadoAgregar.stock} m
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
+                            ℹ️ Bobina: 0 m
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Advertencia si no tiene bobina o excede stock */}
+                      {Number(prodSeleccionadoAgregar?.stock || 0) <= 0 ? (
+                        <div className="p-2.5 bg-amber-100/90 border border-amber-300 rounded-xl flex items-center gap-2 text-amber-900 text-xs font-semibold shadow-2xs">
+                          <span className="text-base">ℹ️</span>
+                          <span>
+                            No tienes bobina continua en metros (0 m). Si tu instalación usa un rollo <strong>Drop Conectorizado (50m, 100m, 150m, 200m)</strong>, selecciónalo en el menú de productos arriba.
+                          </span>
+                        </div>
+                      ) : Number(nuevoMatCant) > Number(prodSeleccionadoAgregar?.stock || 0) ? (
+                        <div className="p-2 bg-rose-100/90 border border-rose-300 rounded-xl text-rose-800 text-[11px] font-bold">
+                          ❌ El consumo ingresado ({nuevoMatCant} m) supera el stock de bobina en camioneta ({prodSeleccionadoAgregar.stock} m).
+                        </div>
+                      ) : null}
+
+                      {/* Inputs idénticos a los del Acta: Metro Inicio, Metro Fin y Descuento de Bobina */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 items-end">
+                        <div>
+                          <label className="block mb-1 text-slate-700 font-bold text-[11px]">
+                            Metro Inicio (Carrete)
+                          </label>
+                          <input
+                            type="number"
+                            value={nuevoDropMetroInicio}
+                            onChange={(e) => setNuevoDropMetroInicio(e.target.value)}
+                            placeholder="Opcional"
+                            className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-mono font-bold text-xs text-slate-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-200 shadow-2xs"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block mb-1 text-slate-700 font-bold text-[11px]">
+                            Metro Fin (Carrete)
+                          </label>
+                          <input
+                            type="number"
+                            value={nuevoDropMetroFin}
+                            onChange={(e) => setNuevoDropMetroFin(e.target.value)}
+                            placeholder="Opcional"
+                            className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-mono font-bold text-xs text-slate-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-200 shadow-2xs"
+                          />
+                        </div>
+
+                        <div className="col-span-2 sm:col-span-1 bg-white p-2.5 rounded-xl border border-amber-300 text-center shadow-2xs">
+                          <span className="text-[10px] font-black uppercase text-amber-900 tracking-wider block">
+                            Descuento de Bobina
+                          </span>
+                          <span className="text-sm font-black font-mono text-amber-800 mt-0.5 block">
+                            -{totalDropCalculadoAgregar} mtrs
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Ajuste manual o directo del total de metros */}
+                      <div className="pt-1 flex items-center justify-between gap-2 border-t border-amber-200/60">
+                        <span className="text-[11px] text-amber-950 font-bold">
+                          Metros Efectivos a Descontar de Camioneta:
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="number"
+                            min="1"
+                            value={nuevoMatCant}
+                            onChange={(e) => setNuevoMatCant(e.target.value)}
+                            className="w-24 p-1.5 bg-white border border-amber-400 rounded-lg text-center font-mono font-black text-xs text-slate-900 shadow-2xs"
+                          />
+                          <span className="text-xs font-black text-amber-900">metros</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : esDropConectorizadoAgregar ? (
+                    <div className="p-3.5 bg-emerald-50 rounded-2xl border border-emerald-200 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <label className="font-extrabold text-emerald-950 flex items-center gap-1.5 text-xs">
+                          <Package size={15} className="text-emerald-700" />
+                          Cantidad de Rollos Pre-Conectorizados a Liquidar:
+                        </label>
+                        {prodSeleccionadoAgregar?.stock !== undefined && (
+                          <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-200 text-emerald-900 font-mono">
+                            Stock camioneta: {prodSeleccionadoAgregar.stock} UND
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="1"
+                          placeholder="1"
+                          value={nuevoMatCant}
+                          onChange={(e) => setNuevoMatCant(e.target.value)}
+                          className="w-full p-2.5 rounded-xl border border-emerald-300 font-mono font-bold text-slate-900 bg-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200 text-sm shadow-2xs"
+                        />
+                        <span className="font-black text-xs text-emerald-900 px-3.5 py-2.5 bg-emerald-100/90 rounded-xl border border-emerald-200 shrink-0">
+                          Rollos (UND)
+                        </span>
+                      </div>
+                      <div className="p-2 rounded-xl bg-white/90 border border-emerald-200 text-[11px] text-emerald-800 flex items-center gap-1.5 font-medium">
+                        <Check size={14} className="text-emerald-600 shrink-0" />
+                        <span>Rollo Drop Pre-Conectorizado de fábrica (No requiere serie física de equipo).</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-700 block">Cantidad a Liquidar:</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={nuevoMatCant}
+                        onChange={(e) => setNuevoMatCant(e.target.value)}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 font-mono font-bold text-slate-900 bg-white"
+                      />
+                      <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-[11px] flex items-center gap-2">
+                        <Check size={14} className="text-emerald-600 shrink-0" />
+                        <span>Este producto es un material/insumo común, no requiere número de serie.</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -3071,20 +3288,95 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
               ) : (
                 /* ── CASO MATERIAL / INSUMO COMÚN (SIN SERIE) ── */
                 <div className="space-y-3">
-                  <div className="space-y-1">
-                    <label className="font-bold text-slate-700 block">Nueva Cantidad:</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={cambioCant}
-                      onChange={(e) => setCambioCant(e.target.value)}
-                      className="w-full p-2.5 rounded-xl border border-slate-300 font-mono font-bold text-slate-900 bg-white"
-                    />
-                  </div>
-                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-[11px] flex items-center gap-2">
-                    <Check size={14} className="text-emerald-600 shrink-0" />
-                    <span>Este producto es un material/insumo común, no requiere número de serie.</span>
-                  </div>
+                  {esBobinaOdropCambio ? (
+                    <div className="p-3.5 bg-gradient-to-r from-amber-50 to-orange-50/60 rounded-2xl border border-amber-200/90 space-y-3 shadow-2xs">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span className="font-extrabold text-amber-950 flex items-center gap-1.5 text-xs">
+                          <Package size={15} className="text-amber-700" />
+                          Metraje de Cable Drop (Fibra Óptica)
+                        </span>
+                        {prodSeleccionadoCambio?.stock !== undefined ? (
+                          <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-amber-200 text-amber-900 font-mono shadow-2xs">
+                            ℹ️ Bobina: {prodSeleccionadoCambio.stock} m
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
+                            ℹ️ Bobina: 0 m
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Inputs de Metro Inicio, Metro Fin y Descuento de Bobina */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 items-end">
+                        <div>
+                          <label className="block mb-1 text-slate-700 font-bold text-[11px]">
+                            Metro Inicio (Carrete)
+                          </label>
+                          <input
+                            type="number"
+                            value={cambioDropMetroInicio}
+                            onChange={(e) => setCambioDropMetroInicio(e.target.value)}
+                            placeholder="Opcional"
+                            className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-mono font-bold text-xs text-slate-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-200 shadow-2xs"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block mb-1 text-slate-700 font-bold text-[11px]">
+                            Metro Fin (Carrete)
+                          </label>
+                          <input
+                            type="number"
+                            value={cambioDropMetroFin}
+                            onChange={(e) => setCambioDropMetroFin(e.target.value)}
+                            placeholder="Opcional"
+                            className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-mono font-bold text-xs text-slate-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-200 shadow-2xs"
+                          />
+                        </div>
+
+                        <div className="col-span-2 sm:col-span-1 bg-white p-2.5 rounded-xl border border-amber-300 text-center shadow-2xs">
+                          <span className="text-[10px] font-black uppercase text-amber-900 tracking-wider block">
+                            Descuento Bobina
+                          </span>
+                          <span className="text-sm font-black font-mono text-amber-800 mt-0.5 block">
+                            -{totalDropCalculadoCambio} mtrs
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Ajuste manual o directo del total de metros */}
+                      <div className="pt-1 flex items-center justify-between gap-2 border-t border-amber-200/60">
+                        <span className="text-[11px] text-amber-950 font-bold">
+                          Metros Efectivos a Descontar:
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="number"
+                            min="1"
+                            value={cambioCant}
+                            onChange={(e) => setCambioCant(e.target.value)}
+                            className="w-24 p-1.5 bg-white border border-amber-400 rounded-lg text-center font-mono font-black text-xs text-slate-900 shadow-2xs"
+                          />
+                          <span className="text-xs font-black text-amber-900">metros</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-700 block">Nueva Cantidad:</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={cambioCant}
+                        onChange={(e) => setCambioCant(e.target.value)}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 font-mono font-bold text-slate-900 bg-white"
+                      />
+                      <div className="p-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-[11px] flex items-center gap-2">
+                        <Check size={14} className="text-emerald-600 shrink-0" />
+                        <span>Este producto es un material/insumo común, no requiere número de serie.</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -3329,6 +3621,15 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => {
+                              const cleanTipo = (
+                                (ord.motivo_finalizacion && !['REASIGNACION', 'REGESTION', 'REITERADA', 'LOS ROJO', 'AVERIAS', 'PENDIENTE'].includes(ord.motivo_finalizacion.toUpperCase().trim()) ? ord.motivo_finalizacion : '') ||
+                                (ord.tipo_trabajo && !['LOS ROJO', 'AVERIAS', 'PENDIENTE'].includes(ord.tipo_trabajo.toUpperCase().trim()) ? ord.tipo_trabajo : '') ||
+                                ord.tipo_trabajo_asignado ||
+                                ord.motivo_finalizacion ||
+                                ord.tipo_trabajo ||
+                                "CAMBIO DE CABLE PATCH CORD"
+                              ).trim();
+
                               const ordFormateada: Order = {
                                 id: ord.id,
                                 fecha: ord.fecha_referencia || "",
@@ -3344,9 +3645,10 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
                                 cuadrilla: ord.cuadrilla || modalPendientesTecnico?.cuadrilla || "",
                                 tecnico: ord.tecnico_nombre || modalPendientesTecnico?.tecnico || "",
                                 idTecnico: modalPendientesTecnico?.id_trabajador || ord.id_tecnico,
-                                tipoTrabajo: ord.tipo_trabajo || "",
-                                tipoLiquidacion: ord.tipo_trabajo || "",
-                                motivoLiquidacion: ord.tipo_trabajo || "",
+                                tipoTrabajo: cleanTipo,
+                                tipoLiquidacion: cleanTipo,
+                                motivoLiquidacion: cleanTipo,
+                                motivoFinalizacion: ord.motivo_finalizacion || "",
                               };
                               setOrdenParaLiquidar(ordFormateada);
                             }}

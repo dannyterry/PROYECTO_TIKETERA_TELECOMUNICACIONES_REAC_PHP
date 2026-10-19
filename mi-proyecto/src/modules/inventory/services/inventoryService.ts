@@ -410,6 +410,8 @@ export const cambiarProductoLiquidacion = async (
     nueva_cantidad: number;
     nuevo_numero_serie?: string;
     motivo?: string;
+    drop_inicio?: number;
+    drop_fin?: number;
   }
 ) => {
   const res = await api.put(`/almacen/orden-liquidaciones/${idLiquidacion}/cambiar-producto`, payload);
@@ -423,6 +425,8 @@ export const agregarMaterialLiquidacion = async (
     cantidad: number;
     numero_serie?: string;
     motivo?: string;
+    drop_inicio?: number;
+    drop_fin?: number;
     equipo_retirado?: {
       numero_serie?: string;
       tipo_equipo?: string;

@@ -1225,13 +1225,28 @@ async function obtenerOrdeVisiId(numeroOrden) {
   if (!res || !res.data || !res.data.d) return null;
 
   try {
-    const decodedD = JSON.parse(Buffer.from(res.data.d, 'base64').toString('utf-8'));
-    const html = Buffer.from(decodedD.html, 'base64').toString('utf-8');
+    let decodedD = JSON.parse(Buffer.from(res.data.d, 'base64').toString('utf-8'));
+    let html = Buffer.from(decodedD.html || '', 'base64').toString('utf-8');
 
-    const match = html.match(/seleccionarVisita74_Formu\(&quot;\s*(\d+)/i) ||
-                  html.match(/seleccionarVisita74_Formu\(['"]\s*(\d+)/i) ||
-                  html.match(/seleccionarVisita[^(]*\([^0-9]*(\d+)/i) ||
-                  html.match(/OrdeVisiId["']?\s*[:=]\s*["']?(\d+)/i);
+    let match = html.match(/seleccionarVisita74_Formu\(&quot;\s*(\d+)/i) ||
+                html.match(/seleccionarVisita74_Formu\(['"]\s*(\d+)/i) ||
+                html.match(/seleccionarVisita[^(]*\([^0-9]*(\d+)/i) ||
+                html.match(/OrdeVisiId["']?\s*[:=]\s*["']?(\d+)/i);
+
+    // Si la sesión de WIN expiró silenciosamente, el HTML no contiene la tabla sino la redirección al login
+    if (!match) {
+      console.log(`🔄 [Fénix Tareas] Sesión en WIN expirada o no encontrada. Renovando sesión para orden #${cleanNum}...`);
+      await loginWin();
+      res = await requestWin(url, payload, getCookieHeader());
+      if (res && res.data && res.data.d) {
+        decodedD = JSON.parse(Buffer.from(res.data.d, 'base64').toString('utf-8'));
+        html = Buffer.from(decodedD.html || '', 'base64').toString('utf-8');
+        match = html.match(/seleccionarVisita74_Formu\(&quot;\s*(\d+)/i) ||
+                html.match(/seleccionarVisita74_Formu\(['"]\s*(\d+)/i) ||
+                html.match(/seleccionarVisita[^(]*\([^0-9]*(\d+)/i) ||
+                html.match(/OrdeVisiId["']?\s*[:=]\s*["']?(\d+)/i);
+      }
+    }
 
     const ordeVisiId = match ? match[1] : null;
     if (ordeVisiId) {

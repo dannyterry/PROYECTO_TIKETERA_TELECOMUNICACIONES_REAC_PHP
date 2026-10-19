@@ -135,27 +135,34 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
         return false;
       }
       if (tecnicoFiltro !== "TODOS") {
-        const tecObj = tecnicos.find((t) => String(t.id_trabajador) === String(tecnicoFiltro));
-        if (tecObj) {
-          const nomUpper = (tecObj.nombre_completo || "").toUpperCase();
-          const nomPartes = nomUpper.split(" ").filter(Boolean);
-          const nomCorto = nomPartes.length >= 2 ? `${nomPartes[0]} ${nomPartes[1]}` : nomUpper;
-          const userUpper = (tecObj.usuario || "").toUpperCase();
-          const doc = (tecObj.documento || "").toUpperCase();
-          const idStr = String(tecObj.id_trabajador);
-          const refUpper = (m.referencia || "").toUpperCase();
+        if ((m as any).id_trabajador && String((m as any).id_trabajador) === String(tecnicoFiltro)) {
+          // Coincidencia exacta por ID de trabajador
+        } else if (m.origen === "ORDEN_CAMPO") {
+          // Las órdenes de campo ya vinieron filtradas por idTrabajador desde el backend
+        } else {
+          const tecObj = tecnicos.find((t) => String(t.id_trabajador) === String(tecnicoFiltro));
+          if (tecObj) {
+            const nomUpper = (tecObj.nombre_completo || "").toUpperCase();
+            const nomPartes = nomUpper.split(" ").filter(Boolean);
+            const nomCorto = nomPartes.length >= 2 ? `${nomPartes[0]} ${nomPartes[1]}` : nomUpper;
+            const userUpper = (tecObj.usuario || "").toUpperCase();
+            const doc = (tecObj.documento || "").toUpperCase();
+            const idStr = String(tecObj.id_trabajador);
+            const refUpper = (m.referencia || "").toUpperCase();
 
-          const matchesTec =
-            refUpper.includes(`TÉCNICO #${idStr}`) ||
-            refUpper.includes(`TECNICO #${idStr}`) ||
-            refUpper.includes(`SUPERVISOR #${idStr}`) ||
-            refUpper.includes(`CUADRILLA #${idStr}`) ||
-            (nomUpper && refUpper.includes(nomUpper)) ||
-            (nomCorto && refUpper.includes(nomCorto)) ||
-            (userUpper && refUpper.includes(userUpper)) ||
-            (doc && refUpper.includes(doc));
+            const matchesTec =
+              refUpper.includes(`TÉCNICO #${idStr}`) ||
+              refUpper.includes(`TECNICO #${idStr}`) ||
+              refUpper.includes(`SUPERVISOR #${idStr}`) ||
+              refUpper.includes(`CUADRILLA #${idStr}`) ||
+              (nomUpper && refUpper.includes(nomUpper)) ||
+              (nomCorto && refUpper.includes(nomCorto)) ||
+              (userUpper && refUpper.includes(userUpper)) ||
+              (doc && refUpper.includes(doc)) ||
+              nomPartes.some((p: string) => p.length >= 4 && refUpper.includes(p));
 
-          if (!matchesTec) return false;
+            if (!matchesTec) return false;
+          }
         }
       }
       if (search.trim()) {
@@ -170,6 +177,24 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
       return true;
     });
   }, [movimientos, categoriaFiltro, tecnicoFiltro, tecnicos, search]);
+
+  // KPIs dinámicos que se adaptan a búsquedas o filtros locales en vivo
+  const kpisVista = useMemo(() => {
+    if (search.trim() || categoriaFiltro !== "TODAS") {
+      const totalEntradas = movimientosFiltrados.filter((m) => m.tipo === "ENTRADA").reduce((acc, m) => acc + Number(m.cantidad || 0), 0);
+      const totalDespachos = movimientosFiltrados.filter((m) => m.subtipo === "DESPACHO_TECNICO").reduce((acc, m) => acc + Number(m.cantidad || 0), 0);
+      const totalDevoluciones = movimientosFiltrados.filter((m) => m.subtipo === "DEVOLUCION_TECNICO").reduce((acc, m) => acc + Number(m.cantidad || 0), 0);
+      const totalConsumidoOrdenes = movimientosFiltrados.filter((m) => m.subtipo === "LIQUIDACION_ORDEN").reduce((acc, m) => acc + Number(m.cantidad || 0), 0);
+      return {
+        totalMovimientos: movimientosFiltrados.length,
+        totalEntradas,
+        totalDespachos,
+        totalDevoluciones,
+        totalConsumidoOrdenes,
+      };
+    }
+    return kpis;
+  }, [movimientosFiltrados, search, categoriaFiltro, kpis]);
 
   // Paginación
   const totalPaginas = Math.ceil(movimientosFiltrados.length / itemsPorPagina) || 1;
@@ -287,7 +312,7 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
             <Activity size={16} className="text-indigo-600" />
           </div>
           <div className="mt-2 text-2xl font-black text-slate-900">
-            {kpis.totalMovimientos.toLocaleString()}
+            {kpisVista.totalMovimientos.toLocaleString()}
           </div>
           <div className="text-[10px] text-slate-500 font-medium mt-0.5">Operaciones registradas</div>
         </div>
@@ -299,7 +324,7 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
             <ArrowDownLeft size={16} />
           </div>
           <div className="mt-2 text-2xl font-black text-emerald-700">
-            +{kpis.totalEntradas.toLocaleString()}
+            +{kpisVista.totalEntradas.toLocaleString()}
           </div>
           <div className="text-[10px] text-emerald-600/80 font-medium mt-0.5">Ingresos a Almacén Central</div>
         </div>
@@ -311,7 +336,7 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
             <Truck size={16} />
           </div>
           <div className="mt-2 text-2xl font-black text-blue-700">
-            -{kpis.totalDespachos.toLocaleString()}
+            -{kpisVista.totalDespachos.toLocaleString()}
           </div>
           <div className="text-[10px] text-blue-600/80 font-medium mt-0.5">Entregado a cuadrillas</div>
         </div>
@@ -323,7 +348,7 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
             <RotateCcw size={16} />
           </div>
           <div className="mt-2 text-2xl font-black text-amber-700">
-            +{kpis.totalDevoluciones.toLocaleString()}
+            +{kpisVista.totalDevoluciones.toLocaleString()}
           </div>
           <div className="text-[10px] text-amber-600/80 font-medium mt-0.5">Retornos de cuadrillas</div>
         </div>
@@ -335,7 +360,7 @@ export const KardexOverviewTab: React.FC<Props> = ({ productos = [] }) => {
             <FileCheck size={16} />
           </div>
           <div className="mt-2 text-2xl font-black text-purple-700">
-            -{kpis.totalConsumidoOrdenes.toLocaleString()}
+            -{kpisVista.totalConsumidoOrdenes.toLocaleString()}
           </div>
           <div className="text-[10px] text-purple-600/80 font-medium mt-0.5">Descargado en clientes</div>
         </div>
