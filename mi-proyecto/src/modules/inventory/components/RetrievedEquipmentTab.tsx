@@ -175,7 +175,7 @@ export const RetrievedEquipmentTab: React.FC = () => {
   const totalInternados = equipos.filter((e) => e.estado !== "En_Poder_Tecnico").length;
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in w-full max-w-full overflow-hidden">
       
       {/* ─────────────────────────────────────────────────────────────
           1. KPIS DE CONTROL DE EQUIPOS RETIRADOS
@@ -338,22 +338,25 @@ export const RetrievedEquipmentTab: React.FC = () => {
       {/* ─────────────────────────────────────────────────────────────
           3. TABLA DE EQUIPOS RECOGIDOS CON GUÍA WIN & ID DE MODELO
       ───────────────────────────────────────────────────────────── */}
-      <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
-        <table className="w-full text-left text-xs">
+      <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden w-full min-w-0">
+        <div className="w-full min-w-0 overflow-x-auto touch-pan-x">
+          <table className="w-full text-left text-xs min-w-[1250px]">
           <thead className="bg-slate-50/80 text-slate-400 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
             <tr>
-              <th className="py-3.5 px-4">Equipo Retirado (S/N)</th>
-              <th className="py-3.5 px-4">Equipo Instalado (S/N)</th>
-              <th className="py-3.5 px-4 font-black text-sky-800">Acta Física</th>
-              <th className="py-3.5 px-4">ID Modelo</th>
-              <th className="py-3.5 px-4">Guía Remisión WIN</th>
-              <th className="py-3.5 px-4">Cliente & Ticket</th>
-              <th className="py-3.5 px-4">Técnico que Retiró</th>
-              <th className="py-3.5 px-4">Motivo Retiro</th>
-              <th className="py-3.5 px-4">Fecha Recojo</th>
-              <th className="py-3.5 px-4">Fecha Internado</th>
-              <th className="py-3.5 px-4 text-center">Estado</th>
-              <th className="py-3.5 px-4 text-right">Acción Almacén</th>
+              <th className="py-3 px-3.5 whitespace-nowrap">Equipo Retirado (S/N)</th>
+              <th className="py-3 px-3.5 whitespace-nowrap">Equipo Instalado (S/N)</th>
+              <th className="py-3 px-3.5 whitespace-nowrap font-black text-sky-800">Acta Física</th>
+              <th className="py-3 px-3.5 whitespace-nowrap">ID Modelo</th>
+              <th className="py-3 px-3.5 whitespace-nowrap">Guía Remisión WIN</th>
+              <th className="py-3 px-3.5 whitespace-nowrap">Cliente & Ticket</th>
+              <th className="py-3 px-3.5 whitespace-nowrap">Técnico que Retiró</th>
+              <th className="py-3 px-3.5 whitespace-nowrap">Motivo Retiro</th>
+              <th className="py-3 px-3.5 whitespace-nowrap">Fecha Recojo</th>
+              <th className="py-3 px-3.5 whitespace-nowrap">Fecha Internado</th>
+              <th className="py-3 px-3.5 whitespace-nowrap text-center">Estado</th>
+              <th className="py-3 px-4 text-center whitespace-nowrap sticky right-0 bg-slate-50/95 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.05)] border-l border-slate-200">
+                Acción Almacén
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -591,25 +594,25 @@ export const RetrievedEquipmentTab: React.FC = () => {
                       )}
                     </td>
 
-                    {/* Acción */}
-                    <td className="py-3.5 px-4 text-right">
+                    {/* Acción Almacén - Sticky a la derecha */}
+                    <td className="py-3 px-4 text-center sticky right-0 bg-white group-hover:bg-slate-50 transition-colors z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.05)] border-l border-slate-100 whitespace-nowrap">
                       {esPendiente ? (
-                        <div className="flex items-center justify-end gap-1.5">
+                        <div className="flex items-center justify-center gap-1.5">
                           <button
                             onClick={() => handleInternar(eq.id_equipo_retirado, "Internado_Almacen")}
-                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] transition-all cursor-pointer shadow-xs"
+                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-lg font-bold text-[11px] transition-all cursor-pointer shadow-xs"
                           >
                             Internar
                           </button>
                           <button
                             onClick={() => handleInternar(eq.id_equipo_retirado, "Defectuoso")}
-                            className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg font-bold text-[11px] transition-all cursor-pointer"
+                            className="px-2 py-1 bg-rose-50 hover:bg-rose-100 active:scale-95 text-rose-700 rounded-lg font-bold text-[11px] transition-all cursor-pointer border border-rose-200"
                           >
                             Defectuoso
                           </button>
                         </div>
                       ) : (
-                        <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                        <span className="inline-flex items-center text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
                           ✓ Custodia OK
                         </span>
                       )}
@@ -621,6 +624,7 @@ export const RetrievedEquipmentTab: React.FC = () => {
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
     </div>

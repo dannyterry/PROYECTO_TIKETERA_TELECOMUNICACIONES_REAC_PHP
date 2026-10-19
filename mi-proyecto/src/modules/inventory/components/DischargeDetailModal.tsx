@@ -399,7 +399,8 @@ export const DischargeDetailModal: React.FC<Props> = ({
               </p>
             </div>
           ) : (
-            <table className="w-full text-left text-xs border-collapse">
+            <div className="w-full overflow-x-auto touch-pan-x">
+            <table className="w-full min-w-[850px] text-left text-xs border-collapse">
               <thead className="bg-slate-50 text-slate-500 font-extrabold uppercase text-[10px] tracking-wider sticky top-0 z-10 border-b border-slate-200">
                 <tr>
                   <th className="py-3 px-3.5 text-center">#</th>
@@ -569,6 +570,7 @@ export const DischargeDetailModal: React.FC<Props> = ({
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </div>
 

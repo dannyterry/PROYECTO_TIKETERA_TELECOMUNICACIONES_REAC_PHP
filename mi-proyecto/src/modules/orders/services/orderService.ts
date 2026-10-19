@@ -545,10 +545,11 @@ export const getCuadrillaReemplazos = async () => {
 /**
  * 🔄 3.4 Restaurar cuadrilla a técnico original de Fénix (eliminar reemplazo persistente)
  */
-export const restaurarCuadrillaReemplazo = async (codigoCuadrilla: string) => {
+export const restaurarCuadrillaReemplazo = async (codigoCuadrilla: string, fecha?: string) => {
   const token = localStorage.getItem("token");
+  const queryParam = fecha ? `?fecha=${encodeURIComponent(fecha)}` : "";
   const response = await fetch(
-    `${API_URL}/api/cuadrillas/reemplazo/${encodeURIComponent(codigoCuadrilla)}`,
+    `${API_URL}/api/cuadrillas/reemplazo/${encodeURIComponent(codigoCuadrilla)}${queryParam}`,
     {
       method: "DELETE",
       headers: token ? { Authorization: `Bearer ${token}` } : {},

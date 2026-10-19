@@ -4219,7 +4219,12 @@ app.post(['/api/cuadrillas/reemplazo', '/cuadrillas/reemplazo'], async (req, res
            asignacion_manual = 1,
            fecha_asignacion_manual = NOW()
          WHERE (UPPER(cuadrilla) LIKE ? OR UPPER(cuadrilla_origen_fenix) LIKE ?)
-           AND (fecha_visita >= CURDATE() - INTERVAL 7 DAY OR fecha_solicitud >= CURDATE() - INTERVAL 7 DAY OR fecha_visita IS NULL)`,
+           AND (
+             DATE(fecha_visita) >= CURDATE() 
+             OR (fecha_visita IS NULL AND DATE(fecha_solicitud) >= CURDATE())
+             OR (fecha_visita IS NULL AND fecha_solicitud IS NULL)
+           )
+           AND UPPER(COALESCE(estado, '')) NOT IN ('FINALIZADA', 'LIQUIDADA')`,
         [
           id_tecnico_reemplazo || null,
           id_tecnico_reemplazo_t2 || null,
@@ -4249,19 +4254,41 @@ app.delete(['/api/cuadrillas/reemplazo/:codigo', '/cuadrillas/reemplazo/:codigo'
   try {
     const { codigo } = req.params;
     const cleanCodigo = decodeURIComponent(codigo || '').trim().toUpperCase();
+    const targetFecha = (req.query.fecha || req.body?.fecha || '').toString().trim();
 
+    // 1. Desactivar reemplazo persistente
     await pool.query(
       "UPDATE cuadrilla_reemplazos SET activo = 0 WHERE UPPER(codigo_cuadrilla) = ?",
       [cleanCodigo]
     );
 
-    await pool.query(
-      `UPDATE ordenes 
-       SET asignacion_manual = 0, fecha_asignacion_manual = NULL, id_tecnico_reemplazo = NULL
-       WHERE (UPPER(cuadrilla) LIKE ? OR UPPER(cuadrilla_origen_fenix) LIKE ?)
-         AND (fecha_visita >= CURDATE() - INTERVAL 7 DAY OR fecha_solicitud >= CURDATE() - INTERVAL 7 DAY)`,
-      [`%${cleanCodigo}%`, `%${cleanCodigo}%`]
-    );
+    // 2. Si se especificó una fecha (por ejemplo al filtrar un día anterior), se resetea esa fecha específica.
+    // Si no se pasó fecha, por defecto se resetean órdenes de HOY o futuras que no estén finalizadas/liquidadas.
+    if (targetFecha && /^\d{4}-\d{2}-\d{2}$/.test(targetFecha)) {
+      await pool.query(
+        `UPDATE ordenes 
+         SET asignacion_manual = 0, fecha_asignacion_manual = NULL, id_tecnico_reemplazo = NULL
+         WHERE (UPPER(cuadrilla) LIKE ? OR UPPER(cuadrilla_origen_fenix) LIKE ?)
+           AND (
+             DATE(fecha_visita) = ? 
+             OR (fecha_visita IS NULL AND DATE(fecha_solicitud) = ?)
+           )`,
+        [`%${cleanCodigo}%`, `%${cleanCodigo}%`, targetFecha, targetFecha]
+      );
+    } else {
+      await pool.query(
+        `UPDATE ordenes 
+         SET asignacion_manual = 0, fecha_asignacion_manual = NULL, id_tecnico_reemplazo = NULL
+         WHERE (UPPER(cuadrilla) LIKE ? OR UPPER(cuadrilla_origen_fenix) LIKE ?)
+           AND (
+             DATE(fecha_visita) >= CURDATE() 
+             OR (fecha_visita IS NULL AND DATE(fecha_solicitud) >= CURDATE())
+             OR (fecha_visita IS NULL AND fecha_solicitud IS NULL)
+           )
+           AND UPPER(COALESCE(estado, '')) NOT IN ('FINALIZADA', 'LIQUIDADA')`,
+        [`%${cleanCodigo}%`, `%${cleanCodigo}%`]
+      );
+    }
 
     res.json({
       success: true,

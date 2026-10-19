@@ -182,50 +182,50 @@ export const InventoryPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/60 p-4 md:p-8 space-y-6 animate-fade-in font-sans">
+    <div className="min-h-screen bg-slate-50/60 p-4 md:p-8 space-y-6 animate-fade-in font-sans w-full max-w-full overflow-x-hidden">
 
       {/* ─────────────────────────────────────────────────────────────
           1. HEADER & TOP NAVIGATION BAR
       ───────────────────────────────────────────────────────────── */}
-      <div className="bg-white rounded-3xl p-6 border border-slate-200/90 shadow-xs flex flex-wrap items-center justify-between gap-4">
+      <div className="bg-white rounded-2xl md:rounded-3xl p-4 md:p-6 border border-slate-200/90 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
 
         {/* Título & Badge */}
-        <div className="flex items-center gap-3.5">
+        <div className="flex items-center gap-3 w-full sm:w-auto">
           <button
             type="button"
             onClick={() => window.dispatchEvent(new CustomEvent("toggleSidebar"))}
-            className="w-13 h-13 rounded-2xl bg-gradient-to-tr from-sky-600 to-cyan-500 hover:from-sky-700 hover:to-cyan-600 active:scale-95 text-white flex items-center justify-center font-black shadow-md shadow-sky-600/20 border border-sky-500/20 cursor-pointer transition-all group shrink-0"
+            className="w-11 h-11 md:w-13 md:h-13 rounded-2xl bg-gradient-to-tr from-sky-600 to-cyan-500 hover:from-sky-700 hover:to-cyan-600 active:scale-95 text-white flex items-center justify-center font-black shadow-md shadow-sky-600/20 border border-sky-500/20 cursor-pointer transition-all group shrink-0"
             title="📋 Clic para abrir el menú lateral"
           >
-            <Package size={26} className="group-hover:scale-110 transition-transform" />
+            <Package size={22} className="md:w-[26px] md:h-[26px] group-hover:scale-110 transition-transform" />
           </button>
-          <div>
-            <div className="flex items-center gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
               <h1
                 onClick={() => window.dispatchEvent(new CustomEvent("toggleSidebar"))}
-                className="text-xl md:text-2xl font-black text-slate-900 tracking-tight cursor-pointer hover:text-sky-700 transition-colors"
+                className="text-lg md:text-2xl font-black text-slate-900 tracking-tight cursor-pointer hover:text-sky-700 transition-colors truncate"
                 title="📋 Clic para abrir el menú lateral"
               >
                 Almacén & Logística Central
               </h1>
-              <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-sky-50 text-sky-700 border border-sky-200/80">
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-sky-50 text-sky-700 border border-sky-200/80">
                 <Sparkles size={11} className="text-sky-600" />
                 Control de Inventario
               </span>
             </div>
-            <p className="text-xs text-slate-500 font-medium mt-0.5">
+            <p className="text-[11px] md:text-xs text-slate-500 font-medium mt-0.5 line-clamp-1 sm:line-clamp-none">
               Control de stock central, dotación en camionetas, trazabilidad de series ONT/Mesh y auditoría de actas.
             </p>
           </div>
         </div>
 
         {/* Botones de Acción: Chat, Refrescar y Perfil de Usuario */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center justify-end gap-2 w-full sm:w-auto border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-100">
           <OnlineChatDropdown />
           <button
             onClick={cargarDatos}
             disabled={loading}
-            className="p-2.5 rounded-2xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-2xs h-9"
+            className="p-2 sm:p-2.5 rounded-2xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-2xs h-9 shrink-0"
           >
             <RefreshCw size={15} className={loading ? "animate-spin text-sky-600" : ""} />
             <span className="hidden sm:inline">Actualizar</span>
@@ -240,7 +240,7 @@ export const InventoryPage: React.FC = () => {
       {/* ─────────────────────────────────────────────────────────────
           2. SELECTOR DE PESTAÑAS PRINCIPALES
       ───────────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200/80 pb-2">
+      <div className="flex items-center lg:flex-wrap gap-2 border-b border-slate-200/80 pb-2 overflow-x-auto lg:overflow-visible no-scrollbar">
         {tabsDisponibles.map((tab) => {
           const Icon = tab.icon;
           const isSelected = tabActiva === tab.id;
@@ -248,7 +248,7 @@ export const InventoryPage: React.FC = () => {
             <button
               key={tab.id}
               onClick={() => handleTabChange(tab.id)}
-              className={`px-4 py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 cursor-pointer ${
+              className={`px-3.5 md:px-4 py-2 md:py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 cursor-pointer shrink-0 ${
                 isSelected
                   ? "bg-sky-600 text-white shadow-sm shadow-sky-600/20"
                   : "bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-slate-200/80"

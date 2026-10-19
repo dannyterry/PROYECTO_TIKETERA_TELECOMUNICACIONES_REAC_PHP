@@ -1535,8 +1535,8 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
               No se encontraron órdenes liquidadas con los filtros actuales.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
+            <div className="w-full overflow-x-auto touch-pan-x">
+              <table className="w-full min-w-[750px] text-left text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px] tracking-wider bg-slate-50/50">
                     <th className="py-2.5 px-3">Orden & Fecha</th>

@@ -570,7 +570,7 @@ export default function App() {
 
               {/* 2. Inventario & Almacén */}
               {isInventoryView && !isTechnicianPortal && (
-                <div className="flex-1 w-full overflow-y-auto min-h-0">
+                <div className="flex-1 w-full min-w-0 overflow-y-auto min-h-0">
                   <InventoryPage />
                 </div>
               )}

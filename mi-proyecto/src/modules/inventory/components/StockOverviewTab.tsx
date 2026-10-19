@@ -1140,12 +1140,12 @@ export const StockOverviewTab: React.FC<Props> = ({
       ───────────────────────────────────────────────────────────── */}
       <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
 
-        <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 md:gap-4">
           {/* Switch Central vs Técnicos vs Actas */}
-          <div className="flex flex-wrap items-center gap-1.5 bg-slate-100/80 p-1 rounded-2xl border border-slate-200/70">
+          <div className="flex items-center gap-1.5 bg-slate-100/80 p-1 rounded-2xl border border-slate-200/70 overflow-x-auto no-scrollbar scroll-smooth shrink-0">
             <button
               onClick={() => setSubTab("central")}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${subTab === "central" 
+              className={`px-3 md:px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shrink-0 whitespace-nowrap ${subTab === "central" 
                 ? "bg-slate-700 text-white shadow-xs font-bold" 
                 : "text-slate-600 hover:text-slate-900"
               }`}
@@ -1155,7 +1155,7 @@ export const StockOverviewTab: React.FC<Props> = ({
             </button>
             <button
               onClick={() => setSubTab("tecnicos")}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${subTab === "tecnicos" 
+              className={`px-3 md:px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shrink-0 whitespace-nowrap ${subTab === "tecnicos" 
                 ? "bg-slate-700 text-white shadow-xs font-bold" 
                 : "text-slate-600 hover:text-slate-900"
               }`}
@@ -1168,25 +1168,25 @@ export const StockOverviewTab: React.FC<Props> = ({
                 setSubTab("actas");
                 cargarActas();
               }}
-              className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${subTab === "actas" 
+              className={`px-3 md:px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer shrink-0 whitespace-nowrap ${subTab === "actas" 
                 ? "bg-slate-700 text-amber-300 shadow-xs font-bold" 
                 : "text-amber-900 hover:bg-amber-100/60"
               }`}
             >
               <FileText size={15} className={subTab === "actas" ? "text-amber-300" : "text-amber-700"} />
-              Control de Actas & Guías ({totalActasAsignadasGlobal})
+              Control de Actas ({totalActasAsignadasGlobal})
             </button>
           </div>
 
           {/* Buscador & Exportar Excel */}
-          <div className="flex items-center gap-3">
-            <div className="relative min-w-[240px]">
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 md:gap-3 w-full lg:w-auto">
+            <div className="relative flex-1 min-w-[180px] sm:min-w-[240px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
               <input
                 type="text"
                 value={filtroTexto}
                 onChange={(e) => setFiltroTexto(e.target.value)}
-                placeholder={subTab === "actas" ? "Buscar por número de acta (ej: 04235), técnico..." : "Buscar por nombre, código o serie..."}
+                placeholder={subTab === "actas" ? "Buscar por acta (ej: 04235), técnico..." : "Buscar por nombre, código o serie..."}
                 className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none"
               />
             </div>
@@ -1195,7 +1195,7 @@ export const StockOverviewTab: React.FC<Props> = ({
               <select
                 value={tecnicoSeleccionado}
                 onChange={(e) => setTecnicoSeleccionado(e.target.value)}
-                className="p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 cursor-pointer"
+                className="p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 cursor-pointer max-w-[160px] sm:max-w-[200px] truncate"
               >
                 <option value="Todos">👥 Todos los Técnicos</option>
                 {tecnicosUnicos.map((t) => (
@@ -1210,11 +1210,11 @@ export const StockOverviewTab: React.FC<Props> = ({
             <button
               type="button"
               onClick={exportarAExcel}
-              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
+              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
               title="Descargar reporte completo en Excel (.xlsx)"
             >
               <Download size={15} />
-              <span>Exportar Excel</span>
+              <span className="hidden sm:inline">Exportar Excel</span>
             </button>
           </div>
         </div>
@@ -1271,25 +1271,26 @@ export const StockOverviewTab: React.FC<Props> = ({
       ───────────────────────────────────────────────────────────── */}
       {subTab === "central" ? (
         /* VISTA: ALMACÉN CENTRAL */
-        <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50/80 text-slate-400 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
-              <tr>
-                <th className="py-3.5 px-4">Código / Producto</th>
-                <th className="py-3.5 px-4">Categoría</th>
-                <th className="py-3.5 px-4 text-right">Costo Compra</th>
-                <th className="py-3.5 px-3 text-center">Ubicación</th>
-                <th className="py-3.5 px-4 text-center">Control</th>
-                <th className="py-3.5 px-4 text-right">Stock Nuevo</th>
-                <th className="py-3.5 px-4 text-right">Segundo Uso</th>
-                <th className="py-3.5 px-4 text-right">Total Central</th>
-                <th className="py-3.5 px-4 text-right">En Carros</th>
-                <th className="py-3.5 px-4 text-right">Total Empresa</th>
-                <th className="py-3.5 px-4 text-center">Estado</th>
-                <th className="py-3.5 px-4 text-center">Acción Rápida</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
+        <div className="bg-white rounded-2xl md:rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
+          <div className="w-full overflow-x-auto touch-pan-x">
+            <table className="w-full min-w-[1000px] text-left text-xs">
+              <thead className="bg-slate-50/80 text-slate-400 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
+                <tr>
+                  <th className="py-3.5 px-4">Código / Producto</th>
+                  <th className="py-3.5 px-4">Categoría</th>
+                  <th className="py-3.5 px-4 text-right">Costo Compra</th>
+                  <th className="py-3.5 px-3 text-center">Ubicación</th>
+                  <th className="py-3.5 px-4 text-center">Control</th>
+                  <th className="py-3.5 px-4 text-right">Stock Nuevo</th>
+                  <th className="py-3.5 px-4 text-right">Segundo Uso</th>
+                  <th className="py-3.5 px-4 text-right">Total Central</th>
+                  <th className="py-3.5 px-4 text-right">En Carros</th>
+                  <th className="py-3.5 px-4 text-right">Total Empresa</th>
+                  <th className="py-3.5 px-4 text-center">Estado</th>
+                  <th className="py-3.5 px-4 text-center">Acción Rápida</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
               {productosFiltrados.length === 0 ? (
                 <tr>
                   <td colSpan={12} className="py-12 text-center text-slate-400 text-xs font-bold">
@@ -1514,6 +1515,7 @@ export const StockOverviewTab: React.FC<Props> = ({
               )}
             </tbody>
           </table>
+          </div>
         </div>
       ) : subTab === "tecnicos" ? (
         /* VISTA: STOCK EN PODER DE TÉCNICOS */
@@ -1587,7 +1589,8 @@ export const StockOverviewTab: React.FC<Props> = ({
               filtroCategoria === "Todas" || filtroCategoria === "EQUIPOS" || filtroCategoria === "ACTAS / GUÍAS";
 
             return (
-              <table className="w-full text-left text-xs">
+              <div className="w-full overflow-x-auto touch-pan-x">
+                <table className="w-full min-w-[950px] text-left text-xs">
                 <thead className="bg-slate-50/80 text-slate-500 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
                   <tr>
                     <th className="py-3.5 px-4">Técnico Conductor</th>
@@ -1874,6 +1877,7 @@ export const StockOverviewTab: React.FC<Props> = ({
                   )}
                 </tbody>
               </table>
+              </div>
             );
           })()}
         </div>
@@ -1931,7 +1935,8 @@ export const StockOverviewTab: React.FC<Props> = ({
           </div>
 
           {subVistaActas === "asignadas" ? (
-            <table className="w-full text-left text-xs">
+            <div className="w-full overflow-x-auto touch-pan-x">
+            <table className="w-full min-w-[900px] text-left text-xs">
               <thead className="bg-slate-50/80 text-slate-400 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
                 <tr>
                   <th className="py-3.5 px-4">Técnico Conductor</th>
@@ -2006,6 +2011,7 @@ export const StockOverviewTab: React.FC<Props> = ({
                 )}
               </tbody>
             </table>
+            </div>
           ) : (
             /* ── REPORTE DE ACTAS ANULADAS / DAÑADAS ── */
             <div className="space-y-3">
@@ -2019,7 +2025,8 @@ export const StockOverviewTab: React.FC<Props> = ({
                 </span>
               </div>
 
-              <table className="w-full text-left text-xs">
+              <div className="w-full overflow-x-auto touch-pan-x">
+              <table className="w-full min-w-[850px] text-left text-xs">
                 <thead className="bg-slate-50/80 text-slate-400 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
                   <tr>
                     <th className="py-3.5 px-4">Fecha Anulación</th>
@@ -2083,6 +2090,7 @@ export const StockOverviewTab: React.FC<Props> = ({
                   )}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
         </div>

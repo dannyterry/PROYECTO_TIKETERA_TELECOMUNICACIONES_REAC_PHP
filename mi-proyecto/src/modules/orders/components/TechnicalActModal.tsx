@@ -1434,7 +1434,8 @@ export const TechnicalActModal: React.FC<Props> = ({
         ? `${currentUser.nombres || ''} ${currentUser.apellidos || ''} (${currentUser.rol || 'Usuario'})`.trim()
         : "Técnico";
 
-      await liquidarActaOrden(order.id, {
+      const targetOrderId = order.id || (order as any)?.id_orden;
+      await liquidarActaOrden(targetOrderId, {
         id_trabajador: finalTrabajadorId ? Number(finalTrabajadorId) : undefined,
         numero_guia: numeroActaOficial,
         numero_acta: numeroActaOficial,
@@ -1514,6 +1515,7 @@ export const TechnicalActModal: React.FC<Props> = ({
                       </span>
                       <input
                         ref={actaInputRef}
+                        form="form-liquidacion-acta"
                         type="text"
                         inputMode="numeric"
                         pattern="[0-9]*"
@@ -1650,7 +1652,7 @@ export const TechnicalActModal: React.FC<Props> = ({
                   FORMULARIO TÉCNICO (7 Cols en split desktop, full-width en móvil/técnico)
               ══════════════════════════════════════════════════════════ */}
               <div className={shouldShowPhoto ? "lg:col-span-7 space-y-4" : "space-y-4"}>
-                <form onSubmit={handleSubmit} className="space-y-4 text-xs font-semibold text-slate-700">
+                <form id="form-liquidacion-acta" onSubmit={handleSubmit} className="space-y-4 text-xs font-semibold text-slate-700">
 
                   {/* ─────────────────────────────────────────────────────────────
                       0. TIPO DE LIQUIDACIÓN AUTOMÁTICO DE LA ORDEN
@@ -2423,6 +2425,16 @@ export const TechnicalActModal: React.FC<Props> = ({
                   </button>
                   <button
                     type="submit"
+                    form="form-liquidacion-acta"
+                    onClick={(e) => {
+                      // Respaldo de seguridad si el navegador no propaga submit nativo
+                      if (!guardando) {
+                        const form = document.getElementById("form-liquidacion-acta") as HTMLFormElement;
+                        if (form && !form.checkValidity()) {
+                          form.reportValidity();
+                        }
+                      }
+                    }}
                     disabled={guardando}
                     className="px-6 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-black rounded-2xl shadow-lg shadow-orange-500/25 transition-all cursor-pointer disabled:opacity-50 flex items-center gap-2 hover:scale-[1.02] active:scale-[0.98]"
                   >

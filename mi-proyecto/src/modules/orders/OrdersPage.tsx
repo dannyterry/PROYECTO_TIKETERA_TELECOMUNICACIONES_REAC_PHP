@@ -618,9 +618,34 @@ export const OrdersPage: React.FC = () => {
       const canonicalCuad = extractCuadrillaKey(rawCuad) || rawCuad;
       if (!canonicalCuad) return;
 
+      // Obtener la fecha del contexto actual (si está filtrando una fecha específica)
+      const targetFecha = (filters.fechaDesde && filters.fechaDesde === filters.fechaHasta)
+        ? filters.fechaDesde
+        : (filters.fechaDesde || targetOrder?.fecha || todayStr);
+
+      // 1. Actualización optimista inmediata en memoria de React (para respuesta instantánea en 1 clic)
+      const upperCanonical = canonicalCuad.toUpperCase().trim();
+      setOrders((prev) =>
+        prev.map((o) => {
+          const oCuad = (o.cuadrilla || "").toUpperCase().trim();
+          const oCuadOrig = (o.cuadrillaOrigenFenix || "").toUpperCase().trim();
+          const isSameCuad = oCuad.includes(upperCanonical) || oCuadOrig.includes(upperCanonical);
+          const isTargetDate = !targetFecha || o.fecha === targetFecha;
+
+          if (isSameCuad && isTargetDate) {
+            return {
+              ...o,
+              cuadrilla: o.cuadrillaOrigenFenix || o.cuadrilla,
+              asignacionManual: false,
+            };
+          }
+          return o;
+        })
+      );
+
       try {
-        await restaurarCuadrillaReemplazo(canonicalCuad);
-        loadData(false);
+        await restaurarCuadrillaReemplazo(canonicalCuad, targetFecha);
+        await loadData(true);
         registrarLogAuditoria({
           id_usuario: currentUserId ? Number(currentUserId) : null,
           usuario_nombre: currentUserName || "Gestor de Órdenes",
@@ -628,10 +653,11 @@ export const OrdersPage: React.FC = () => {
           modulo: "ORDENES",
           accion: "RESTAURAR_CUADRILLA_PERSISTENTE",
           id_referencia: canonicalCuad,
-          descripcion: `Restauró cuadrilla persistente [${canonicalCuad}] a origen Fénix`,
+          descripcion: `Restauró cuadrilla persistente [${canonicalCuad}] a origen Fénix (fecha: ${targetFecha || 'general'})`,
         });
       } catch (err) {
         console.error("Error al restaurar reemplazo de cuadrilla en BD:", err);
+        await loadData(true);
       }
     } else {
       try {
