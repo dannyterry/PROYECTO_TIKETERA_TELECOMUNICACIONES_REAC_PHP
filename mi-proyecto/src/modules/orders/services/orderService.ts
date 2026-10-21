@@ -206,6 +206,61 @@ export const calculateTramo = (val?: any): string => {
 };
 
 /**
+ * 📞 Extrae y normaliza hasta 2 números de contacto del cliente a partir de raw.movil, raw.fijo y raw.datos_tecnicos.
+ * Si el segundo número es idéntico al primero, o no es un teléfono válido, solo devuelve el primero.
+ */
+export const extractClientPhones = (raw: any): { celular: string; celular2?: string } => {
+  const sanitize = (val: any): string => {
+    if (!val) return "";
+    const s = String(val).trim();
+    if (!s || s === "0" || s === "-" || /^(null|undefined|none|sin n[uú]mero)$/i.test(s)) return "";
+    if (/^(AVERIAS|MOTOWIN|POSTVENTA|REITERADA|PLANTA EXTERNA)/i.test(s) || /[a-zA-Z]{3,}/.test(s)) return "";
+    const digits = s.replace(/\D/g, "");
+    if (digits.length >= 7 && digits.length <= 12) {
+      return digits;
+    }
+    return s.length >= 7 && !/[a-zA-Z]/.test(s) ? s : "";
+  };
+
+  let tel1 = sanitize(raw.movil || raw.celular || raw.telefono || raw.telefono_cliente || raw.telefono1);
+  let tel2 = sanitize(raw.fijo || raw.telefono2 || raw.celular2 || raw.telefono_fijo);
+
+  // Rescate inteligente desde datos_tecnicos si falta alguno o son iguales
+  if (raw.datos_tecnicos) {
+    const dt = String(raw.datos_tecnicos);
+    const refMatch = dt.match(/MOVIL\s+REFERENCIA\/[^\/]*\/(\d{7,11})/i);
+    const ultMatch = dt.match(/MOVIL\s+ULTIMO\s+CONTACTO\/[^\/]*\/(\d{7,11})/i);
+    const refNum = refMatch && refMatch[1] ? sanitize(refMatch[1]) : "";
+    const ultNum = ultMatch && ultMatch[1] ? sanitize(ultMatch[1]) : "";
+
+    if (!tel1) {
+      tel1 = ultNum || refNum || "";
+    }
+    if (!tel2 || tel2 === tel1) {
+      if (ultNum && ultNum !== tel1) {
+        tel2 = ultNum;
+      } else if (refNum && refNum !== tel1) {
+        tel2 = refNum;
+      }
+    }
+  }
+
+  if (!tel1 && tel2) {
+    tel1 = tel2;
+    tel2 = "";
+  }
+
+  if (tel2 && (tel2 === tel1 || tel2 === "0")) {
+    tel2 = "";
+  }
+
+  return {
+    celular: tel1,
+    celular2: tel2 || undefined,
+  };
+};
+
+/**
  * 🚀 1. Obtener lista completa de órdenes desde la API
  */
 export const getOrders = async (filters?: {
@@ -335,23 +390,13 @@ export const getOrders = async (filters?: {
           finalTipoTrabajo = "";
         }
 
+        const clientPhones = extractClientPhones(raw);
+
         return {
           id: orderId,
           fecha: formatFechaOrden(rawDate),
-          celular: (() => {
-            let m = String(raw.movil || raw.celular || raw.telefono || raw.telefono_cliente || raw.telefono1 || "").trim();
-            if (!m || /^(AVERIAS|MOTOWIN|POSTVENTA|REITERADA|PLANTA EXTERNA)/i.test(m) || /[a-zA-Z]{3,}/.test(m)) {
-              m = "";
-            }
-            if (!m && raw.datos_tecnicos) {
-              const dtMatch = String(raw.datos_tecnicos).match(/MOVIL\s+(?:ULTIMO\s+CONTACTO|REFERENCIA)[^\/]*\/[^\/]*\/(\d{7,11})/i) ||
-                              String(raw.datos_tecnicos).match(/MOVIL[^\/]*\/[^\/]*\/(\d{7,11})/i);
-              if (dtMatch && dtMatch[1]) {
-                m = dtMatch[1];
-              }
-            }
-            return m;
-          })(),
+          celular: clientPhones.celular,
+          celular2: clientPhones.celular2,
           inconcert: isInconcert,
           ticket: ticket,
           codigoPedido: (() => {

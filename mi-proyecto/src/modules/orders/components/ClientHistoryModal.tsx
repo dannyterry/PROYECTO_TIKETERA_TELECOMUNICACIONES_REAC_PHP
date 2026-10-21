@@ -160,7 +160,7 @@ export const ClientHistoryModal: React.FC<ClientHistoryModalProps> = ({
                 {latestOrder.dni && <span>DNI / RUC: <strong className="text-white">{latestOrder.dni}</strong></span>}
                 {latestOrder.celular && (
                   <span className="flex items-center gap-1">
-                    <Phone size={11} /> {latestOrder.celular}
+                    <Phone size={11} /> {[latestOrder.celular, latestOrder.celular2].filter(Boolean).join(" / ")}
                   </span>
                 )}
                 {latestOrder.distrito && (

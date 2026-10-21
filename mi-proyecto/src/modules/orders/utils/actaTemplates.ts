@@ -682,7 +682,16 @@ export const getPlantillaPorTrabajo = (tipoTrabajo?: string): PlantillaActa => {
   if (norm.includes("GARANTIA")) {
     return PLANTILLAS_POR_TRABAJO["GARANTIA"];
   }
-  if (norm.includes("PRUEBA") || norm.includes("PEX") || norm.includes("CONJUNTA")) {
+  if (norm.includes("VALIDACION CLIENTE") || norm.includes("VALIDACION DE CLIENTE")) {
+    return PLANTILLAS_POR_TRABAJO["VISITA EXTERNA"];
+  }
+  if (
+    norm.includes("PEX") ||
+    norm.includes("CONJUNTA") ||
+    norm.includes("PLANTA EXTERNA") ||
+    ((norm.includes("PRUEBA DE SERVICIO") || norm.includes("PRUEBAS DE SERVICIO")) &&
+      (norm.includes("CTO") || norm.includes("NAP") || norm.includes("DEGRADAD") || norm.includes("PUERTO") || norm.includes("POTENCIA") || norm.includes("INTERMITENCIA")))
+  ) {
     return PLANTILLAS_POR_TRABAJO["PRUEBAS DE SERVICIO"];
   }
 

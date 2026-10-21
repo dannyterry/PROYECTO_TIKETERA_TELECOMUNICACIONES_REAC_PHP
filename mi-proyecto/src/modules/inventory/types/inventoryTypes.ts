@@ -468,3 +468,74 @@ export interface KardexKPIs {
   totalDevoluciones: number;
   totalConsumidoOrdenes: number;
 }
+
+export interface EquipoGeneralItem {
+  id_producto_serie: number;
+  id_producto: number;
+  producto_nombre: string;
+  producto_codigo?: string;
+  categoria_nombre: string;
+  numero_serie_interno?: string | null;
+  sn: string;
+  mac?: string | null;
+  estado_serie: string;
+  fecha_ingreso_win?: string | null;
+  almacen_tec_win?: string;
+  fecha_ingreso_tec?: string | null;
+  fecha_entrega_tecnico?: string | null;
+  id_trabajador?: number | null;
+  nombre_tecnico_completo?: string;
+  nombre_tecnico?: string;
+  almacen_liq_win?: string;
+  fecha_ingreso_liq?: string | null;
+  fecha_instalacion?: string | null;
+  nom_cliente?: string | null;
+  numero_acta?: string | null;
+  equipo_baja?: string | null;
+  fecha_ingreso_almacen?: string | null;
+  numero_guia?: string | null;
+  fecha_entrega_almacen_win?: string | null;
+  observacion_equipos?: string | null;
+}
+
+export interface EquiposGeneralesResponse {
+  success: boolean;
+  total: number;
+  data: EquipoGeneralItem[];
+  stats: {
+    total: number;
+    en_almacen: number;
+    en_tecnicos: number;
+    liquidados: number;
+    de_baja: number;
+  };
+  subtab_counts: {
+    total: number;
+    zte_ont: number;
+    huawei_ont: number;
+    zte_mesh: number;
+    huawei_mesh: number;
+    tv_box: number;
+    telef: number;
+    drop_cnt: number;
+    utp_cnt: number;
+  };
+}
+
+export interface EquiposGeneralesFilters {
+  search?: string;
+  id_producto?: number | string;
+  subtab?: string;
+  mes?: number | string;
+  anio?: number | string;
+  semana?: number | string;
+  fecha_desde?: string;
+  fecha_hasta?: string;
+  tipo_fecha?: string;
+  almacen?: string;
+  estado?: string;
+  id_trabajador?: number | string;
+  limit?: number;
+  offset?: number;
+}
+

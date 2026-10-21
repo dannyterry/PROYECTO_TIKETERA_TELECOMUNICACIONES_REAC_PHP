@@ -13,10 +13,12 @@ import {
   Tag,
   LogOut,
   ArrowLeftRight,
+  HardDrive,
 } from "lucide-react";
 import { ProductoStock, StockTecnicoDetalle, SerieTecnicoDetalle } from "./types/inventoryTypes";
 import { getStockGeneral } from "./services/inventoryService";
 import { StockOverviewTab } from "./components/StockOverviewTab";
+import { GeneralEquipmentTab } from "./components/GeneralEquipmentTab";
 import { PurchaseEntryTab } from "./components/PurchaseEntryTab";
 import { TechnicianDispatchTab } from "./components/TechnicianDispatchTab";
 import { RetrievedEquipmentTab } from "./components/RetrievedEquipmentTab";
@@ -45,6 +47,7 @@ export const InventoryPage: React.FC = () => {
 
   type InventoryTabType =
     | "stock"
+    | "equipos_generales"
     | "compras"
     | "despacho"
     | "liquidaciones_ordenes"
@@ -57,6 +60,7 @@ export const InventoryPage: React.FC = () => {
 
   const tabsConfig = useMemo(() => [
     { id: "stock" as InventoryTabType, label: "Control de Stock & Almacenes", icon: Layers, allowed: canStock },
+    { id: "equipos_generales" as InventoryTabType, label: "Equipos Generales", badge: "WIN Grid", icon: HardDrive, allowed: canStock || canKardex || canDespacho },
     { id: "compras" as InventoryTabType, label: "Compras & Entrada (Series)", icon: ShoppingCart, allowed: canCompras },
     { id: "despacho" as InventoryTabType, label: "Despacho a Técnicos", icon: Truck, allowed: canDespacho },
     { id: "liquidaciones_ordenes" as InventoryTabType, label: "Liquidaciones de Técnicos", badge: "Actas", icon: FileCheck, allowed: canLiquidaciones },
@@ -72,6 +76,7 @@ export const InventoryPage: React.FC = () => {
 
   const getInitialTab = (): InventoryTabType => {
     const hash = window.location.hash.toLowerCase().replace("#", "");
+    if (hash.includes("equipo") || hash.includes("general")) return "equipos_generales";
     if (hash.includes("traspaso") || hash.includes("transferencia")) return "transferencias_tecnicos";
     if ((hash.includes("kardex") || hash.includes("movimiento")) && canKardex) return "kardex";
     if (hash.includes("categoria") && canCategorias) return "categorias";
@@ -153,7 +158,8 @@ export const InventoryPage: React.FC = () => {
   useEffect(() => {
     const sincronizarHash = () => {
       const hash = window.location.hash.toLowerCase().replace("#", "");
-      if ((hash.includes("kardex") || hash.includes("movimiento")) && canKardex) setTabActiva("kardex");
+      if (hash.includes("equipo") || hash.includes("general")) setTabActiva("equipos_generales");
+      else if ((hash.includes("kardex") || hash.includes("movimiento")) && canKardex) setTabActiva("kardex");
       else if (hash.includes("categoria") && canCategorias) setTabActiva("categorias");
       else if (hash.includes("proveedor") && canProveedores) setTabActiva("proveedores");
       else if (hash.includes("compra") && canCompras) setTabActiva("compras");
@@ -282,6 +288,10 @@ export const InventoryPage: React.FC = () => {
           onRefresh={cargarDatos}
           onNavigateToTab={handleTabChange}
         />
+      )}
+
+      {tabActiva === "equipos_generales" && (
+        <GeneralEquipmentTab productos={productos} />
       )}
 
       {tabActiva === "kardex" && canKardex && (

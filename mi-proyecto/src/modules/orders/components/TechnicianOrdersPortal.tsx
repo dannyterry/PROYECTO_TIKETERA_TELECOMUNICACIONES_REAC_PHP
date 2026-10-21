@@ -1148,6 +1148,9 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
                       {ord.celular && (
                         <span>
                           • Tel: <a href={`tel:${ord.celular}`} className="text-indigo-600 font-mono font-bold hover:underline">{ord.celular}</a>
+                          {ord.celular2 && (
+                            <> / <a href={`tel:${ord.celular2}`} className="text-indigo-600 font-mono font-bold hover:underline">{ord.celular2}</a></>
+                          )}
                         </span>
                       )}
                     </div>
@@ -1221,12 +1224,38 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
 
                   {/* 4. Botón Principal: Liquidar o Consultar Acta */}
                   {(() => {
-                    const esPex = 
-                      /pex/i.test(String(ord.tipoTrabajo || '')) ||
-                      /pex/i.test(String(ord.tipoLiquidacion || '')) ||
-                      /pex/i.test(String(ord.motivoFinalizacion || '')) ||
-                      /prueba\s*de\s*servicio/i.test(String(ord.motivoFinalizacion || '')) ||
-                      /conjunta/i.test(String(ord.motivoFinalizacion || ''));
+                    // ⚪ CASO PEX: No requiere acta física (solo CTO/NAP degradado, planta externa o tipo PEX; NUNCA validación de cliente)
+                    const esPex = (() => {
+                      const normTrabajo = String(ord.tipoTrabajo || "").toUpperCase();
+                      const normLiq = String(ord.tipoLiquidacion || "").toUpperCase();
+                      const normMotivo = String(ord.motivoFinalizacion || "").toUpperCase();
+
+                      // Si es validación de cliente domiciliaria -> SÍ lleva acta técnica (NO es PEX)
+                      if (normMotivo.includes("VALIDACION CLIENTE") || normLiq.includes("VALIDACION CLIENTE")) {
+                        return false;
+                      }
+
+                      if (normTrabajo === "PEX" || normTrabajo.startsWith("PEX ")) {
+                        return true;
+                      }
+
+                      const textoCombinado = `${normTrabajo} ${normLiq} ${normMotivo}`;
+                      if (
+                        textoCombinado.includes("CONJUNTA") ||
+                        textoCombinado.includes("PLANTA EXTERNA") ||
+                        ((textoCombinado.includes("PRUEBA DE SERVICIO") || textoCombinado.includes("PRUEBAS DE SERVICIO")) &&
+                          (textoCombinado.includes("CTO") ||
+                           textoCombinado.includes("NAP") ||
+                           textoCombinado.includes("PUERTO") ||
+                           textoCombinado.includes("POTENCIA") ||
+                           textoCombinado.includes("DEGRADAD") ||
+                           textoCombinado.includes("INTERMITENCIA")))
+                      ) {
+                        return true;
+                      }
+
+                      return false;
+                    })();
 
                     if (isLiquidada) {
                       return (

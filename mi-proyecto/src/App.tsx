@@ -236,6 +236,11 @@ export default function App() {
   const isInventoryView =
     currentView === "almacen" ||
     currentView === "inventario" ||
+    currentView === "equipos_generales" ||
+    currentView === "equipos-generales" ||
+    currentView === "equipos" ||
+    currentView === "equiposgenerales" ||
+    currentView.includes("equipo") ||
     currentView === "stock" ||
     currentView === "kardex" ||
     currentView === "movimientos" ||

@@ -129,11 +129,12 @@ async function uploadFileToS3(localFilePath, s3Key, contentType = null) {
 /**
  * 3. Generar URL firmada temporal de descarga/visualización
  */
-async function getS3SignedUrl(s3Key, expiresInSeconds = 86400) {
+async function getS3SignedUrl(s3Key, expiresInSeconds = 86400, responseContentDisposition) {
   try {
     const command = new GetObjectCommand({
       Bucket: S3_BUCKET,
       Key: s3Key,
+      ...(responseContentDisposition && { ResponseContentDisposition: responseContentDisposition }),
     });
     const url = await getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
     return url;

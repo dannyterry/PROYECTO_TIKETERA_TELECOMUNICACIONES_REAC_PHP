@@ -229,6 +229,11 @@ const TIPIFICACION_A_AREA_MAP: Record<string, string> = {
   "WINBOX - CONTROL DEFECT": "VISITA EXTERNA",
   "CLIENTE CON SERVICIO - POTENCIA OPTIMA": "VISITA EXTERNA",
   "CLIENTE CON SERVICIO POTENCIA OPTIMA": "VISITA EXTERNA",
+  "PRUEBA DE SERVICIO - VALIDACION CLIENTE": "VISITA EXTERNA",
+  "PRUEBA DE SERVICIO VALIDACION CLIENTE": "VISITA EXTERNA",
+  "PRUEBA DE VALIDACION DE CLIENTE": "VISITA EXTERNA",
+  "VALIDACION CLIENTE": "VISITA EXTERNA",
+  "VALIDACION DE CLIENTE": "VISITA EXTERNA",
 };
 
 /**
@@ -373,19 +378,35 @@ export function mapTipificacionWinToTipoTrabajo(
     return "TRASLADO";
   }
 
-  // 12. PEX (Pruebas de Servicio, Conjuntas, Planta Externa, Puertos / CTO / NAP degradados o sin potencia)
+  // 11.5 VALIDACION CLIENTE (Atención técnica domiciliaria normal -> VISITA EXTERNA)
   if (
-    norm.includes("PRUEBA DE SERVICIO") ||
-    norm.includes("PRUEBAS DE SERVICIO") ||
+    norm.includes("VALIDACION CLIENTE") ||
+    norm.includes("VALIDACION DE CLIENTE")
+  ) {
+    return "VISITA EXTERNA";
+  }
+
+  // 12. PEX (Solo pruebas de servicio en CTO / NAP / Planta Externa con puertos o potencia degradada)
+  const esPruebaPex =
+    (norm.includes("PRUEBA DE SERVICIO") || norm.includes("PRUEBAS DE SERVICIO")) &&
+    (norm.includes("CTO") ||
+      norm.includes("NAP") ||
+      norm.includes("DEGRADAD") ||
+      norm.includes("POTENCIA") ||
+      norm.includes("PUERTO") ||
+      norm.includes("INTERMITENCIA"));
+
+  if (
+    esPruebaPex ||
     norm.includes("CONJUNTA") ||
-    norm.includes("PEX") ||
-    norm.includes("PEXT") ||
     norm.includes("PLANTA EXTERNA") ||
     norm.includes("NAP SIN POTENCIA") ||
     norm.includes("NAP CON PUERTOS") ||
     norm.includes("CTO SIN POTENCIA") ||
     norm.includes("POTENCIA DEGRADADA") ||
-    norm.includes("PUERTOS DEGRADADOS")
+    norm.includes("PUERTOS DEGRADADOS") ||
+    norm === "PEX" ||
+    norm === "PEXT"
   ) {
     return "PEX";
   }

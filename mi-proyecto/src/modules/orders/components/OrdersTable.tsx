@@ -28,14 +28,18 @@ interface OrdersTableProps {
 /**
  * Genera la plantilla ordenada de la orden solicitada por el usuario
  */
-const generarPlantillaOrden = (order: Order): string => {
+const generarPlantillaOrden = (order: Order, overrideCelular?: string): string => {
   const fechaLimpia = order.fecha ? order.fecha.split(" ")[0].split("T")[0] : "-";
   const geo = (order.georeferencia || "").trim();
   const mapsUrl = geo ? `https://www.google.com/maps?q=${geo}` : "-";
 
+  const telefonosTexto = overrideCelular
+    ? overrideCelular
+    : ([order.celular, order.celular2].filter(Boolean).join(" / ") || "-");
+
   return [
     `Fecha: ${fechaLimpia}`,
-    `Celular: ${order.celular || "-"}`,
+    `Celular: ${telefonosTexto}`,
     `DNI: ${order.dni || "-"}`,
     `Número de Ticket: ${order.ticket || "-"}`,
     `Cliente: ${order.cliente || "-"}`,
@@ -288,6 +292,262 @@ const ObservacionLlamadaCell: React.FC<{
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+/**
+ * 📱 Celda de Teléfono / Celular compacta con desplegable flotante cuando hay 2 números diferentes
+ */
+const CelularCell: React.FC<{
+  order: Order;
+  copiedKey: string | null;
+  onCopy: (key: string, text: string, e: React.MouseEvent) => void;
+}> = React.memo(({ order, copiedKey, onCopy }) => {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        dropdownRef.current && !dropdownRef.current.contains(event.target as Node) &&
+        containerRef.current && !containerRef.current.contains(event.target as Node)
+      ) {
+        setOpen(false);
+      }
+    };
+    if (open) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [open]);
+
+  const getDropdownPosition = (): React.CSSProperties => {
+    if (!containerRef.current) return {};
+    const rect = containerRef.current.getBoundingClientRect();
+    const estimatedHeight = 160;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUpwards = spaceBelow < estimatedHeight && rect.top > 160;
+
+    return {
+      top: openUpwards ? Math.max(10, rect.top - estimatedHeight - 4) : rect.bottom + 4,
+      left: Math.max(10, Math.min(rect.left, window.innerWidth - 240)),
+      width: "230px"
+    };
+  };
+
+  // 📞 Plantilla del número / llamada oficial: "Número - Cliente - Dirección - Tramo"
+  const getPlantillaNumero = (num: string): string => {
+    return [
+      num,
+      order.cliente,
+      order.direccion,
+      order.tramo && order.tramo !== "-" ? order.tramo : null
+    ].filter(Boolean).join(" - ");
+  };
+
+  const plantillaCel1 = getPlantillaNumero(order.celular);
+  const plantillaCel2 = order.celular2 ? getPlantillaNumero(order.celular2) : "";
+  const plantillaAmbos = getPlantillaNumero(`${order.celular} / ${order.celular2}`);
+
+  return (
+    <div ref={containerRef} className="flex items-center gap-1 min-w-0" onClick={(e) => e.stopPropagation()}>
+      {order.celular ? (
+        <a
+          href={`tel:${order.celular.replace(/\D/g, "")}`}
+          onClick={() => {
+            const soloNum = order.celular?.replace(/\D/g, "");
+            if (soloNum) {
+              navigator.clipboard.writeText(soloNum).catch(() => {});
+            }
+          }}
+          className="inline-flex items-center gap-1 font-black text-slate-900 hover:text-indigo-700 hover:underline transition-colors group cursor-pointer shrink-0"
+          title={`📞 Clic para llamar a ${order.celular} (Abre inConcert / Softphone y copia el número)`}
+        >
+          <Phone size={10} className="text-slate-600 group-hover:text-indigo-600 group-hover:scale-110 transition-transform shrink-0" />
+          <span>{order.celular}</span>
+        </a>
+      ) : (
+        <span className="text-slate-400">-</span>
+      )}
+
+      {/* 🟢 Si tiene 1 solo número: botón de copiado pegado inmediatamente al número (copia plantilla del número) */}
+      {!order.celular2 && order.celular && (
+        <button
+          type="button"
+          onClick={(e) => onCopy(`llamada-${order.id}`, plantillaCel1, e)}
+          className={`p-0.5 rounded transition-all shrink-0 cursor-pointer ${
+            copiedKey === `llamada-${order.id}`
+              ? "bg-slate-900 text-emerald-400 shadow-sm scale-105"
+              : "hover:bg-black/10 text-slate-500 hover:text-slate-800"
+          }`}
+          title={`Copiar datos para llamada:\n• Celular: ${order.celular}\n• Cliente: ${order.cliente || "-"}\n• Dirección: ${order.direccion || "-"}\n• Tramo: ${order.tramo || "-"}`}
+        >
+          {copiedKey === `llamada-${order.id}` ? (
+            <Check size={11} className="text-emerald-400 stroke-[3]" />
+          ) : (
+            <Copy size={11} />
+          )}
+        </button>
+      )}
+
+      {/* 🟢 Si tiene 2 números diferentes: solo badge desplegable (el copiado de la plantilla está dentro) */}
+      {order.celular2 && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen((prev) => !prev);
+          }}
+          className={`inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[9px] font-bold tracking-tight transition-all shrink-0 cursor-pointer ${
+            open
+              ? "bg-indigo-600 text-white shadow-xs"
+              : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200/80"
+          }`}
+          title={`Cliente con 2 números diferentes registrados:\n• 1: ${order.celular}\n• 2: ${order.celular2}\nClic para abrir opciones y copiar datos de llamada`}
+        >
+          <span>+1</span>
+          <ChevronDown size={8} className={`transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
+        </button>
+      )}
+
+      {/* 🚀 Menú Flotante por encima (z-9999) sin engordar la celda ni la fila */}
+      {open && order.celular2 && (
+        <div
+          ref={dropdownRef}
+          onClick={(e) => e.stopPropagation()}
+          style={getDropdownPosition()}
+          className="fixed z-9999 bg-slate-900 text-white rounded-xl shadow-2xl border border-slate-700 p-2.5 text-left font-sans animate-in fade-in zoom-in-95 duration-100 w-[240px]"
+        >
+          <div className="flex items-center justify-between pb-1.5 mb-2 border-b border-slate-800">
+            <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1">
+              <Phone size={10} className="text-indigo-400" /> 2 Teléfonos Registrados
+            </span>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="p-0.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              <X size={11} />
+            </button>
+          </div>
+
+          <div className="space-y-1.5">
+            {/* Opción 1: Celular 1 (Principal) -> Copia plantilla del número con Celular 1 */}
+            <div className="flex items-center justify-between gap-1 p-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-800 transition-colors">
+              <a
+                href={`tel:${order.celular.replace(/\D/g, "")}`}
+                onClick={() => {
+                  const s = order.celular?.replace(/\D/g, "");
+                  if (s) navigator.clipboard.writeText(s).catch(() => {});
+                }}
+                className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 font-mono font-bold text-xs"
+                title="Clic para llamar a Celular 1"
+              >
+                <Phone size={11} />
+                <span>{order.celular}</span>
+                <span className="text-[9px] font-normal text-slate-400 font-sans">(Móvil 1)</span>
+              </a>
+              <button
+                type="button"
+                onClick={(e) => onCopy(`cel1-${order.id}`, plantillaCel1, e)}
+                className="px-1.5 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 hover:text-white transition-colors cursor-pointer flex items-center gap-1 text-[9.5px] font-medium"
+                title={`Copiar datos para llamada con Celular 1:\n${plantillaCel1}`}
+              >
+                {copiedKey === `cel1-${order.id}` ? (
+                  <>
+                    <Check size={10} className="text-emerald-400 stroke-[3]" />
+                    <span className="text-emerald-400 font-bold">¡Copiado!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={10} />
+                    <span>Copiar</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Opción 2: Celular 2 (Alternativo / Fijo) -> Copia plantilla del número con Celular 2 */}
+            <div className="flex items-center justify-between gap-1 p-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-800 transition-colors">
+              <a
+                href={`tel:${order.celular2.replace(/\D/g, "")}`}
+                onClick={() => {
+                  const s = order.celular2?.replace(/\D/g, "");
+                  if (s) navigator.clipboard.writeText(s).catch(() => {});
+                }}
+                className="flex items-center gap-1 text-sky-400 hover:text-sky-300 font-mono font-bold text-xs"
+                title="Clic para llamar a Celular 2"
+              >
+                <Phone size={11} />
+                <span>{order.celular2}</span>
+                <span className="text-[9px] font-normal text-slate-400 font-sans">(Móvil 2)</span>
+              </a>
+              <button
+                type="button"
+                onClick={(e) => onCopy(`cel2-${order.id}`, plantillaCel2, e)}
+                className="px-1.5 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 hover:text-white transition-colors cursor-pointer flex items-center gap-1 text-[9.5px] font-medium"
+                title={`Copiar datos para llamada con Celular 2:\n${plantillaCel2}`}
+              >
+                {copiedKey === `cel2-${order.id}` ? (
+                  <>
+                    <Check size={10} className="text-emerald-400 stroke-[3]" />
+                    <span className="text-emerald-400 font-bold">¡Copiado!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={10} />
+                    <span>Copiar</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Botones de copiado en el desplegable */}
+          <div className="mt-2 pt-2 border-t border-slate-800 space-y-1.5">
+            {/* Copiar con ambos números: "941031608 / 987654321 - Cliente - Dirección - Tramo" */}
+            <button
+              type="button"
+              onClick={(e) => onCopy(`plantilla-ambos-${order.id}`, plantillaAmbos, e)}
+              className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-[10.5px] text-white font-bold transition-all shadow-xs cursor-pointer"
+              title={`Copiar datos de llamada con ambos números:\n${plantillaAmbos}`}
+            >
+              {copiedKey === `plantilla-ambos-${order.id}` ? (
+                <>
+                  <Check size={12} className="text-emerald-300 stroke-[3]" />
+                  <span>¡Datos Copiados!</span>
+                </>
+              ) : (
+                <>
+                  <Copy size={12} />
+                  <span>Copiar con Ambos Números</span>
+                </>
+              )}
+            </button>
+
+            {/* Copiar solo los números */}
+            <button
+              type="button"
+              onClick={(e) => onCopy(`solo-num-${order.id}`, `${order.celular} / ${order.celular2}`, e)}
+              className="w-full flex items-center justify-center gap-1 px-1.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[9.5px] text-slate-300 transition-colors cursor-pointer"
+              title="Copiar solo los números telefónicos sin cliente ni dirección"
+            >
+              {copiedKey === `solo-num-${order.id}` ? (
+                <span className="text-emerald-400 font-bold">¡Solo números copiados!</span>
+              ) : (
+                <>
+                  <Copy size={9} />
+                  <span>Solo números ({order.celular} / {order.celular2})</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       )}
@@ -786,51 +1046,9 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                       {order.fecha ? order.fecha.split(" ")[0].split("T")[0] : "-"}
                     </td>
 
-                    {/* 2. Celular con Click-to-Call (tel:) y botón de copiado para llamada */}
+                    {/* 2. Celular con Click-to-Call (tel:) y desplegable flotante cuando hay 2 números */}
                     <td className="py-1 px-2 font-mono text-[11px] border-b border-slate-950" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center justify-between gap-1">
-                        {order.celular ? (
-                          <a
-                            href={`tel:${order.celular.replace(/\D/g, "")}`}
-                            onClick={(e) => {
-                              const soloNum = order.celular?.replace(/\D/g, "");
-                              if (soloNum) {
-                                navigator.clipboard.writeText(soloNum).catch(() => {});
-                              }
-                            }}
-                            className="inline-flex items-center gap-1 font-black text-slate-900 hover:text-indigo-700 hover:underline transition-colors group cursor-pointer"
-                            title={`📞 Clic para llamar a ${order.celular} (Abre inConcert / Softphone y copia el número)`}
-                          >
-                            <Phone size={10} className="text-slate-600 group-hover:text-indigo-600 group-hover:scale-110 transition-transform" />
-                            <span>{order.celular}</span>
-                          </a>
-                        ) : (
-                          <span className="text-slate-400">-</span>
-                        )}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            const datosLlamada = [
-                              order.celular,
-                              order.cliente,
-                              order.direccion,
-                              order.tramo && order.tramo !== "-" ? order.tramo : null
-                            ].filter(Boolean).join(" - ");
-                            copyToClipboard(`llamada-${order.id}`, datosLlamada, e);
-                          }}
-                          className={`p-0.5 rounded transition-all shrink-0 cursor-pointer ${copiedKey === `llamada-${order.id}`
-                            ? "bg-slate-900 text-emerald-400 shadow-sm scale-105"
-                            : "hover:bg-black/10 text-slate-500 hover:text-slate-800"
-                            }`}
-                          title={`Copiar datos para llamada:\n• Celular: ${order.celular || "-"}\n• Cliente: ${order.cliente || "-"}\n• Dirección: ${order.direccion || "-"}\n• Tramo: ${order.tramo || "-"}`}
-                        >
-                          {copiedKey === `llamada-${order.id}` ? (
-                            <Check size={11} className="text-emerald-400 stroke-[3]" />
-                          ) : (
-                            <Copy size={11} />
-                          )}
-                        </button>
-                      </div>
+                      <CelularCell order={order} copiedKey={copiedKey} onCopy={copyToClipboard} />
                     </td>
 
                     {/* 3. Llamada Inconcert (Switch Interactivo Ultra Rápido 0ms) */}
@@ -1191,13 +1409,38 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                           );
                         }
 
-                        // ⚪ CASO PEX: No requiere acta física
-                        const esPex =
-                          /pex/i.test(String(order.tipoTrabajo || '')) ||
-                          /pex/i.test(String(order.tipoLiquidacion || '')) ||
-                          /pex/i.test(String(order.motivoFinalizacion || '')) ||
-                          /prueba\s*de\s*servicio/i.test(String(order.motivoFinalizacion || '')) ||
-                          /conjunta/i.test(String(order.motivoFinalizacion || ''));
+                        // ⚪ CASO PEX: No requiere acta física (solo CTO/NAP degradado, planta externa o tipo PEX; NUNCA validación de cliente)
+                        const esPex = (() => {
+                          const normTrabajo = String(order.tipoTrabajo || "").toUpperCase();
+                          const normLiq = String(order.tipoLiquidacion || "").toUpperCase();
+                          const normMotivo = String(order.motivoFinalizacion || "").toUpperCase();
+
+                          // Si es validación de cliente domiciliaria -> SÍ lleva acta técnica (NO es PEX)
+                          if (normMotivo.includes("VALIDACION CLIENTE") || normLiq.includes("VALIDACION CLIENTE")) {
+                            return false;
+                          }
+
+                          if (normTrabajo === "PEX" || normTrabajo.startsWith("PEX ")) {
+                            return true;
+                          }
+
+                          const textoCombinado = `${normTrabajo} ${normLiq} ${normMotivo}`;
+                          if (
+                            textoCombinado.includes("CONJUNTA") ||
+                            textoCombinado.includes("PLANTA EXTERNA") ||
+                            ((textoCombinado.includes("PRUEBA DE SERVICIO") || textoCombinado.includes("PRUEBAS DE SERVICIO")) &&
+                              (textoCombinado.includes("CTO") ||
+                               textoCombinado.includes("NAP") ||
+                               textoCombinado.includes("PUERTO") ||
+                               textoCombinado.includes("POTENCIA") ||
+                               textoCombinado.includes("DEGRADAD") ||
+                               textoCombinado.includes("INTERMITENCIA")))
+                          ) {
+                            return true;
+                          }
+
+                          return false;
+                        })();
 
                         if (isFinalizada && esPex) {
                           return (

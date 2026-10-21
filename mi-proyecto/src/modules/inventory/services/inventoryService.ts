@@ -16,6 +16,9 @@ import {
   ActaTecnicoResumen,
   CompraHistorialItem,
   DescargaOrdenItem,
+  EquipoGeneralItem,
+  EquiposGeneralesResponse,
+  EquiposGeneralesFilters,
 } from "../types/inventoryTypes";
 
 const api = axios.create({
@@ -509,7 +512,9 @@ export const getTecnicosDisponibles = async (): Promise<any[]> => {
 };
 
 export const getFotoActaLiquidacion = async (
-  numeroOrden: string
+  numeroOrden: string,
+  descargar = false,
+  nombreArchivo?: string
 ): Promise<{
   success: boolean;
   foto_url?: string;
@@ -520,7 +525,25 @@ export const getFotoActaLiquidacion = async (
   origen?: string;
   error?: string;
 }> => {
-  const res = await api.get(`/almacen/orden-liquidaciones/${encodeURIComponent(numeroOrden)}/foto-acta`);
+  const res = await api.get(`/almacen/orden-liquidaciones/${encodeURIComponent(numeroOrden)}/foto-acta`, {
+    params: descargar ? { descargar: 1, nombre_archivo: nombreArchivo } : undefined,
+  });
   return res.data;
 };
+
+export const getEquiposGenerales = async (
+  filters: EquiposGeneralesFilters = {}
+): Promise<EquiposGeneralesResponse> => {
+  const res = await api.get("/almacen/equipos-generales", { params: filters });
+  return res.data;
+};
+
+export const actualizarEquipoGeneral = async (
+  idProductoSerie: number,
+  payload: Partial<EquipoGeneralItem>
+): Promise<{ success: boolean; message: string }> => {
+  const res = await api.put(`/almacen/equipos-generales/${idProductoSerie}`, payload);
+  return res.data;
+};
+
 

@@ -2,6 +2,7 @@ export interface Order {
   id: number;
   fecha: string;
   celular: string;
+  celular2?: string;
   inconcert: boolean | string;
   observacionLlamada?: string;
   tipoTrabajoAsignado?: string;

@@ -542,14 +542,30 @@ export const OrderLiquidationsAuditTab: React.FC = () => {
 
   const handleMouseUp = () => setIsDragging(false);
 
-  const handleDownloadFoto = () => {
+  const handleDownloadFoto = async () => {
     if (!fotoActaUrl || !modalLiq) return;
-    const a = document.createElement("a");
-    a.href = fotoActaUrl;
-    a.download = `Acta_Orden_${modalLiq.numero_orden || "WIN"}_${modalLiq.numero_acta || "HD"}.jpg`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    const nombreArchivo = `Acta_Orden_${modalLiq.numero_orden || "WIN"}_${modalLiq.numero_acta || "HD"}.jpg`;
+
+    try {
+      let urlDescarga = fotoActaUrl;
+      if (!fotoActaUrl.startsWith("data:")) {
+        const res = await getFotoActaLiquidacion(modalLiq.numero_orden, true, nombreArchivo);
+        if (!res.success || !res.foto_url) {
+          throw new Error(res.error || "No se pudo preparar la descarga del acta.");
+        }
+        urlDescarga = res.foto_url;
+      }
+
+      const a = document.createElement("a");
+      a.href = urlDescarga;
+      a.download = nombreArchivo;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (err: any) {
+      console.error("Error al descargar foto del acta:", err);
+      alert(err.response?.data?.error || err.message || "No se pudo descargar la foto del acta.");
+    }
   };
 
   const handleGuardarAjusteMaterial = async (mat: MaterialLiquidadoAudit) => {

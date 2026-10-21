@@ -135,9 +135,16 @@ function resolverTipoTrabajoConCatalogo(motivoLiquidacion, motivoAveria = "", es
       if (normLiq.includes("NORMALIZACION") && m.nombreNorm.includes("NORMALIZACION")) return true;
       // Traslado
       if (normLiq.includes("TRASLADO") && m.nombreNorm === "TRASLADO") return true;
-      // Pruebas de servicio / PEX
+      // Validación de cliente domiciliaria -> No asociar a motivo PEX
+      if (normLiq.includes("VALIDACION CLIENTE") || normLiq.includes("VALIDACION DE CLIENTE")) {
+        return false;
+      }
+      // Pruebas de servicio / PEX (solo CTO, NAP, degradación o planta externa)
       if ((normLiq.includes("PRUEBA DE SERVICIO") || normLiq.includes("PRUEBAS DE SERVICIO")) && m.nombreNorm.includes("PRUEBA")) {
-        return true;
+        if (normLiq.includes("CTO") || normLiq.includes("NAP") || normLiq.includes("DEGRADAD") || normLiq.includes("POTENCIA") || normLiq.includes("PUERTO") || normLiq.includes("INTERMITENCIA")) {
+          return true;
+        }
+        return false;
       }
       return false;
     });
@@ -164,7 +171,16 @@ function resolverTipoTrabajoConCatalogo(motivoLiquidacion, motivoAveria = "", es
   if (normLiq.includes("SPLITTER") || normLiq.includes("SPLITER") || normLiq.includes("WIFI PRO")) {
     return "ADICIONAL";
   }
-  if (normLiq.includes("PRUEBA DE SERVICIO") || normLiq.includes("CONJUNTA")) {
+  if (normLiq.includes("VALIDACION CLIENTE") || normLiq.includes("VALIDACION DE CLIENTE")) {
+    return "VISITA EXTERNA";
+  }
+  if (
+    (normLiq.includes("PRUEBA DE SERVICIO") || normLiq.includes("PRUEBAS DE SERVICIO")) &&
+    (normLiq.includes("CTO") || normLiq.includes("NAP") || normLiq.includes("DEGRADAD") || normLiq.includes("POTENCIA") || normLiq.includes("PUERTO") || normLiq.includes("INTERMITENCIA"))
+  ) {
+    return "PEX";
+  }
+  if (normLiq.includes("CONJUNTA") || normLiq.includes("PLANTA EXTERNA") || normLiq === "PEX" || normLiq === "PEXT") {
     return "PEX";
   }
 

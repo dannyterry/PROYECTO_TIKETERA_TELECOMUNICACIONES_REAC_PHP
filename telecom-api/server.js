@@ -6094,6 +6094,346 @@ app.get('/api/movilidad/recorrido-tecnico/:idTrabajador', async (req, res) => {
 // 📦 MÓDULO DE ALMACÉN & INVENTARIO DE TELECOMUNICACIONES
 // ==============================================================================
 
+// --- 📋 0. EQUIPOS GENERALES (GRID TIPO EXCEL CON FILTROS AVANZADOS Y TRAZABILIDAD) ---
+app.get(['/api/almacen/equipos-generales', '/almacen/equipos-generales'], async (req, res) => {
+  try {
+    const {
+      search = '',
+      id_producto,
+      subtab = 'all',
+      mes,
+      anio,
+      semana,
+      fecha_desde,
+      fecha_hasta,
+      tipo_fecha = 'ingreso_win',
+      almacen,
+      estado,
+      id_trabajador,
+      limit = 1500,
+      offset = 0
+    } = req.query;
+
+    const whereConditions = [];
+    const params = [];
+
+    // Búsqueda global por Serie S/N, MAC, Serie Interna, N° Acta, N° Guía, Cliente, Técnico, etc.
+    if (search && search.trim() !== '') {
+      const s = `%${search.trim()}%`;
+      whereConditions.push(`(
+        ps.numero_serie LIKE ? OR
+        ps.id_equipo LIKE ? OR
+        ps.mac LIKE ? OR
+        p.nombre LIKE ? OR
+        p.codigo LIKE ? OR
+        ol.numero_acta LIKE ? OR
+        ol.numero_guia LIKE ? OR
+        o.cliente LIKE ? OR
+        u.nombres LIKE ? OR
+        u.primer_apellido LIKE ? OR
+        u.apellidos LIKE ? OR
+        oer.numero_serie LIKE ?
+      )`);
+      params.push(s, s, s, s, s, s, s, s, s, s, s, s);
+    }
+
+    // Filtro por ID de Producto
+    if (id_producto && !isNaN(Number(id_producto))) {
+      whereConditions.push(`ps.id_producto = ?`);
+      params.push(Number(id_producto));
+    }
+
+    // Filtro obligatorio: SOLO EQUIPOS DE TELECOMUNICACIONES (Excluye actas de papel y materiales)
+    whereConditions.push(`(
+      (c.nombre = 'EQUIPOS' 
+       OR p.codigo IN ('HWA', 'ZTA', 'HWB', 'ZTB', 'WTA', 'TLA') 
+       OR p.nombre LIKE '%ONT%' 
+       OR p.nombre LIKE '%MESH%' 
+       OR p.nombre LIKE '%SMART%' 
+       OR p.nombre LIKE '%TV BOX%' 
+       OR p.nombre LIKE '%FONO%' 
+       OR p.nombre LIKE '%TELEF%')
+      AND p.nombre != 'ACTAS'
+      AND p.codigo != 'MAT-ACT'
+    )`);
+
+    // Filtro por Sub-pestañas múltiples (ZTE ONT, HUAWEI ONT, ZTE MESH, etc.)
+    const rawSubtabs = req.query.subtabs || req.query.subtab || '';
+    const selectedSubtabs = (Array.isArray(rawSubtabs) ? rawSubtabs : String(rawSubtabs).split(','))
+      .map(s => String(s).toLowerCase().trim())
+      .filter(s => s && s !== 'all' && s !== 'todos');
+
+    if (selectedSubtabs.length > 0) {
+      const subConditions = [];
+      for (const sub of selectedSubtabs) {
+        if (sub === 'zte_ont' || sub === 'zteont') {
+          subConditions.push(`(p.nombre LIKE '%ZTE%' AND (p.nombre LIKE '%ONT%' OR ps.proid LIKE '%ONT%' OR ps.proid LIKE '%F6600P%' OR p.codigo = 'ZTA'))`);
+        } else if (sub === 'huawei_ont' || sub === 'ont_huawei' || sub === 'ont') {
+          subConditions.push(`(p.nombre LIKE '%HUAWEI%' AND (p.nombre LIKE '%ONT%' OR ps.proid LIKE '%ONT%' OR ps.proid LIKE '%EG8145%' OR p.codigo = 'HWA'))`);
+        } else if (sub === 'zte_mesh' || sub === 'ztemesh') {
+          subConditions.push(`(p.nombre LIKE '%ZTE%' AND (p.nombre LIKE '%MESH%' OR p.nombre LIKE '%SMART%' OR ps.proid LIKE '%MESH%' OR p.codigo = 'ZTB'))`);
+        } else if (sub === 'huawei_mesh' || sub === 'mesh') {
+          subConditions.push(`((p.nombre LIKE '%HUAWEI%' AND (p.nombre LIKE '%MESH%' OR p.nombre LIKE '%SMART%' OR ps.proid LIKE '%MESH%' OR p.codigo = 'HWB')) OR (p.nombre NOT LIKE '%ZTE%' AND (p.nombre LIKE '%MESH%' OR p.nombre LIKE '%SMART%')))`);
+        } else if (sub === 'tv_box' || sub === 'tvbox') {
+          subConditions.push(`(p.nombre LIKE '%TV%BOX%' OR p.nombre LIKE '%TV BOX%' OR p.codigo = 'WTA')`);
+        } else if (sub === 'telef' || sub === 'telefono' || sub === 'telefonia') {
+          subConditions.push(`(p.nombre LIKE '%TELEF%' OR p.nombre LIKE '%FONO%' OR p.codigo = 'TLA')`);
+        }
+      }
+      if (subConditions.length > 0) {
+        whereConditions.push(`(${subConditions.join(' OR ')})`);
+      }
+    }
+
+    // Filtro por Estado
+    if (estado && estado !== 'TODOS') {
+      whereConditions.push(`ps.estado = ?`);
+      params.push(estado);
+    }
+
+    // Filtro por Almacén
+    if (almacen === 'ALM') {
+      whereConditions.push(`ts.id_trabajador_serie IS NULL AND ps.id_almacen = 1`);
+    } else if (almacen === 'TEC') {
+      whereConditions.push(`(ts.id_trabajador_serie IS NOT NULL OR ps.id_almacen = 2)`);
+    } else if (almacen === 'LIQ') {
+      whereConditions.push(`(ol.id_liquidacion IS NOT NULL OR ps.estado = 'VENDIDO')`);
+    }
+
+    // Filtros de fecha (mes, semana, anio, rango)
+    const dateField = tipo_fecha === 'asignacion_tec' ? 'ts.fecha_asignacion' 
+      : tipo_fecha === 'instalacion' ? 'o.fecha_visita' 
+      : tipo_fecha === 'liquidacion' ? 'ol.fecha_liquidacion' 
+      : 'ps.fecha_ingreso';
+
+    if (anio && !isNaN(Number(anio))) {
+      whereConditions.push(`YEAR(${dateField}) = ?`);
+      params.push(Number(anio));
+    }
+
+    if (mes && !isNaN(Number(mes))) {
+      whereConditions.push(`MONTH(${dateField}) = ?`);
+      params.push(Number(mes));
+    }
+
+    if (semana && !isNaN(Number(semana))) {
+      whereConditions.push(`WEEK(${dateField}, 1) = ?`);
+      params.push(Number(semana));
+    }
+
+    if (fecha_desde) {
+      whereConditions.push(`DATE(${dateField}) >= ?`);
+      params.push(fecha_desde);
+    }
+
+    if (fecha_hasta) {
+      whereConditions.push(`DATE(${dateField}) <= ?`);
+      params.push(fecha_hasta);
+    }
+
+    if (id_trabajador && !isNaN(Number(id_trabajador))) {
+      whereConditions.push(`ts.id_trabajador = ?`);
+      params.push(Number(id_trabajador));
+    }
+
+    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+
+    const query = `
+      SELECT 
+        ps.id_producto_serie,
+        ps.id_producto,
+        p.nombre AS producto_nombre,
+        p.codigo AS producto_codigo,
+        COALESCE(c.nombre, 'EQUIPOS') AS categoria_nombre,
+        ps.id_equipo AS numero_serie_interno,
+        ps.numero_serie AS sn,
+        ps.mac,
+        ps.estado AS estado_serie,
+        ps.fecha_ingreso AS fecha_ingreso_win,
+        
+        -- Almacén TEC
+        CASE 
+          WHEN ts.id_trabajador_serie IS NOT NULL THEN 'TEC'
+          WHEN ps.id_almacen = 2 THEN 'TEC'
+          ELSE 'ALM'
+        END AS almacen_tec_win,
+        ts.fecha_asignacion AS fecha_ingreso_tec,
+        ts.fecha_asignacion AS fecha_entrega_tecnico,
+        ts.id_trabajador,
+        
+        -- Técnico
+        COALESCE(
+          NULLIF(TRIM(CONCAT(
+            COALESCE(u.nombres, u_ord.nombres, ''),
+            ' ',
+            COALESCE(u.apellidos, CONCAT(COALESCE(u.primer_apellido, ''), ' ', COALESCE(u.segundo_apellido, '')), u_ord.apellidos, '')
+          )), ''),
+          ol.liquidado_por,
+          o.tecnico_asignado,
+          COALESCE(u.primer_apellido, u.apellidos, u_ord.primer_apellido, u_ord.apellidos, '')
+        ) AS nombre_tecnico_completo,
+        COALESCE(u.primer_apellido, u.apellidos, u_ord.primer_apellido, u_ord.apellidos, '') AS nombre_tecnico,
+        
+        -- Almacén LIQ
+        CASE 
+          WHEN ol.id_liquidacion IS NOT NULL THEN 'LIQ'
+          WHEN ps.estado = 'VENDIDO' THEN 'LIQ'
+          ELSE ''
+        END AS almacen_liq_win,
+        ol.fecha_liquidacion AS fecha_ingreso_liq,
+        
+        -- Instalación & Cliente
+        COALESCE(o.fecha_visita, ol.fecha_liquidacion) AS fecha_instalacion,
+        o.cliente AS nom_cliente,
+        ol.numero_acta,
+        
+        -- Equipo de baja & Guía
+        COALESCE(oer.numero_serie, '') AS equipo_baja,
+        COALESCE(oer.fecha_internamiento, '') AS fecha_ingreso_almacen,
+        COALESCE(ol.numero_guia, oer.guia_remision_win, '') AS numero_guia,
+        COALESCE(oer.fecha_internamiento, '') AS fecha_entrega_almacen_win,
+        COALESCE(ol.observaciones_tecnico, oer.observaciones, ps.proid, '') AS observacion_equipos
+
+      FROM producto_series ps
+      JOIN productos p ON ps.id_producto = p.id_producto
+      LEFT JOIN categorias c ON p.id_categoria = c.id_categoria
+      LEFT JOIN (
+        SELECT ts1.id_producto_serie, ts1.id_trabajador_serie, ts1.id_trabajador, ts1.fecha_asignacion
+        FROM trabajador_series ts1
+        INNER JOIN (
+          SELECT id_producto_serie, MAX(id_trabajador_serie) as max_id
+          FROM trabajador_series
+          GROUP BY id_producto_serie
+        ) ts_max ON ts1.id_trabajador_serie = ts_max.max_id
+      ) ts ON ps.id_producto_serie = ts.id_producto_serie
+      LEFT JOIN trabajadores t ON ts.id_trabajador = t.id_trabajador
+      LEFT JOIN usuarios u ON t.id_usuario = u.id_usuario
+      LEFT JOIN (
+        SELECT old1.numero_serie, old1.id_producto_serie, old1.id_liquidacion, old1.id_detalle_liq
+        FROM orden_liquidacion_detalle old1
+        INNER JOIN (
+          SELECT COALESCE(NULLIF(numero_serie, ''), CONCAT('ID_', id_producto_serie)) as serie_key, MAX(id_detalle_liq) as max_id
+          FROM orden_liquidacion_detalle
+          WHERE (numero_serie IS NOT NULL AND numero_serie != '') OR id_producto_serie IS NOT NULL
+          GROUP BY COALESCE(NULLIF(numero_serie, ''), CONCAT('ID_', id_producto_serie))
+        ) old_max ON old1.id_detalle_liq = old_max.max_id
+      ) old ON (old.id_producto_serie = ps.id_producto_serie OR (ps.numero_serie IS NOT NULL AND ps.numero_serie != '' AND old.numero_serie = ps.numero_serie))
+      LEFT JOIN orden_liquidaciones ol ON old.id_liquidacion = ol.id_liquidacion
+      LEFT JOIN ordenes o ON ol.id_orden = o.id_orden
+      LEFT JOIN trabajadores t_ord ON ol.id_trabajador = t_ord.id_trabajador
+      LEFT JOIN usuarios u_ord ON t_ord.id_usuario = u_ord.id_usuario
+      LEFT JOIN (
+        SELECT oer1.id_orden, oer1.numero_serie, oer1.fecha_internamiento, oer1.observaciones, oer1.guia_remision_win
+        FROM orden_equipos_retirados oer1
+        INNER JOIN (
+          SELECT id_orden, MAX(id_equipo_retirado) as max_id
+          FROM orden_equipos_retirados
+          GROUP BY id_orden
+        ) oer_max ON oer1.id_equipo_retirado = oer_max.max_id
+      ) oer ON ol.id_orden = oer.id_orden
+      ${whereClause}
+      ORDER BY ps.id_producto_serie DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    const queryParams = [...params, Math.min(Number(limit) || 1500, 5000), Number(offset) || 0];
+    const [rows] = await pool.query(query, queryParams);
+
+    // Contadores rápidos para estadísticas estrictamente de EQUIPOS
+    const equiposOnlyCondition = `
+      (
+        c.nombre = 'EQUIPOS' 
+        OR p.codigo IN ('HWA', 'ZTA', 'HWB', 'ZTB', 'WTA', 'TLA') 
+        OR p.nombre LIKE '%ONT%' 
+        OR p.nombre LIKE '%MESH%' 
+        OR p.nombre LIKE '%SMART%' 
+        OR p.nombre LIKE '%TV BOX%' 
+        OR p.nombre LIKE '%FONO%' 
+        OR p.nombre LIKE '%TELEF%'
+      )
+      AND p.nombre != 'ACTAS'
+      AND p.codigo != 'MAT-ACT'
+    `;
+
+    const [counts] = await pool.query(`
+      SELECT 
+        COUNT(*) AS total,
+        SUM(CASE WHEN ps.estado = 'DISPONIBLE' THEN 1 ELSE 0 END) AS en_almacen,
+        SUM(CASE WHEN ps.estado = 'RESERVADO' THEN 1 ELSE 0 END) AS en_tecnicos,
+        SUM(CASE WHEN ps.estado = 'VENDIDO' THEN 1 ELSE 0 END) AS liquidados,
+        SUM(CASE WHEN ps.estado = 'BAJA' THEN 1 ELSE 0 END) AS de_baja
+      FROM producto_series ps
+      JOIN productos p ON ps.id_producto = p.id_producto
+      LEFT JOIN categorias c ON p.id_categoria = c.id_categoria
+      WHERE ${equiposOnlyCondition}
+    `);
+
+    // Sub-pestañas conteos estrictamente de EQUIPOS
+    const [subcounts] = await pool.query(`
+      SELECT 
+        COUNT(*) AS total,
+        SUM(CASE WHEN p.nombre LIKE '%ZTE%' AND (p.nombre LIKE '%ONT%' OR ps.proid LIKE '%ONT%' OR ps.proid LIKE '%F6600P%' OR p.codigo = 'ZTA') THEN 1 ELSE 0 END) AS zte_ont,
+        SUM(CASE WHEN p.nombre LIKE '%HUAWEI%' AND (p.nombre LIKE '%ONT%' OR ps.proid LIKE '%ONT%' OR ps.proid LIKE '%EG8145%' OR p.codigo = 'HWA') THEN 1 ELSE 0 END) AS huawei_ont,
+        SUM(CASE WHEN p.nombre LIKE '%ZTE%' AND (p.nombre LIKE '%MESH%' OR p.nombre LIKE '%SMART%' OR ps.proid LIKE '%MESH%' OR p.codigo = 'ZTB') THEN 1 ELSE 0 END) AS zte_mesh,
+        SUM(CASE WHEN p.nombre LIKE '%HUAWEI%' AND (p.nombre LIKE '%MESH%' OR p.nombre LIKE '%SMART%' OR ps.proid LIKE '%MESH%' OR p.codigo = 'HWB') THEN 1 ELSE 0 END) AS huawei_mesh,
+        SUM(CASE WHEN p.nombre LIKE '%TV%BOX%' OR p.nombre LIKE '%TV BOX%' OR p.codigo = 'WTA' THEN 1 ELSE 0 END) AS tv_box,
+        SUM(CASE WHEN p.nombre LIKE '%TELEF%' OR p.nombre LIKE '%FONO%' OR p.codigo = 'TLA' THEN 1 ELSE 0 END) AS telef
+      FROM producto_series ps
+      JOIN productos p ON ps.id_producto = p.id_producto
+      LEFT JOIN categorias c ON p.id_categoria = c.id_categoria
+      WHERE ${equiposOnlyCondition}
+    `);
+
+    res.json({
+      success: true,
+      total: rows.length,
+      data: rows,
+      stats: counts[0] || {},
+      subtab_counts: subcounts[0] || {}
+    });
+
+  } catch (error) {
+    console.error('Error al obtener equipos generales:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Actualizar campos rápidos de un equipo (MAC, N° Interno, Observación)
+app.put(['/api/almacen/equipos-generales/:id_producto_serie', '/almacen/equipos-generales/:id_producto_serie'], async (req, res) => {
+  try {
+    const { id_producto_serie } = req.params;
+    const { mac, numero_serie_interno, id_equipo, proid, observacion_equipos } = req.body;
+
+    const updates = [];
+    const params = [];
+
+    if (mac !== undefined) {
+      updates.push('mac = ?');
+      params.push(mac ? mac.trim() : null);
+    }
+    if (numero_serie_interno !== undefined || id_equipo !== undefined) {
+      updates.push('id_equipo = ?');
+      params.push((numero_serie_interno || id_equipo || '').trim());
+    }
+    if (proid !== undefined || observacion_equipos !== undefined) {
+      updates.push('proid = ?');
+      params.push((proid || observacion_equipos || '').trim());
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ success: false, message: 'No hay campos a actualizar' });
+    }
+
+    params.push(Number(id_producto_serie));
+    await pool.query(`UPDATE producto_series SET ${updates.join(', ')} WHERE id_producto_serie = ?`, params);
+
+    res.json({ success: true, message: 'Equipo actualizado correctamente' });
+  } catch (error) {
+    console.error('Error al actualizar equipo:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // --- 📦 1. STOCK GENERAL (ALMACÉN CENTRAL VS STOCK MÓVIL EN TÉCNICOS) ---
 app.get('/api/almacen/stock-general', async (req, res) => {
   try {
@@ -10084,8 +10424,11 @@ app.get('/api/almacen/ordenes-pendientes-tecnico/:idTrabajador', async (req, res
         OR (
           UPPER(o.tipo_trabajo) NOT LIKE '%PEX%' 
           AND UPPER(COALESCE(o.motivo_finalizacion, '')) NOT LIKE '%PEX%'
-          AND UPPER(COALESCE(o.motivo_finalizacion, '')) NOT LIKE '%PRUEBA DE SERVICIO%'
           AND UPPER(COALESCE(o.motivo_finalizacion, '')) NOT LIKE '%CONJUNTA%'
+          AND (
+            UPPER(COALESCE(o.motivo_finalizacion, '')) LIKE '%VALIDACION%'
+            OR UPPER(COALESCE(o.motivo_finalizacion, '')) NOT LIKE '%PRUEBA DE SERVICIO%'
+          )
         )
       )
     `;
@@ -11151,6 +11494,7 @@ app.get('/api/almacen/orden-liquidaciones/:numeroOrden/foto-acta', async (req, r
       return res.status(400).json({ success: false, error: 'Número de orden requerido' });
     }
     let cleanNum = String(rawNum).trim().replace(/^#/, '').replace(/^0+/, '');
+    const descargar = req.query.descargar === '1';
     console.log(`🔍 [Foto Acta] Solicitando acta HD para identificador/orden #${cleanNum}...`);
 
     // 💡 Resolver a número de orden oficial de Fénix (priorizando órdenes Finalizadas con evidencias)
@@ -11181,6 +11525,13 @@ app.get('/api/almacen/orden-liquidaciones/:numeroOrden/foto-acta', async (req, r
       console.warn("⚠️ [Foto Acta] Error resolviendo número de orden en BD:", eResolve.message);
     }
 
+    const nombreDescarga = String(req.query.nombre_archivo || `Acta_Orden_${cleanNum}_HD.jpg`)
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .slice(0, 120);
+    const contentDisposition = descargar
+      ? `attachment; filename="${nombreDescarga || `Acta_Orden_${cleanNum}_HD.jpg`}"`
+      : undefined;
+
     // 1. Verificar si ya tenemos el Acta en caché en la BD local (Apertura instantánea 0ms)
     try {
       const [rows] = await pool.query(
@@ -11203,7 +11554,10 @@ app.get('/api/almacen/orden-liquidaciones/:numeroOrden/foto-acta', async (req, r
               let finalUrl = fotoObj.imagen_hd;
               if (finalUrl.includes('amazonaws.com') || finalUrl.startsWith('tareas/')) {
                 const s3Key = finalUrl.replace(/^https?:\/\/[^\/]+\//, '');
-                const signed = await getS3SignedUrl(s3Key, 86400).catch(() => null);
+                const signed = await getS3SignedUrl(s3Key, 86400, contentDisposition).catch(() => null);
+                if (descargar && !signed) {
+                  return res.status(503).json({ success: false, error: 'No se pudo generar una URL de descarga desde S3.' });
+                }
                 if (signed) finalUrl = signed;
               }
               return res.json({
@@ -11320,7 +11674,10 @@ app.get('/api/almacen/orden-liquidaciones/:numeroOrden/foto-acta', async (req, r
       const s3Res = await uploadBufferToS3(bBuffer, s3KeyActa, bMime);
       if (s3Res && s3Res.s3Url) {
         if (selectedFoto) selectedFoto.imagen_hd = s3Res.s3Url;
-        const signed = await getS3SignedUrl(s3KeyActa, 86400).catch(() => null);
+        const signed = await getS3SignedUrl(s3KeyActa, 86400, contentDisposition).catch(() => null);
+        if (descargar && !signed) {
+          return res.status(503).json({ success: false, error: 'La foto se guardó en S3, pero no se pudo generar su URL de descarga.' });
+        }
         fotoUrlFinal = signed || s3Res.s3Url;
       }
     } catch (eS3) {
