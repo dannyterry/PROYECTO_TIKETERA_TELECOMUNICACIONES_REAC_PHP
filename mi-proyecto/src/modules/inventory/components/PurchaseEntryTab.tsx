@@ -103,6 +103,21 @@ export const formatHoraVisual = (fechaHoraStr: string | Date | null | undefined)
   }
 };
 
+export const generarSeriesParaActa = (prefijo?: string, inicio?: string, cantidad?: number): SerieIngreso[] => {
+  const pref = prefijo !== undefined && prefijo !== null ? prefijo : "001-";
+  const iniRaw = inicio !== undefined && inicio !== null && inicio.trim() !== "" ? inicio : "04001";
+  const parseInicio = parseInt(iniRaw.replace(/\D/g, ""), 10) || 1;
+  const padLen = Math.max(5, iniRaw.replace(/\D/g, "").length || 5);
+  const cant = Math.max(1, cantidad || 1);
+  const parseFin = parseInicio + cant - 1;
+
+  const result: SerieIngreso[] = [];
+  for (let i = parseInicio; i <= parseFin; i++) {
+    result.push({ numero_serie: `${pref}${String(i).padStart(padLen, "0")}` });
+  }
+  return result;
+};
+
 export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrada }) => {
   const [localProductos, setLocalProductos] = useState<ProductoStock[]>(productos);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
@@ -859,18 +874,33 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
     setItems((prev) =>
       prev.map((it, idx) =>
         idx === index
-          ? {
-            ...it,
-            id_producto: prod.id_producto,
-            codigo: prod.codigo || "EQP",
-            nombre: prod.nombre,
-            categoria: (prod.categoria || it.categoria || "GENERAL").toUpperCase(),
-            precio: Number(prod.precio_compra) || it.precio || 0,
-            maneja_serie: Boolean(prod.maneja_serie || prod.categoria === "EQUIPOS"),
-            series: it.id_producto === prod.id_producto ? it.series : [],
-            stand: prod.stand || it.stand || "A",
-            fila: prod.fila || it.fila || 1,
-          }
+          ? (() => {
+              const catUpper = (prod.categoria || it.categoria || "GENERAL").toUpperCase();
+              const nomUpper = (prod.nombre || "").toUpperCase();
+              const esActa = catUpper.includes("TALONARIO") || catUpper.includes("ACTA") || catUpper.includes("GUIA") || nomUpper.includes("ACTA") || nomUpper.includes("GUIA");
+              const defaultPref = it.prefijoActas ?? "001-";
+              const defaultIni = it.inicioActas ?? "04001";
+              const seriesFinales = esActa
+                ? generarSeriesParaActa(defaultPref, defaultIni, it.cantidad)
+                : it.id_producto === prod.id_producto
+                ? it.series
+                : [];
+
+              return {
+                ...it,
+                id_producto: prod.id_producto,
+                codigo: prod.codigo || "EQP",
+                nombre: prod.nombre,
+                categoria: catUpper,
+                precio: Number(prod.precio_compra) || it.precio || 0,
+                maneja_serie: Boolean(prod.maneja_serie || prod.categoria === "EQUIPOS"),
+                series: seriesFinales,
+                prefijoActas: esActa ? defaultPref : it.prefijoActas,
+                inicioActas: esActa ? defaultIni : it.inicioActas,
+                stand: prod.stand || it.stand || "A",
+                fila: prod.fila || it.fila || 1,
+              };
+            })()
           : it
       )
     );
@@ -1176,18 +1206,11 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
       const nomUpper = (it.nombre || "").toUpperCase();
       const esActa = catUpper.includes("TALONARIO") || catUpper.includes("ACTA") || catUpper.includes("GUIA") || nomUpper.includes("ACTA") || nomUpper.includes("GUIA");
 
-      if (esActa && (!it.series || it.series.length !== it.cantidad)) {
+      if (esActa) {
         const pref = it.prefijoActas ?? "001-";
         const iniRaw = it.inicioActas ?? "04001";
-        const parseInicio = parseInt(iniRaw.replace(/\D/g, ""), 10) || 1;
-        const padLen = Math.max(5, iniRaw.replace(/\D/g, "").length || 5);
-        const parseFin = parseInicio + Math.max(1, it.cantidad) - 1;
-
-        const generated: SerieIngreso[] = [];
-        for (let i = parseInicio; i <= parseFin; i++) {
-          generated.push({ numero_serie: `${pref}${String(i).padStart(padLen, "0")}` });
-        }
-        return { ...it, series: generated };
+        const generated = generarSeriesParaActa(pref, iniRaw, it.cantidad);
+        return { ...it, prefijoActas: pref, inicioActas: iniRaw, series: generated };
       }
       return it;
     });
@@ -1791,7 +1814,14 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                         onChange={(e) => {
                           const val = Math.max(1, Number(e.target.value));
                           setItems((prev) =>
-                            prev.map((item, i) => (i === idx ? { ...item, cantidad: val } : item))
+                            prev.map((item, i) => {
+                              if (i !== idx) return item;
+                              const catUpper = (item.categoria || "").toUpperCase();
+                              const nomUpper = (item.nombre || "").toUpperCase();
+                              const esActaItem = catUpper.includes("TALONARIO") || catUpper.includes("ACTA") || catUpper.includes("GUIA") || nomUpper.includes("ACTA") || nomUpper.includes("GUIA");
+                              const newSeries = esActaItem ? generarSeriesParaActa(item.prefijoActas, item.inicioActas, val) : item.series;
+                              return { ...item, cantidad: val, series: newSeries };
+                            })
                           );
                         }}
                         className="w-full p-2.5 bg-white border border-slate-200 rounded-xl font-bold font-mono text-xs text-slate-900 text-center shadow-2xs"
@@ -1873,7 +1903,11 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                             onChange={(e) => {
                               const val = e.target.value;
                               setItems((prev) =>
-                                prev.map((item, i) => (i === idx ? { ...item, prefijoActas: val } : item))
+                                prev.map((item, i) => {
+                                  if (i !== idx) return item;
+                                  const newSeries = generarSeriesParaActa(val, item.inicioActas, item.cantidad);
+                                  return { ...item, prefijoActas: val, series: newSeries };
+                                })
                               );
                             }}
                             placeholder="001-"
@@ -1892,7 +1926,11 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                             onChange={(e) => {
                               const val = e.target.value.replace(/\D/g, "");
                               setItems((prev) =>
-                                prev.map((item, i) => (i === idx ? { ...item, inicioActas: val } : item))
+                                prev.map((item, i) => {
+                                  if (i !== idx) return item;
+                                  const newSeries = generarSeriesParaActa(item.prefijoActas, val, item.cantidad);
+                                  return { ...item, inicioActas: val, series: newSeries };
+                                })
                               );
                             }}
                             placeholder="04001"
@@ -1919,8 +1957,9 @@ export const PurchaseEntryTab: React.FC<Props> = ({ productos, onCompraRegistrad
                                 <span className="text-amber-900">{pref}{numInicioFmt}</span>
                                 <span className="text-amber-500 font-normal">al</span>
                                 <span className="text-amber-900">{pref}{numFinFmt}</span>
-                                <span className="text-[10px] font-sans font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md">
-                                  ✓ {it.cantidad} {it.cantidad === 1 ? "acta" : "actas"} listas
+                                <span className="text-[10px] font-sans font-black bg-amber-100 text-amber-900 border border-amber-300 px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-2xs">
+                                  <Check size={12} className="text-amber-700" />
+                                  <span>✓ {it.series?.length || it.cantidad} {(it.series?.length || it.cantidad) === 1 ? "acta lista" : "actas listas para Almacén"}</span>
                                 </span>
                               </div>
                             );

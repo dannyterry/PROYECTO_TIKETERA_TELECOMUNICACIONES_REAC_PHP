@@ -270,6 +270,23 @@ export const getActasTecnicos = async (): Promise<ActaTecnicoResumen[]> => {
   return res.data;
 };
 
+export const getActasCentral = async (): Promise<{
+  total_disponibles: number;
+  rangos: Array<{
+    rango_texto: string;
+    inicio: string;
+    fin: string;
+    cantidad: number;
+    stand: string;
+    fila: number;
+    fecha_ingreso: string;
+  }>;
+  actas: any[];
+}> => {
+  const res = await api.get("/almacen/actas-central");
+  return res.data;
+};
+
 export const getOrdenesPendientesTecnico = async (
   idTrabajador: number | string,
   params?: { desde?: string; hasta?: string; search?: string }

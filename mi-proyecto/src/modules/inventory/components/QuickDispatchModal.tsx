@@ -20,9 +20,10 @@ import {
   FileText,
   Sparkles,
   AlertTriangle,
+  Building2,
 } from "lucide-react";
 import { ProductoStock, DespachoPayload } from "../types/inventoryTypes";
-import { despacharATecnico, getTecnicoDotacionCompleta, verificarSerieDespacho } from "../services/inventoryService";
+import { despacharATecnico, getTecnicoDotacionCompleta, verificarSerieDespacho, getActasCentral } from "../services/inventoryService";
 import axios from "axios";
 import { API_URL } from "../../../config/api";
 
@@ -58,10 +59,22 @@ export const QuickDispatchModal: React.FC<Props> = ({
   const [correlativoInicio, setCorrelativoInicio] = useState("04201");
   const [correlativoFin, setCorrelativoFin] = useState("04250");
   const [esSegundoUso, setEsSegundoUso] = useState<boolean>(false);
+  const [actasCentral, setActasCentral] = useState<{
+    total_disponibles: number;
+    rangos: Array<{
+      rango_texto: string;
+      inicio: string;
+      fin: string;
+      cantidad: number;
+      stand: string;
+      fila: number;
+    }>;
+  } | null>(null);
 
   // Cargar técnicos
   useEffect(() => {
     if (isOpen) {
+      getActasCentral().then(setActasCentral).catch(console.error);
       axios
         .get(`${API_URL}/api/movilidad/tecnicos`)
         .then((res) => {
@@ -478,6 +491,45 @@ export const QuickDispatchModal: React.FC<Props> = ({
                   </span>
                 </div>
               </div>
+
+              {actasCentral && actasCentral.rangos.length > 0 && (
+                <div className="bg-white/95 p-3 rounded-xl border border-amber-300 space-y-1.5 shadow-2xs">
+                  <span className="text-[10px] font-black uppercase text-amber-950 tracking-wider flex items-center gap-1.5">
+                    <Building2 size={13} className="text-amber-700" />
+                    <span>Talonarios en Almacén Central (Clic para auto-llenar):</span>
+                  </span>
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {actasCentral.rangos.map((r, i) => {
+                      const matchPref = r.inicio.match(/^([A-Z0-9]+[-–])?(0*)(\d+)$/i);
+                      const pfx = matchPref && matchPref[1] ? matchPref[1] : "001-";
+                      const iniClean = matchPref ? matchPref[3] : r.inicio.replace(/\D/g, "");
+                      const padLen = Math.max(5, (matchPref ? matchPref[2] + matchPref[3] : r.inicio.replace(/\D/g, "")).length);
+                      const numIniStr = String(iniClean).padStart(padLen, "0");
+
+                      const matchFin = r.fin.match(/^([A-Z0-9]+[-–])?(0*)(\d+)$/i);
+                      const finClean = matchFin ? matchFin[3] : r.fin.replace(/\D/g, "");
+                      const numFinStr = String(finClean).padStart(padLen, "0");
+
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => {
+                            setPrefijoActa(pfx);
+                            setCorrelativoInicio(numIniStr);
+                            setCorrelativoFin(numFinStr);
+                            setCantidad(r.cantidad);
+                          }}
+                          className="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer flex items-center gap-1 shadow-2xs hover:scale-102"
+                          title={`Clic para seleccionar este talonario (${r.cantidad} actas físicas en Stand ${r.stand})`}
+                        >
+                          <span>📦 {r.rango_texto}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 <div>

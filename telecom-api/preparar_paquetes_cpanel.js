@@ -98,17 +98,17 @@ fs.rmSync(stagingApiDir, { recursive: true, force: true });
 // 3. BASE DE DATOS: COPIAR SCRIPT DE MIGRACIÓN
 // ----------------------------------------------------
 console.log('\n🟡 [3/3] Copiando script de base de datos para Producción...');
-const sqlSrc = path.join(apiDir, 'backups', 'migracion_supervision_gps_prod.sql');
-const sqlDest = path.join(outputDir, '3_BASE_DE_DATOS_migracion_supervision_prod.sql');
+const sqlSrc = path.join(apiDir, 'scripts', 'REGULARIZAR_ACTAS_PRODUCCION.sql');
+const sqlDest = path.join(outputDir, '3_REGULARIZAR_ACTAS_PRODUCCION.sql');
 if (fs.existsSync(sqlSrc)) {
   fs.copyFileSync(sqlSrc, sqlDest);
-  console.log('📄 SQL de migración copiado:', sqlDest);
+  console.log('📄 SQL de regularización copiado:', sqlDest);
 }
 
 console.log('\n====================================================');
 console.log('🎉 ¡TODOS LOS PAQUETES ESTÁN LISTOS!');
 console.log('📁 Carpeta: ' + outputDir);
-console.log('   1️⃣  1_FRONTEND_dist.zip (Descomprimir en public/dist_react)');
-console.log('   2️⃣  2_BACKEND_telecom_api.zip (Descomprimir en la raíz de tu Node App)');
-console.log('   3️⃣  3_BASE_DE_DATOS_migracion_supervision_prod.sql (Importar o ejecutar en phpMyAdmin)');
+console.log('   1️⃣  1_FRONTEND_dist.zip (Descomprimir en /public_html)');
+console.log('   2️⃣  2_BACKEND_telecom_api.zip (Descomprimir en /api.corporacioncespedes.com)');
+console.log('   3️⃣  3_REGULARIZAR_ACTAS_PRODUCCION.sql (Ya ejecutado en Producción con éxito)');
 console.log('====================================================\n');

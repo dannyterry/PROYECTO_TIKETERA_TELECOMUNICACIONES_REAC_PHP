@@ -57,6 +57,7 @@ import {
   actualizarProidSerie,
   actualizarUbicacionProducto,
   reasignarProductoSerie,
+  getActasCentral,
 } from "../services/inventoryService";
 
 interface Props {
@@ -84,10 +85,23 @@ export const StockOverviewTab: React.FC<Props> = ({
   const [filtroCategoria, setFiltroCategoria] = useState("Todas");
   const [tecnicoSeleccionado, setTecnicoSeleccionado] = useState<string>("Todos");
 
-  // Auditoría de Actas por Técnico y Reporte de Actas Anuladas
+  // Auditoría de Actas por Técnico, Almacén Central y Reporte de Actas Anuladas
   const [actasTecnicos, setActasTecnicos] = useState<ActaTecnicoResumen[]>([]);
   const [actasAnuladas, setActasAnuladas] = useState<ActaAnuladaItem[]>([]);
-  const [subVistaActas, setSubVistaActas] = useState<"asignadas" | "anuladas">("asignadas");
+  const [actasCentral, setActasCentral] = useState<{
+    total_disponibles: number;
+    rangos: Array<{
+      rango_texto: string;
+      inicio: string;
+      fin: string;
+      cantidad: number;
+      stand: string;
+      fila: number;
+      fecha_ingreso: string;
+    }>;
+    actas: any[];
+  } | null>(null);
+  const [subVistaActas, setSubVistaActas] = useState<"asignadas" | "central" | "anuladas">("asignadas");
   const [fotoActaModalUrl, setFotoActaModalUrl] = useState<string | null>(null);
   const [cargandoActas, setCargandoActas] = useState(false);
   const [modalDetalleActas, setModalDetalleActas] = useState<{
@@ -193,9 +207,10 @@ export const StockOverviewTab: React.FC<Props> = ({
     error: null,
   });
 
-  // Filtros de fecha para la pestaña de Stock en Camionetas (Móviles)
+  // Filtros de fecha y disponibilidad para la pestaña de Stock en Camionetas (Móviles)
   const [filtroFechaMovilDesde, setFiltroFechaMovilDesde] = useState<string>("");
   const [filtroFechaMovilHasta, setFiltroFechaMovilHasta] = useState<string>("");
+  const [filtroDisponibilidadMovil, setFiltroDisponibilidadMovil] = useState<"todos" | "con_stock" | "agotados">("todos");
 
   // Modal de Series de Equipos asignadas a un Técnico específico
   const [modalSeriesTecnico, setModalSeriesTecnico] = useState<{
@@ -585,11 +600,13 @@ export const StockOverviewTab: React.FC<Props> = ({
     setCargandoActas(true);
     Promise.all([
       getActasTecnicos().catch(() => []),
-      getActasAnuladas().catch(() => [])
+      getActasAnuladas().catch(() => []),
+      getActasCentral().catch(() => ({ total_disponibles: 0, rangos: [], actas: [] }))
     ])
-      .then(([dataTec, dataAnul]) => {
+      .then(([dataTec, dataAnul, dataCent]) => {
         setActasTecnicos(dataTec || []);
         setActasAnuladas(dataAnul || []);
+        setActasCentral(dataCent || { total_disponibles: 0, rangos: [], actas: [] });
       })
       .catch(console.error)
       .finally(() => setCargandoActas(false));
@@ -654,7 +671,13 @@ export const StockOverviewTab: React.FC<Props> = ({
         : st.categoria && st.categoria.toUpperCase() === filtroCategoria.toUpperCase());
     const matchFechaDesde = !filtroFechaMovilDesde || (st.fecha_entrega && st.fecha_entrega.slice(0, 10) >= filtroFechaMovilDesde);
     const matchFechaHasta = !filtroFechaMovilHasta || (st.fecha_entrega && st.fecha_entrega.slice(0, 10) <= filtroFechaMovilHasta);
-    return matchTxt && matchTec && matchCat && matchFechaDesde && matchFechaHasta;
+    const matchDisp =
+      filtroDisponibilidadMovil === "todos"
+        ? true
+        : filtroDisponibilidadMovil === "con_stock"
+        ? Number(st.stock) > 0
+        : Number(st.stock) === 0;
+    return matchTxt && matchTec && matchCat && matchFechaDesde && matchFechaHasta && matchDisp;
   });
 
   const actasTecnicosFiltrados = actasTecnicos.filter((at) => {
@@ -1531,8 +1554,55 @@ export const StockOverviewTab: React.FC<Props> = ({
               </p>
             </div>
 
-            {/* Filtro de Rango de Fechas de Entrega */}
+            {/* Filtros: Disponibilidad de Stock en Móvil y Rango de Fechas */}
             <div className="flex flex-wrap items-center gap-2">
+              {/* Pills Disponibilidad: Todos / Con Stock / Agotados */}
+              {(() => {
+                const cantTotalMobiles = stockPorTecnico.length;
+                const cantConStock = stockPorTecnico.filter((s) => Number(s.stock) > 0).length;
+                const cantAgotados = stockPorTecnico.filter((s) => Number(s.stock) === 0).length;
+
+                return (
+                  <div className="inline-flex items-center gap-1 bg-white border border-slate-200 p-1 rounded-xl shadow-2xs text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setFiltroDisponibilidadMovil("todos")}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        filtroDisponibilidadMovil === "todos"
+                          ? "bg-slate-900 text-white shadow-2xs"
+                          : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                      }`}
+                    >
+                      📦 Todos ({cantTotalMobiles})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFiltroDisponibilidadMovil("con_stock")}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        filtroDisponibilidadMovil === "con_stock"
+                          ? "bg-emerald-600 text-white shadow-2xs"
+                          : "text-slate-600 hover:text-emerald-700 hover:bg-emerald-50/50"
+                      }`}
+                    >
+                      🚗 Con Stock ({cantConStock})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFiltroDisponibilidadMovil("agotados")}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        filtroDisponibilidadMovil === "agotados"
+                          ? "bg-rose-600 text-white shadow-2xs"
+                          : "text-rose-600 hover:text-rose-800 hover:bg-rose-50"
+                      }`}
+                      title="Ver únicamente materiales y equipos que el técnico ya agotó (Stock = 0)"
+                    >
+                      ⚠️ Agotados (0) ({cantAgotados})
+                    </button>
+                  </div>
+                );
+              })()}
+
+              {/* Filtro de Rango de Fechas de Entrega */}
               <div className="flex items-center gap-1.5 bg-white border border-slate-200 px-3 py-1.5 rounded-xl shadow-2xs text-xs">
                 <Calendar size={13} className="text-cyan-600 shrink-0" />
                 <span className="text-[11px] font-bold text-slate-500">Entrega:</span>
@@ -1589,20 +1659,20 @@ export const StockOverviewTab: React.FC<Props> = ({
               filtroCategoria === "Todas" || filtroCategoria === "EQUIPOS" || filtroCategoria === "ACTAS / GUÍAS";
 
             return (
-              <div className="w-full overflow-x-auto touch-pan-x">
-                <table className="w-full min-w-[950px] text-left text-xs">
-                <thead className="bg-slate-50/80 text-slate-500 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
+              <div className="w-full overflow-x-auto touch-pan-x max-h-[calc(100vh-270px)] overflow-y-auto">
+                <table className="w-full min-w-[950px] text-left text-xs border-collapse">
+                <thead className="sticky top-0 z-20 bg-slate-100 text-slate-700 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200 shadow-xs">
                   <tr>
-                    <th className="py-3.5 px-4">Técnico Conductor</th>
-                    <th className="py-3.5 px-4">Cuadrilla / Vehículo</th>
-                    <th className="py-3.5 px-4">Material / Equipo</th>
-                    <th className="py-3.5 px-4">Categoría</th>
-                    <th className="py-3.5 px-4">Fecha Entrega</th>
-                    {mostrarColumnaSeries && <th className="py-3.5 px-4">Series / Rangos Asignados</th>}
-                    <th className="py-3.5 px-4 text-center">📦 Entregado</th>
-                    <th className="py-3.5 px-4 text-center">⚡ Descargado / Gastado</th>
-                    <th className="py-3.5 px-4 text-right">🚗 En Carro</th>
-                    <th className="py-3.5 px-4 text-center">Acciones</th>
+                    <th className="py-3.5 px-4 sticky top-0 bg-slate-100 z-20">Técnico Conductor</th>
+                    <th className="py-3.5 px-4 sticky top-0 bg-slate-100 z-20">Cuadrilla / Vehículo</th>
+                    <th className="py-3.5 px-4 sticky top-0 bg-slate-100 z-20">Material / Equipo</th>
+                    <th className="py-3.5 px-4 sticky top-0 bg-slate-100 z-20">Categoría</th>
+                    <th className="py-3.5 px-4 sticky top-0 bg-slate-100 z-20">Fecha Entrega</th>
+                    {mostrarColumnaSeries && <th className="py-3.5 px-4 sticky top-0 bg-slate-100 z-20">Series / Rangos Asignados</th>}
+                    <th className="py-3.5 px-4 text-center sticky top-0 bg-slate-100 z-20">📦 Entregado</th>
+                    <th className="py-3.5 px-4 text-center sticky top-0 bg-slate-100 z-20">⚡ Descargado / Gastado</th>
+                    <th className="py-3.5 px-4 text-right sticky top-0 bg-slate-100 z-20">🚗 En Carro</th>
+                    <th className="py-3.5 px-4 text-center sticky top-0 bg-slate-100 z-20">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1638,8 +1708,10 @@ export const StockOverviewTab: React.FC<Props> = ({
                       const tieneRangos = Array.isArray(st.rangos) && st.rangos.length > 0;
                       const catInfo = getCatBadge(st.categoria);
 
+                      const esAgotado = Number(st.stock) === 0;
+
                       return (
-                        <tr key={idx} className="hover:bg-slate-50/60 transition-colors">
+                        <tr key={idx} className={`hover:bg-slate-50/60 transition-colors ${esAgotado ? "bg-rose-50/25" : ""}`}>
                           <td className="py-3.5 px-4 font-bold text-slate-900">
                             {st.tecnico_nombre}
                           </td>
@@ -1800,8 +1872,15 @@ export const StockOverviewTab: React.FC<Props> = ({
                           </td>
 
                           {/* 🚗 3. SALDO EN CARRO (STOCK DISPONIBLE) */}
-                          <td className="py-3.5 px-4 text-right font-black font-mono text-sm text-cyan-800 whitespace-nowrap">
-                            {st.stock} {st.es_drop ? "m" : "und"}
+                          <td className="py-3.5 px-4 text-right font-black font-mono whitespace-nowrap">
+                            {Number(st.stock) > 0 ? (
+                              <span className="text-sm text-cyan-800">{st.stock} {st.es_drop ? "m" : "und"}</span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 font-bold text-xs shadow-2xs">
+                                <AlertTriangle size={12} className="text-rose-500 shrink-0" />
+                                <span>0 {st.es_drop ? "m" : "und"} (Agotado)</span>
+                              </span>
+                            )}
                           </td>
 
                           {/* ACCIONES: VER DESCARGAS + DEVOLVER A CENTRAL */}
@@ -1908,7 +1987,19 @@ export const StockOverviewTab: React.FC<Props> = ({
                       : "text-amber-900 hover:bg-amber-100/60"
                   }`}
                 >
-                  📋 Talonarios en Mano ({actasTecnicos.length})
+                  📋 En Técnicos ({actasTecnicos.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSubVistaActas("central")}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    subVistaActas === "central"
+                      ? "bg-emerald-700 text-white shadow-2xs"
+                      : "text-emerald-950 hover:bg-emerald-100/60"
+                  }`}
+                >
+                  <Building2 size={13} />
+                  <span>En Almacén Central ({actasCentral?.total_disponibles || 0})</span>
                 </button>
                 <button
                   type="button"
@@ -1920,7 +2011,7 @@ export const StockOverviewTab: React.FC<Props> = ({
                   }`}
                 >
                   <Trash2 size={12} />
-                  <span>Actas Anuladas / Dañadas ({actasAnuladas.length})</span>
+                  <span>Actas Anuladas ({actasAnuladas.length})</span>
                 </button>
               </div>
 
@@ -2011,6 +2102,80 @@ export const StockOverviewTab: React.FC<Props> = ({
                 )}
               </tbody>
             </table>
+            </div>
+          ) : subVistaActas === "central" ? (
+            /* ── TALONARIOS EN ALMACÉN CENTRAL (DISPONIBLES) ── */
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200">
+                  <span className="text-[10px] font-black text-emerald-800 uppercase block tracking-wider">Actas Disponibles en Bodega</span>
+                  <span className="text-2xl font-black font-mono text-emerald-900 mt-1 block">
+                    {actasCentral?.total_disponibles || 0} <span className="text-xs font-bold font-sans text-emerald-700">hojas físicas</span>
+                  </span>
+                </div>
+                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200">
+                  <span className="text-[10px] font-black text-amber-800 uppercase block tracking-wider">Lotes / Talonarios Empaquetados</span>
+                  <span className="text-2xl font-black font-mono text-amber-900 mt-1 block">
+                    {actasCentral?.rangos?.length || 0} <span className="text-xs font-bold font-sans text-amber-700">grupos correlativos</span>
+                  </span>
+                </div>
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                  <span className="text-[10px] font-black text-slate-600 uppercase block tracking-wider">Custodia en Almacén</span>
+                  <span className="text-sm font-black text-slate-800 mt-2 block flex items-center gap-1.5">
+                    <Building2 size={15} className="text-slate-600" />
+                    <span>Almacén Central (Nuevo)</span>
+                  </span>
+                </div>
+              </div>
+
+              <div className="w-full overflow-x-auto touch-pan-x">
+                <table className="w-full min-w-[800px] text-left text-xs">
+                  <thead className="bg-slate-50/80 text-slate-400 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
+                    <tr>
+                      <th className="py-3.5 px-4">Rango Correlativo (Talonario)</th>
+                      <th className="py-3.5 px-4 text-center">Cantidad de Hojas</th>
+                      <th className="py-3.5 px-4">Ubicación Física</th>
+                      <th className="py-3.5 px-4 text-center">Estado</th>
+                      <th className="py-3.5 px-4 text-center">Fecha Ingreso / Compra</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {(!actasCentral || actasCentral.rangos.length === 0) ? (
+                      <tr>
+                        <td colSpan={5} className="py-12 text-center text-slate-400 text-xs font-bold">
+                          No hay talonarios de actas disponibles en Almacén Central actualmente. Registra una compra para ingresar nuevo stock.
+                        </td>
+                      </tr>
+                    ) : (
+                      actasCentral.rangos.map((r, i) => (
+                        <tr key={i} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="py-3.5 px-4 font-mono font-black text-amber-950 text-sm">
+                            <span className="px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200">
+                              {r.rango_texto}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-center font-black font-mono text-sm text-slate-800">
+                            {r.cantidad} actas
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className="px-2.5 py-0.5 rounded-md text-[11px] font-black bg-sky-50 text-sky-800 border border-sky-200 font-mono">
+                              Stand {r.stand} · Fila {r.fila}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              DISPONIBLE
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-center text-slate-500 font-mono text-[11px]">
+                            {r.fecha_ingreso ? new Date(r.fecha_ingreso).toLocaleDateString("es-PE") : "—"}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ) : (
             /* ── REPORTE DE ACTAS ANULADAS / DAÑADAS ── */

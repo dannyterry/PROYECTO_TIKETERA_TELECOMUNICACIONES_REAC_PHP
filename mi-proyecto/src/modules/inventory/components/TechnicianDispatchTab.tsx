@@ -20,9 +20,10 @@ import {
   Search,
   X,
   Clock,
+  Building2,
 } from "lucide-react";
 import { ProductoStock, DespachoPayload, EquipoDespachoPistoleado } from "../types/inventoryTypes";
-import { despacharATecnico, verificarSerieDespacho } from "../services/inventoryService";
+import { despacharATecnico, verificarSerieDespacho, getActasCentral } from "../services/inventoryService";
 import { DispatchHistorySubTab } from "./DispatchHistorySubTab";
 import axios from "axios";
 import { API_URL } from "../../../config/api";
@@ -38,6 +39,21 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
   const [idTrabajador, setIdTrabajador] = useState<string>("");
   const [busquedaTecnico, setBusquedaTecnico] = useState("");
   const [guardando, setGuardando] = useState(false);
+  const [actasCentral, setActasCentral] = useState<{
+    total_disponibles: number;
+    rangos: Array<{
+      rango_texto: string;
+      inicio: string;
+      fin: string;
+      cantidad: number;
+      stand: string;
+      fila: number;
+    }>;
+  } | null>(null);
+
+  useEffect(() => {
+    getActasCentral().then(setActasCentral).catch(console.error);
+  }, []);
 
   const tecnicosFiltrados = useMemo(() => {
     if (!busquedaTecnico.trim()) return tecnicos;
@@ -1046,6 +1062,40 @@ export const TechnicianDispatchTab: React.FC<Props> = ({ productos, onDespachoRe
 
         {incluirActas && (
           <div className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200 space-y-3 animate-fade-in">
+            {actasCentral && actasCentral.rangos.length > 0 && (
+              <div className="bg-white/90 p-3 rounded-xl border border-amber-300 space-y-1.5 shadow-2xs">
+                <span className="text-[10px] font-black uppercase text-amber-950 tracking-wider flex items-center gap-1.5">
+                  <Building2 size={13} className="text-amber-700" />
+                  <span>Talonarios Disponibles en Almacén Central (Clic para auto-completar):</span>
+                </span>
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {actasCentral.rangos.map((r, i) => {
+                    const matchPref = r.inicio.match(/^([A-Z0-9]+[-–])?(0*)(\d+)$/i);
+                    const pfx = matchPref && matchPref[1] ? matchPref[1] : "001-";
+                    const iniClean = matchPref ? matchPref[3] : r.inicio.replace(/\D/g, "");
+                    const padLen = Math.max(5, (matchPref ? matchPref[2] + matchPref[3] : r.inicio.replace(/\D/g, "")).length);
+                    const numIniStr = String(iniClean).padStart(padLen, "0");
+
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => {
+                          setPrefijoActas(pfx);
+                          setCorrelativoInicialActas(numIniStr);
+                          setCantidadActas(r.cantidad);
+                        }}
+                        className="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer flex items-center gap-1 shadow-2xs hover:scale-102"
+                        title={`Clic para seleccionar este talonario (${r.cantidad} actas físicas en Stand ${r.stand})`}
+                      >
+                        <span>📦 {r.rango_texto}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="text-[10px] font-bold text-slate-600 block mb-1">Cantidad de Actas:</label>

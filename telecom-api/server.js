@@ -6542,7 +6542,7 @@ app.get('/api/almacen/stock-general', async (req, res) => {
       JOIN productos p ON tp.id_producto = p.id_producto
       LEFT JOIN categorias c ON p.id_categoria = c.id_categoria
       LEFT JOIN vehiculos v ON t.id_vehiculo = v.id_vehiculo
-      WHERE tp.stock > 0 
+      WHERE tp.stock >= 0 
         AND (u.id_rol IN (2, 6) OR UPPER(COALESCE(r.nombre, '')) LIKE '%TECNIC%' OR UPPER(COALESCE(r.nombre, '')) LIKE '%SUPERVI%')
       ORDER BY tecnico_nombre ASC, p.nombre ASC
     `);
@@ -7406,16 +7406,33 @@ app.post('/api/almacen/compras', async (req, res) => {
     }
 
     // B2. Validar que las series y los ID de equipo no existan previamente registrados en la base de datos
+    // NOTA: Para Talonarios / Actas de servicio, si alguna serie ya fue asignada previamente a técnicos en caliente,
+    // se permite la compra para regularizar su costo y asiento contable sin bloquear.
     if (todasLasSeriesCompra.length > 0) {
-      const [seriesExistentes] = await pool.query(
-        "SELECT ps.numero_serie, p.nombre as producto_nombre FROM producto_series ps JOIN productos p ON ps.id_producto = p.id_producto WHERE ps.numero_serie IN (?)",
-        [todasLasSeriesCompra]
-      );
+      const [seriesExistentes] = await pool.query(`
+        SELECT ps.numero_serie, p.nombre as producto_nombre, ps.id_almacen, c.nombre as categoria_nombre
+        FROM producto_series ps 
+        JOIN productos p ON ps.id_producto = p.id_producto 
+        LEFT JOIN categorias c ON p.id_categoria = c.id_categoria
+        WHERE ps.numero_serie IN (?)
+      `, [todasLasSeriesCompra]);
+
       if (seriesExistentes.length > 0) {
-        const repetidas = seriesExistentes.map((r) => `"${r.numero_serie}" (${r.producto_nombre})`).join(", ");
-        return res.status(400).json({
-          error: `Las siguientes series ya se encuentran registradas previamente en el almacén: ${repetidas}. No se permiten series duplicadas.`,
+        const repetidasEquipos = seriesExistentes.filter((r) => {
+          const nom = (r.producto_nombre || '').toUpperCase();
+          const cat = (r.categoria_nombre || '').toUpperCase();
+          const esActa = nom.includes('ACTA') || nom.includes('GUIA') || nom.includes('TALONARIO') || cat.includes('TALONARIO');
+          // Si es acta y ya estaba asignada en técnicos (almacén 2), permitimos regularización.
+          // Solo bloqueamos si es hardware real o si el acta ya estaba registrada como disponible en almacén central
+          return !esActa || r.id_almacen === 1;
         });
+
+        if (repetidasEquipos.length > 0) {
+          const repetidas = repetidasEquipos.map((r) => `"${r.numero_serie}" (${r.producto_nombre})`).join(", ");
+          return res.status(400).json({
+            error: `Las siguientes series ya se encuentran registradas previamente en el almacén: ${repetidas}. No se permiten series duplicadas.`,
+          });
+        }
       }
     }
 
@@ -7549,8 +7566,8 @@ app.post('/api/almacen/compras', async (req, res) => {
                 codigo_serie = COALESCE(codigo_serie, VALUES(codigo_serie)),
                 id_equipo = COALESCE(VALUES(id_equipo), id_equipo),
                 proid = COALESCE(VALUES(proid), proid),
-                estado = 'DISPONIBLE', 
-                id_almacen = 1
+                estado = IF(id_almacen = 2, estado, 'DISPONIBLE'), 
+                id_almacen = IF(id_almacen = 2, 2, 1)
             `, [prodId, codigoSerie, serieIdEquipo, serieProid, cleanSerie]);
           }
         }
@@ -9435,6 +9452,93 @@ app.get('/api/almacen/actas-tecnicos', async (req, res) => {
     });
 
     res.json(resultado);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- 📋 4.2 AUDITORÍA DE ACTAS / TALONARIOS DISPONIBLES EN ALMACÉN CENTRAL ---
+app.get('/api/almacen/actas-central', async (req, res) => {
+  try {
+    const [actasCentral] = await pool.query(`
+      SELECT 
+        ps.id_producto_serie,
+        ps.numero_serie,
+        ps.codigo_serie,
+        ps.estado,
+        ps.fecha_ingreso,
+        p.id_producto,
+        p.nombre AS producto_nombre,
+        p.stand,
+        p.fila
+      FROM producto_series ps
+      JOIN productos p ON ps.id_producto = p.id_producto
+      LEFT JOIN categorias c ON p.id_categoria = c.id_categoria
+      WHERE ps.id_almacen = 1 
+        AND ps.estado = 'DISPONIBLE'
+        AND (UPPER(COALESCE(c.nombre, '')) LIKE '%TALONARIO%' 
+          OR UPPER(COALESCE(c.nombre, '')) LIKE '%ACTA%' 
+          OR UPPER(COALESCE(c.nombre, '')) LIKE '%GUIA%' 
+          OR UPPER(p.nombre) LIKE '%ACTA%' 
+          OR UPPER(p.nombre) LIKE '%GUIA%')
+      ORDER BY ps.numero_serie ASC
+    `);
+
+    // Agrupar números correlativos consecutivos en talonarios / paquetes
+    const rangos = [];
+    if (actasCentral.length > 0) {
+      const sorted = [...actasCentral].sort((a, b) => 
+        a.numero_serie.localeCompare(b.numero_serie, undefined, { numeric: true })
+      );
+      let rangoInicio = sorted[0].numero_serie;
+      let rangoFin = sorted[0].numero_serie;
+      let count = 1;
+      let primerItem = sorted[0];
+
+      for (let i = 1; i < sorted.length; i++) {
+        const prevMatch = sorted[i - 1].numero_serie.match(/^(.*?)(\d+)$/);
+        const currMatch = sorted[i].numero_serie.match(/^(.*?)(\d+)$/);
+
+        if (
+          prevMatch &&
+          currMatch &&
+          prevMatch[1] === currMatch[1] &&
+          parseInt(currMatch[2], 10) === parseInt(prevMatch[2], 10) + 1
+        ) {
+          rangoFin = sorted[i].numero_serie;
+          count++;
+        } else {
+          rangos.push({
+            rango_texto: `${rangoInicio} → ${rangoFin} (${count} actas)`,
+            inicio: rangoInicio,
+            fin: rangoFin,
+            cantidad: count,
+            stand: primerItem.stand || 'A',
+            fila: primerItem.fila || 1,
+            fecha_ingreso: primerItem.fecha_ingreso
+          });
+          rangoInicio = sorted[i].numero_serie;
+          rangoFin = sorted[i].numero_serie;
+          count = 1;
+          primerItem = sorted[i];
+        }
+      }
+      rangos.push({
+        rango_texto: `${rangoInicio} → ${rangoFin} (${count} actas)`,
+        inicio: rangoInicio,
+        fin: rangoFin,
+        cantidad: count,
+        stand: primerItem.stand || 'A',
+        fila: primerItem.fila || 1,
+        fecha_ingreso: primerItem.fecha_ingreso
+      });
+    }
+
+    res.json({
+      total_disponibles: actasCentral.length,
+      rangos,
+      actas: actasCentral
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
