@@ -99,6 +99,26 @@ export default function App() {
 
   const [currentView, setCurrentView] = useState<string>(getViewFromLocation);
 
+  // 🟢 Heartbeat global para registrar presencia en línea y jornada activa de todo el personal
+  useEffect(() => {
+    if (!currentUser?.id_usuario) return;
+    const sendPulse = () => {
+      if (document.hidden) return;
+      fetch(`${API_URL}/api/auditoria/heartbeat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id_usuario: currentUser.id_usuario,
+          usuario_nombre: currentUser.nombreCompleto || currentUser.nombres,
+          modulo: currentView ? currentView.toUpperCase() : "SISTEMA",
+        }),
+      }).catch(() => {});
+    };
+    sendPulse();
+    const interval = setInterval(sendPulse, 60000);
+    return () => clearInterval(interval);
+  }, [currentUser?.id_usuario, currentUser?.nombreCompleto, currentUser?.nombres, currentView]);
+
   // 2. Sub-pestaña de Recursos Humanos
   const getRhTabFromLocation = (): "directorio" | "ficha" | "roles" | "asistencias" => {
     const view = getViewFromLocation().toLowerCase();

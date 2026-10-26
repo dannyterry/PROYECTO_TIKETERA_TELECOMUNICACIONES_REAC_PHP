@@ -87,11 +87,10 @@ const InconcertToggleButton: React.FC<{
     <button
       type="button"
       onClick={handleClick}
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black transition-all cursor-pointer shadow-2xs active:scale-90 select-none ${
-        localVal
-          ? "bg-emerald-500 text-white hover:bg-emerald-600 shadow-emerald-500/30"
-          : "bg-rose-500 text-white hover:bg-rose-600 shadow-rose-500/30"
-      }`}
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black transition-all cursor-pointer shadow-2xs active:scale-90 select-none ${localVal
+        ? "bg-emerald-500 text-white hover:bg-emerald-600 shadow-emerald-500/30"
+        : "bg-rose-500 text-white hover:bg-rose-600 shadow-rose-500/30"
+        }`}
       title="Alternar estado de llamada Inconcert (Sí / No)"
     >
       <span className="w-1.5 h-1.5 bg-white rounded-full shrink-0"></span>
@@ -215,8 +214,8 @@ const ObservacionLlamadaCell: React.FC<{
     return {
       top: openUpwards ? Math.max(10, rect.top - estimatedHeight - 4) : rect.bottom + 4,
       left: Math.min(rect.left, window.innerWidth - 300),
-      maxHeight: openUpwards 
-        ? `${Math.min(288, Math.max(180, rect.top - 20))}px` 
+      maxHeight: openUpwards
+        ? `${Math.min(288, Math.max(180, rect.top - 20))}px`
         : `${Math.min(288, Math.max(180, spaceBelow - 20))}px`
     };
   };
@@ -279,11 +278,10 @@ const ObservacionLlamadaCell: React.FC<{
                       key={oIdx}
                       type="button"
                       onClick={() => handleSelect(op)}
-                      className={`w-full text-left px-2 py-1 rounded-md text-[10px] font-medium transition-colors flex items-center justify-between gap-1 cursor-pointer ${
-                        val === op
-                          ? "bg-indigo-50 text-indigo-900 font-bold border border-indigo-200"
-                          : "text-slate-700 hover:bg-slate-100"
-                      }`}
+                      className={`w-full text-left px-2 py-1 rounded-md text-[10px] font-medium transition-colors flex items-center justify-between gap-1 cursor-pointer ${val === op
+                        ? "bg-indigo-50 text-indigo-900 font-bold border border-indigo-200"
+                        : "text-slate-700 hover:bg-slate-100"
+                        }`}
                     >
                       <span className="truncate">{op}</span>
                       {val === op && <Check size={11} className="text-indigo-600 shrink-0" />}
@@ -343,12 +341,15 @@ const CelularCell: React.FC<{
   };
 
   // 📞 Plantilla del número / llamada oficial: "Número - Cliente - Dirección - Tramo"
+  const tramoVal = order.tramo && order.tramo !== "-" ? order.tramo : null;
+  const tramoTooltip = tramoVal ? `Tramo: ${tramoVal}` : "Tramo: Sin especificar";
+
   const getPlantillaNumero = (num: string): string => {
     return [
       num,
       order.cliente,
       order.direccion,
-      order.tramo && order.tramo !== "-" ? order.tramo : null
+      tramoVal
     ].filter(Boolean).join(" - ");
   };
 
@@ -359,20 +360,31 @@ const CelularCell: React.FC<{
   return (
     <div ref={containerRef} className="flex items-center gap-1 min-w-0" onClick={(e) => e.stopPropagation()}>
       {order.celular ? (
-        <a
-          href={`tel:${order.celular.replace(/\D/g, "")}`}
-          onClick={() => {
-            const soloNum = order.celular?.replace(/\D/g, "");
-            if (soloNum) {
-              navigator.clipboard.writeText(soloNum).catch(() => {});
-            }
-          }}
-          className="inline-flex items-center gap-1 font-black text-slate-900 hover:text-indigo-700 hover:underline transition-colors group cursor-pointer shrink-0"
-          title={`📞 Clic para llamar a ${order.celular} (Abre inConcert / Softphone y copia el número)`}
-        >
-          <Phone size={10} className="text-slate-600 group-hover:text-indigo-600 group-hover:scale-110 transition-transform shrink-0" />
-          <span>{order.celular}</span>
-        </a>
+        <div className="relative group/tel inline-flex items-center">
+          <button
+            type="button"
+            onClick={() => {
+              const soloNum = order.celular?.replace(/\D/g, "");
+              if (soloNum) {
+                navigator.clipboard.writeText(soloNum).catch(() => { });
+                window.location.href = `tel:${soloNum}`;
+              }
+            }}
+            className="inline-flex items-center gap-1 font-black text-slate-900 hover:text-indigo-700 hover:underline transition-colors group cursor-pointer shrink-0"
+          >
+            <Phone size={10} className="text-slate-600 group-hover:text-indigo-600 group-hover:scale-110 transition-transform shrink-0" />
+            <span>{order.celular}</span>
+          </button>
+
+          {/* ⚡ Único tooltip flotante instantáneo de Tramo al pasar el cursor */}
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover/tel:flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 text-white rounded-lg shadow-xl border border-slate-700 text-[10px] font-mono font-bold whitespace-nowrap pointer-events-none z-50 animate-in fade-in zoom-in-95 duration-100">
+            <span className="text-amber-300">Tramo:</span>
+            <span className={tramoVal ? "text-emerald-400" : "text-slate-400"}>
+              {tramoVal || "Sin especificar"}
+            </span>
+            <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-0.5 border-4 border-transparent border-t-slate-900"></div>
+          </div>
+        </div>
       ) : (
         <span className="text-slate-400">-</span>
       )}
@@ -382,12 +394,11 @@ const CelularCell: React.FC<{
         <button
           type="button"
           onClick={(e) => onCopy(`llamada-${order.id}`, plantillaCel1, e)}
-          className={`p-0.5 rounded transition-all shrink-0 cursor-pointer ${
-            copiedKey === `llamada-${order.id}`
-              ? "bg-slate-900 text-emerald-400 shadow-sm scale-105"
-              : "hover:bg-black/10 text-slate-500 hover:text-slate-800"
-          }`}
-          title={`Copiar datos para llamada:\n• Celular: ${order.celular}\n• Cliente: ${order.cliente || "-"}\n• Dirección: ${order.direccion || "-"}\n• Tramo: ${order.tramo || "-"}`}
+          className={`p-0.5 rounded transition-all shrink-0 cursor-pointer ${copiedKey === `llamada-${order.id}`
+            ? "bg-slate-900 text-emerald-400 shadow-sm scale-105"
+            : "hover:bg-black/10 text-slate-500 hover:text-slate-800"
+            }`}
+          title={`Copiar datos para llamada:\n• Tramo: ${order.tramo || "-"}\n• Celular: ${order.celular}\n• Cliente: ${order.cliente || "-"}\n• Dirección: ${order.direccion || "-"}`}
         >
           {copiedKey === `llamada-${order.id}` ? (
             <Check size={11} className="text-emerald-400 stroke-[3]" />
@@ -405,12 +416,11 @@ const CelularCell: React.FC<{
             e.stopPropagation();
             setOpen((prev) => !prev);
           }}
-          className={`inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[9px] font-bold tracking-tight transition-all shrink-0 cursor-pointer ${
-            open
-              ? "bg-indigo-600 text-white shadow-xs"
-              : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200/80"
-          }`}
-          title={`Cliente con 2 números diferentes registrados:\n• 1: ${order.celular}\n• 2: ${order.celular2}\nClic para abrir opciones y copiar datos de llamada`}
+          className={`inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[9px] font-bold tracking-tight transition-all shrink-0 cursor-pointer ${open
+            ? "bg-indigo-600 text-white shadow-xs"
+            : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200/80"
+            }`}
+          title={`Cliente con 2 números diferentes registrados:\n Tramo: ${order.tramo || "-"}\n• 1: ${order.celular}\n• 2: ${order.celular2}\nClic para abrir opciones y copiar datos de llamada`}
         >
           <span>+1</span>
           <ChevronDown size={8} className={`transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
@@ -427,8 +437,13 @@ const CelularCell: React.FC<{
         >
           <div className="flex items-center justify-between pb-1.5 mb-2 border-b border-slate-800">
             <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1">
-              <Phone size={10} className="text-indigo-400" /> 2 Teléfonos Registrados
+              <Phone size={10} className="text-indigo-400" /> 2 Teléfonos
             </span>
+            {tramoVal && (
+              <span className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 text-amber-300 rounded text-[9px] font-mono font-bold">
+                {tramoVal}
+              </span>
+            )}
             <button
               type="button"
               onClick={() => setOpen(false)}
@@ -441,19 +456,21 @@ const CelularCell: React.FC<{
           <div className="space-y-1.5">
             {/* Opción 1: Celular 1 (Principal) -> Copia plantilla del número con Celular 1 */}
             <div className="flex items-center justify-between gap-1 p-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-800 transition-colors">
-              <a
-                href={`tel:${order.celular.replace(/\D/g, "")}`}
+              <button
+                type="button"
                 onClick={() => {
                   const s = order.celular?.replace(/\D/g, "");
-                  if (s) navigator.clipboard.writeText(s).catch(() => {});
+                  if (s) {
+                    navigator.clipboard.writeText(s).catch(() => { });
+                    window.location.href = `tel:${s}`;
+                  }
                 }}
-                className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 font-mono font-bold text-xs"
-                title="Clic para llamar a Celular 1"
+                className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 font-mono font-bold text-xs cursor-pointer text-left"
               >
                 <Phone size={11} />
                 <span>{order.celular}</span>
                 <span className="text-[9px] font-normal text-slate-400 font-sans">(Móvil 1)</span>
-              </a>
+              </button>
               <button
                 type="button"
                 onClick={(e) => onCopy(`cel1-${order.id}`, plantillaCel1, e)}
@@ -476,19 +493,21 @@ const CelularCell: React.FC<{
 
             {/* Opción 2: Celular 2 (Alternativo / Fijo) -> Copia plantilla del número con Celular 2 */}
             <div className="flex items-center justify-between gap-1 p-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-800 transition-colors">
-              <a
-                href={`tel:${order.celular2.replace(/\D/g, "")}`}
+              <button
+                type="button"
                 onClick={() => {
                   const s = order.celular2?.replace(/\D/g, "");
-                  if (s) navigator.clipboard.writeText(s).catch(() => {});
+                  if (s) {
+                    navigator.clipboard.writeText(s).catch(() => { });
+                    window.location.href = `tel:${s}`;
+                  }
                 }}
-                className="flex items-center gap-1 text-sky-400 hover:text-sky-300 font-mono font-bold text-xs"
-                title="Clic para llamar a Celular 2"
+                className="flex items-center gap-1 text-sky-400 hover:text-sky-300 font-mono font-bold text-xs cursor-pointer text-left"
               >
                 <Phone size={11} />
                 <span>{order.celular2}</span>
                 <span className="text-[9px] font-normal text-slate-400 font-sans">(Móvil 2)</span>
-              </a>
+              </button>
               <button
                 type="button"
                 onClick={(e) => onCopy(`cel2-${order.id}`, plantillaCel2, e)}
@@ -944,8 +963,8 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
               <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-left border-b border-slate-950 min-w-[140px] max-w-[170px]">
                 Número de Ticket
               </th>
-              {/* 16 */}
-              <th className="sticky top-0 z-30 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950">
+              {/* 16. TÉCNICO (Fijo en Scroll Horizontal junto a Cliente a left-[329px]) */}
+              <th className="sticky top-0 lg:left-[329px] z-30 lg:z-40 bg-[#1e4b8a] font-bold uppercase text-[10px] tracking-wider py-1 px-2 text-center border-b border-slate-950 border-r border-blue-900 shadow-none lg:shadow-[3px_0_6px_-2px_rgba(0,0,0,0.3)] min-w-[180px] lg:min-w-[210px] lg:max-w-[210px] lg:w-[210px]">
                 Técnico
               </th>
               {/* ACTA (Antes de Tareas) */}
@@ -1253,8 +1272,11 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                       </div>
                     </td>
 
-                    {/* 16. Técnico 1 y Técnico 2 con botón de copiado directo y asignación */}
-                    <td className="py-1 px-1.5 max-w-[210px] border-b border-slate-950" onClick={(e) => e.stopPropagation()}>
+                    {/* 16. Técnico 1 y Técnico 2 (Fijo en Scroll Horizontal junto a Cliente a left-[329px]) */}
+                    <td
+                      className={`lg:sticky lg:left-[329px] z-10 lg:z-20 py-1 px-1.5 min-w-[180px] lg:min-w-[210px] lg:max-w-[210px] lg:w-[210px] ${rowColorClass} border-b border-slate-950 border-r border-slate-300/80 shadow-none lg:shadow-[3px_0_6px_-2px_rgba(0,0,0,0.15)]`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       {(() => {
                         const rawTecs = (order.tecnico || "")
                           .split(/\s*[\/,+]\s*|\s+y\s+/i)
@@ -1287,18 +1309,17 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                             <button
                               type="button"
                               onClick={() => openAssignModal(order)}
-                              className={`flex-1 min-w-0 text-left inline-flex items-center justify-between gap-1 px-1.5 py-0.5 text-[10px] rounded transition-all cursor-pointer shadow-2xs group ${
-                                isExternal
-                                  ? "bg-purple-50 hover:bg-purple-100 text-purple-950 border border-purple-300"
-                                  : isManual 
-                                    ? "bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-300"
-                                    : "bg-indigo-50/80 hover:bg-indigo-100/90 text-indigo-950 border border-indigo-200/90 hover:border-indigo-300"
-                              }`}
+                              className={`flex-1 min-w-0 text-left inline-flex items-center justify-between gap-1 px-1.5 py-0.5 text-[10px] rounded transition-all cursor-pointer shadow-2xs group ${isExternal
+                                ? "bg-purple-50 hover:bg-purple-100 text-purple-950 border border-purple-300"
+                                : isManual
+                                  ? "bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-300"
+                                  : "bg-indigo-50/80 hover:bg-indigo-100/90 text-indigo-950 border border-indigo-200/90 hover:border-indigo-300"
+                                }`}
                               title={
                                 isExternal
                                   ? "Ejecutado por técnico externo / otra contrata / supervisor WIN. Clic para asignar técnico interno si aplica."
-                                  : isManual 
-                                    ? "Asignado manualmente por gestión (Blindado contra sobreescritura de Fénix). Clic para editar." 
+                                  : isManual
+                                    ? "Asignado manualmente por gestión (Blindado contra sobreescritura de Fénix). Clic para editar."
                                     : "Clic para editar o cambiar técnicos asignados"
                               }
                             >
@@ -1430,11 +1451,11 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                             textoCombinado.includes("PLANTA EXTERNA") ||
                             ((textoCombinado.includes("PRUEBA DE SERVICIO") || textoCombinado.includes("PRUEBAS DE SERVICIO")) &&
                               (textoCombinado.includes("CTO") ||
-                               textoCombinado.includes("NAP") ||
-                               textoCombinado.includes("PUERTO") ||
-                               textoCombinado.includes("POTENCIA") ||
-                               textoCombinado.includes("DEGRADAD") ||
-                               textoCombinado.includes("INTERMITENCIA")))
+                                textoCombinado.includes("NAP") ||
+                                textoCombinado.includes("PUERTO") ||
+                                textoCombinado.includes("POTENCIA") ||
+                                textoCombinado.includes("DEGRADAD") ||
+                                textoCombinado.includes("INTERMITENCIA")))
                           ) {
                             return true;
                           }
@@ -1597,13 +1618,12 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
 
                     {/* 21. Tramo */}
                     <td
-                      className={`py-1 px-1.5 text-center font-mono text-[11px] font-bold cursor-pointer group border-b border-slate-950 transition-colors ${
-                        tramoAlert.status === "vencido"
-                          ? "bg-rose-500 text-white font-black"
-                          : tramoAlert.status === "por_vencer"
+                      className={`py-1 px-1.5 text-center font-mono text-[11px] font-bold cursor-pointer group border-b border-slate-950 transition-colors ${tramoAlert.status === "vencido"
+                        ? "bg-rose-500 text-white font-black"
+                        : tramoAlert.status === "por_vencer"
                           ? "bg-amber-400 text-slate-950 font-black"
                           : ""
-                      }`}
+                        }`}
                       onClick={(e) => {
                         e.stopPropagation();
                         if (onViewStats) onViewStats(order);
@@ -1613,20 +1633,19 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                         (tramoAlert.status === "vencido"
                           ? `⚠️ Tramo Vencido (+${tramoAlert.minutesDiff || 0}m): No tiene inicio en campo.`
                           : tramoAlert.status === "por_vencer"
-                          ? `⏳ Tramo en riesgo (${tramoAlert.minutesDiff || 0}m): No tiene inicio en campo.`
-                          : "Clic para ver control de tiempos, demoras y gestión de cuadrilla")
+                            ? `⏳ Tramo en riesgo (${tramoAlert.minutesDiff || 0}m): No tiene inicio en campo.`
+                            : "Clic para ver control de tiempos, demoras y gestión de cuadrilla")
                       }
                     >
-                      <span className={`inline-block px-1 py-0.2 rounded font-bold whitespace-nowrap transition-all ${
-                        tramoAlert.status === "vencido"
-                          ? "animate-pulse"
-                          : "group-hover:bg-indigo-600 group-hover:text-white"
-                      }`}>
+                      <span className={`inline-block px-1 py-0.2 rounded font-bold whitespace-nowrap transition-all ${tramoAlert.status === "vencido"
+                        ? "animate-pulse"
+                        : "group-hover:bg-indigo-600 group-hover:text-white"
+                        }`}>
                         {tramoAlert.status === "vencido"
                           ? `⚠️ ${order.tramo || "-"}`
                           : tramoAlert.status === "por_vencer"
-                          ? `⏳ ${order.tramo || "-"}`
-                          : (order.tramo || "-")}
+                            ? `⏳ ${order.tramo || "-"}`
+                            : (order.tramo || "-")}
                       </span>
                     </td>
 
@@ -1717,11 +1736,11 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                         };
                         const cleanVal = (v: any) => (isInvalid(v) ? "" : String(v).trim());
                         const liq = cleanVal(order.motivoFinalizacion) ||
-                                    cleanVal(order.motivoCancelacion) ||
-                                    cleanVal(order.motivoRegestion) ||
-                                    cleanVal(order.motivoAnulacion) ||
-                                    cleanVal(order.tipoLiquidacion) ||
-                                    cleanVal(order.motivoLiquidacion) || "";
+                          cleanVal(order.motivoCancelacion) ||
+                          cleanVal(order.motivoRegestion) ||
+                          cleanVal(order.motivoAnulacion) ||
+                          cleanVal(order.tipoLiquidacion) ||
+                          cleanVal(order.motivoLiquidacion) || "";
                         return liq ? (
                           <span className="text-slate-900 font-bold tracking-tight">{liq}</span>
                         ) : (
@@ -1895,11 +1914,10 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                     <button
                       type="button"
                       onClick={() => setAssignMode('order')}
-                      className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                        !isCuadrillaMode
-                          ? 'bg-white text-indigo-700 shadow-xs border border-slate-200'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
+                      className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${!isCuadrillaMode
+                        ? 'bg-white text-indigo-700 shadow-xs border border-slate-200'
+                        : 'text-slate-600 hover:text-slate-900'
+                        }`}
                     >
                       <User size={14} />
                       Solo esta orden
@@ -1907,11 +1925,10 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                     <button
                       type="button"
                       onClick={() => setAssignMode('cuadrilla')}
-                      className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                        isCuadrillaMode
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
+                      className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${isCuadrillaMode
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                        }`}
                     >
                       <Users size={14} />
                       Toda la Cuadrilla

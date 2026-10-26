@@ -1,5 +1,6 @@
 // 🇵🇪 Forzar Timezone oficial de Perú (America/Lima / UTC-5)
 process.env.TZ = "America/Lima";
+// Nodemon reload trigger: 2026-10-26
 
 const express = require("express");
 const cors = require("cors");
@@ -474,8 +475,10 @@ app.post(['/login', '/api/login'], async (req, res) => {
       permisos = permRows.map(p => p.clave);
     }
 
-    // Marcar usuario online
+    // Marcar usuario online y registrar inicio de jornada
     await pool.query("UPDATE usuarios SET ultimo_acceso = NOW(), esta_online = 1, ultima_accion = 'Inicio de sesión' WHERE id_usuario = ?", [u.id_usuario]);
+    const ipLogin = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '';
+    await registrarJornadaPing(pool, u.id_usuario, ipLogin, 'Inicio de sesión');
 
     const nombreCompleto = `${u.nombres} ${u.primer_apellido || u.apellidos || ''}`.trim();
 
@@ -640,8 +643,79 @@ async function registrarAuditoria(db, { id_usuario, usuario_nombre, modulo, acci
       descripcion || accion,
       ip
     ]);
+
+    if (userId) {
+      await registrarJornadaPing(db, userId, ip, descripcion || accion);
+    }
   } catch (err) {
     console.error('Error al registrar auditoría:', err.message);
+  }
+}
+
+// --- ⏱️ REGISTRAR PING Y ACTUALIZAR INTERVALOS DE JORNADA EN LÍNEA ---
+async function registrarJornadaPing(db, userId, ip = null, accion = null) {
+  if (!userId) return;
+  try {
+    const ahora = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const horaActual = `${pad(ahora.getHours())}:${pad(ahora.getMinutes())}:${pad(ahora.getSeconds())}`;
+    const horaCorta = `${pad(ahora.getHours())}:${pad(ahora.getMinutes())}`;
+
+    const [rows] = await db.query(
+      `SELECT id_jornada, hora_primer_ingreso, hora_ultimo_acceso, minutos_totales, intervalos_actividad, fecha_actualizacion 
+       FROM control_jornadas_personal 
+       WHERE id_usuario = ? AND fecha = CURDATE() 
+       LIMIT 1`,
+      [userId]
+    );
+
+    if (rows.length === 0) {
+      const intervalos = JSON.stringify([{ inicio: horaCorta, fin: horaCorta, minutos: 1 }]);
+      await db.query(
+        `INSERT INTO control_jornadas_personal 
+         (id_usuario, fecha, hora_primer_ingreso, hora_ultimo_acceso, minutos_totales, intervalos_actividad, ultima_accion, ip_address)
+         VALUES (?, CURDATE(), ?, ?, 1, ?, ?, ?)`,
+        [userId, horaActual, horaActual, intervalos, accion ? String(accion).slice(0, 250) : 'Activo en el sistema', ip]
+      );
+    } else {
+      const j = rows[0];
+      let intervalos = [];
+      try {
+        intervalos = typeof j.intervalos_actividad === 'string' ? JSON.parse(j.intervalos_actividad) : (j.intervalos_actividad || []);
+      } catch (e) {
+        intervalos = [];
+      }
+
+      const diffMin = j.fecha_actualizacion ? Math.round((ahora - new Date(j.fecha_actualizacion)) / (1000 * 60)) : 1;
+      let nuevoMinutos = Number(j.minutos_totales) || 1;
+
+      if (!Array.isArray(intervalos) || intervalos.length === 0) {
+        intervalos = [{ inicio: horaCorta, fin: horaCorta, minutos: 1 }];
+      } else {
+        const lastInt = intervalos[intervalos.length - 1];
+        if (diffMin <= 15) {
+          lastInt.fin = horaCorta;
+          lastInt.minutos = Math.max(1, (Number(lastInt.minutos) || 1) + Math.max(1, Math.min(diffMin, 15)));
+          nuevoMinutos += Math.max(1, Math.min(diffMin, 15));
+        } else {
+          intervalos.push({ inicio: horaCorta, fin: horaCorta, minutos: 1 });
+          nuevoMinutos += 1;
+        }
+      }
+
+      await db.query(
+        `UPDATE control_jornadas_personal 
+         SET hora_ultimo_acceso = ?,
+             minutos_totales = ?,
+             intervalos_actividad = ?,
+             ultima_accion = COALESCE(?, ultima_accion),
+             ip_address = COALESCE(?, ip_address)
+         WHERE id_jornada = ?`,
+        [horaActual, nuevoMinutos, JSON.stringify(intervalos), accion ? String(accion).slice(0, 250) : null, ip || null, j.id_jornada]
+      );
+    }
+  } catch (err) {
+    console.error('[JornadaPing] Error:', err.message);
   }
 }
 
@@ -12467,6 +12541,7 @@ app.post(['/api/auditoria/heartbeat', '/auditoria/heartbeat'], async (req, res) 
   try {
     const { id_usuario, usuario_nombre, modulo, distrito_conexion, lat_conexion, lng_conexion } = req.body;
     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    let targetUserId = id_usuario;
 
     if (id_usuario) {
       await pool.query(`
@@ -12480,18 +12555,31 @@ app.post(['/api/auditoria/heartbeat', '/auditoria/heartbeat'], async (req, res) 
         WHERE id_usuario = ?
       `, [distrito_conexion || null, lat_conexion || null, lng_conexion || null, ip, id_usuario]);
     } else if (usuario_nombre && usuario_nombre.trim()) {
-      await pool.query(`
-        UPDATE usuarios 
-        SET ultimo_acceso = NOW(), 
-            esta_online = 1,
-            distrito_conexion = COALESCE(?, distrito_conexion),
-            lat_conexion = COALESCE(?, lat_conexion),
-            lng_conexion = COALESCE(?, lng_conexion),
-            ip_conexion = ?
+      const [uRows] = await pool.query(`
+        SELECT id_usuario FROM usuarios
         WHERE (TRIM(CONCAT(COALESCE(nombres, ''), ' ', COALESCE(primer_apellido, apellidos, ''))) LIKE ? OR nombres LIKE ? OR usuario = ?)
         LIMIT 1
-      `, [distrito_conexion || null, lat_conexion || null, lng_conexion || null, ip, `%${usuario_nombre.trim()}%`, `%${usuario_nombre.trim()}%`, usuario_nombre.trim()]);
+      `, [`%${usuario_nombre.trim()}%`, `%${usuario_nombre.trim()}%`, usuario_nombre.trim()]);
+      
+      if (uRows.length > 0) {
+        targetUserId = uRows[0].id_usuario;
+        await pool.query(`
+          UPDATE usuarios 
+          SET ultimo_acceso = NOW(), 
+              esta_online = 1,
+              distrito_conexion = COALESCE(?, distrito_conexion),
+              lat_conexion = COALESCE(?, lat_conexion),
+              lng_conexion = COALESCE(?, lng_conexion),
+              ip_conexion = ?
+          WHERE id_usuario = ?
+        `, [distrito_conexion || null, lat_conexion || null, lng_conexion || null, ip, targetUserId]);
+      }
     }
+
+    if (targetUserId) {
+      await registrarJornadaPing(pool, targetUserId, ip, modulo ? `Navegando en ${modulo}` : 'Activo en el sistema');
+    }
+
     res.json({ success: true, timestamp: new Date() });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -12837,6 +12925,202 @@ app.get(['/api/auditoria/grafico-gestion', '/auditoria/grafico-gestion'], async 
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// --- 🛡️ 5. MONITOREO DE JORNADA, HORARIOS Y LÍNEA DE TIEMPO (TIMELINE) ---
+app.get(['/api/auditoria/jornada-timeline', '/auditoria/jornada-timeline'], async (req, res) => {
+  try {
+    const fecha = req.query.fecha || new Date().toISOString().split('T')[0];
+    const { area, rol, search } = req.query;
+
+    let sql = `
+      SELECT 
+        u.id_usuario,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS nombre_completo,
+        u.email,
+        u.usuario,
+        u.id_rol,
+        r.nombre AS rol_nombre,
+        COALESCE(u.area, 'Operaciones') AS area,
+        COALESCE(u.distrito_conexion, u.distrito, '') AS distrito,
+        u.foto_personal,
+        u.ultimo_acceso,
+        CASE 
+          WHEN u.ultimo_acceso >= DATE_SUB(NOW(), INTERVAL 15 MINUTE) THEN 1 
+          ELSE 0 
+        END AS esta_online,
+        j.hora_primer_ingreso,
+        j.hora_ultimo_acceso,
+        COALESCE(j.minutos_totales, 0) AS minutos_totales,
+        j.intervalos_actividad,
+        COALESCE(j.ultima_accion, u.ultima_accion, 'Sin actividad registrada') AS ultima_accion,
+        j.ip_address,
+        j.fecha
+      FROM usuarios u
+      LEFT JOIN roles r ON u.id_rol = r.id_rol
+      LEFT JOIN control_jornadas_personal j ON j.id_usuario = u.id_usuario AND j.fecha = ?
+      WHERE u.estado = 'Activo' AND (u.id_rol != 2 OR u.id_rol IS NULL)
+    `;
+    const params = [fecha];
+
+    if (area && area !== 'Todos') {
+      sql += ` AND (u.area = ? OR r.nombre = ?)`;
+      params.push(area, area);
+    }
+    if (rol && rol !== 'Todos') {
+      sql += ` AND r.nombre = ?`;
+      params.push(rol);
+    }
+    if (search && search.trim()) {
+      sql += ` AND (u.nombres LIKE ? OR u.primer_apellido LIKE ? OR u.apellidos LIKE ? OR u.usuario LIKE ?)`;
+      const term = `%${search.trim()}%`;
+      params.push(term, term, term, term);
+    }
+
+    sql += ` ORDER BY esta_online DESC, (j.hora_primer_ingreso IS NOT NULL) DESC, j.hora_primer_ingreso ASC, u.nombres ASC`;
+
+    const [rows] = await pool.query(sql, params);
+
+    // Formatear datos para la línea de tiempo (Rango horario estándar 06:00 a 22:00 = 16 horas = 960 minutos)
+    const RANGO_INICIO_MIN = 6 * 60; // 06:00 = 360 min
+    const RANGO_FIN_MIN = 22 * 60;   // 22:00 = 1320 min
+    const RANGO_DURACION_MIN = RANGO_FIN_MIN - RANGO_INICIO_MIN; // 960 min
+
+    const aMinutosDesdeMedianoche = (timeStr) => {
+      if (!timeStr) return null;
+      const parts = String(timeStr).split(':').map(Number);
+      return (parts[0] || 0) * 60 + (parts[1] || 0);
+    };
+
+    const formatearHora12 = (timeStr) => {
+      if (!timeStr) return '--:--';
+      const parts = String(timeStr).split(':');
+      let h = parseInt(parts[0], 10);
+      const m = parts[1] || '00';
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      h = h % 12;
+      h = h ? h : 12;
+      return `${String(h).padStart(2, '0')}:${m} ${ampm}`;
+    };
+
+    const formatearDuracion = (totalMin) => {
+      if (!totalMin || totalMin <= 0) return '0m';
+      const h = Math.floor(totalMin / 60);
+      const m = totalMin % 60;
+      if (h === 0) return `${m}m`;
+      return `${h}h ${m}m`;
+    };
+
+    let totalMinutosAcumulados = 0;
+    let totalUsuariosConIngreso = 0;
+    let sumaHoraIngresoMinutos = 0;
+
+    const usuariosFormateados = rows.map((u) => {
+      let intervalos = [];
+      try {
+        intervalos = typeof u.intervalos_actividad === 'string' ? JSON.parse(u.intervalos_actividad) : (u.intervalos_actividad || []);
+      } catch (e) {
+        intervalos = [];
+      }
+
+      let primerIngreso = u.hora_primer_ingreso;
+      let ultimoAcceso = u.hora_ultimo_acceso;
+      let minutosTotales = Number(u.minutos_totales) || 0;
+
+      // Si no tiene registros en la tabla jornada pero su ultimo_acceso coincide con la fecha consultada
+      if (!primerIngreso && u.ultimo_acceso) {
+        const dAcceso = new Date(u.ultimo_acceso);
+        const ymdAcceso = dAcceso.toISOString().split('T')[0];
+        if (ymdAcceso === fecha) {
+          const horaAcceso = dAcceso.toTimeString().split(' ')[0];
+          primerIngreso = horaAcceso;
+          ultimoAcceso = horaAcceso;
+          minutosTotales = Math.max(10, minutosTotales);
+          if (intervalos.length === 0) {
+            intervalos = [{ inicio: horaAcceso.substring(0, 5), fin: horaAcceso.substring(0, 5), minutos: 10 }];
+          }
+        }
+      }
+
+      // Convertir intervalos en segmentos para la barra horizontal (06:00 a 22:00)
+      const segmentosGrafico = (Array.isArray(intervalos) ? intervalos : []).map((iv) => {
+        const iniMin = aMinutosDesdeMedianoche(iv.inicio);
+        const finMin = aMinutosDesdeMedianoche(iv.fin) || iniMin;
+        
+        const iniClamped = Math.max(RANGO_INICIO_MIN, Math.min(RANGO_FIN_MIN, iniMin));
+        const finClamped = Math.max(RANGO_INICIO_MIN, Math.min(RANGO_FIN_MIN, Math.max(finMin, iniClamped + 6)));
+
+        const leftPct = Math.max(0, Math.min(100, ((iniClamped - RANGO_INICIO_MIN) / RANGO_DURACION_MIN) * 100));
+        const widthPct = Math.max(1.8, Math.min(100 - leftPct, ((finClamped - iniClamped) / RANGO_DURACION_MIN) * 100));
+
+        return {
+          inicio: iv.inicio,
+          fin: iv.fin,
+          inicioFormato: formatearHora12(iv.inicio),
+          finFormato: formatearHora12(iv.fin),
+          minutos: iv.minutos || Math.max(5, finMin - iniMin),
+          leftPct: Number(leftPct.toFixed(2)),
+          widthPct: Number(widthPct.toFixed(2))
+        };
+      });
+
+      // Si no hay intervalos pero sí hay primerIngreso y ultimoAcceso, generar 1 segmento global
+      if (segmentosGrafico.length === 0 && primerIngreso && ultimoAcceso) {
+        const iniMin = aMinutosDesdeMedianoche(primerIngreso);
+        const finMin = aMinutosDesdeMedianoche(ultimoAcceso);
+        const iniClamped = Math.max(RANGO_INICIO_MIN, Math.min(RANGO_FIN_MIN, iniMin));
+        const finClamped = Math.max(RANGO_INICIO_MIN, Math.min(RANGO_FIN_MIN, Math.max(finMin, iniClamped + 10)));
+        const leftPct = Math.max(0, Math.min(100, ((iniClamped - RANGO_INICIO_MIN) / RANGO_DURACION_MIN) * 100));
+        const widthPct = Math.max(2.2, Math.min(100 - leftPct, ((finClamped - iniClamped) / RANGO_DURACION_MIN) * 100));
+
+        segmentosGrafico.push({
+          inicio: String(primerIngreso).substring(0, 5),
+          fin: String(ultimoAcceso).substring(0, 5),
+          inicioFormato: formatearHora12(primerIngreso),
+          finFormato: formatearHora12(ultimoAcceso),
+          minutos: Math.max(10, finMin - iniMin),
+          leftPct: Number(leftPct.toFixed(2)),
+          widthPct: Number(widthPct.toFixed(2))
+        });
+      }
+
+      if (primerIngreso) {
+        totalUsuariosConIngreso++;
+        sumaHoraIngresoMinutos += (aMinutosDesdeMedianoche(primerIngreso) || 0);
+        totalMinutosAcumulados += minutosTotales;
+      }
+
+      return {
+        ...u,
+        hora_primer_ingreso: primerIngreso,
+        hora_ultimo_acceso: ultimoAcceso,
+        hora_primer_ingreso_formato: formatearHora12(primerIngreso),
+        hora_ultimo_acceso_formato: formatearHora12(ultimoAcceso),
+        minutos_totales: minutosTotales,
+        tiempo_conectado_formato: formatearDuracion(minutosTotales),
+        segmentosGrafico
+      };
+    });
+
+    const promedioMinutosPorUsuario = totalUsuariosConIngreso > 0 ? Math.round(totalMinutosAcumulados / totalUsuariosConIngreso) : 0;
+    const promedioHoraIngresoMin = totalUsuariosConIngreso > 0 ? Math.round(sumaHoraIngresoMinutos / totalUsuariosConIngreso) : 0;
+    const horaIngresoPromedioStr = promedioHoraIngresoMin > 0 ? `${Math.floor(promedioHoraIngresoMin / 60)}:${String(promedioHoraIngresoMin % 60).padStart(2, '0')}` : null;
+
+    res.json({
+      success: true,
+      fecha,
+      resumen: {
+        totalPersonal: rows.length,
+        totalActivosEnDia: totalUsuariosConIngreso,
+        totalOnlineAhora: rows.filter((r) => r.esta_online === 1).length,
+        promedioHoraIngreso: formatearHora12(horaIngresoPromedioStr),
+        promedioHorasTrabajadas: formatearDuracion(promedioMinutosPorUsuario)
+      },
+      usuarios: usuariosFormateados
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

@@ -47,6 +47,7 @@ import { OnlineChatDropdown } from "../../components/chat/OnlineChatDropdown";
 import { SupervisorDashboardTab } from "./components/SupervisorDashboardTab";
 import { DataExportViewerTab } from "./components/DataExportViewerTab";
 import { WinScorecardSection } from "./components/WinScorecardSection";
+import { StaffTimelineAuditTab } from "./components/StaffTimelineAuditTab";
 import { Cable, FileSpreadsheet, Award } from "lucide-react";
 interface OnlineUser {
   id_usuario: number;
@@ -256,6 +257,7 @@ export const ExecutiveDashboardPage: React.FC = () => {
   const [filtroModuloAudit, setFiltroModuloAudit] = useState<string>("Todos");
   const [busquedaAudit, setBusquedaAudit] = useState<string>("");
   const [datosGestion, setDatosGestion] = useState<GestionData | null>(null);
+  const [subTabAuditoria, setSubTabAuditoria] = useState<"timeline" | "online" | "gestion" | "logs" | "todo">("timeline");
 
   // 👤 Datos del Usuario Activo y Chat
   const currentUser = authService.getCurrentUser();
@@ -1411,8 +1413,78 @@ export const ExecutiveDashboardPage: React.FC = () => {
       {/* 🛡️ PESTAÑA 3: AUDITORÍA & PERSONAL (EN VIVO 24/7) */}
       {activeMainTab === "auditoria" && (
         <div className="space-y-6 animate-in fade-in duration-200">
+          {/* SUB-PESTAÑAS DE AUDITORÍA */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2.5 rounded-3xl border border-slate-200/80 shadow-xs">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                onClick={() => setSubTabAuditoria("timeline")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-black transition-all cursor-pointer ${
+                  subTabAuditoria === "timeline"
+                    ? "bg-gradient-to-r from-sky-500 to-indigo-600 text-white shadow-md shadow-sky-500/25"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                }`}
+              >
+                <Clock className="w-4 h-4" />
+                <span>⏱️ Jornada & Línea de Tiempo (Timeline)</span>
+              </button>
+
+              <button
+                onClick={() => setSubTabAuditoria("online")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-black transition-all cursor-pointer ${
+                  subTabAuditoria === "online"
+                    ? "bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-md shadow-emerald-500/25"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                <span>🟢 Personal en Línea ({totalGestoresOnline})</span>
+              </button>
+
+              <button
+                onClick={() => setSubTabAuditoria("gestion")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-black transition-all cursor-pointer ${
+                  subTabAuditoria === "gestion"
+                    ? "bg-slate-900 text-white shadow-md shadow-slate-900/20"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                }`}
+              >
+                <PhoneCall className="w-4 h-4" />
+                <span>📊 Rendimiento de Gestión</span>
+              </button>
+
+              <button
+                onClick={() => setSubTabAuditoria("logs")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-black transition-all cursor-pointer ${
+                  subTabAuditoria === "logs"
+                    ? "bg-slate-900 text-white shadow-md shadow-slate-900/20"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>🛡️ Logs de Actividad</span>
+              </button>
+
+              <button
+                onClick={() => setSubTabAuditoria("todo")}
+                className={`flex items-center gap-2 px-3 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
+                  subTabAuditoria === "todo"
+                    ? "bg-slate-100 text-slate-900 border border-slate-300 font-black"
+                    : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
+                }`}
+              >
+                <span>Ver Todo</span>
+              </button>
+            </div>
+          </div>
+
+          {/* ⏱️ VISTA 1: SUB-PESTAÑA JORNADA & LÍNEA DE TIEMPO (TIMELINE) */}
+          {(subTabAuditoria === "timeline" || subTabAuditoria === "todo") && (
+            <StaffTimelineAuditTab />
+          )}
+
           {/* 1. MONITOR DE PERSONAL Y GESTORES ONLINE */}
-          <div className="bg-white rounded-3xl border border-slate-200/80 p-5 shadow-xs space-y-4">
+          {(subTabAuditoria === "online" || subTabAuditoria === "todo") && (
+            <div className="bg-white rounded-3xl border border-slate-200/80 p-5 shadow-xs space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100 shadow-2xs">
@@ -1505,9 +1577,11 @@ export const ExecutiveDashboardPage: React.FC = () => {
               )}
             </div>
           </div>
+          )}
 
           {/* 2. 📊 RENDIMIENTO DEL PERSONAL DE GESTIÓN (LLAMADAS, EFECTIVIDAD Y TENDENCIAS) */}
-          <div className="bg-white rounded-3xl border border-slate-200/80 p-5 shadow-xs space-y-5">
+          {(subTabAuditoria === "gestion" || subTabAuditoria === "todo") && (
+            <div className="bg-white rounded-3xl border border-slate-200/80 p-5 shadow-xs space-y-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center border border-sky-100 shadow-2xs">
@@ -1771,9 +1845,11 @@ export const ExecutiveDashboardPage: React.FC = () => {
 
             </div>
           </div>
+          )}
 
           {/* 3. LÍNEA DE TIEMPO DE AUDITORÍA Y TRAZABILIDAD (24/7) */}
-          <div className="bg-white rounded-3xl border border-slate-200/80 p-5 shadow-xs space-y-4">
+          {(subTabAuditoria === "logs" || subTabAuditoria === "todo") && (
+            <div className="bg-white rounded-3xl border border-slate-200/80 p-5 shadow-xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100 shadow-2xs">
@@ -1867,6 +1943,7 @@ export const ExecutiveDashboardPage: React.FC = () => {
               </table>
             </div>
           </div>
+          )}
         </div>
       )}
 
