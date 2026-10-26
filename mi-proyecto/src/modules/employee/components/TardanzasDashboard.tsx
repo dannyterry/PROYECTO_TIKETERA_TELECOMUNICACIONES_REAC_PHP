@@ -23,11 +23,26 @@ import {
 } from "lucide-react";
 import { getMatrizAsistencias, RolItem } from "../../../services/employeeService";
 
+export type TipoFiltroPeriodo = "dia" | "semana" | "mes" | "rango";
+
+const formatLocalYMD = (d: Date): string => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const parseLocalYMD = (str: string): Date => {
+  if (!str) return new Date();
+  const [y, m, d] = str.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+};
+
 export const esOrdenamiento = (cuadrilla?: string): boolean =>
   String(cuadrilla || "").trim().toUpperCase().startsWith("O");
 
 interface TardanzasDashboardProps {
-  onVerDetalleTecnico: (trabajador: any, tardanzas: any[]) => void;
+  onVerDetalleTecnico: (trabajador: any, tardanzas: any[], periodoTexto?: string) => void;
   roles?: RolItem[];
   canVerDetallesPersonal?: boolean;
 }
@@ -52,7 +67,18 @@ export const TardanzasDashboard: React.FC<TardanzasDashboardProps> = ({
   roles = [],
   canVerDetallesPersonal = true,
 }) => {
-  const [fechaBase, setFechaBase] = useState<Date>(() => new Date());
+  // Modo de filtro de periodo: Día, Semana, Mes, Rango
+  const [tipoPeriodo, setTipoPeriodo] = useState<TipoFiltroPeriodo>("mes");
+  const [fechaDia, setFechaDia] = useState<string>(() => formatLocalYMD(new Date()));
+  const [fechaSemana, setFechaSemana] = useState<Date>(() => new Date());
+  const [fechaMes, setFechaMes] = useState<Date>(() => new Date());
+  const [rangoDesde, setRangoDesde] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 14);
+    return formatLocalYMD(d);
+  });
+  const [rangoHasta, setRangoHasta] = useState<string>(() => formatLocalYMD(new Date()));
+
   const [loading, setLoading] = useState(false);
   const [filtroTexto, setFiltroTexto] = useState("");
   const [filtroCuadrilla, setFiltroCuadrilla] = useState("TODOS");
@@ -64,31 +90,122 @@ export const TardanzasDashboard: React.FC<TardanzasDashboardProps> = ({
     asistencias: any[];
   }>({ trabajadores: [], asistencias: [] });
 
-  // Calcular rango del mes seleccionado
-  const { fechaDesde, fechaHasta, mesLabel } = useMemo(() => {
-    const y = fechaBase.getFullYear();
-    const m = fechaBase.getMonth();
-    const primerDia = new Date(y, m, 1);
-    const ultimoDia = new Date(y, m + 1, 0);
-
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const desde = `${y}-${pad(m + 1)}-01`;
-    const hasta = `${y}-${pad(m + 1)}-${pad(ultimoDia.getDate())}`;
-
+  // Calcular rango y etiqueta según el tipo de periodo
+  const { fechaDesde, fechaHasta, periodoLabel } = useMemo(() => {
     const meses = [
       "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
       "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
     ];
-    return {
-      fechaDesde: desde,
-      fechaHasta: hasta,
-      mesLabel: `${meses[m]} ${y}`,
-    };
-  }, [fechaBase]);
+    const mesesCortos = [
+      "Ene", "Feb", "Mar", "Abr", "May", "Jun",
+      "Jul", "Ago", "Set", "Oct", "Nov", "Dic",
+    ];
+    const diasSemanaNombres = [
+      "Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado",
+    ];
 
-  // Navegación de meses
+    if (tipoPeriodo === "dia") {
+      const dt = parseLocalYMD(fechaDia);
+      const diaNom = diasSemanaNombres[dt.getDay()];
+      const diaNum = dt.getDate();
+      const mesNom = mesesCortos[dt.getMonth()];
+      const anio = dt.getFullYear();
+      const hoyStr = formatLocalYMD(new Date());
+      const esHoy = fechaDia === hoyStr;
+
+      return {
+        fechaDesde: fechaDia,
+        fechaHasta: fechaDia,
+        periodoLabel: esHoy
+          ? `Hoy (${diaNom} ${diaNum} ${mesNom})`
+          : `${diaNom} ${diaNum} ${mesNom} ${anio}`,
+      };
+    }
+
+    if (tipoPeriodo === "semana") {
+      const d = new Date(fechaSemana.getFullYear(), fechaSemana.getMonth(), fechaSemana.getDate());
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Lunes
+      const lunes = new Date(d.getFullYear(), d.getMonth(), diff);
+      const domingo = new Date(lunes.getFullYear(), lunes.getMonth(), lunes.getDate() + 6);
+
+      const fDesde = formatLocalYMD(lunes);
+      const fHasta = formatLocalYMD(domingo);
+
+      const lDia = lunes.getDate();
+      const lMes = mesesCortos[lunes.getMonth()];
+      const dDia = domingo.getDate();
+      const dMes = mesesCortos[domingo.getMonth()];
+      const anio = domingo.getFullYear();
+
+      return {
+        fechaDesde: fDesde,
+        fechaHasta: fHasta,
+        periodoLabel: `Semana ${lDia} ${lMes} - ${dDia} ${dMes} ${anio}`,
+      };
+    }
+
+    if (tipoPeriodo === "mes") {
+      const y = fechaMes.getFullYear();
+      const m = fechaMes.getMonth();
+      const primerDia = new Date(y, m, 1);
+      const ultimoDia = new Date(y, m + 1, 0);
+
+      const desde = formatLocalYMD(primerDia);
+      const hasta = formatLocalYMD(ultimoDia);
+
+      return {
+        fechaDesde: desde,
+        fechaHasta: hasta,
+        periodoLabel: `${meses[m]} ${y}`,
+      };
+    }
+
+    // Rango personalizado
+    const dDesde = parseLocalYMD(rangoDesde);
+    const dHasta = parseLocalYMD(rangoHasta);
+    const lDesde = `${dDesde.getDate()} ${mesesCortos[dDesde.getMonth()]}`;
+    const lHasta = `${dHasta.getDate()} ${mesesCortos[dHasta.getMonth()]} ${dHasta.getFullYear()}`;
+
+    return {
+      fechaDesde: rangoDesde,
+      fechaHasta: rangoHasta,
+      periodoLabel: `${lDesde} al ${lHasta}`,
+    };
+  }, [tipoPeriodo, fechaDia, fechaSemana, fechaMes, rangoDesde, rangoHasta]);
+
+  // Alias para mantener compatibilidad con código existente
+  const mesLabel = periodoLabel;
+
+  // Navegación de Día
+  const cambiarDia = (delta: number) => {
+    setFechaDia((prev) => {
+      const dt = parseLocalYMD(prev);
+      dt.setDate(dt.getDate() + delta);
+      return formatLocalYMD(dt);
+    });
+  };
+
+  const irHoy = () => {
+    setFechaDia(formatLocalYMD(new Date()));
+  };
+
+  // Navegación de Semana
+  const cambiarSemana = (delta: number) => {
+    setFechaSemana((prev) => {
+      const dt = new Date(prev);
+      dt.setDate(dt.getDate() + delta * 7);
+      return dt;
+    });
+  };
+
+  const irSemanaActual = () => {
+    setFechaSemana(new Date());
+  };
+
+  // Navegación de Meses
   const cambiarMes = (delta: number) => {
-    setFechaBase((prev) => {
+    setFechaMes((prev) => {
       const nueva = new Date(prev);
       nueva.setMonth(nueva.getMonth() + delta);
       return nueva;
@@ -96,10 +213,25 @@ export const TardanzasDashboard: React.FC<TardanzasDashboardProps> = ({
   };
 
   const irMesActual = () => {
-    setFechaBase(new Date());
+    setFechaMes(new Date());
   };
 
-  // Cargar datos del mes
+  // Presets para rango personalizado
+  const setPresetRango = (dias: number | "esteMes") => {
+    const hoy = new Date();
+    if (dias === "esteMes") {
+      const p = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+      setRangoDesde(formatLocalYMD(p));
+      setRangoHasta(formatLocalYMD(hoy));
+    } else {
+      const d = new Date();
+      d.setDate(d.getDate() - (dias - 1));
+      setRangoDesde(formatLocalYMD(d));
+      setRangoHasta(formatLocalYMD(hoy));
+    }
+  };
+
+  // Cargar datos del rango seleccionado
   const cargarDatos = async () => {
     try {
       setLoading(true);
@@ -354,77 +486,273 @@ export const TardanzasDashboard: React.FC<TardanzasDashboardProps> = ({
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
       {/* Barra de Control Superior */}
-      <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-lg shadow-amber-500/20">
-            <Trophy size={24} className="stroke-[2.5]" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-lg font-black text-slate-900 tracking-tight">
-                Ranking de Tardanzas & Reincidencias
-              </h3>
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-100 text-amber-800 border border-amber-300">
-                Auditoría RRHH
-              </span>
+      <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
+        {/* Fila 1: Título y Acciones Globales */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-lg shadow-amber-500/20 shrink-0">
+              <Trophy size={24} className="stroke-[2.5]" />
             </div>
-            <p className="text-xs text-slate-500 font-medium">
-              Control gerencial de puntualidad, minutos perdidos y técnicos más afectados
-            </p>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-black text-slate-900 tracking-tight">
+                  Ranking de Tardanzas & Reincidencias
+                </h3>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-100 text-amber-800 border border-amber-300">
+                  Auditoría RRHH
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 font-medium">
+                Control gerencial de puntualidad, minutos perdidos y técnicos más afectados
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={cargarDatos}
+              disabled={loading}
+              className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl transition-all cursor-pointer shadow-2xs"
+              title="Recargar datos"
+            >
+              <RotateCw size={16} className={loading ? "animate-spin" : ""} />
+            </button>
+
+            <button
+              type="button"
+              onClick={handleExportarExcel}
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-2xl text-xs font-black shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
+              title="Exportar ranking completo a Excel"
+            >
+              <FileSpreadsheet size={15} />
+              <span>Exportar Excel</span>
+            </button>
           </div>
         </div>
 
-        {/* Selector de Mes y Acciones */}
-        <div className="flex flex-wrap items-center gap-2.5">
-          <div className="flex items-center bg-slate-100 rounded-2xl p-1 border border-slate-200/80 shadow-2xs">
+        {/* Fila 2: Filtros por Periodo (Día, Semana, Mes, Rango de Fecha) */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100">
+          {/* Botones de Selección de Modo */}
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200/70 shadow-2xs">
             <button
               type="button"
-              onClick={() => cambiarMes(-1)}
-              className="p-1.5 hover:bg-white rounded-xl text-slate-600 transition-all cursor-pointer"
-              title="Mes anterior"
+              onClick={() => setTipoPeriodo("dia")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                tipoPeriodo === "dia"
+                  ? "bg-white text-slate-900 shadow-xs font-extrabold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
             >
-              <ChevronLeft size={16} />
+              Día
             </button>
-            <span className="px-3 font-mono font-black text-xs text-slate-800 min-w-[130px] text-center">
-              {mesLabel}
-            </span>
             <button
               type="button"
-              onClick={() => cambiarMes(1)}
-              className="p-1.5 hover:bg-white rounded-xl text-slate-600 transition-all cursor-pointer"
-              title="Mes siguiente"
+              onClick={() => setTipoPeriodo("semana")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                tipoPeriodo === "semana"
+                  ? "bg-white text-slate-900 shadow-xs font-extrabold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
             >
-              <ChevronRight size={16} />
+              Semana
+            </button>
+            <button
+              type="button"
+              onClick={() => setTipoPeriodo("mes")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                tipoPeriodo === "mes"
+                  ? "bg-white text-slate-900 shadow-xs font-extrabold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Mes
+            </button>
+            <button
+              type="button"
+              onClick={() => setTipoPeriodo("rango")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                tipoPeriodo === "rango"
+                  ? "bg-white text-slate-900 shadow-xs font-extrabold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Rango de Fecha
             </button>
           </div>
 
-          <button
-            type="button"
-            onClick={irMesActual}
-            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
-          >
-            Mes Actual
-          </button>
+          {/* Controles dinámicos según el modo activo */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* 1. MODO DÍA */}
+            {tipoPeriodo === "dia" && (
+              <div className="flex items-center gap-1.5">
+                <div className="flex items-center bg-slate-100 rounded-2xl p-1 border border-slate-200/80 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => cambiarDia(-1)}
+                    className="p-1.5 hover:bg-white rounded-xl text-slate-600 transition-all cursor-pointer"
+                    title="Día anterior"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <div className="flex items-center gap-1.5 px-2">
+                    <Calendar size={14} className="text-amber-600" />
+                    <input
+                      type="date"
+                      value={fechaDia}
+                      onChange={(e) => setFechaDia(e.target.value)}
+                      className="bg-transparent text-xs font-black text-slate-800 focus:outline-none cursor-pointer"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => cambiarDia(1)}
+                    className="p-1.5 hover:bg-white rounded-xl text-slate-600 transition-all cursor-pointer"
+                    title="Día siguiente"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={irHoy}
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                >
+                  Hoy
+                </button>
+              </div>
+            )}
 
-          <button
-            type="button"
-            onClick={cargarDatos}
-            disabled={loading}
-            className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-all cursor-pointer"
-            title="Recargar datos"
-          >
-            <RotateCw size={16} className={loading ? "animate-spin" : ""} />
-          </button>
+            {/* 2. MODO SEMANA */}
+            {tipoPeriodo === "semana" && (
+              <div className="flex items-center gap-1.5">
+                <div className="flex items-center bg-slate-100 rounded-2xl p-1 border border-slate-200/80 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => cambiarSemana(-1)}
+                    className="p-1.5 hover:bg-white rounded-xl text-slate-600 transition-all cursor-pointer"
+                    title="Semana anterior"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span className="px-3 font-mono font-black text-xs text-slate-800 min-w-[190px] text-center">
+                    {periodoLabel}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => cambiarSemana(1)}
+                    className="p-1.5 hover:bg-white rounded-xl text-slate-600 transition-all cursor-pointer"
+                    title="Semana siguiente"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={irSemanaActual}
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                >
+                  Esta Semana
+                </button>
+              </div>
+            )}
 
-          <button
-            type="button"
-            onClick={handleExportarExcel}
-            className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-black shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
-            title="Exportar ranking completo a Excel"
-          >
-            <FileSpreadsheet size={15} />
-            <span>Exportar Excel</span>
-          </button>
+            {/* 3. MODO MES */}
+            {tipoPeriodo === "mes" && (
+              <div className="flex items-center gap-1.5">
+                <div className="flex items-center bg-slate-100 rounded-2xl p-1 border border-slate-200/80 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => cambiarMes(-1)}
+                    className="p-1.5 hover:bg-white rounded-xl text-slate-600 transition-all cursor-pointer"
+                    title="Mes anterior"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span className="px-3 font-mono font-black text-xs text-slate-800 min-w-[130px] text-center">
+                    {periodoLabel}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => cambiarMes(1)}
+                    className="p-1.5 hover:bg-white rounded-xl text-slate-600 transition-all cursor-pointer"
+                    title="Mes siguiente"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={irMesActual}
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                >
+                  Mes Actual
+                </button>
+              </div>
+            )}
+
+            {/* 4. MODO RANGO DE FECHA */}
+            {tipoPeriodo === "rango" && (
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-2xl px-3 py-1.5 shadow-2xs">
+                  <span className="text-[10px] font-black uppercase text-slate-500">Desde:</span>
+                  <input
+                    type="date"
+                    value={rangoDesde}
+                    max={rangoHasta}
+                    onChange={(e) => setRangoDesde(e.target.value)}
+                    className="bg-transparent text-xs font-black text-slate-800 focus:outline-none cursor-pointer"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-2xl px-3 py-1.5 shadow-2xs">
+                  <span className="text-[10px] font-black uppercase text-slate-500">Hasta:</span>
+                  <input
+                    type="date"
+                    value={rangoHasta}
+                    min={rangoDesde}
+                    onChange={(e) => setRangoHasta(e.target.value)}
+                    className="bg-transparent text-xs font-black text-slate-800 focus:outline-none cursor-pointer"
+                  />
+                </div>
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl">
+                  <button
+                    type="button"
+                    onClick={() => setPresetRango(7)}
+                    className="px-2.5 py-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 hover:bg-white rounded-xl transition-all cursor-pointer"
+                  >
+                    7D
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPresetRango(15)}
+                    className="px-2.5 py-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 hover:bg-white rounded-xl transition-all cursor-pointer"
+                  >
+                    15D
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPresetRango(30)}
+                    className="px-2.5 py-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 hover:bg-white rounded-xl transition-all cursor-pointer"
+                  >
+                    30D
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPresetRango("esteMes")}
+                    className="px-2.5 py-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 hover:bg-white rounded-xl transition-all cursor-pointer"
+                  >
+                    Este Mes
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Badge indicador del periodo activo */}
+            <div className="px-3 py-1.5 bg-amber-50 border border-amber-200/80 rounded-2xl text-[11px] font-bold text-amber-900 flex items-center gap-1.5">
+              <Calendar size={13} className="text-amber-600" />
+              <span>{periodoLabel}</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -655,7 +983,7 @@ export const TardanzasDashboard: React.FC<TardanzasDashboardProps> = ({
 
                     <button
                       type="button"
-                      onClick={() => onVerDetalleTecnico(tec, tec.tardanzas)}
+                      onClick={() => onVerDetalleTecnico(tec, tec.tardanzas, periodoLabel)}
                       className="mt-3 w-full py-1.5 bg-slate-800 hover:bg-slate-900 active:scale-95 text-white rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <span>Ver Desglose</span>
@@ -879,7 +1207,7 @@ export const TardanzasDashboard: React.FC<TardanzasDashboardProps> = ({
                       <td className="py-3 px-4 text-center">
                         <button
                           type="button"
-                          onClick={() => onVerDetalleTecnico(item, item.tardanzas)}
+                          onClick={() => onVerDetalleTecnico(item, item.tardanzas, periodoLabel)}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95"
                           title="Ver desglose detallado con horas de inicio"
                         >

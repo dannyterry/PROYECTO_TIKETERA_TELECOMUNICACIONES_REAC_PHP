@@ -19,6 +19,7 @@ import {
   QrCode,
   MapPin,
   RefreshCw,
+  Undo2,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { DescargaOrdenItem } from "../types/inventoryTypes";
@@ -38,6 +39,7 @@ interface Props {
   esDrop?: boolean | number;
   cantidadEntregada?: number;
   cantidadGastada?: number;
+  cantidadDevuelta?: number;
   stockEnCarro?: number;
 }
 
@@ -55,10 +57,12 @@ export const DischargeDetailModal: React.FC<Props> = ({
   esDrop,
   cantidadEntregada,
   cantidadGastada,
+  cantidadDevuelta,
   stockEnCarro,
 }) => {
   const [loading, setLoading] = useState<boolean>(true);
   const [descargas, setDescargas] = useState<DescargaOrdenItem[]>([]);
+  const [devoluciones, setDevoluciones] = useState<any[]>([]);
   const [filtroTexto, setFiltroTexto] = useState<string>("");
   const [filtroEstado, setFiltroEstado] = useState<string>("Todos");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -72,6 +76,7 @@ export const DischargeDetailModal: React.FC<Props> = ({
     getDescargasTecnicoDetalle(idTrabajador, idProducto || undefined)
       .then((data) => {
         if (!isMounted) return;
+        setDevoluciones(data.devolucionesAlmacen || []);
         // Unir materiales y series asegurando 0 duplicados
         const rawList: DescargaOrdenItem[] = [
           ...(data.descargasMateriales || []),
@@ -309,13 +314,29 @@ export const DischargeDetailModal: React.FC<Props> = ({
             </span>
           </div>
 
+          {/* ↩ DEVUELTO A CENTRAL */}
+          {((cantidadDevuelta || 0) > 0 || devoluciones.length > 0) && (
+            <div className="bg-white p-3 rounded-2xl border border-blue-200/80 bg-blue-50/30 shadow-2xs">
+              <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block flex items-center gap-1">
+                <Undo2 size={11} className="text-blue-600" />
+                ↩ Devuelto a Almacén
+              </span>
+              <span className="text-sm font-black font-mono text-blue-900 block mt-0.5">
+                {cantidadDevuelta !== undefined ? cantidadDevuelta : devoluciones.reduce((acc, curr) => acc + (Number(curr.cantidad) || 0), 0)} {unidadTxt}
+              </span>
+              <span className="text-[9.5px] text-blue-700/80 font-medium block">
+                en {devoluciones.length} devoluciones a central
+              </span>
+            </div>
+          )}
+
           <div className="bg-white p-3 rounded-2xl border border-cyan-200/80 bg-cyan-50/30 shadow-2xs">
             <span className="text-[10px] font-bold text-cyan-800 uppercase tracking-wider block flex items-center gap-1">
               <Truck size={11} className="text-cyan-600" />
               🚗 Saldo en Móvil
             </span>
             <span className="text-sm font-black font-mono text-cyan-950 block mt-0.5">
-              {stockEnCarro !== undefined ? stockEnCarro : Math.max(0, (cantidadEntregada || 0) - sumaTotalConsumida)} {unidadTxt}
+              {stockEnCarro !== undefined ? stockEnCarro : Math.max(0, (cantidadEntregada || 0) - sumaTotalConsumida - (cantidadDevuelta || 0))} {unidadTxt}
             </span>
             <span className="text-[9.5px] text-cyan-700/80 font-medium block">
               Disponible en la camioneta
@@ -387,16 +408,32 @@ export const DischargeDetailModal: React.FC<Props> = ({
               </span>
             </div>
           ) : descargasFiltradas.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-2">
-              <FileText size={36} className="text-slate-300 stroke-1" />
-              <span className="text-xs font-bold text-slate-600">
-                No se encontraron registros de descargas para este filtro.
-              </span>
-              <p className="text-[11px] text-slate-400">
-                {descargas.length === 0
-                  ? "Este técnico aún no ha liquidado este material en órdenes o actas."
-                  : "Prueba modificando los términos de búsqueda."}
-              </p>
+            <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
+              {devoluciones.length > 0 ? (
+                <>
+                  <span className="p-2.5 rounded-2xl bg-blue-50 text-blue-600 border border-blue-200 shadow-2xs">
+                    <Undo2 size={24} />
+                  </span>
+                  <span className="text-xs font-black text-slate-800">
+                    Sin consumos en clientes (Material Devuelto a Almacén)
+                  </span>
+                  <p className="text-[11.5px] text-blue-800 font-medium bg-blue-50/80 px-3.5 py-1.5 rounded-xl border border-blue-200 text-center max-w-md">
+                    El técnico retornó este material a Almacén Central como sobrante ({cantidadDevuelta !== undefined ? cantidadDevuelta : devoluciones.reduce((acc, c) => acc + (Number(c.cantidad) || 0), 0)} {unidadTxt}). Ver detalle de devolución abajo.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <FileText size={36} className="text-slate-300 stroke-1" />
+                  <span className="text-xs font-bold text-slate-600">
+                    No se encontraron registros de descargas para este filtro.
+                  </span>
+                  <p className="text-[11px] text-slate-400">
+                    {descargas.length === 0
+                      ? "Este técnico aún no ha liquidado este material en órdenes o actas."
+                      : "Prueba modificando los términos de búsqueda."}
+                  </p>
+                </>
+              )}
             </div>
           ) : (
             <div className="w-full overflow-x-auto touch-pan-x">
@@ -570,6 +607,63 @@ export const DischargeDetailModal: React.FC<Props> = ({
                 })}
               </tbody>
             </table>
+            </div>
+          )}
+
+          {/* ↩ REGISTRO DETALLADO DE DEVOLUCIONES A ALMACÉN CENTRAL */}
+          {devoluciones.length > 0 && (
+            <div className="p-4 bg-blue-50/40 border-t border-blue-200">
+              <div className="flex items-center gap-2 mb-2.5">
+                <span className="p-1 rounded-lg bg-blue-100 text-blue-700">
+                  <Undo2 size={13} />
+                </span>
+                <div>
+                  <h4 className="text-xs font-black text-blue-950 uppercase tracking-wider">
+                    Devoluciones Registradas a Almacén Central ({devoluciones.length})
+                  </h4>
+                  <p className="text-[10.5px] text-blue-700 font-medium">
+                    Movimientos oficiales de reingreso al almacén principal como sobrante de camioneta.
+                  </p>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border border-blue-200 bg-white shadow-2xs">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-blue-50/70 text-blue-900 font-extrabold uppercase text-[10px] tracking-wider border-b border-blue-200">
+                    <tr>
+                      <th className="py-2.5 px-3 text-center">#</th>
+                      <th className="py-2.5 px-3">Fecha y Hora</th>
+                      <th className="py-2.5 px-3 text-center">Cant. Devuelta</th>
+                      <th className="py-2.5 px-3">Motivo / Referencia</th>
+                      <th className="py-2.5 px-3">Recepción</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-blue-100">
+                    {devoluciones.map((dev: any, dIdx: number) => (
+                      <tr key={dev.id_movimiento || dIdx} className="hover:bg-blue-50/30">
+                        <td className="py-2 px-3 text-center font-mono text-[10px] text-blue-400 font-bold">
+                          {dIdx + 1}
+                        </td>
+                        <td className="py-2 px-3 font-mono text-[11px] text-slate-700 whitespace-nowrap">
+                          {dev.fecha_creacion ? new Date(dev.fecha_creacion).toLocaleString("es-PE") : "—"}
+                        </td>
+                        <td className="py-2 px-3 text-center whitespace-nowrap font-mono font-black text-blue-900">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-100 text-blue-950 border border-blue-300">
+                            <Undo2 size={10} className="text-blue-600" />
+                            <span>{dev.cantidad} {unidadTxt}</span>
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-slate-800 text-[11.5px] font-medium">
+                          {dev.referencia || "Devolución de material"}
+                        </td>
+                        <td className="py-2 px-3 text-slate-600 text-[11px] whitespace-nowrap">
+                          {dev.recibido_por || "Almacén Central"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>

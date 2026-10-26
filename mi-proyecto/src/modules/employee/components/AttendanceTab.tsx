@@ -97,8 +97,8 @@ export const AttendanceTab: React.FC = () => {
   const [guardandoId, setGuardandoId] = useState<number | null>(null);
   const [sincronizandoOrdenes, setSincronizandoOrdenes] = useState(false);
 
-  // --- SubTab 2: Matriz Semanal / Mensual ---
-  const [rangoTipo, setRangoTipo] = useState<"semana" | "mes">("semana");
+  // --- SubTab 2: Matriz Semanal / Mensual / Rango ---
+  const [rangoTipo, setRangoTipo] = useState<"semana" | "mes" | "rango">("semana");
   const [fechaInicioMatriz, setFechaInicioMatriz] = useState<string>(() => {
     const d = new Date();
     const day = d.getDay();
@@ -106,6 +106,14 @@ export const AttendanceTab: React.FC = () => {
     const lunes = new Date(d.setDate(diff));
     return lunes.toISOString().slice(0, 10);
   });
+  const [fechaRangoMatrizDesde, setFechaRangoMatrizDesde] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 14);
+    return d.toISOString().slice(0, 10);
+  });
+  const [fechaRangoMatrizHasta, setFechaRangoMatrizHasta] = useState<string>(() =>
+    new Date().toISOString().slice(0, 10)
+  );
   const [matrizData, setMatrizData] = useState<{
     trabajadores: any[];
     asistencias: any[];
@@ -124,6 +132,7 @@ export const AttendanceTab: React.FC = () => {
   const [modalTardanzasTecnico, setModalTardanzasTecnico] = useState<{
     trabajador: any;
     tardanzas: any[];
+    periodoTexto?: string;
   } | null>(null);
 
   // --- SubTab 3: Descansos Programados ---
@@ -291,12 +300,16 @@ export const AttendanceTab: React.FC = () => {
         const domingo = new Date(lunes.getFullYear(), lunes.getMonth(), lunes.getDate() + 6);
         inicioStr = formatLocalDate(lunes);
         finStr = formatLocalDate(domingo);
-      } else {
+      } else if (rangoTipo === "mes") {
         // MES COMPLETO: Día 1 al último día del mes
         const primerDia = new Date(refDate.getFullYear(), refDate.getMonth(), 1);
         const ultimoDia = new Date(refDate.getFullYear(), refDate.getMonth() + 1, 0);
         inicioStr = formatLocalDate(primerDia);
         finStr = formatLocalDate(ultimoDia);
+      } else {
+        // RANGO PERSONALIZADO
+        inicioStr = fechaRangoMatrizDesde;
+        finStr = fechaRangoMatrizHasta;
       }
 
       const rolParam = !canVerTodosRoles ? rolTecnicoId : filtroRol;
@@ -313,9 +326,9 @@ export const AttendanceTab: React.FC = () => {
     if (subTab === "matriz") {
       cargarMatriz();
     }
-  }, [fechaInicioMatriz, rangoTipo, filtroRol, subTab, canVerTodosRoles, rolTecnicoId]);
+  }, [fechaInicioMatriz, fechaRangoMatrizDesde, fechaRangoMatrizHasta, rangoTipo, filtroRol, subTab, canVerTodosRoles, rolTecnicoId]);
 
-  // Días generados para las columnas de la Matriz (Semana o Mes Completo)
+  // Días generados para las columnas de la Matriz (Semana, Mes Completo o Rango Personalizado)
   const diasMatriz = React.useMemo(() => {
     const refDate = parseLocalDate(fechaInicioMatriz);
     const dias: Array<{
@@ -346,7 +359,7 @@ export const AttendanceTab: React.FC = () => {
           esFinDeSemana: cur.getDay() === 0 || cur.getDay() === 6,
         });
       }
-    } else {
+    } else if (rangoTipo === "mes") {
       // Mes Completo: desde día 1 hasta el último día del mes (ej: 1 al 30 o 31)
       const totalDias = new Date(refDate.getFullYear(), refDate.getMonth() + 1, 0).getDate();
       for (let d = 1; d <= totalDias; d++) {
@@ -361,10 +374,28 @@ export const AttendanceTab: React.FC = () => {
           esFinDeSemana: cur.getDay() === 0 || cur.getDay() === 6,
         });
       }
+    } else {
+      // Rango personalizado: desde fechaRangoMatrizDesde hasta fechaRangoMatrizHasta (máx 62 días)
+      const fDesde = parseLocalDate(fechaRangoMatrizDesde);
+      const fHasta = parseLocalDate(fechaRangoMatrizHasta);
+      const diffTime = fHasta.getTime() - fDesde.getTime();
+      const diffDays = Math.max(0, Math.min(Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1, 62));
+      for (let i = 0; i < diffDays; i++) {
+        const cur = new Date(fDesde.getFullYear(), fDesde.getMonth(), fDesde.getDate() + i);
+        const fechaStr = formatLocalDate(cur);
+        const diaSemana = cur.toLocaleDateString("es-ES", { weekday: "short" }).replace(".", "");
+        dias.push({
+          fechaStr,
+          diaSemana,
+          diaNum: cur.getDate(),
+          esHoy: fechaStr === hoyStr,
+          esFinDeSemana: cur.getDay() === 0 || cur.getDay() === 6,
+        });
+      }
     }
 
     return dias;
-  }, [fechaInicioMatriz, rangoTipo]);
+  }, [fechaInicioMatriz, fechaRangoMatrizDesde, fechaRangoMatrizHasta, rangoTipo]);
 
   // Cargar Descansos y lista de personal simultáneamente
   const cargarDescansos = async () => {
@@ -1160,15 +1191,41 @@ export const AttendanceTab: React.FC = () => {
             {/* Fila 1: Filtros y Acciones */}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2.5">
-                {/* Fecha */}
-                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 shadow-2xs">
-                  <Calendar size={14} className="text-teal-600" />
-                  <input
-                    type="date"
-                    value={fechaSeleccionada}
-                    onChange={(e) => setFechaSeleccionada(e.target.value)}
-                    className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
-                  />
+                {/* Fecha con navegación día a día */}
+                <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl p-0.5 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const dt = parseLocalDate(fechaSeleccionada);
+                      dt.setDate(dt.getDate() - 1);
+                      setFechaSeleccionada(formatLocalDate(dt));
+                    }}
+                    className="p-1 hover:bg-slate-200 rounded-lg text-slate-600 transition-all cursor-pointer"
+                    title="Día anterior"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  <div className="flex items-center gap-1.5 px-2">
+                    <Calendar size={14} className="text-teal-600" />
+                    <input
+                      type="date"
+                      value={fechaSeleccionada}
+                      onChange={(e) => setFechaSeleccionada(e.target.value)}
+                      className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const dt = parseLocalDate(fechaSeleccionada);
+                      dt.setDate(dt.getDate() + 1);
+                      setFechaSeleccionada(formatLocalDate(dt));
+                    }}
+                    className="p-1 hover:bg-slate-200 rounded-lg text-slate-600 transition-all cursor-pointer"
+                    title="Día siguiente"
+                  >
+                    <ChevronRight size={14} />
+                  </button>
                 </div>
 
                 {/* Botón Hoy */}
@@ -1741,7 +1798,7 @@ export const AttendanceTab: React.FC = () => {
             {/* Fila 1: Selector de Rango, Fechas y Leyenda */}
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
-                {/* Botones de Selección Semana / Mes Completo */}
+                {/* Botones de Selección Semana / Mes Completo / Rango */}
                 <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
                   <button
                     type="button"
@@ -1761,75 +1818,111 @@ export const AttendanceTab: React.FC = () => {
                   >
                     Mes Completo
                   </button>
-                </div>
-
-                {/* Controles de Navegación Anterior / Siguiente y Fecha */}
-                <div className="flex items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => {
-                      const ref = parseLocalDate(fechaInicioMatriz);
-                      if (rangoTipo === "semana") {
-                        ref.setDate(ref.getDate() - 7);
-                      } else {
-                        ref.setMonth(ref.getMonth() - 1);
-                      }
-                      setFechaInicioMatriz(formatLocalDate(ref));
-                    }}
-                    className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
-                    title="Anterior"
+                    onClick={() => setRangoTipo("rango")}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      rangoTipo === "rango" ? "bg-white text-slate-900 shadow-2xs font-extrabold" : "text-slate-600 hover:text-slate-900"
+                    }`}
                   >
-                    <ChevronLeft size={16} />
-                  </button>
-
-                  <input
-                    type={rangoTipo === "mes" ? "month" : "date"}
-                    value={
-                      rangoTipo === "mes"
-                        ? fechaInicioMatriz.slice(0, 7)
-                        : fechaInicioMatriz
-                    }
-                    onChange={(e) => {
-                      if (rangoTipo === "mes") {
-                        setFechaInicioMatriz(`${e.target.value}-01`);
-                      } else {
-                        setFechaInicioMatriz(e.target.value);
-                      }
-                    }}
-                    className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const ref = parseLocalDate(fechaInicioMatriz);
-                      if (rangoTipo === "semana") {
-                        ref.setDate(ref.getDate() + 7);
-                      } else {
-                        ref.setMonth(ref.getMonth() + 1);
-                      }
-                      setFechaInicioMatriz(formatLocalDate(ref));
-                    }}
-                    className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
-                    title="Siguiente"
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setFechaInicioMatriz(formatLocalDate(new Date()))}
-                    className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-[11px] font-bold text-slate-700 transition-colors cursor-pointer ml-1"
-                  >
-                    {rangoTipo === "mes" ? "Mes Actual" : "Esta Semana"}
+                    Rango de Fechas
                   </button>
                 </div>
+
+                {/* Controles según el tipo de rango */}
+                {rangoTipo !== "rango" ? (
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const ref = parseLocalDate(fechaInicioMatriz);
+                        if (rangoTipo === "semana") {
+                          ref.setDate(ref.getDate() - 7);
+                        } else {
+                          ref.setMonth(ref.getMonth() - 1);
+                        }
+                        setFechaInicioMatriz(formatLocalDate(ref));
+                      }}
+                      className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                      title="Anterior"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+
+                    <input
+                      type={rangoTipo === "mes" ? "month" : "date"}
+                      value={
+                        rangoTipo === "mes"
+                          ? fechaInicioMatriz.slice(0, 7)
+                          : fechaInicioMatriz
+                      }
+                      onChange={(e) => {
+                        if (rangoTipo === "mes") {
+                          setFechaInicioMatriz(`${e.target.value}-01`);
+                        } else {
+                          setFechaInicioMatriz(e.target.value);
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const ref = parseLocalDate(fechaInicioMatriz);
+                        if (rangoTipo === "semana") {
+                          ref.setDate(ref.getDate() + 7);
+                        } else {
+                          ref.setMonth(ref.getMonth() + 1);
+                        }
+                        setFechaInicioMatriz(formatLocalDate(ref));
+                      }}
+                      className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                      title="Siguiente"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setFechaInicioMatriz(formatLocalDate(new Date()))}
+                      className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-[11px] font-bold text-slate-700 transition-colors cursor-pointer ml-1"
+                    >
+                      {rangoTipo === "mes" ? "Mes Actual" : "Esta Semana"}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1 shadow-2xs">
+                      <span className="text-[10px] font-black uppercase text-slate-500">Desde:</span>
+                      <input
+                        type="date"
+                        value={fechaRangoMatrizDesde}
+                        max={fechaRangoMatrizHasta}
+                        onChange={(e) => setFechaRangoMatrizDesde(e.target.value)}
+                        className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1 shadow-2xs">
+                      <span className="text-[10px] font-black uppercase text-slate-500">Hasta:</span>
+                      <input
+                        type="date"
+                        value={fechaRangoMatrizHasta}
+                        min={fechaRangoMatrizDesde}
+                        onChange={(e) => setFechaRangoMatrizHasta(e.target.value)}
+                        className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 {/* Etiqueta Informativa del Rango */}
                 <span className="text-xs font-black text-slate-800 bg-slate-100 px-2.5 py-1 rounded-xl capitalize">
                   {rangoTipo === "mes"
                     ? `${parseLocalDate(fechaInicioMatriz).toLocaleDateString("es-ES", { month: "long", year: "numeric" })} (${diasMatriz.length} días)`
-                    : `Semana: ${diasMatriz[0]?.fechaStr || ""} al ${diasMatriz[diasMatriz.length - 1]?.fechaStr || ""}`
+                    : rangoTipo === "semana"
+                    ? `Semana: ${diasMatriz[0]?.fechaStr || ""} al ${diasMatriz[diasMatriz.length - 1]?.fechaStr || ""}`
+                    : `Rango: ${fechaRangoMatrizDesde} al ${fechaRangoMatrizHasta} (${diasMatriz.length} días)`
                   }
                 </span>
               </div>
@@ -2307,8 +2400,8 @@ export const AttendanceTab: React.FC = () => {
       ───────────────────────────────────────────────────────────── */}
       {subTab === "ranking" && (
         <TardanzasDashboard
-          onVerDetalleTecnico={(trabajador, tardanzas) =>
-            setModalTardanzasTecnico({ trabajador, tardanzas })
+          onVerDetalleTecnico={(trabajador, tardanzas, periodoTexto) =>
+            setModalTardanzasTecnico({ trabajador, tardanzas, periodoTexto })
           }
           roles={roles}
           canVerDetallesPersonal={canVerDetallesPersonal}
@@ -3048,9 +3141,12 @@ export const AttendanceTab: React.FC = () => {
         trabajador={modalTardanzasTecnico?.trabajador || null}
         tardanzas={modalTardanzasTecnico?.tardanzas || []}
         periodoTexto={
-          rangoTipo === "mes"
+          modalTardanzasTecnico?.periodoTexto ||
+          (rangoTipo === "mes"
             ? `${parseLocalDate(fechaInicioMatriz).toLocaleDateString("es-ES", { month: "long", year: "numeric" })}`
-            : `Semana ${diasMatriz[0]?.fechaStr || ""} al ${diasMatriz[diasMatriz.length - 1]?.fechaStr || ""}`
+            : rangoTipo === "semana"
+            ? `Semana ${diasMatriz[0]?.fechaStr || ""} al ${diasMatriz[diasMatriz.length - 1]?.fechaStr || ""}`
+            : `Rango ${fechaRangoMatrizDesde} al ${fechaRangoMatrizHasta}`)
         }
         canVerDetallesPersonal={canVerDetallesPersonal}
       />

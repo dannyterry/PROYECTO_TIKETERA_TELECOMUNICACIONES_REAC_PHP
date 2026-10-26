@@ -6604,6 +6604,7 @@ app.get('/api/almacen/stock-general', async (req, res) => {
           SELECT SUM(m.cantidad)
           FROM movimientos m
           WHERE (m.referencia LIKE CONCAT('%Técnico #', tp.id_trabajador, '%') 
+                 OR (m.referencia LIKE CONCAT('%', u.nombres, '%') AND m.referencia LIKE CONCAT('%', COALESCE(u.primer_apellido, u.apellidos), '%'))
                  OR m.referencia LIKE CONCAT('%', u.nombres, '%'))
             AND m.id_producto = tp.id_producto
             AND m.tipo = 'ENTRADA'
@@ -6737,21 +6738,25 @@ app.get('/api/almacen/stock-general', async (req, res) => {
       }
 
       const totalGastadoNonSer = Number(st.total_gastado_ordenes) || 0;
+      const totalDevueltoNonSer = Number(st.total_devuelto_almacen) || 0;
       const totalDespachadoNonSer = Number(st.total_despachado_historial) || 0;
       const stockActualNonSer = Number(st.stock) || 0;
       const totalAsignadoNonSer = totalDespachadoNonSer > 0
-        ? Math.max(totalDespachadoNonSer, stockActualNonSer + totalGastadoNonSer)
-        : (stockActualNonSer + totalGastadoNonSer);
+        ? Math.max(totalDespachadoNonSer, stockActualNonSer + totalGastadoNonSer + totalDevueltoNonSer)
+        : (stockActualNonSer + totalGastadoNonSer + totalDevueltoNonSer);
 
       const totalEnCarro = seriesDelItem.length > 0 ? seriesDisponibles.length : stockActualNonSer;
       const cantAsignada = seriesDelItem.length > 0 ? seriesDelItem.length : totalAsignadoNonSer;
       const cantGastada = seriesDelItem.length > 0 ? seriesUsadas.length : totalGastadoNonSer;
+      const cantDevuelta = totalDevueltoNonSer;
 
       return {
         ...st,
         stock: totalEnCarro,
         cantidad_asignada: cantAsignada,
         cantidad_gastada: cantGastada,
+        cantidad_devuelta: cantDevuelta,
+        total_devuelto_almacen: cantDevuelta,
         series: seriesDelItem,
         series_disponibles: seriesDisponibles.map((s) => s.numero_serie),
         series_liquidadas: seriesUsadas.map((s) => s.numero_serie),
@@ -6760,7 +6765,7 @@ app.get('/api/almacen/stock-general', async (req, res) => {
         total_liquidadas: cantGastada,
         rangos: rangos,
       };
-    }).filter((st) => Number(st.stock) > 0 || (Array.isArray(st.series_disponibles) && st.series_disponibles.length > 0));
+    });
 
     res.json({
       productos,
@@ -6875,10 +6880,48 @@ app.get('/api/almacen/descargas-tecnico-detalle', async (req, res) => {
       ORDER BY COALESCE(ol.fecha_liquidacion, ts.fecha_asignacion) DESC
     `, paramsSeries);
 
+    // 3. Devoluciones a Almacén Central registradas en movimientos
+    let paramsDevoluciones = [id_trabajador];
+    let whereDevoluciones = "";
+    if (id_producto) {
+      whereDevoluciones = "AND m.id_producto = ?";
+      paramsDevoluciones.push(id_producto);
+    }
+
+    const [devolucionesAlmacen] = await pool.query(`
+      SELECT 
+        m.id_movimiento,
+        m.id_producto,
+        p.nombre AS producto_nombre,
+        p.codigo AS producto_codigo,
+        p.es_drop,
+        m.cantidad,
+        m.tipo,
+        m.referencia,
+        m.fecha_creacion,
+        COALESCE(u_resp.nombres, 'Almacén Central') AS recibido_por
+      FROM movimientos m
+      JOIN productos p ON m.id_producto = p.id_producto
+      JOIN trabajadores t ON t.id_trabajador = ?
+      JOIN usuarios u_tec ON t.id_usuario = u_tec.id_usuario
+      LEFT JOIN usuarios u_resp ON m.id_usuario = u_resp.id_usuario
+      WHERE m.tipo = 'ENTRADA'
+        AND (m.referencia LIKE '%Devolución%' OR m.referencia LIKE '%devolucion%' OR m.referencia LIKE '%Retorno%')
+        AND (
+          m.referencia LIKE CONCAT('%Técnico #', t.id_trabajador, '%')
+          OR (m.referencia LIKE CONCAT('%', u_tec.nombres, '%') AND m.referencia LIKE CONCAT('%', COALESCE(u_tec.primer_apellido, u_tec.apellidos), '%'))
+          OR m.referencia LIKE CONCAT('%', u_tec.nombres, '%')
+        )
+        ${whereDevoluciones}
+      ORDER BY m.fecha_creacion DESC
+    `, paramsDevoluciones);
+
     res.json({
       descargasMateriales,
       descargasSeries,
-      totalDescargas: descargasMateriales.length + descargasSeries.length
+      devolucionesAlmacen: devolucionesAlmacen || [],
+      totalDescargas: descargasMateriales.length + descargasSeries.length,
+      totalDevoluciones: (devolucionesAlmacen || []).length
     });
   } catch (error) {
     console.error("Error en /api/almacen/descargas-tecnico-detalle:", error);

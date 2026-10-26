@@ -49,7 +49,21 @@ export interface StockTecnicoDetalle {
   total_despachado_historial?: number;
   total_gastado_ordenes?: number;
   total_devuelto_almacen?: number;
+  cantidad_devuelta?: number;
   rangos?: string[];
+}
+
+export interface DevolucionAlmacenItem {
+  id_movimiento: number;
+  id_producto: number;
+  producto_nombre: string;
+  producto_codigo?: string;
+  es_drop?: number;
+  cantidad: number;
+  tipo: string;
+  referencia: string;
+  fecha_creacion: string;
+  recibido_por?: string;
 }
 
 export interface SerieTecnicoDetalle {

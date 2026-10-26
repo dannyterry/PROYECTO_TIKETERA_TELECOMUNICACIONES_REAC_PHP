@@ -515,7 +515,9 @@ export const getDescargasTecnicoDetalle = async (
 ): Promise<{
   descargasMateriales: DescargaOrdenItem[];
   descargasSeries: DescargaOrdenItem[];
+  devolucionesAlmacen?: any[];
   totalDescargas: number;
+  totalDevoluciones?: number;
 }> => {
   const params: any = { id_trabajador: idTrabajador };
   if (idProducto) params.id_producto = idProducto;

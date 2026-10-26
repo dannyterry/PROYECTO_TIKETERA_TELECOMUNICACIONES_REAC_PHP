@@ -33,6 +33,7 @@ import {
   ArrowRightLeft,
   Zap,
   Trash2,
+  Plus,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -164,6 +165,7 @@ export const StockOverviewTab: React.FC<Props> = ({
     esDrop?: boolean | number;
     cantidadEntregada?: number;
     cantidadGastada?: number;
+    cantidadDevuelta?: number;
     stockEnCarro?: number;
   }>({
     isOpen: false,
@@ -1558,9 +1560,14 @@ export const StockOverviewTab: React.FC<Props> = ({
             <div className="flex flex-wrap items-center gap-2">
               {/* Pills Disponibilidad: Todos / Con Stock / Agotados */}
               {(() => {
-                const cantTotalMobiles = stockPorTecnico.length;
-                const cantConStock = stockPorTecnico.filter((s) => Number(s.stock) > 0).length;
-                const cantAgotados = stockPorTecnico.filter((s) => Number(s.stock) === 0).length;
+                const itemsBase =
+                  tecnicoSeleccionado === "Todos"
+                    ? stockPorTecnico
+                    : stockPorTecnico.filter((s) => s.tecnico_nombre === tecnicoSeleccionado);
+
+                const cantTotalMobiles = itemsBase.length;
+                const cantConStock = itemsBase.filter((s) => Number(s.stock) > 0).length;
+                const cantAgotados = itemsBase.filter((s) => Number(s.stock) === 0).length;
 
                 return (
                   <div className="inline-flex items-center gap-1 bg-white border border-slate-200 p-1 rounded-xl shadow-2xs text-xs">
@@ -1569,7 +1576,7 @@ export const StockOverviewTab: React.FC<Props> = ({
                       onClick={() => setFiltroDisponibilidadMovil("todos")}
                       className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                         filtroDisponibilidadMovil === "todos"
-                          ? "bg-slate-900 text-white shadow-2xs"
+                          ? "bg-slate-900 text-white shadow-2xs font-extrabold"
                           : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
                       }`}
                     >
@@ -1580,7 +1587,7 @@ export const StockOverviewTab: React.FC<Props> = ({
                       onClick={() => setFiltroDisponibilidadMovil("con_stock")}
                       className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                         filtroDisponibilidadMovil === "con_stock"
-                          ? "bg-emerald-600 text-white shadow-2xs"
+                          ? "bg-emerald-600 text-white shadow-2xs font-extrabold"
                           : "text-slate-600 hover:text-emerald-700 hover:bg-emerald-50/50"
                       }`}
                     >
@@ -1589,14 +1596,17 @@ export const StockOverviewTab: React.FC<Props> = ({
                     <button
                       type="button"
                       onClick={() => setFiltroDisponibilidadMovil("agotados")}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
                         filtroDisponibilidadMovil === "agotados"
-                          ? "bg-rose-600 text-white shadow-2xs"
-                          : "text-rose-600 hover:text-rose-800 hover:bg-rose-50"
+                          ? "bg-rose-600 text-white shadow-2xs font-extrabold"
+                          : cantAgotados > 0
+                          ? "text-rose-700 bg-rose-50/80 hover:bg-rose-100 font-extrabold border border-rose-200"
+                          : "text-slate-500 hover:text-rose-800 hover:bg-rose-50"
                       }`}
                       title="Ver únicamente materiales y equipos que el técnico ya agotó (Stock = 0)"
                     >
-                      ⚠️ Agotados (0) ({cantAgotados})
+                      <AlertTriangle size={12} className={filtroDisponibilidadMovil === "agotados" ? "text-white" : cantAgotados > 0 ? "text-rose-600" : "text-slate-400"} />
+                      <span>Agotados ({cantAgotados})</span>
                     </button>
                   </div>
                 );
@@ -1813,8 +1823,9 @@ export const StockOverviewTab: React.FC<Props> = ({
                           <td className="py-3.5 px-4 text-center whitespace-nowrap">
                             {(() => {
                               const cantGastada = Number(st.cantidad_gastada) || Number(st.total_gastado_ordenes) || Number(st.total_liquidadas) || 0;
+                              const cantDevuelta = Number(st.cantidad_devuelta) || Number(st.total_devuelto_almacen) || 0;
                               const cantEnCarro = Number(st.stock) || 0;
-                              const cantEntregada = Number(st.cantidad_asignada) || Number(st.total_asignadas) || (cantEnCarro + cantGastada);
+                              const cantEntregada = Number(st.cantidad_asignada) || Number(st.total_asignadas) || (cantEnCarro + cantGastada + cantDevuelta);
                               const unidad = st.es_drop ? "m" : "und";
 
                               return (
@@ -1826,61 +1837,108 @@ export const StockOverviewTab: React.FC<Props> = ({
                             })()}
                           </td>
 
-                          {/* ⚡ 2. DESCARGADO / GASTADO EN ÓRDENES O ACTAS */}
+                          {/* ⚡ 2. DESCARGADO / GASTADO EN ÓRDENES O DEVUELTO A ALMACÉN */}
                           <td className="py-3.5 px-4 text-center whitespace-nowrap">
                             {(() => {
                               const cantGastada = Number(st.cantidad_gastada) || Number(st.total_gastado_ordenes) || Number(st.total_liquidadas) || 0;
+                              const cantDevuelta = Number(st.cantidad_devuelta) || Number(st.total_devuelto_almacen) || 0;
                               const cantEnCarro = Number(st.stock) || 0;
-                              const cantEntregada = Number(st.cantidad_asignada) || Number(st.total_asignadas) || (cantEnCarro + cantGastada);
+                              const cantEntregada = Number(st.cantidad_asignada) || Number(st.total_asignadas) || (cantEnCarro + cantGastada + cantDevuelta);
                               const unidad = st.es_drop ? "m" : "und";
 
                               return (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setModalDescargas({
-                                      isOpen: true,
-                                      idTrabajador: st.id_trabajador,
-                                      tecnicoNombre: st.tecnico_nombre,
-                                      cuadrilla: st.cuadrilla,
-                                      vehiculoPlaca: st.vehiculo_placa,
-                                      idProducto: st.id_producto,
-                                      productoNombre: st.producto_nombre,
-                                      productoCodigo: st.producto_codigo,
-                                      categoria: st.categoria,
-                                      esDrop: st.es_drop,
-                                      cantidadEntregada: cantEntregada,
-                                      cantidadGastada: cantGastada,
-                                      stockEnCarro: cantEnCarro,
-                                    });
-                                  }}
-                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl font-bold font-mono text-xs transition-all cursor-pointer shadow-2xs border group ${
-                                    cantGastada > 0
-                                      ? "bg-amber-50 hover:bg-amber-100 text-amber-950 border-amber-300 ring-1 ring-amber-200"
-                                      : "bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200"
-                                  }`}
-                                  title="Haz clic para ver el desglose exacto de órdenes y actas donde se descargó"
-                                >
-                                  <Zap size={11} className={cantGastada > 0 ? "text-amber-600" : "text-slate-400"} />
-                                  <span>{cantGastada} {unidad}</span>
-                                  <span className="text-[10px] font-sans text-amber-800 group-hover:underline font-bold ml-0.5">
-                                    Ver {esActa ? "actas" : "órdenes"} →
-                                  </span>
-                                </button>
+                                <div className="flex flex-col items-center justify-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setModalDescargas({
+                                        isOpen: true,
+                                        idTrabajador: st.id_trabajador,
+                                        tecnicoNombre: st.tecnico_nombre,
+                                        cuadrilla: st.cuadrilla,
+                                        vehiculoPlaca: st.vehiculo_placa,
+                                        idProducto: st.id_producto,
+                                        productoNombre: st.producto_nombre,
+                                        productoCodigo: st.producto_codigo,
+                                        categoria: st.categoria,
+                                        esDrop: st.es_drop,
+                                        cantidadEntregada: cantEntregada,
+                                        cantidadGastada: cantGastada,
+                                        cantidadDevuelta: cantDevuelta,
+                                        stockEnCarro: cantEnCarro,
+                                      });
+                                    }}
+                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl font-bold font-mono text-xs transition-all cursor-pointer shadow-2xs border group ${
+                                      cantGastada > 0
+                                        ? "bg-amber-50 hover:bg-amber-100 text-amber-950 border-amber-300 ring-1 ring-amber-200"
+                                        : "bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200"
+                                    }`}
+                                    title="Haz clic para ver el desglose exacto de órdenes y actas donde se descargó"
+                                  >
+                                    <Zap size={11} className={cantGastada > 0 ? "text-amber-600" : "text-slate-400"} />
+                                    <span>{cantGastada} {unidad}</span>
+                                    <span className="text-[10px] font-sans text-amber-800 group-hover:underline font-bold ml-0.5">
+                                      Ver {esActa ? "actas" : "órdenes"} →
+                                    </span>
+                                  </button>
+
+                                  {cantDevuelta > 0 && (
+                                    <span 
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 font-bold font-mono text-[10px]"
+                                      title={`Retornado a Almacén Central: ${cantDevuelta} ${unidad}`}
+                                    >
+                                      <Undo2 size={10} className="text-blue-600 shrink-0" />
+                                      <span>{cantDevuelta} {unidad} devueltas</span>
+                                    </span>
+                                  )}
+                                </div>
                               );
                             })()}
                           </td>
 
                           {/* 🚗 3. SALDO EN CARRO (STOCK DISPONIBLE) */}
                           <td className="py-3.5 px-4 text-right font-black font-mono whitespace-nowrap">
-                            {Number(st.stock) > 0 ? (
-                              <span className="text-sm text-cyan-800">{st.stock} {st.es_drop ? "m" : "und"}</span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 font-bold text-xs shadow-2xs">
-                                <AlertTriangle size={12} className="text-rose-500 shrink-0" />
-                                <span>0 {st.es_drop ? "m" : "und"} (Agotado)</span>
-                              </span>
-                            )}
+                            {(() => {
+                              const cantGastada = Number(st.cantidad_gastada) || Number(st.total_gastado_ordenes) || Number(st.total_liquidadas) || 0;
+                              const cantDevuelta = Number(st.cantidad_devuelta) || Number(st.total_devuelto_almacen) || 0;
+                              const cantEnCarro = Number(st.stock) || 0;
+                              const unidad = st.es_drop ? "m" : "und";
+
+                              if (cantEnCarro > 0) {
+                                return <span className="text-sm text-cyan-800">{cantEnCarro} {unidad}</span>;
+                              }
+
+                              if (cantDevuelta > 0 && cantGastada === 0) {
+                                return (
+                                  <span 
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 font-bold text-xs shadow-2xs"
+                                    title="Material devuelto en su totalidad a Almacén Central"
+                                  >
+                                    <Undo2 size={12} className="text-blue-600 shrink-0" />
+                                    <span>0 {unidad} (Devuelto a Central)</span>
+                                  </span>
+                                );
+                              }
+
+                              if (cantDevuelta > 0 && cantGastada > 0) {
+                                return (
+                                  <span 
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-purple-50 border border-purple-200 text-purple-700 font-bold text-xs shadow-2xs"
+                                    title="Material agotado: consumido en órdenes y devuelto sobrante a Almacén Central"
+                                  >
+                                    <AlertTriangle size={12} className="text-purple-600 shrink-0" />
+                                    <span>0 {unidad} (Agotado & Devuelto)</span>
+                                  </span>
+                                );
+                              }
+
+                              return (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 font-bold text-xs shadow-2xs">
+                                  <AlertTriangle size={12} className="text-rose-500 shrink-0" />
+                                  <span>0 {unidad} (Agotado)</span>
+                                </span>
+                              );
+                            })()}
                           </td>
 
                           {/* ACCIONES: VER DESCARGAS + DEVOLVER A CENTRAL */}
@@ -1890,8 +1948,9 @@ export const StockOverviewTab: React.FC<Props> = ({
                                 type="button"
                                 onClick={() => {
                                   const cantGastada = Number(st.cantidad_gastada) || Number(st.total_gastado_ordenes) || Number(st.total_liquidadas) || 0;
+                                  const cantDevuelta = Number(st.cantidad_devuelta) || Number(st.total_devuelto_almacen) || 0;
                                   const cantEnCarro = Number(st.stock) || 0;
-                                  const cantEntregada = Number(st.cantidad_asignada) || Number(st.total_asignadas) || (cantEnCarro + cantGastada);
+                                  const cantEntregada = Number(st.cantidad_asignada) || Number(st.total_asignadas) || (cantEnCarro + cantGastada + cantDevuelta);
 
                                   setModalDescargas({
                                     isOpen: true,
@@ -1906,6 +1965,7 @@ export const StockOverviewTab: React.FC<Props> = ({
                                     esDrop: st.es_drop,
                                     cantidadEntregada: cantEntregada,
                                     cantidadGastada: cantGastada,
+                                    cantidadDevuelta: cantDevuelta,
                                     stockEnCarro: cantEnCarro,
                                   });
                                 }}
@@ -1916,38 +1976,57 @@ export const StockOverviewTab: React.FC<Props> = ({
                                 <span>Descargas</span>
                               </button>
 
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const seriesDelItem = seriesTecnicos
-                                    .filter(
-                                      (s) =>
-                                        s.id_trabajador === st.id_trabajador &&
-                                        (s.id_producto
-                                          ? s.id_producto === st.id_producto
-                                          : s.equipo_nombre.trim().toUpperCase() === st.producto_nombre.trim().toUpperCase()) &&
-                                        s.estado === "Asignada"
-                                    )
-                                    .map((s) => s.numero_serie);
+                              {Number(st.stock) > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const seriesDelItem = seriesTecnicos
+                                      .filter(
+                                        (s) =>
+                                          s.id_trabajador === st.id_trabajador &&
+                                          (s.id_producto
+                                            ? s.id_producto === st.id_producto
+                                            : s.equipo_nombre.trim().toUpperCase() === st.producto_nombre.trim().toUpperCase()) &&
+                                          s.estado === "Asignada"
+                                      )
+                                      .map((s) => s.numero_serie);
 
-                                  setModalDevolucion({
-                                    isOpen: true,
-                                    item: st,
-                                    devolverTodo: false,
-                                    tecnicoNombre: st.tecnico_nombre,
-                                    idTrabajador: st.id_trabajador,
-                                    seriesDisponibles: seriesDelItem,
-                                    seriesSeleccionadas: seriesDelItem.slice(0, st.stock),
-                                  });
-                                  setCantidadDevolver(st.stock);
-                                  setMotivoDevolucion("Sobrante de instalación / bobina");
-                                }}
-                                className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl font-bold text-[11px] inline-flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
-                                title="Devolver este material de la camioneta a Almacén Central"
-                              >
-                                <Undo2 size={11} className="text-amber-700" />
-                                <span>Devolver</span>
-                              </button>
+                                    setModalDevolucion({
+                                      isOpen: true,
+                                      item: st,
+                                      devolverTodo: false,
+                                      tecnicoNombre: st.tecnico_nombre,
+                                      idTrabajador: st.id_trabajador,
+                                      seriesDisponibles: seriesDelItem,
+                                      seriesSeleccionadas: seriesDelItem.slice(0, st.stock),
+                                    });
+                                    setCantidadDevolver(st.stock);
+                                    setMotivoDevolucion("Sobrante de instalación / bobina");
+                                  }}
+                                  className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl font-bold text-[11px] inline-flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                                  title="Devolver este material de la camioneta a Almacén Central"
+                                >
+                                  <Undo2 size={11} className="text-amber-700" />
+                                  <span>Devolver</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const prodObj = productos.find((p) => p.id_producto === st.id_producto);
+                                    if (prodObj) {
+                                      setModalDespacho({ isOpen: true, producto: prodObj });
+                                    } else if (onNavigateToTab) {
+                                      onNavigateToTab("despacho");
+                                    }
+                                  }}
+                                  className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-300 rounded-xl font-bold text-[11px] inline-flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                                  title={`Asignar / despachar más unidades de ${st.producto_nombre} a ${st.tecnico_nombre}`}
+                                >
+                                  <Plus size={11} className="text-emerald-700" />
+                                  <span>Asignar</span>
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -3871,6 +3950,7 @@ export const StockOverviewTab: React.FC<Props> = ({
         esDrop={modalDescargas.esDrop}
         cantidadEntregada={modalDescargas.cantidadEntregada}
         cantidadGastada={modalDescargas.cantidadGastada}
+        cantidadDevuelta={modalDescargas.cantidadDevuelta}
         stockEnCarro={modalDescargas.stockEnCarro}
       />
 
