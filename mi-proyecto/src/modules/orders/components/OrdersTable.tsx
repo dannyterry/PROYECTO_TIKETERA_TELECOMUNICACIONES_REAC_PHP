@@ -1430,8 +1430,16 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                           );
                         }
 
-                        // ⚪ CASO PEX: No requiere acta física (solo CTO/NAP degradado, planta externa o tipo PEX; NUNCA validación de cliente)
-                        const esPex = (() => {
+                        const isOrdenamiento = Boolean(
+                          (order.cuadrilla && /^O\s*[0-9]/i.test(order.cuadrilla.trim())) ||
+                          (order.tecnico && (/^O\s*[0-9]/i.test(order.tecnico.trim()) || order.tecnico.toUpperCase().includes("ORDEN"))) ||
+                          ((order as any).tipo_servicio && String((order as any).tipo_servicio).toUpperCase().includes("ORDEN")) ||
+                          (order.tipoTrabajo && String(order.tipoTrabajo).toUpperCase().includes("ORDEN"))
+                        );
+
+                        // ⚪ CASO PEX: No requiere acta física SOLO para técnicos normales de averías/instalaciones
+                        // Para Ordenamiento, SÍ realizan conjunta/PEX y SÍ deben liquidar materiales y acta!
+                        const esPex = !isOrdenamiento && (() => {
                           const normTrabajo = String(order.tipoTrabajo || "").toUpperCase();
                           const normLiq = String(order.tipoLiquidacion || "").toUpperCase();
                           const normMotivo = String(order.motivoFinalizacion || "").toUpperCase();
@@ -1475,7 +1483,22 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({
                           );
                         }
 
-                        // 🟡 ORDEN FINALIZADA (PENDIENTE DE LLENAR ACTA / LIQUIDAR) -> Color Ámbar
+                        // 🟣 CASO ORDENAMIENTO (PENDIENTE DE LLENAR ACTA / LIQUIDAR) -> Habilitado en cualquier estado activo
+                        if (onOpenLiquidar && isOrdenamiento) {
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => onOpenLiquidar(order)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-purple-100 hover:bg-purple-200 text-purple-950 border border-purple-400 transition-all cursor-pointer shadow-2xs whitespace-nowrap active:scale-95"
+                              title="Liquidar Orden de Ordenamiento (Llenar Acta Física, subir foto y descontar materiales)"
+                            >
+                              <FileText size={10} className="text-purple-800 shrink-0" />
+                              <span>Acta Ord.</span>
+                            </button>
+                          );
+                        }
+
+                        // 🟡 ORDEN FINALIZADA (PENDIENTE DE LLENAR ACTA / LIQUIDAR TÉCNICOS NORMALES) -> Color Ámbar
                         if (onOpenLiquidar && isFinalizada) {
                           return (
                             <button

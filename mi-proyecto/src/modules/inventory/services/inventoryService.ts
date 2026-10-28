@@ -174,6 +174,15 @@ export const getTecnicoDotacionCompleta = async (idTrabajador: number | string) 
   return res.data;
 };
 
+export const subirFotoActa = async (file: File): Promise<{ success: boolean; url: string; filename: string }> => {
+  const formData = new FormData();
+  formData.append("foto_acta", file);
+  const res = await api.post("/ordenes/subir-foto-acta", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return res.data;
+};
+
 export const liquidarActaOrden = async (idOrden: number | string, payload: ActaLiquidacionPayload) => {
   const res = await api.post(`/ordenes/${idOrden}/liquidar-acta`, payload);
   return res.data;

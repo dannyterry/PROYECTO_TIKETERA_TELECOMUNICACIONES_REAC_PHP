@@ -5023,6 +5023,7 @@ app.get(['/api/movilidad/tecnicos', '/api/movilidad/tecnicos-flota'], async (req
         u.documento,
         TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''), ' ', COALESCE(u.segundo_apellido, ''))) AS nombre_completo,
         COALESCE(u.cuadrilla, '') AS cuadrilla,
+        COALESCE(u.tipo_servicio, '') AS tipo_servicio,
         COALESCE(u.telefono, '') AS telefono,
         COALESCE(t.id_vehiculo, va.id_vehiculo) AS id_vehiculo,
         COALESCE(v.placa, va.placa, '') AS vehiculo_placa,
@@ -11717,6 +11718,25 @@ app.get('/api/almacen/orden-liquidaciones/:numeroOrden/foto-acta', async (req, r
     let cleanNum = String(rawNum).trim().replace(/^#/, '').replace(/^0+/, '');
     const descargar = req.query.descargar === '1';
     console.log(`🔍 [Foto Acta] Solicitando acta HD para identificador/orden #${cleanNum}...`);
+    try {
+      const [liqFotoRows] = await pool.query(
+        `SELECT ol.foto_acta FROM orden_liquidaciones ol
+         JOIN ordenes o ON ol.id_orden = o.id_orden
+         WHERE (o.numero = ? OR o.id_orden = ? OR ol.id_orden = ?) AND ol.foto_acta IS NOT NULL AND ol.foto_acta != ''
+         LIMIT 1`,
+        [cleanNum, isNaN(cleanNum) ? 0 : Number(cleanNum), isNaN(cleanNum) ? 0 : Number(cleanNum)]
+      );
+      if (liqFotoRows.length > 0 && liqFotoRows[0].foto_acta) {
+        return res.json({
+          success: true,
+          origen: 'ORDENAMIENTO_TECNICO',
+          numero_orden: cleanNum,
+          titulo: 'Acta de Ordenamiento Subida por Técnico',
+          foto_url: liqFotoRows[0].foto_acta
+        });
+      }
+    } catch(e) {}
+
 
     // 💡 Resolver a número de orden oficial de Fénix (priorizando órdenes Finalizadas con evidencias)
     try {
@@ -11933,6 +11953,41 @@ app.get('/api/almacen/orden-liquidaciones/:numeroOrden/foto-acta', async (req, r
 });
 
 // --- 📋 6. LIQUIDACIÓN DIGITAL DE ORDEN CON ACTA WIN Y DESCUENTO AUTOMÁTICO ---
+
+// 📸 Subida de fotografía del Acta Física (Exclusiva para Ordenamiento)
+const uploadFotoActa = multer({ 
+  storage: storage,
+  limits: { fileSize: 15 * 1024 * 1024 } // Hasta 15MB
+}).single('foto_acta');
+
+app.post('/api/ordenes/subir-foto-acta', (req, res) => {
+  uploadFotoActa(req, res, async (err) => {
+    if (err) {
+      console.error("❌ Error al subir foto de acta:", err);
+      return res.status(400).json({ success: false, error: err.message });
+    }
+    try {
+      if (!req.file) {
+        return res.status(400).json({ success: false, error: "No se proporcionó ningún archivo de imagen" });
+      }
+
+      // Sincronizar automáticamente con AWS S3 si está habilitado
+      syncUploadedFilesToS3(req).catch(e => console.warn("Aviso S3 foto acta:", e.message));
+
+      const fileUrl = `/uploads/${req.file.filename}`;
+      console.log("📸 [Foto Acta] Archivo guardado localmente:", fileUrl);
+      return res.json({ 
+        success: true, 
+        url: fileUrl, 
+        filename: req.file.filename 
+      });
+    } catch (e) {
+      console.error("Error procesando foto acta:", e);
+      return res.status(500).json({ success: false, error: e.message });
+    }
+  });
+});
+
 app.post('/api/ordenes/:id/liquidar-acta', async (req, res) => {
   try {
     const idOrden = req.params.id;
@@ -11954,6 +12009,7 @@ app.post('/api/ordenes/:id/liquidar-acta', async (req, res) => {
       observaciones_tecnico,
       firma_cliente,
       firma_tecnico,
+      foto_acta,
       materiales_utilizados, // Array de { id_producto, cantidad }
       equipos_instalados,    // Array de { id_producto_serie, numero_serie, tipo_equipo }
       equipos_retirados,     // Array de { tipo_equipo, numero_serie, motivo_retiro }
@@ -12184,14 +12240,14 @@ app.post('/api/ordenes/:id/liquidar-acta', async (req, res) => {
         cto, puerto, speedtest_download, speedtest_upload, tipo_conexion,
         drop_metro_inicio, drop_metro_fin, drop_total_metros,
         lat_liquidacion, lng_liquidacion, observaciones_tecnico,
-        firma_cliente, firma_tecnico, liquidado_por, fecha_liquidacion
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+        firma_cliente, firma_tecnico, foto_acta, liquidado_por, fecha_liquidacion
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
     `, [
       idOrden, realIdTrabajador || null, numActaFinal, numActaFinal, finalTipoTrabajoActa,
       cto || '', puerto || '', speedtest_download || null, speedtest_upload || null, tipo_conexion || 'Inalámbrica',
       drop_metro_inicio || null, drop_metro_fin || null, drop_total_metros || 0,
       lat_liquidacion || null, lng_liquidacion || null, obsFinales,
-      firma_cliente || '', firma_tecnico || '', liquidado_por || null
+      firma_cliente || '', firma_tecnico || '', foto_acta || null, liquidado_por || null
     ]);
 
     const idLiquidacion = liqResult.insertId;

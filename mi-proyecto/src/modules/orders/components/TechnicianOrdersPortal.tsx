@@ -1224,8 +1224,16 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
 
                   {/* 4. Botón Principal: Liquidar o Consultar Acta */}
                   {(() => {
-                    // ⚪ CASO PEX: No requiere acta física (solo CTO/NAP degradado, planta externa o tipo PEX; NUNCA validación de cliente)
-                    const esPex = (() => {
+                    const isOrdenamiento = Boolean(
+                      (trabajadorActual?.tipo_servicio && String(trabajadorActual.tipo_servicio).toUpperCase().includes("ORDEN")) ||
+                      (trabajadorActual?.cuadrilla && /^O\s*[0-9]/i.test(trabajadorActual.cuadrilla.trim())) ||
+                      (ord.cuadrilla && /^O\s*[0-9]/i.test(ord.cuadrilla.trim())) ||
+                      String(ord.tipoTrabajo || "").toUpperCase().includes("ORDEN")
+                    );
+
+                    // ⚪ CASO PEX: No requiere acta física SOLO para técnicos normales de averías/instalaciones
+                    // Para Ordenamiento, SÍ realizan conjunta/PEX y SÍ deben liquidar materiales y acta!
+                    const esPex = !isOrdenamiento && (() => {
                       const normTrabajo = String(ord.tipoTrabajo || "").toUpperCase();
                       const normLiq = String(ord.tipoLiquidacion || "").toUpperCase();
                       const normMotivo = String(ord.motivoFinalizacion || "").toUpperCase();
@@ -1283,6 +1291,30 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
                       );
                     }
 
+                    // Para Ordenamiento: se permite liquidar tanto en Finalizada como en Iniciada / En camino / Asignada
+                    const puedeLiquidarOrdenamiento = isOrdenamiento && (
+                      isFinalizada ||
+                      ord.status === "Iniciada" ||
+                      ord.status === "En proceso" ||
+                      ord.status === "En camino" ||
+                      ord.status === "Asignada" ||
+                      Boolean((ord as any).inicio_visita || ord.horaInicio) ||
+                      !ord.status
+                    );
+
+                    if (puedeLiquidarOrdenamiento) {
+                      return (
+                        <button
+                          onClick={() => abrirActa(ord)}
+                          className="w-full py-2.5 px-4 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-700 hover:to-cyan-700 text-white rounded-2xl font-black text-xs shadow-md shadow-emerald-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                          title="Liquidación de Ordenamiento: llena tu acta física y descuenta tus materiales consumidos"
+                        >
+                          <FileText size={16} />
+                          <span>📝 Llenar Acta & Liquidar (Ordenamiento)</span>
+                        </button>
+                      );
+                    }
+
                     if (isFinalizada) {
                       return (
                         <button
@@ -1330,6 +1362,12 @@ export const TechnicianOrdersPortal: React.FC<Props> = ({ userId, userName, user
           order={ordenParaActa}
           idTrabajadorActual={trabajadorActual?.id_trabajador}
           isTechnicianView={true}
+          esOrdenamiento={Boolean(
+            (trabajadorActual?.tipo_servicio && String(trabajadorActual.tipo_servicio).toUpperCase().includes("ORDEN")) ||
+            (trabajadorActual?.cuadrilla && /^O\s*[0-9]/i.test(trabajadorActual.cuadrilla.trim())) ||
+            (ordenParaActa?.cuadrilla && /^O\s*[0-9]/i.test(ordenParaActa.cuadrilla.trim())) ||
+            String(ordenParaActa?.tipoTrabajo || "").toUpperCase().includes("ORDEN")
+          )}
           showActaPhoto={false}
           onClose={() => setOrdenParaActa(null)}
           onSuccess={() => {

@@ -945,6 +945,12 @@ export const OrdersPage: React.FC = () => {
           order={selectedOrderForActa}
           isTechnicianView={false}
           showActaPhoto={true}
+          esOrdenamiento={Boolean(
+            (selectedOrderForActa?.cuadrilla && /^O\s*[0-9]/i.test(selectedOrderForActa.cuadrilla.trim())) ||
+            (selectedOrderForActa?.tipoTrabajo && String(selectedOrderForActa.tipoTrabajo).toUpperCase().includes("ORDEN")) ||
+            ((selectedOrderForActa as any)?.tipo_servicio && String((selectedOrderForActa as any).tipo_servicio).toUpperCase().includes("ORDEN")) ||
+            (selectedOrderForActa?.tecnico && (/^O\s*[0-9]/i.test(selectedOrderForActa.tecnico.trim()) || selectedOrderForActa.tecnico.toUpperCase().includes("ORDEN")))
+          )}
           readOnly={
             !authService.hasAnyPermission([
               "ordenes.liquidar",
@@ -959,6 +965,7 @@ export const OrdersPage: React.FC = () => {
             (selectedOrderForActa as any).id_tecnico_asignado ||
             (selectedOrderForActa as any).id_trabajador ||
             (selectedOrderForActa as any).idTecnico ||
+            (selectedOrderForActa as any).id_tecnico ||
             undefined
           }
           onClose={() => setSelectedOrderForActa(null)}

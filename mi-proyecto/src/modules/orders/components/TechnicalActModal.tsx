@@ -37,6 +37,7 @@ import { Order } from "../types/Order";
 import { getPlantillaPorTrabajo } from "../utils/actaTemplates";
 import {
   getTecnicoStock,
+  subirFotoActa,
   liquidarActaOrden,
   getActaLiquidacion,
   getMotivos,
@@ -62,6 +63,7 @@ interface Props {
   canEditTipoTrabajo?: boolean; // Permite editar el tipo de liquidación
   isTechnicianView?: boolean; // Si es la vista móvil del técnico en campo
   showActaPhoto?: boolean; // Controla si se muestra el panel derecho con la foto del acta
+  esOrdenamiento?: boolean; // Si la orden o técnico pertenece a Ordenamiento
   onClose: () => void;
   onSuccess?: () => void;
 }
@@ -73,14 +75,26 @@ export const TechnicalActModal: React.FC<Props> = ({
   canEditTipoTrabajo = true, // Habilitado para que el técnico siempre pueda escoger el tipo de liquidación
   isTechnicianView = false,
   showActaPhoto,
+  esOrdenamiento = false,
   onClose,
   onSuccess,
 }) => {
+  const isOrdenamiento = Boolean(
+    esOrdenamiento ||
+    (order?.cuadrilla && /^O\s*[0-9]/i.test(order.cuadrilla.trim())) ||
+    (order?.tipoTrabajo && String(order.tipoTrabajo).toUpperCase().includes("ORDEN")) ||
+    (order?.motivoFinalizacion && String(order.motivoFinalizacion).toUpperCase().includes("CONJUNTA"))
+  );
   const shouldShowPhoto = showActaPhoto !== undefined ? showActaPhoto : !isTechnicianView;
   const isAlreadyLiquidated = readOnly || String(order.status || order.estado || "").toUpperCase().includes("LIQUID");
   const [guardando, setGuardando] = useState(false);
   const [cargandoActaGuardada, setCargandoActaGuardada] = useState(false);
   const [actaGuardadaNoExiste, setActaGuardadaNoExiste] = useState(false);
+
+  // Estado para fotografía física del Acta de Ordenamiento
+  const [fotoActaFile, setFotoActaFile] = useState<File | null>(null);
+  const [fotoActaPreview, setFotoActaPreview] = useState<string | null>(null);
+  const fileInputFotoActaRef = useRef<HTMLInputElement>(null);
 
   // 1. Cabecera & Guía/Acta Física (001- fijo, solo se digita sufijo numérico)
   const [guiaCorrelativo, setGuiaCorrelativo] = useState("");
@@ -788,6 +802,10 @@ export const TechnicalActModal: React.FC<Props> = ({
             setLngGpsGuardada(a.lng_liquidacion ? Number(a.lng_liquidacion) : null);
             setTecnicoNombreGuardado(a.tecnico_nombre || "");
 
+            if (res.foto_acta) {
+              setFotoActaPreview(res.foto_acta);
+            }
+
             if (res.materiales && res.materiales.length > 0) {
               const soloConsumiblesGuardados = res.materiales.filter((m: any) => {
                 const nom = String(m.nombre || "").toUpperCase().trim();
@@ -877,6 +895,7 @@ export const TechnicalActModal: React.FC<Props> = ({
 
   // Control dinámico de visibilidad para equipos serializados
   const seccionEquiposVisible = useMemo(() => {
+    if (isOrdenamiento) return false;
     if (mostrarEquiposManual !== null) return mostrarEquiposManual;
     return Boolean(
       plantillaActual.requiereEquipoInstalado ||
@@ -1463,7 +1482,7 @@ export const TechnicalActModal: React.FC<Props> = ({
     // ─────────────────────────────────────────────────────────────
     // REGLA DE NEGOCIO 3.2: VALIDACIÓN ESTRICTA DE EQUIPOS INSTALADOS (ONT / MESH / FONOWIN / TV BOX)
     // ─────────────────────────────────────────────────────────────
-    if (snOntInstalado) {
+    if (!isOrdenamiento && snOntInstalado) {
       const cleanEq = snOntInstalado.trim().replace(/^(?:S\/N|SN|SERIE)[:\s-]+/i, "").trim().toUpperCase();
       const serieValida = seriesAsignadasTecnico.some((s: any) => {
         const num = String(s.numero_serie || "").trim().replace(/^(?:S\/N|SN|SERIE)[:\s-]+/i, "").trim().toUpperCase();
@@ -1480,7 +1499,7 @@ export const TechnicalActModal: React.FC<Props> = ({
       }
     }
 
-    if (snMeshInstalado) {
+    if (!isOrdenamiento && snMeshInstalado) {
       const cleanMesh = snMeshInstalado.trim().replace(/^(?:S\/N|SN|SERIE)[:\s-]+/i, "").trim().toUpperCase();
       const serieValida = seriesAsignadasTecnico.some((s: any) => {
         const num = String(s.numero_serie || "").trim().replace(/^(?:S\/N|SN|SERIE)[:\s-]+/i, "").trim().toUpperCase();
@@ -1589,8 +1608,23 @@ export const TechnicalActModal: React.FC<Props> = ({
         ? `${currentUser.nombres || ''} ${currentUser.apellidos || ''} (${currentUser.rol || 'Usuario'})`.trim()
         : "Técnico";
 
+      let uploadedFotoUrl: string | undefined = undefined;
+      if (fotoActaFile) {
+        try {
+          const uploadRes = await subirFotoActa(fotoActaFile);
+          if (uploadRes?.success && uploadRes?.url) {
+            uploadedFotoUrl = uploadRes.url;
+          }
+        } catch (uploadErr: any) {
+          console.warn("Aviso al subir foto de acta de ordenamiento:", uploadErr?.message);
+        }
+      } else if (fotoActaPreview && (fotoActaPreview.startsWith("http") || fotoActaPreview.startsWith("/uploads"))) {
+        uploadedFotoUrl = fotoActaPreview;
+      }
+
       const targetOrderId = order.id || (order as any)?.id_orden;
       await liquidarActaOrden(targetOrderId, {
+        foto_acta: uploadedFotoUrl,
         id_trabajador: finalTrabajadorId ? Number(finalTrabajadorId) : undefined,
         numero_guia: numeroActaOficial,
         numero_acta: numeroActaOficial,
@@ -2668,7 +2702,7 @@ export const TechnicalActModal: React.FC<Props> = ({
                       )}
                     </div>
                   ) : (
-                    !isAlreadyLiquidated && (
+                    !isAlreadyLiquidated && !isOrdenamiento && (
                       <div className="flex items-center justify-between p-3 bg-slate-50 border border-dashed border-slate-200 rounded-xl hover:bg-indigo-50/50 hover:border-indigo-200 transition-colors">
                         <div className="flex items-center gap-2 text-slate-500 text-xs">
                           <QrCode size={15} className="text-slate-400" />
@@ -2684,6 +2718,92 @@ export const TechnicalActModal: React.FC<Props> = ({
                         </button>
                       </div>
                     )
+                  )}
+
+                  {/* SECCIÓN EXCLUSIVA DE ORDENAMIENTO: FOTO DEL ACTA FÍSICA */}
+                  {isOrdenamiento && (
+                    <div className="p-4 bg-gradient-to-r from-amber-50/80 via-orange-50/60 to-yellow-50/80 border-2 border-amber-300 rounded-2xl space-y-3 shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-black text-xs text-amber-950 flex items-center gap-1.5">
+                          <Camera size={16} className="text-amber-600" />
+                          Fotografía del Acta Física / Guía de Ordenamiento
+                        </span>
+                        <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-lg bg-amber-200/70 text-amber-900 border border-amber-300">
+                          Exclusivo Ordenamiento
+                        </span>
+                      </div>
+
+                      <p className="text-[11px] text-amber-800 font-medium leading-relaxed">
+                        Toma una fotografía nítida del acta física firmada en campo para respaldar los materiales y trabajos de ordenamiento realizados.
+                      </p>
+
+                      {fotoActaPreview ? (
+                        <div className="relative rounded-2xl overflow-hidden border border-amber-300 bg-black/5 flex flex-col items-center">
+                          <img 
+                            src={fotoActaPreview} 
+                            alt="Foto del Acta de Ordenamiento" 
+                            className="max-h-72 w-auto object-contain rounded-xl shadow-xs" 
+                          />
+                          {!isAlreadyLiquidated && (
+                            <div className="absolute top-2 right-2 flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => fileInputFotoActaRef.current?.click()}
+                                className="px-2.5 py-1.5 bg-white/90 hover:bg-white text-slate-800 rounded-xl text-[11px] font-bold shadow-md flex items-center gap-1 cursor-pointer transition-all active:scale-95"
+                              >
+                                <Camera size={13} className="text-amber-600" />
+                                <span>Cambiar Foto</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFotoActaFile(null);
+                                  setFotoActaPreview(null);
+                                }}
+                                className="p-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl shadow-md cursor-pointer transition-all active:scale-95"
+                                title="Eliminar foto"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div 
+                          onClick={() => !isAlreadyLiquidated && fileInputFotoActaRef.current?.click()}
+                          className={`p-6 border-2 border-dashed border-amber-300 hover:border-amber-500 rounded-2xl bg-white/70 hover:bg-white flex flex-col items-center justify-center gap-2 cursor-pointer transition-all group ${isAlreadyLiquidated ? "opacity-60 cursor-not-allowed" : "active:scale-99"}`}
+                        >
+                          <div className="p-3 rounded-full bg-amber-100 text-amber-700 group-hover:scale-110 transition-transform">
+                            <Camera size={26} />
+                          </div>
+                          <div className="text-center">
+                            <span className="font-black text-xs text-amber-950 block">
+                              📸 Toca aquí para Tomar Foto con la Cámara o Seleccionar
+                            </span>
+                            <span className="text-[10.5px] text-slate-500 font-medium block mt-0.5">
+                              Sube la foto del acta física llenada a mano (JPG o PNG, máx. 15MB)
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      <input
+                        ref={fileInputFotoActaRef}
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            setFotoActaFile(file);
+                            const reader = new FileReader();
+                            reader.onload = () => setFotoActaPreview(reader.result as string);
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                    </div>
                   )}
 
                   {/* Observaciones */}

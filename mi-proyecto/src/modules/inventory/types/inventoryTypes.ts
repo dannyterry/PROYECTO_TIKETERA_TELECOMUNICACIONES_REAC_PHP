@@ -259,6 +259,7 @@ export interface ActaLiquidacionPayload {
   observaciones_tecnico?: string;
   firma_cliente?: string;
   firma_tecnico?: string;
+  foto_acta?: string;
   materiales_utilizados: { id_producto: number; cantidad: number }[];
   equipos_instalados: { numero_serie: string; tipo_equipo: string }[];
   equipos_retirados: { tipo_equipo: string; numero_serie: string; motivo_retiro: string }[];

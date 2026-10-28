@@ -60,13 +60,13 @@ export const InventoryPage: React.FC = () => {
 
   const tabsConfig = useMemo(() => [
     { id: "stock" as InventoryTabType, label: "Control de Stock & Almacenes", icon: Layers, allowed: canStock },
-    { id: "equipos_generales" as InventoryTabType, label: "Equipos Generales", badge: "WIN Grid", icon: HardDrive, allowed: canStock || canKardex || canDespacho },
     { id: "compras" as InventoryTabType, label: "Compras & Entrada (Series)", icon: ShoppingCart, allowed: canCompras },
     { id: "despacho" as InventoryTabType, label: "Despacho a Técnicos", icon: Truck, allowed: canDespacho },
     { id: "liquidaciones_ordenes" as InventoryTabType, label: "Liquidaciones de Técnicos", badge: "Actas", icon: FileCheck, allowed: canLiquidaciones },
     { id: "recogidos" as InventoryTabType, label: "Equipos Recogidos", icon: RotateCcw, allowed: canRecogidos },
     { id: "transferencias_tecnicos" as InventoryTabType, label: "Traspasos entre Técnicos", badge: "Campo", icon: ArrowLeftRight, allowed: canTraspasos },
     { id: "kardex" as InventoryTabType, label: "Kardex & Movimientos", badge: "General", icon: ArrowLeftRight, allowed: canKardex },
+    { id: "equipos_generales" as InventoryTabType, label: "Equipos Generales", badge: "WIN Grid", icon: HardDrive, allowed: canStock || canKardex || canDespacho },
     { id: "devoluciones" as InventoryTabType, label: "Devoluciones de Dotación", icon: ClipboardCheck, allowed: canDevoluciones },
     { id: "proveedores" as InventoryTabType, label: "Proveedores", icon: Building2, allowed: canProveedores },
     { id: "categorias" as InventoryTabType, label: "Categorías", icon: Tag, allowed: canCategorias },
@@ -135,7 +135,7 @@ export const InventoryPage: React.FC = () => {
           cargarDatos(true);
         }
       };
-    } catch {}
+    } catch { }
 
     // ⚡ 3. Refrescar al regresar al navegador o pestaña
     const handleFocus = () => {
@@ -254,19 +254,17 @@ export const InventoryPage: React.FC = () => {
             <button
               key={tab.id}
               onClick={() => handleTabChange(tab.id)}
-              className={`px-3.5 md:px-4 py-2 md:py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 cursor-pointer shrink-0 ${
-                isSelected
+              className={`px-3.5 md:px-4 py-2 md:py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 cursor-pointer shrink-0 ${isSelected
                   ? "bg-sky-600 text-white shadow-sm shadow-sky-600/20"
                   : "bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-slate-200/80"
-              }`}
+                }`}
             >
               <Icon size={16} className={isSelected ? "text-white" : "text-sky-600"} />
               <span>{tab.label}</span>
               {tab.badge && (
                 <span
-                  className={`px-1.5 py-0.2 rounded-full text-[9px] font-extrabold uppercase ${
-                    isSelected ? "bg-white/20 text-white" : "bg-sky-100 text-sky-700"
-                  }`}
+                  className={`px-1.5 py-0.2 rounded-full text-[9px] font-extrabold uppercase ${isSelected ? "bg-white/20 text-white" : "bg-sky-100 text-sky-700"
+                    }`}
                 >
                   {tab.badge}
                 </span>
