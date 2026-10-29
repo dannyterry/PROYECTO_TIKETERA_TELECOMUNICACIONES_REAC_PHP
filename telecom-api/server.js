@@ -299,31 +299,77 @@ async function migrarLoteTareasCacheAS3(limit = 25) {
       if (!Array.isArray(tasks)) continue;
 
       let fotosEnOrden = 0;
+      let huboCambiosEnJson = false;
       for (let tIdx = 0; tIdx < tasks.length; tIdx++) {
         const t = tasks[tIdx];
-        if (t.imagen_base64 && typeof t.imagen_base64 === 'string' && t.imagen_base64.startsWith('data:image/')) {
-          const s3Key = `tareas/orden_${numOrden}/tarea_${t.id || tIdx}_${Date.now()}.jpg`;
-          const s3Url = await subirBase64DirectoAS3(t.imagen_base64, s3Key);
-          if (s3Url) { t.imagen_base64 = s3Url; fotosEnOrden++; }
+        const tit = (t.titulo || t.nombre || '').toUpperCase();
+        const esActa = tit.includes('ACTA') || tit.includes('CONFORMIDAD');
+
+        // Si NO es Acta de Conformidad, no subir imágenes/íconos a S3
+        if (!esActa) {
+          if (t.imagen_base64 && typeof t.imagen_base64 === 'string' && t.imagen_base64.startsWith('data:image/')) {
+            t.imagen_base64 = null; // Limpiar ícono base64 de la tarea sin subir nada a S3
+            huboCambiosEnJson = true;
+          }
+          continue;
         }
+
+        // Si ES Acta de Conformidad, procesar ÚNICAMENTE la fotografía real en alta resolución (imagen_hd)
+        if (t.imagen_base64 && typeof t.imagen_base64 === 'string' && t.imagen_base64.startsWith('data:image/')) {
+          if (t.imagen_base64.length > 5000 && (!t.detalle || !t.detalle.fotografias || t.detalle.fotografias.length === 0)) {
+            const s3Key = `tareas/orden_${numOrden}/acta_hd_${t.id || tIdx}_${Date.now()}.jpg`;
+            const s3Url = await subirBase64DirectoAS3(t.imagen_base64, s3Key);
+            if (s3Url) {
+              t.imagen_base64 = s3Url;
+              fotosEnOrden++;
+              huboCambiosEnJson = true;
+            }
+          } else {
+            t.imagen_base64 = null;
+            huboCambiosEnJson = true;
+          }
+        }
+
         if (t.detalle && Array.isArray(t.detalle.fotografias)) {
           for (let fIdx = 0; fIdx < t.detalle.fotografias.length; fIdx++) {
             const fObj = t.detalle.fotografias[fIdx];
             if (fObj.imagen_hd && typeof fObj.imagen_hd === 'string' && fObj.imagen_hd.startsWith('data:image/')) {
-              const s3Key = `tareas/orden_${numOrden}/acta_hd_${fObj.dataId || fIdx}_${Date.now()}.jpg`;
-              const s3Url = await subirBase64DirectoAS3(fObj.imagen_hd, s3Key);
-              if (s3Url) { fObj.imagen_hd = s3Url; fotosEnOrden++; }
+              if (fObj.imagen_hd.length > 5000) {
+                const s3Key = `tareas/orden_${numOrden}/acta_hd_${fObj.dataId || fIdx}_${Date.now()}.jpg`;
+                const s3Url = await subirBase64DirectoAS3(fObj.imagen_hd, s3Key);
+                if (s3Url) {
+                  fObj.imagen_hd = s3Url;
+                  fotosEnOrden++;
+                  huboCambiosEnJson = true;
+                }
+              } else {
+                fObj.imagen_hd = null;
+                huboCambiosEnJson = true;
+              }
             }
-            if (fObj.imagen && typeof fObj.imagen === 'string' && fObj.imagen.startsWith('data:image/')) {
-              const s3Key = `tareas/orden_${numOrden}/acta_preview_${fObj.dataId || fIdx}_${Date.now()}.jpg`;
-              const s3Url = await subirBase64DirectoAS3(fObj.imagen, s3Key);
-              if (s3Url) { fObj.imagen = s3Url; fotosEnOrden++; }
+            if ((!fObj.imagen_hd || fObj.imagen_hd === null) && fObj.imagen && typeof fObj.imagen === 'string' && fObj.imagen.startsWith('data:image/')) {
+              if (fObj.imagen.length > 15000) {
+                const s3Key = `tareas/orden_${numOrden}/acta_hd_${fObj.dataId || fIdx}_${Date.now()}.jpg`;
+                const s3Url = await subirBase64DirectoAS3(fObj.imagen, s3Key);
+                if (s3Url) {
+                  fObj.imagen_hd = s3Url;
+                  fObj.imagen = null;
+                  fotosEnOrden++;
+                  huboCambiosEnJson = true;
+                }
+              } else {
+                fObj.imagen = null;
+                huboCambiosEnJson = true;
+              }
+            } else if (fObj.imagen && typeof fObj.imagen === 'string' && fObj.imagen.startsWith('data:image/')) {
+              fObj.imagen = null;
+              huboCambiosEnJson = true;
             }
           }
         }
       }
 
-      if (fotosEnOrden > 0) {
+      if (huboCambiosEnJson) {
         const nuevoJson = JSON.stringify(tasks);
         await pool.query(
           'UPDATE orden_tareas_cache SET tareas_json = ?, fecha_actualizacion = NOW() WHERE numero_orden = ?',
@@ -8962,7 +9008,44 @@ app.post('/api/almacen/devolucion-tecnico', async (req, res) => {
       }
 
       // 3. Devolver stock a Almacén Central (id_almacen = 1)
-      if (es2doUso) {
+      // 🎯 REGLA DE DROP EN BOBINA: Solo si es >= 70m entra a Almacén como Stock Reutilizable. Si es < 70m es MERMA.
+      const prodNombreUpper = String(prodInfo.nombre || '').toUpperCase();
+      const esDropBobina = prodInfo.id_producto === 55 || (
+        prodNombreUpper.includes('DROP') && !prodNombreUpper.includes('CONECTORIZADO')
+      );
+
+      if (esDropBobina) {
+        if (cant >= 70) {
+          // Entra a stock como saldo reutilizable (segundo uso para reasignar)
+          const [upd] = await pool.query("UPDATE stock SET cantidad_segundo_uso = COALESCE(cantidad_segundo_uso, 0) + ? WHERE id_producto = ? AND (id_almacen = 1 OR id_almacen IS NULL)", [cant, id_producto]);
+          if (upd.affectedRows === 0) {
+            await pool.query("INSERT INTO stock (id_producto, id_almacen, cantidad, cantidad_segundo_uso) VALUES (?, 1, 0, ?)", [id_producto, cant]);
+          }
+          await pool.query(`
+            INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
+            VALUES (?, 1, 'ENTRADA', ?, ?, NOW())
+          `, [id_producto, cant, `Devolución DROP REUTILIZABLE (>=70m) de ${tecnicoNombre} (${motivo || 'Sobrante de bobina'})`]);
+
+          // Registrar en tabla de trazabilidad de drop
+          await pool.query(`
+            INSERT INTO inventario_devoluciones_drop (id_trabajador, id_producto, metros_devueltos, clasificacion, motivo, origen, id_usuario_registro, fecha_registro)
+            VALUES (?, ?, ?, 'REUTILIZABLE', ?, 'MODAL_INDIVIDUAL', ?, NOW())
+          `, [id_trabajador, id_producto, cant, motivo || 'Sobrante de bobina', req.user?.id_usuario || null]).catch(console.error);
+
+        } else {
+          // Es MERMA / retazo corto (<70m): NO se suma a stock disponible de almacén
+          await pool.query(`
+            INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
+            VALUES (?, 1, 'SALIDA', ?, ?, NOW())
+          `, [id_producto, cant, `Devolución DROP MERMA (<70m) de ${tecnicoNombre} (${motivo || 'Retazo no utilizable'})`]);
+
+          // Registrar en tabla de mermas
+          await pool.query(`
+            INSERT INTO inventario_devoluciones_drop (id_trabajador, id_producto, metros_devueltos, clasificacion, motivo, origen, id_usuario_registro, fecha_registro)
+            VALUES (?, ?, ?, 'MERMA', ?, 'MODAL_INDIVIDUAL', ?, NOW())
+          `, [id_trabajador, id_producto, cant, motivo || 'Retazo no utilizable', req.user?.id_usuario || null]).catch(console.error);
+        }
+      } else if (es2doUso) {
         const [upd] = await pool.query("UPDATE stock SET cantidad_segundo_uso = COALESCE(cantidad_segundo_uso, 0) + ? WHERE id_producto = ? AND (id_almacen = 1 OR id_almacen IS NULL)", [cant, id_producto]);
         if (upd.affectedRows === 0) {
           await pool.query("INSERT INTO stock (id_producto, id_almacen, cantidad, cantidad_segundo_uso) VALUES (?, 1, 0, ?)", [id_producto, cant]);
@@ -8987,6 +9070,728 @@ app.post('/api/almacen/devolucion-tecnico', async (req, res) => {
   } catch (error) {
     console.error("Error en devolucion-tecnico:", error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// =========================================================================
+// ⚖️ MÓDULO: CRUCE DE MATERIAL & INVENTARIO (AUDITORÍA FÍSICA VS SISTEMA)
+// =========================================================================
+
+// 1. Obtener lista de técnicos y supervisores activos con su stock de Drop y estado de cuadre
+app.get('/api/almacen/cruce-inventario/tecnicos', async (req, res) => {
+  try {
+    const { tipo_servicio, buscar } = req.query;
+
+    let whereExtra = "";
+    const params = [];
+
+    if (tipo_servicio && tipo_servicio !== 'Todos') {
+      whereExtra += " AND u.tipo_servicio = ?";
+      params.push(tipo_servicio);
+    }
+    if (buscar && String(buscar).trim() !== '') {
+      whereExtra += " AND (u.documento LIKE ? OR u.nombres LIKE ? OR u.primer_apellido LIKE ? OR u.apellidos LIKE ? OR u.cuadrilla LIKE ?)";
+      const b = `%${String(buscar).trim()}%`;
+      params.push(b, b, b, b, b);
+    }
+
+    const [tecnicosRows] = await pool.query(`
+      SELECT 
+        t.id_trabajador,
+        t.id_usuario,
+        u.documento AS dni,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre,
+        COALESCE(r.nombre, 'TECNICO') AS rol_nombre,
+        COALESCE(u.tipo_servicio, 'GENERAL') AS tipo_servicio,
+        COALESCE(u.cuadrilla, 'S/C') AS cuadrilla,
+        COALESCE(v.placa, 'Sin vehículo') AS vehiculo_placa,
+        COALESCE(tp.stock, 0) AS stock_drop_sistema,
+        COALESCE(drop_info.id_producto, 55) AS id_producto_drop,
+        COALESCE(drop_info.nombre, 'DROP') AS drop_nombre,
+        -- Última auditoría realizada
+        last_aud.id_auditoria AS last_id_auditoria,
+        last_aud.stock_fisico AS last_stock_fisico,
+        last_aud.sobrante_devuelto AS last_sobrante_devuelto,
+        last_aud.metros_reutilizables AS last_metros_reutilizables,
+        last_aud.metros_merma AS last_metros_merma,
+        last_aud.diferencia AS last_diferencia,
+        last_aud.estado_cuadre AS last_estado_cuadre,
+        last_aud.observaciones AS last_observaciones,
+        last_aud.fecha_auditoria AS last_fecha_auditoria,
+        -- Totales históricos devueltos de este técnico
+        COALESCE(totales_drop.total_reutilizable, 0) AS total_historico_reutilizable,
+        COALESCE(totales_drop.total_merma, 0) AS total_historico_merma
+      FROM trabajadores t
+      JOIN usuarios u ON t.id_usuario = u.id_usuario
+      LEFT JOIN roles r ON u.id_rol = r.id_rol
+      LEFT JOIN vehiculos v ON t.id_vehiculo = v.id_vehiculo
+      -- Buscar producto DROP (id 55 o MAT-DRP)
+      LEFT JOIN productos drop_info ON drop_info.id_producto = 55
+      -- Stock en móvil del Drop
+      LEFT JOIN trabajador_productos tp ON t.id_trabajador = tp.id_trabajador AND tp.id_producto = 55
+      -- Subquery de la última auditoría
+      LEFT JOIN (
+        SELECT a.*
+        FROM inventario_auditorias_cruce a
+        INNER JOIN (
+          SELECT id_trabajador, MAX(id_auditoria) AS max_id
+          FROM inventario_auditorias_cruce
+          GROUP BY id_trabajador
+        ) max_a ON a.id_auditoria = max_a.max_id
+      ) last_aud ON t.id_trabajador = last_aud.id_trabajador
+      -- Subquery de totales devueltos
+      LEFT JOIN (
+        SELECT 
+          id_trabajador,
+          SUM(CASE WHEN clasificacion = 'REUTILIZABLE' THEN metros_devueltos ELSE 0 END) AS total_reutilizable,
+          SUM(CASE WHEN clasificacion = 'MERMA' THEN metros_devueltos ELSE 0 END) AS total_merma
+        FROM inventario_devoluciones_drop
+        GROUP BY id_trabajador
+      ) totales_drop ON t.id_trabajador = totales_drop.id_trabajador
+      WHERE (u.id_rol IN (2, 6) OR UPPER(r.nombre) IN ('TECNICO', 'SUPERVICION', 'SUPERVISOR'))
+        AND u.estado = 'Activo'
+        AND (t.estado = 'Activo' OR t.estado IS NULL)
+        ${whereExtra}
+      ORDER BY 
+        CASE WHEN last_aud.fecha_auditoria IS NULL THEN 0 ELSE 1 END ASC,
+        tecnico_nombre ASC
+    `, params);
+
+    res.json(tecnicosRows);
+  } catch (error) {
+    console.error("Error en /cruce-inventario/tecnicos:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 2. Guardar auditoría / cruce individual (Opción 1)
+app.post('/api/almacen/cruce-inventario/guardar', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const {
+      id_trabajador,
+      id_producto = 55,
+      stock_sistema,
+      stock_fisico,
+      sobrante_devuelto = 0,
+      observaciones = '',
+      metodo = 'MANUAL_INDIVIDUAL'
+    } = req.body;
+
+    if (!id_trabajador) {
+      await conn.rollback();
+      return res.status(400).json({ error: "Debe indicar el técnico a auditar." });
+    }
+
+    const nStockSistema = Number(stock_sistema) || 0;
+    const nStockFisico = Number(stock_fisico) || 0;
+    const nSobrante = Number(sobrante_devuelto) || 0;
+
+    let metrosReutilizables = 0;
+    let metrosMerma = 0;
+
+    // Obtener nombre del técnico
+    const [tRows] = await conn.query(`
+      SELECT TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre
+      FROM trabajadores t JOIN usuarios u ON t.id_usuario = u.id_usuario
+      WHERE t.id_trabajador = ?
+    `, [id_trabajador]);
+    const tecnicoNombre = tRows[0]?.tecnico_nombre || `Técnico #${id_trabajador}`;
+
+    // Si devuelve sobrante, aplicar la regla de los 70m
+    if (nSobrante > 0) {
+      if (nSobrante >= 70) {
+        metrosReutilizables = nSobrante;
+        // Sumar al stock de Almacén Central como segundo uso
+        const [upd] = await conn.query("UPDATE stock SET cantidad_segundo_uso = COALESCE(cantidad_segundo_uso, 0) + ? WHERE id_producto = ? AND (id_almacen = 1 OR id_almacen IS NULL)", [nSobrante, id_producto]);
+        if (upd.affectedRows === 0) {
+          await conn.query("INSERT INTO stock (id_producto, id_almacen, cantidad, cantidad_segundo_uso) VALUES (?, 1, 0, ?)", [id_producto, nSobrante]);
+        }
+        await conn.query(`
+          INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
+          VALUES (?, 1, 'ENTRADA', ?, ?, NOW())
+        `, [id_producto, nSobrante, `Inventario Cruce: DROP REUTILIZABLE (>=70m) de ${tecnicoNombre}`]);
+
+        await conn.query(`
+          INSERT INTO inventario_devoluciones_drop (id_trabajador, id_producto, metros_devueltos, clasificacion, motivo, origen, id_usuario_registro, fecha_registro)
+          VALUES (?, ?, ?, 'REUTILIZABLE', ?, ?, ?, NOW())
+        `, [id_trabajador, id_producto, nSobrante, observaciones || 'Sobrante de bobina en inventario', metodo, req.user?.id_usuario || null]);
+      } else {
+        metrosMerma = nSobrante;
+        await conn.query(`
+          INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
+          VALUES (?, 1, 'SALIDA', ?, ?, NOW())
+        `, [id_producto, nSobrante, `Inventario Cruce: DROP MERMA (<70m) de ${tecnicoNombre}`]);
+
+        await conn.query(`
+          INSERT INTO inventario_devoluciones_drop (id_trabajador, id_producto, metros_devueltos, clasificacion, motivo, origen, id_usuario_registro, fecha_registro)
+          VALUES (?, ?, ?, 'MERMA', ?, ?, ?, NOW())
+        `, [id_trabajador, id_producto, nSobrante, observaciones || 'Retazo de bobina en inventario', metodo, req.user?.id_usuario || null]);
+      }
+    }
+
+    // Actualizar el stock del técnico con lo que físicamente se queda en la camioneta
+    const [updTech] = await conn.query("UPDATE trabajador_productos SET stock = ? WHERE id_trabajador = ? AND id_producto = ?", [nStockFisico, id_trabajador, id_producto]);
+    if (updTech.affectedRows === 0) {
+      await conn.query("INSERT INTO trabajador_productos (id_trabajador, id_producto, stock) VALUES (?, ?, ?)", [id_trabajador, id_producto, nStockFisico]);
+    }
+
+    // Cálculo matemático del cuadre: (Físico en carro + Sobrante devuelto) - Sistema
+    const diferencia = (nStockFisico + nSobrante) - nStockSistema;
+    let estadoCuadre = 'CUADRADO';
+    if (diferencia < 0) estadoCuadre = 'FALTANTE';
+    else if (diferencia > 0) estadoCuadre = 'SOBRANTE';
+
+    // Guardar en tabla de auditorías
+    const [resIns] = await conn.query(`
+      INSERT INTO inventario_auditorias_cruce (
+        id_trabajador, id_producto, stock_sistema, stock_fisico, sobrante_devuelto,
+        metros_reutilizables, metros_merma, diferencia, estado_cuadre, observaciones,
+        metodo, id_usuario_auditor, fecha_auditoria
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+    `, [
+      id_trabajador, id_producto, nStockSistema, nStockFisico, nSobrante,
+      metrosReutilizables, metrosMerma, diferencia, estadoCuadre, observaciones || null,
+      metodo, req.user?.id_usuario || null
+    ]);
+
+    await conn.commit();
+
+    res.json({
+      success: true,
+      id_auditoria: resIns.insertId,
+      estado_cuadre: estadoCuadre,
+      diferencia,
+      metros_reutilizables: metrosReutilizables,
+      metros_merma: metrosMerma,
+      message: `Auditoría registrada exitosamente. Estado: ${estadoCuadre} (${diferencia > 0 ? '+' : ''}${diferencia}m).`
+    });
+  } catch (error) {
+    await conn.rollback();
+    console.error("Error al guardar cruce de inventario:", error);
+    res.status(500).json({ error: error.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// 3. Procesar importación masiva de auditoría por Excel
+app.post('/api/almacen/cruce-inventario/importar-excel', async (req, res) => {
+  const { filas, id_producto = 55 } = req.body;
+  if (!Array.isArray(filas) || filas.length === 0) {
+    return res.status(400).json({ error: "No se proporcionaron filas válidas para importar." });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    let totalProcesados = 0;
+    let totalReutilizable = 0;
+    let totalMerma = 0;
+    let totalCuadrados = 0;
+    let totalFaltantes = 0;
+    let totalSobrantes = 0;
+
+    for (const fila of filas) {
+      let id_trabajador = fila.id_trabajador;
+
+      // Si no viene id_trabajador, buscar por DNI o Nombre
+      if (!id_trabajador && fila.dni) {
+        const [uRow] = await conn.query("SELECT t.id_trabajador FROM trabajadores t JOIN usuarios u ON t.id_usuario = u.id_usuario WHERE u.documento = ? LIMIT 1", [String(fila.dni).trim()]);
+        if (uRow[0]) id_trabajador = uRow[0].id_trabajador;
+      }
+      if (!id_trabajador && fila.nombre) {
+        const [uRow] = await conn.query(`
+          SELECT t.id_trabajador 
+          FROM trabajadores t 
+          JOIN usuarios u ON t.id_usuario = u.id_usuario 
+          WHERE TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) LIKE ?
+          LIMIT 1
+        `, [`%${String(fila.nombre).trim()}%`]);
+        if (uRow[0]) id_trabajador = uRow[0].id_trabajador;
+      }
+
+      if (!id_trabajador) continue;
+
+      // Obtener stock actual en sistema de este técnico para el producto
+      const [tpRows] = await conn.query("SELECT stock FROM trabajador_productos WHERE id_trabajador = ? AND id_producto = ?", [id_trabajador, id_producto]);
+      const nStockSistema = tpRows[0] ? Number(tpRows[0].stock || 0) : 0;
+
+      const nStockFisico = Number(fila.stock_fisico || fila.metros_fisicos || fila.stock_en_carro || 0);
+      const nSobrante = Number(fila.sobrante_devuelto || fila.metros_sobrantes || fila.devolucion || 0);
+      const obs = String(fila.observaciones || fila.motivo || 'Importación Excel de inventario');
+
+      let mReutilizable = 0;
+      let mMerma = 0;
+
+      // Regla de los 70m
+      if (nSobrante > 0) {
+        if (nSobrante >= 70) {
+          mReutilizable = nSobrante;
+          totalReutilizable += nSobrante;
+          const [upd] = await conn.query("UPDATE stock SET cantidad_segundo_uso = COALESCE(cantidad_segundo_uso, 0) + ? WHERE id_producto = ? AND (id_almacen = 1 OR id_almacen IS NULL)", [nSobrante, id_producto]);
+          if (upd.affectedRows === 0) {
+            await conn.query("INSERT INTO stock (id_producto, id_almacen, cantidad, cantidad_segundo_uso) VALUES (?, 1, 0, ?)", [id_producto, nSobrante]);
+          }
+          await conn.query(`
+            INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
+            VALUES (?, 1, 'ENTRADA', ?, ?, NOW())
+          `, [id_producto, nSobrante, `Excel Cruce: DROP REUTILIZABLE (>=70m) Técnico #${id_trabajador}`]);
+
+          await conn.query(`
+            INSERT INTO inventario_devoluciones_drop (id_trabajador, id_producto, metros_devueltos, clasificacion, motivo, origen, id_usuario_registro, fecha_registro)
+            VALUES (?, ?, ?, 'REUTILIZABLE', ?, 'IMPORTACION_EXCEL', ?, NOW())
+          `, [id_trabajador, id_producto, nSobrante, obs, req.user?.id_usuario || null]);
+        } else {
+          mMerma = nSobrante;
+          totalMerma += nSobrante;
+          await conn.query(`
+            INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
+            VALUES (?, 1, 'SALIDA', ?, ?, NOW())
+          `, [id_producto, nSobrante, `Excel Cruce: DROP MERMA (<70m) Técnico #${id_trabajador}`]);
+
+          await conn.query(`
+            INSERT INTO inventario_devoluciones_drop (id_trabajador, id_producto, metros_devueltos, clasificacion, motivo, origen, id_usuario_registro, fecha_registro)
+            VALUES (?, ?, ?, 'MERMA', ?, 'IMPORTACION_EXCEL', ?, NOW())
+          `, [id_trabajador, id_producto, nSobrante, obs, req.user?.id_usuario || null]);
+        }
+      }
+
+      // Actualizar stock del técnico
+      await conn.query("UPDATE trabajador_productos SET stock = ? WHERE id_trabajador = ? AND id_producto = ?", [nStockFisico, id_trabajador, id_producto]);
+
+      const dif = (nStockFisico + nSobrante) - nStockSistema;
+      let est = 'CUADRADO';
+      if (dif < 0) { est = 'FALTANTE'; totalFaltantes++; }
+      else if (dif > 0) { est = 'SOBRANTE'; totalSobrantes++; }
+      else { totalCuadrados++; }
+
+      await conn.query(`
+        INSERT INTO inventario_auditorias_cruce (
+          id_trabajador, id_producto, stock_sistema, stock_fisico, sobrante_devuelto,
+          metros_reutilizables, metros_merma, diferencia, estado_cuadre, observaciones,
+          metodo, id_usuario_auditor, fecha_auditoria
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'IMPORTACION_EXCEL', ?, NOW())
+      `, [
+        id_trabajador, id_producto, nStockSistema, nStockFisico, nSobrante,
+        mReutilizable, mMerma, dif, est, obs, req.user?.id_usuario || null
+      ]);
+
+      totalProcesados++;
+    }
+
+    await conn.commit();
+
+    res.json({
+      success: true,
+      totalProcesados,
+      totalReutilizable,
+      totalMerma,
+      totalCuadrados,
+      totalFaltantes,
+      totalSobrantes,
+      message: `¡Importación completada! ${totalProcesados} técnicos auditados.`
+    });
+  } catch (errExcel) {
+    await conn.rollback();
+    console.error("Error al importar Excel de auditoría:", errExcel);
+    res.status(500).json({ error: errExcel.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// 4. Historial unificado de cruces y devoluciones de Drop
+app.get('/api/almacen/cruce-inventario/historial', async (req, res) => {
+  try {
+    const { id_trabajador, tipo_servicio, clasificacion, fecha_desde, fecha_hasta } = req.query;
+
+    let whereDev = "1=1";
+    const paramsDev = [];
+
+    if (id_trabajador && id_trabajador !== 'Todos') {
+      whereDev += " AND d.id_trabajador = ?";
+      paramsDev.push(Number(id_trabajador));
+    }
+    if (tipo_servicio && tipo_servicio !== 'Todos') {
+      whereDev += " AND u.tipo_servicio = ?";
+      paramsDev.push(tipo_servicio);
+    }
+    if (clasificacion && clasificacion !== 'Todos') {
+      whereDev += " AND d.clasificacion = ?";
+      paramsDev.push(clasificacion);
+    }
+    if (fecha_desde) {
+      whereDev += " AND DATE(d.fecha_registro) >= ?";
+      paramsDev.push(fecha_desde);
+    }
+    if (fecha_hasta) {
+      whereDev += " AND DATE(d.fecha_registro) <= ?";
+      paramsDev.push(fecha_hasta);
+    }
+
+    const [devoluciones] = await pool.query(`
+      SELECT 
+        d.id_devolucion,
+        d.id_trabajador,
+        d.id_producto,
+        p.nombre AS producto_nombre,
+        p.codigo AS producto_codigo,
+        d.metros_devueltos,
+        d.clasificacion,
+        d.motivo,
+        d.origen,
+        d.fecha_registro,
+        u.documento AS dni,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre,
+        COALESCE(r.nombre, 'TECNICO') AS rol_nombre,
+        COALESCE(u.tipo_servicio, 'GENERAL') AS tipo_servicio,
+        COALESCE(u.cuadrilla, 'S/C') AS cuadrilla,
+        COALESCE(v.placa, 'Sin vehículo') AS vehiculo_placa,
+        -- Usuario que registró
+        TRIM(CONCAT(COALESCE(u_reg.nombres, ''), ' ', COALESCE(u_reg.primer_apellido, ''))) AS registrado_por
+      FROM inventario_devoluciones_drop d
+      JOIN productos p ON d.id_producto = p.id_producto
+      JOIN trabajadores t ON d.id_trabajador = t.id_trabajador
+      JOIN usuarios u ON t.id_usuario = u.id_usuario
+      LEFT JOIN roles r ON u.id_rol = r.id_rol
+      LEFT JOIN vehiculos v ON t.id_vehiculo = v.id_vehiculo
+      LEFT JOIN usuarios u_reg ON d.id_usuario_registro = u_reg.id_usuario
+      WHERE ${whereDev}
+      ORDER BY d.fecha_registro DESC
+      LIMIT 500
+    `, paramsDev);
+
+    // Auditorías de cruce realizadas
+    const [auditorias] = await pool.query(`
+      SELECT 
+        a.id_auditoria,
+        a.id_trabajador,
+        a.id_producto,
+        p.nombre AS producto_nombre,
+        a.stock_sistema,
+        a.stock_fisico,
+        a.sobrante_devuelto,
+        a.metros_reutilizables,
+        a.metros_merma,
+        a.diferencia,
+        a.estado_cuadre,
+        a.observaciones,
+        a.metodo,
+        a.fecha_auditoria,
+        u.documento AS dni,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre,
+        COALESCE(r.nombre, 'TECNICO') AS rol_nombre,
+        COALESCE(u.tipo_servicio, 'GENERAL') AS tipo_servicio,
+        COALESCE(u.cuadrilla, 'S/C') AS cuadrilla
+      FROM inventario_auditorias_cruce a
+      JOIN productos p ON a.id_producto = p.id_producto
+      JOIN trabajadores t ON a.id_trabajador = t.id_trabajador
+      JOIN usuarios u ON t.id_usuario = u.id_usuario
+      LEFT JOIN roles r ON u.id_rol = r.id_rol
+      ORDER BY a.fecha_auditoria DESC
+      LIMIT 200
+    `);
+
+    res.json({
+      devoluciones: devoluciones || [],
+      auditorias: auditorias || []
+    });
+  } catch (error) {
+    console.error("Error en /cruce-inventario/historial:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 5. Obtener todos los materiales/productos de un técnico para su inventario detallado
+app.get('/api/almacen/cruce-inventario/tecnico-materiales/:idTrabajador', async (req, res) => {
+  try {
+    const idTrabajador = Number(req.params.idTrabajador);
+    if (!idTrabajador) {
+      return res.status(400).json({ error: "id_trabajador inválido." });
+    }
+
+    const [tRows] = await pool.query(`
+      SELECT 
+        t.id_trabajador,
+        t.id_usuario,
+        u.documento AS dni,
+        TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre,
+        COALESCE(r.nombre, 'TECNICO') AS rol_nombre,
+        COALESCE(u.tipo_servicio, 'GENERAL') AS tipo_servicio,
+        COALESCE(u.cuadrilla, 'S/C') AS cuadrilla,
+        COALESCE(v.placa, 'Sin vehículo') AS vehiculo_placa
+      FROM trabajadores t
+      JOIN usuarios u ON t.id_usuario = u.id_usuario
+      LEFT JOIN roles r ON u.id_rol = r.id_rol
+      LEFT JOIN vehiculos v ON t.id_vehiculo = v.id_vehiculo
+      WHERE t.id_trabajador = ?
+    `, [idTrabajador]);
+
+    if (tRows.length === 0) {
+      return res.status(404).json({ error: "Técnico no encontrado." });
+    }
+
+    const [materiales] = await pool.query(`
+      SELECT 
+        p.id_producto,
+        p.codigo,
+        p.nombre,
+        COALESCE(c.nombre, 'MATERIALES') AS categoria,
+        COALESCE(c.id_categoria, 1) AS id_categoria,
+        COALESCE(tp.stock, 0) AS stock_sistema,
+        CASE 
+          WHEN p.id_producto = 65 OR p.codigo = 'MAT-ACT' OR UPPER(p.nombre) LIKE '%ACTA%' THEN 1 
+          ELSE 0 
+        END AS es_acta,
+        CASE 
+          WHEN p.id_producto = 55 OR p.codigo = 'MAT-DRP' OR UPPER(p.nombre) = 'DROP' THEN 1 
+          ELSE 0 
+        END AS es_drop,
+        COALESCE(p.maneja_serie, 0) AS maneja_serie,
+        CASE 
+          WHEN p.id_producto = 55 OR p.codigo = 'MAT-DRP' OR UPPER(p.nombre) = 'DROP' THEN 'Metros' 
+          ELSE 'Unidades' 
+        END AS unidad_medida,
+        last_aud.stock_fisico AS last_stock_fisico,
+        last_aud.sobrante_devuelto AS last_sobrante_devuelto,
+        last_aud.metros_reutilizables AS last_metros_reutilizables,
+        last_aud.metros_merma AS last_metros_merma,
+        last_aud.diferencia AS last_diferencia,
+        last_aud.estado_cuadre AS last_estado_cuadre,
+        last_aud.fecha_auditoria AS last_fecha_auditoria
+      FROM productos p
+      LEFT JOIN categorias c ON p.id_categoria = c.id_categoria
+      LEFT JOIN trabajador_productos tp ON p.id_producto = tp.id_producto AND tp.id_trabajador = ?
+      LEFT JOIN (
+        SELECT a.*
+        FROM inventario_auditorias_cruce a
+        INNER JOIN (
+          SELECT id_trabajador, id_producto, MAX(id_auditoria) AS max_id
+          FROM inventario_auditorias_cruce
+          WHERE id_trabajador = ?
+          GROUP BY id_trabajador, id_producto
+        ) ma ON a.id_auditoria = ma.max_id
+      ) last_aud ON p.id_producto = last_aud.id_producto
+      WHERE (tp.stock > 0 OR p.id_categoria IN (1, 7, 12) OR p.id_producto = 55)
+        AND (p.estado = 'Activo' OR p.estado IS NULL)
+      ORDER BY 
+        CASE WHEN p.id_producto = 55 THEN 0 ELSE 1 END,
+        c.nombre ASC,
+        p.nombre ASC
+    `, [idTrabajador, idTrabajador]);
+
+    const categorias = Array.from(new Set(materiales.map(m => m.categoria))).filter(Boolean);
+
+    // Consultar series activas asignadas a este técnico (EQUIPOS y ACTAS)
+    const [seriesRows] = await pool.query(`
+      SELECT 
+        ts.id_trabajador_serie,
+        ts.id_trabajador,
+        ts.id_producto,
+        ts.id_producto_serie,
+        COALESCE(ts.estado, 'Asignada') AS estado_asignacion,
+        ts.fecha_asignacion,
+        ps.numero_serie,
+        ps.mac,
+        ps.proid,
+        ps.codigo_serie,
+        COALESCE(ps.estado, 'RESERVADO') AS estado_serie,
+        p.nombre AS equipo_nombre,
+        p.codigo AS equipo_codigo,
+        COALESCE(c.nombre, 'EQUIPOS') AS categoria,
+        CASE WHEN p.nombre LIKE '%ACTA%' OR ps.numero_serie LIKE '001-%' OR p.id_producto = 65 THEN 1 ELSE 0 END AS es_acta
+      FROM trabajador_series ts
+      JOIN producto_series ps ON ts.id_producto_serie = ps.id_producto_serie
+      JOIN productos p ON ps.id_producto = p.id_producto
+      LEFT JOIN categorias c ON p.id_categoria = c.id_categoria
+      WHERE ts.id_trabajador = ?
+        AND (ts.estado = 'Asignada' OR ts.estado = 'RESERVADO' OR ts.estado = '' OR ts.estado IS NULL OR ps.estado = 'RESERVADO')
+      ORDER BY p.nombre ASC, ps.numero_serie ASC
+    `, [idTrabajador]);
+
+    // Agrupar actas correlativas en rangos
+    const actasOnly = seriesRows.filter(s => s.es_acta);
+    const rangosActas = [];
+    let currRange = null;
+
+    for (const a of actasOnly) {
+      const parts = String(a.numero_serie).split('-');
+      if (parts.length === 2 && !isNaN(Number(parts[1]))) {
+        const prefix = parts[0] + '-';
+        const num = Number(parts[1]);
+        const padLen = parts[1].length;
+
+        if (!currRange) {
+          currRange = { prefix, startNum: num, endNum: num, padLen, count: 1 };
+        } else if (currRange.prefix === prefix && num === currRange.endNum + 1) {
+          currRange.endNum = num;
+          currRange.count++;
+        } else {
+          rangosActas.push({
+            rango_texto: `${currRange.prefix}${String(currRange.startNum).padStart(currRange.padLen, '0')} al ${currRange.prefix}${String(currRange.endNum).padStart(currRange.padLen, '0')}`,
+            prefijo: currRange.prefix,
+            inicio: String(currRange.startNum).padStart(currRange.padLen, '0'),
+            fin: String(currRange.endNum).padStart(currRange.padLen, '0'),
+            cantidad: currRange.count
+          });
+          currRange = { prefix, startNum: num, endNum: num, padLen, count: 1 };
+        }
+      }
+    }
+    if (currRange) {
+      rangosActas.push({
+        rango_texto: `${currRange.prefix}${String(currRange.startNum).padStart(currRange.padLen, '0')} al ${currRange.prefix}${String(currRange.endNum).padStart(currRange.padLen, '0')}`,
+        prefijo: currRange.prefix,
+        inicio: String(currRange.startNum).padStart(currRange.padLen, '0'),
+        fin: String(currRange.endNum).padStart(currRange.padLen, '0'),
+        cantidad: currRange.count
+      });
+    }
+
+    res.json({
+      tecnico: tRows[0],
+      materiales: materiales || [],
+      categorias: categorias,
+      series: seriesRows || [],
+      rangos_actas: rangosActas || []
+    });
+  } catch (error) {
+    console.error("Error en /cruce-inventario/tecnico-materiales:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 6. Guardar inventario completo de un técnico (Múltiples materiales a la vez)
+app.post('/api/almacen/cruce-inventario/guardar-lote-tecnico', async (req, res) => {
+  const { id_trabajador, items = [], observaciones_generales = '' } = req.body;
+  if (!id_trabajador) {
+    return res.status(400).json({ error: "id_trabajador es requerido." });
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: "No hay materiales para guardar." });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [tRows] = await conn.query(`
+      SELECT TRIM(CONCAT(COALESCE(u.nombres, ''), ' ', COALESCE(u.primer_apellido, u.apellidos, ''))) AS tecnico_nombre
+      FROM trabajadores t JOIN usuarios u ON t.id_usuario = u.id_usuario
+      WHERE t.id_trabajador = ?
+    `, [id_trabajador]);
+    const tecnicoNombre = tRows[0]?.tecnico_nombre || `Técnico #${id_trabajador}`;
+
+    let totalGuardados = 0;
+    let totalDropReutilizable = 0;
+    let totalDropMerma = 0;
+
+    for (const item of items) {
+      const id_producto = Number(item.id_producto);
+      if (!id_producto) continue;
+
+      const nStockSistema = Number(item.stock_sistema) || 0;
+      const nStockFisico = Number(item.stock_fisico !== undefined && item.stock_fisico !== '' ? item.stock_fisico : nStockSistema);
+      const nSobrante = Number(item.sobrante_devuelto) || 0;
+      const esDrop = Boolean(item.es_drop || id_producto === 55);
+      const obs = String(item.observaciones || observaciones_generales || '');
+
+      let metrosReutilizables = 0;
+      let metrosMerma = 0;
+
+      // Regla de DROP en bobina
+      if (esDrop) {
+        if (nSobrante > 0) {
+          if (nSobrante >= 70) {
+            metrosReutilizables = nSobrante;
+            totalDropReutilizable += nSobrante;
+            const [upd] = await conn.query("UPDATE stock SET cantidad_segundo_uso = COALESCE(cantidad_segundo_uso, 0) + ? WHERE id_producto = ? AND (id_almacen = 1 OR id_almacen IS NULL)", [nSobrante, id_producto]);
+            if (upd.affectedRows === 0) {
+              await conn.query("INSERT INTO stock (id_producto, id_almacen, cantidad, cantidad_segundo_uso) VALUES (?, 1, 0, ?)", [id_producto, nSobrante]);
+            }
+            await conn.query(`
+              INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
+              VALUES (?, 1, 'ENTRADA', ?, ?, NOW())
+            `, [id_producto, nSobrante, `Inventario Cruce: DROP REUTILIZABLE (>=70m) de ${tecnicoNombre}`]);
+
+            await conn.query(`
+              INSERT INTO inventario_devoluciones_drop (id_trabajador, id_producto, metros_devueltos, clasificacion, motivo, origen, id_usuario_registro, fecha_registro)
+              VALUES (?, ?, ?, 'REUTILIZABLE', ?, 'INVENTARIO_TECNICO', ?, NOW())
+            `, [id_trabajador, id_producto, nSobrante, obs || 'Sobrante de bobina en inventario', req.user?.id_usuario || null]);
+          } else {
+            metrosMerma = nSobrante;
+            totalDropMerma += nSobrante;
+            await conn.query(`
+              INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
+              VALUES (?, 1, 'SALIDA', ?, ?, NOW())
+            `, [id_producto, nSobrante, `Inventario Cruce: DROP MERMA (<70m) de ${tecnicoNombre}`]);
+
+            await conn.query(`
+              INSERT INTO inventario_devoluciones_drop (id_trabajador, id_producto, metros_devueltos, clasificacion, motivo, origen, id_usuario_registro, fecha_registro)
+              VALUES (?, ?, ?, 'MERMA', ?, 'INVENTARIO_TECNICO', ?, NOW())
+            `, [id_trabajador, id_producto, nSobrante, obs || 'Retazo de bobina en inventario', req.user?.id_usuario || null]);
+          }
+        }
+      } else {
+        // Otros materiales / equipos: si entrega sobrante, ingresa a almacén central
+        if (nSobrante > 0) {
+          const [upd] = await conn.query("UPDATE stock SET cantidad = COALESCE(cantidad, 0) + ? WHERE id_producto = ? AND (id_almacen = 1 OR id_almacen IS NULL)", [nSobrante, id_producto]);
+          if (upd.affectedRows === 0) {
+            await conn.query("INSERT INTO stock (id_producto, id_almacen, cantidad) VALUES (?, 1, ?)", [id_producto, nSobrante]);
+          }
+          await conn.query(`
+            INSERT INTO movimientos (id_producto, id_almacen, tipo, cantidad, referencia, fecha_creacion)
+            VALUES (?, 1, 'ENTRADA', ?, ?, NOW())
+          `, [id_producto, nSobrante, `Inventario Cruce: Devolución material de ${tecnicoNombre}`]);
+        }
+      }
+
+      // Actualizar stock del técnico con lo que físicamente tiene
+      const [updTech] = await conn.query("UPDATE trabajador_productos SET stock = ? WHERE id_trabajador = ? AND id_producto = ?", [nStockFisico, id_trabajador, id_producto]);
+      if (updTech.affectedRows === 0) {
+        await conn.query("INSERT INTO trabajador_productos (id_trabajador, id_producto, stock) VALUES (?, ?, ?)", [id_trabajador, id_producto, nStockFisico]);
+      }
+
+      // Diferencia y estado: (Físico + Sobrante) - Sistema
+      const diferencia = (nStockFisico + nSobrante) - nStockSistema;
+      let estadoCuadre = 'CUADRADO';
+      if (diferencia < 0) estadoCuadre = 'FALTANTE';
+      else if (diferencia > 0) estadoCuadre = 'SOBRANTE';
+
+      // Insertar auditoría de cruce
+      await conn.query(`
+        INSERT INTO inventario_auditorias_cruce (
+          id_trabajador, id_producto, stock_sistema, stock_fisico, sobrante_devuelto,
+          metros_reutilizables, metros_merma, diferencia, estado_cuadre,
+          observaciones, metodo, id_usuario_auditor, fecha_auditoria
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INVENTARIO_TECNICO', ?, NOW())
+      `, [
+        id_trabajador, id_producto, nStockSistema, nStockFisico, nSobrante,
+        metrosReutilizables, metrosMerma, diferencia, estadoCuadre,
+        obs, req.user?.id_usuario || null
+      ]);
+
+      totalGuardados++;
+    }
+
+    await conn.commit();
+    res.json({
+      success: true,
+      totalGuardados,
+      totalDropReutilizable,
+      totalDropMerma,
+      message: `Inventario de ${tecnicoNombre} guardado con éxito (${totalGuardados} materiales auditados).`
+    });
+  } catch (error) {
+    await conn.rollback();
+    console.error("Error en /cruce-inventario/guardar-lote-tecnico:", error);
+    res.status(500).json({ error: error.message });
+  } finally {
+    conn.release();
   }
 });
 

@@ -3827,6 +3827,46 @@ export const StockOverviewTab: React.FC<Props> = ({
                   <div className="text-[10px] text-slate-400 mt-1">
                     Máximo permitido: {modalDevolucion.item?.stock}
                   </div>
+
+                  {/* 🎯 Clasificación Inteligente de Drop (Regla 70m) */}
+                  {Boolean(
+                    modalDevolucion.item?.es_drop ||
+                    modalDevolucion.item?.id_producto === 55 ||
+                    (modalDevolucion.item?.producto_nombre?.toUpperCase().includes("DROP") &&
+                     !modalDevolucion.item?.producto_nombre?.toUpperCase().includes("CONECTORIZADO"))
+                  ) && (
+                    <div className={`mt-2 p-3 rounded-2xl border text-xs flex items-start gap-2.5 transition-all ${
+                      cantidadDevolver >= 70
+                        ? "bg-emerald-50/80 border-emerald-200 text-emerald-950"
+                        : "bg-rose-50/80 border-rose-200 text-rose-950"
+                    }`}>
+                      {cantidadDevolver >= 70 ? (
+                        <>
+                          <CheckCircle2 size={16} className="text-emerald-600 shrink-0 mt-0.5" />
+                          <div className="space-y-0.5">
+                            <span className="font-extrabold text-emerald-700 block text-xs">
+                              🟢 Saldo Reutilizable (&ge; 70m)
+                            </span>
+                            <span className="text-[11px] text-slate-600 leading-tight block">
+                              Se sumará al <strong>Almacén Central como stock disponible</strong> (segundo uso) para asignarse a otro técnico.
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <AlertTriangle size={16} className="text-rose-600 shrink-0 mt-0.5" />
+                          <div className="space-y-0.5">
+                            <span className="font-extrabold text-rose-700 block text-xs">
+                              🔴 Merma de Drop (&lt; 70m)
+                            </span>
+                            <span className="text-[11px] text-slate-600 leading-tight block">
+                              Retazo no utilizable para instalaciones. Se descontará de la camioneta y se registrará en el <strong>Módulo de Cruce & Mermas</strong> (no inflará el stock de almacén).
+                            </span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {modalDevolucion.seriesDisponibles && modalDevolucion.seriesDisponibles.length > 0 && (

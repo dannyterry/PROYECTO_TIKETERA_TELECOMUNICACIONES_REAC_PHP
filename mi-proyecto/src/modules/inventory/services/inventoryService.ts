@@ -575,3 +575,218 @@ export const actualizarEquipoGeneral = async (
 };
 
 
+
+// =========================================================================
+// ⚖️ MÓDULO: CRUCE DE MATERIAL & INVENTARIO (AUDITORÍA FÍSICA VS SISTEMA)
+// =========================================================================
+
+export interface TecnicoCruceItem {
+  id_trabajador: number;
+  id_usuario: number;
+  dni: string;
+  tecnico_nombre: string;
+  rol_nombre: string;
+  tipo_servicio: string;
+  cuadrilla: string;
+  vehiculo_placa: string;
+  stock_drop_sistema: number;
+  id_producto_drop: number;
+  drop_nombre: string;
+  last_id_auditoria?: number;
+  last_stock_fisico?: number;
+  last_sobrante_devuelto?: number;
+  last_metros_reutilizables?: number;
+  last_metros_merma?: number;
+  last_diferencia?: number;
+  last_estado_cuadre?: "CUADRADO" | "FALTANTE" | "SOBRANTE";
+  last_observaciones?: string;
+  last_fecha_auditoria?: string;
+  total_historico_reutilizable?: number;
+  total_historico_merma?: number;
+}
+
+export interface CruceHistorialResponse {
+  devoluciones: Array<{
+    id_devolucion: number;
+    id_trabajador: number;
+    id_producto: number;
+    producto_nombre: string;
+    producto_codigo: string;
+    metros_devueltos: number;
+    clasificacion: "REUTILIZABLE" | "MERMA";
+    motivo: string;
+    origen: string;
+    fecha_registro: string;
+    dni: string;
+    tecnico_nombre: string;
+    rol_nombre: string;
+    tipo_servicio: string;
+    cuadrilla: string;
+    vehiculo_placa: string;
+    registrado_por?: string;
+  }>;
+  auditorias: Array<{
+    id_auditoria: number;
+    id_trabajador: number;
+    id_producto: number;
+    producto_nombre: string;
+    stock_sistema: number;
+    stock_fisico: number;
+    sobrante_devuelto: number;
+    metros_reutilizables: number;
+    metros_merma: number;
+    diferencia: number;
+    estado_cuadre: "CUADRADO" | "FALTANTE" | "SOBRANTE";
+    observaciones: string;
+    metodo: string;
+    fecha_auditoria: string;
+    dni: string;
+    tecnico_nombre: string;
+    rol_nombre: string;
+    tipo_servicio: string;
+    cuadrilla: string;
+  }>;
+}
+
+export const getCruceInventarioTecnicos = async (params?: {
+  tipo_servicio?: string;
+  buscar?: string;
+}): Promise<TecnicoCruceItem[]> => {
+  const res = await api.get("/almacen/cruce-inventario/tecnicos", { params });
+  return res.data;
+};
+
+export const guardarAuditoriaCruce = async (payload: {
+  id_trabajador: number;
+  id_producto?: number;
+  stock_sistema: number;
+  stock_fisico: number;
+  sobrante_devuelto?: number;
+  observaciones?: string;
+  metodo?: "MANUAL_INDIVIDUAL" | "IMPORTACION_EXCEL";
+}): Promise<{
+  success: boolean;
+  id_auditoria: number;
+  estado_cuadre: string;
+  diferencia: number;
+  metros_reutilizables: number;
+  metros_merma: number;
+  message: string;
+}> => {
+  const res = await api.post("/almacen/cruce-inventario/guardar", payload);
+  return res.data;
+};
+
+export const importarExcelCruce = async (
+  filas: any[],
+  id_producto: number = 55
+): Promise<{
+  success: boolean;
+  totalProcesados: number;
+  totalReutilizable: number;
+  totalMerma: number;
+  totalCuadrados: number;
+  totalFaltantes: number;
+  totalSobrantes: number;
+  message: string;
+}> => {
+  const res = await api.post("/almacen/cruce-inventario/importar-excel", {
+    filas,
+    id_producto,
+  });
+  return res.data;
+};
+
+export const getHistorialCruceInventario = async (params?: {
+  id_trabajador?: string;
+  tipo_servicio?: string;
+  clasificacion?: string;
+  fecha_desde?: string;
+  fecha_hasta?: string;
+}): Promise<CruceHistorialResponse> => {
+  const res = await api.get("/almacen/cruce-inventario/historial", { params });
+  return res.data;
+};
+
+export interface MaterialTecnicoCruce {
+  id_producto: number;
+  codigo: string;
+  nombre: string;
+  categoria: string;
+  id_categoria: number;
+  stock_sistema: number;
+  es_acta?: number | boolean;
+  es_drop: number | boolean;
+  maneja_serie: number;
+  unidad_medida: string;
+  last_stock_fisico?: number | null;
+  last_sobrante_devuelto?: number | null;
+  last_metros_reutilizables?: number | null;
+  last_metros_merma?: number | null;
+  last_diferencia?: number | null;
+  last_estado_cuadre?: string | null;
+  last_fecha_auditoria?: string | null;
+}
+
+export interface SerieTecnicoInventario {
+  id_trabajador_serie: number;
+  id_trabajador: number;
+  id_producto: number;
+  id_producto_serie: number;
+  estado_asignacion: string;
+  fecha_asignacion: string;
+  numero_serie: string;
+  mac?: string | null;
+  proid?: string | null;
+  codigo_serie?: string | null;
+  estado_serie: string;
+  equipo_nombre: string;
+  equipo_codigo: string;
+  categoria: string;
+  es_acta: number | boolean;
+}
+
+export interface RangoActaInventario {
+  rango_texto: string;
+  prefijo: string;
+  inicio: string;
+  fin: string;
+  cantidad: number;
+}
+
+export interface TecnicoMaterialesResponse {
+  tecnico: TecnicoCruceItem;
+  materiales: MaterialTecnicoCruce[];
+  categorias: string[];
+  series?: SerieTecnicoInventario[];
+  rangos_actas?: RangoActaInventario[];
+}
+
+export const getMaterialesTecnicoCruce = async (
+  idTrabajador: number
+): Promise<TecnicoMaterialesResponse> => {
+  const res = await api.get(`/almacen/cruce-inventario/tecnico-materiales/${idTrabajador}`);
+  return res.data;
+};
+
+export const guardarInventarioLoteTecnico = async (payload: {
+  id_trabajador: number;
+  items: Array<{
+    id_producto: number;
+    stock_sistema: number;
+    stock_fisico: number;
+    sobrante_devuelto?: number;
+    es_drop?: boolean;
+    observaciones?: string;
+  }>;
+  observaciones_generales?: string;
+}): Promise<{
+  success: boolean;
+  totalGuardados: number;
+  totalDropReutilizable: number;
+  totalDropMerma: number;
+  message: string;
+}> => {
+  const res = await api.post("/almacen/cruce-inventario/guardar-lote-tecnico", payload);
+  return res.data;
+};

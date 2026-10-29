@@ -283,6 +283,10 @@ export default function App() {
     currentView === "recogidos" ||
     currentView === "devolucion" ||
     currentView === "devoluciones" ||
+    currentView === "cruce_inventario" ||
+    currentView === "cruce-inventario" ||
+    currentView === "cruce" ||
+    currentView.includes("cruce") ||
     currentView === "liquidacion" ||
     currentView === "liquidaciones" ||
     currentView === "liquidaciones_ordenes" ||

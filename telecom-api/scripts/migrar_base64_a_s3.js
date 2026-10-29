@@ -38,36 +38,32 @@ async function migrarOrdenAS3(numeroOrden, tareasJsonRaw) {
   let fotosSubidas = 0;
   for (let tIdx = 0; tIdx < tasks.length; tIdx++) {
     const t = tasks[tIdx];
+    const tit = (t.titulo || t.nombre || '').toUpperCase();
+    const esActa = tit.includes('ACTA') || tit.includes('CONFORMIDAD');
 
-    // 1. Imagen miniatura de la tarea
-    if (t.imagen_base64 && typeof t.imagen_base64 === 'string' && t.imagen_base64.startsWith('data:image/')) {
-      const s3Key = `tareas/orden_${numeroOrden}/tarea_${t.id || tIdx}_${Date.now()}.jpg`;
-      const s3Url = await subirBase64DirectoAS3(t.imagen_base64, s3Key);
-      if (s3Url) {
-        t.imagen_base64 = s3Url;
-        fotosSubidas++;
+    if (!esActa) {
+      if (t.imagen_base64 && typeof t.imagen_base64 === 'string' && t.imagen_base64.startsWith('data:image/')) {
+        t.imagen_base64 = null;
       }
+      continue;
     }
 
-    // 2. Fotografías de detalle / actas
+    // 2. Fotografías de detalle / actas (solo Acta de Conformidad en HD)
     if (t.detalle && Array.isArray(t.detalle.fotografias)) {
       for (let fIdx = 0; fIdx < t.detalle.fotografias.length; fIdx++) {
         const fObj = t.detalle.fotografias[fIdx];
         if (fObj.imagen_hd && typeof fObj.imagen_hd === 'string' && fObj.imagen_hd.startsWith('data:image/')) {
-          const s3Key = `tareas/orden_${numeroOrden}/acta_hd_${fObj.dataId || fIdx}_${Date.now()}.jpg`;
-          const s3Url = await subirBase64DirectoAS3(fObj.imagen_hd, s3Key);
-          if (s3Url) {
-            fObj.imagen_hd = s3Url;
-            fotosSubidas++;
+          if (fObj.imagen_hd.length > 5000) {
+            const s3Key = `tareas/orden_${numeroOrden}/acta_hd_${fObj.dataId || fIdx}_${Date.now()}.jpg`;
+            const s3Url = await subirBase64DirectoAS3(fObj.imagen_hd, s3Key);
+            if (s3Url) {
+              fObj.imagen_hd = s3Url;
+              fotosSubidas++;
+            }
           }
         }
         if (fObj.imagen && typeof fObj.imagen === 'string' && fObj.imagen.startsWith('data:image/')) {
-          const s3Key = `tareas/orden_${numeroOrden}/acta_preview_${fObj.dataId || fIdx}_${Date.now()}.jpg`;
-          const s3Url = await subirBase64DirectoAS3(fObj.imagen, s3Key);
-          if (s3Url) {
-            fObj.imagen = s3Url;
-            fotosSubidas++;
-          }
+          fObj.imagen = null;
         }
       }
     }

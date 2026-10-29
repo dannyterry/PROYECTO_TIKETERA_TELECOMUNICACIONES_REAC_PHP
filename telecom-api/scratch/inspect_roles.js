@@ -1,18 +1,20 @@
-const pool = require('../db');
+const mysql = require('mysql2/promise');
 
-(async () => {
-  const [roles] = await pool.query('SELECT * FROM roles');
-  console.log('=== ROLES EN BD ===');
-  console.table(roles);
+async function inspectRoles() {
+  const conn = await mysql.createConnection({
+    host: '127.0.0.1',
+    port: 3306,
+    user: 'root',
+    database: 'corporacioncespe_cespedes'
+  });
 
-  const [users] = await pool.query(`
-    SELECT u.id_usuario, u.documento, u.nombres, u.primer_apellido, u.apellidos, u.id_rol, r.nombre AS rol_nombre, u.estado 
-    FROM usuarios u 
-    LEFT JOIN roles r ON u.id_rol = r.id_rol
-    WHERE r.nombre LIKE '%superv%' OR r.nombre LIKE '%superb%' OR u.nombres LIKE '%yomar%'
-  `);
-  console.log('\n=== USUARIOS SUPERVISORES ===');
-  console.table(users);
+  const [roles] = await conn.query("SELECT * FROM roles");
+  console.log('Roles:', roles);
 
-  process.exit();
-})();
+  const [servicios] = await conn.query("SELECT DISTINCT tipo_servicio FROM usuarios WHERE tipo_servicio IS NOT NULL AND tipo_servicio != ''");
+  console.log('Tipos de servicio:', servicios);
+
+  await conn.end();
+}
+
+inspectRoles();

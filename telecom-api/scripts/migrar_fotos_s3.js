@@ -60,40 +60,36 @@ async function migrar() {
 
       for (let tIdx = 0; tIdx < tasks.length; tIdx++) {
         const t = tasks[tIdx];
+        const tit = (t.titulo || t.nombre || '').toUpperCase();
+        const esActa = tit.includes('ACTA') || tit.includes('CONFORMIDAD');
 
-        // A) Foto principal de tarea
-        if (t.imagen_base64 && typeof t.imagen_base64 === 'string' && t.imagen_base64.startsWith('data:image/')) {
-          const s3Key = `tareas/orden_${numOrden}/tarea_${t.id || tIdx}_${Date.now()}.jpg`;
-          const s3Url = await procesarYSubirBase64(t.imagen_base64, s3Key, isDryRun);
-          if (s3Url) {
-            t.imagen_base64 = s3Url;
-            fotosEnEstaOrden++;
+        if (!esActa) {
+          if (t.imagen_base64 && typeof t.imagen_base64 === 'string' && t.imagen_base64.startsWith('data:image/')) {
+            t.imagen_base64 = null;
           }
+          continue;
         }
 
-        // B) Fotografías en detalle
+        // Solo procesar fotos si es Acta de Conformidad
         if (t.detalle && Array.isArray(t.detalle.fotografias)) {
           for (let fIdx = 0; fIdx < t.detalle.fotografias.length; fIdx++) {
             const fObj = t.detalle.fotografias[fIdx];
 
-            // B.1) Acta HD
+            // B.1) Acta HD (solo foto real en alta resolución)
             if (fObj.imagen_hd && typeof fObj.imagen_hd === 'string' && fObj.imagen_hd.startsWith('data:image/')) {
-              const s3Key = `tareas/orden_${numOrden}/acta_hd_${fObj.dataId || fIdx}_${Date.now()}.jpg`;
-              const s3Url = await procesarYSubirBase64(fObj.imagen_hd, s3Key, isDryRun);
-              if (s3Url) {
-                fObj.imagen_hd = s3Url;
-                fotosEnEstaOrden++;
+              if (fObj.imagen_hd.length > 5000) {
+                const s3Key = `tareas/orden_${numOrden}/acta_hd_${fObj.dataId || fIdx}_${Date.now()}.jpg`;
+                const s3Url = await procesarYSubirBase64(fObj.imagen_hd, s3Key, isDryRun);
+                if (s3Url) {
+                  fObj.imagen_hd = s3Url;
+                  fotosEnEstaOrden++;
+                }
               }
             }
 
-            // B.2) Imagen / Miniatura
+            // B.2) Limpiar miniatura de preview para no duplicar en S3
             if (fObj.imagen && typeof fObj.imagen === 'string' && fObj.imagen.startsWith('data:image/')) {
-              const s3Key = `tareas/orden_${numOrden}/acta_preview_${fObj.dataId || fIdx}_${Date.now()}.jpg`;
-              const s3Url = await procesarYSubirBase64(fObj.imagen, s3Key, isDryRun);
-              if (s3Url) {
-                fObj.imagen = s3Url;
-                fotosEnEstaOrden++;
-              }
+              fObj.imagen = null;
             }
           }
         }

@@ -1351,10 +1351,12 @@ async function obtenerTareasOrden(ordeVisiId) {
         }
       }
 
-      // 4. Extraer imagen si existe (solo imágenes de evidencia)
+      // 4. Extraer imagen si existe (solo si la tarea es Acta de Conformidad o evidencia)
+      const titUpper = (titulo || '').toUpperCase();
+      const esActaTarea = titUpper.includes('ACTA') || titUpper.includes('CONFORMIDAD');
       const imgMatch = cardHtml.match(/<img[^>]*src=["']([^"']+)["']/i);
       let imagen_base64 = null;
-      if (imgMatch && !imgMatch[1].includes('Icono') && !imgMatch[1].includes('icon') && !imgMatch[1].includes('default')) {
+      if (esActaTarea && imgMatch && !imgMatch[1].includes('Icono') && !imgMatch[1].includes('icon') && !imgMatch[1].includes('default')) {
         imagen_base64 = imgMatch[1];
       }
 

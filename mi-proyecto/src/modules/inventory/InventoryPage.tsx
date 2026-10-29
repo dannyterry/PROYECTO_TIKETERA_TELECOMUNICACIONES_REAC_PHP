@@ -14,7 +14,9 @@ import {
   LogOut,
   ArrowLeftRight,
   HardDrive,
+  Scale,
 } from "lucide-react";
+import { InventoryReconciliationTab } from "./components/InventoryReconciliationTab";
 import { ProductoStock, StockTecnicoDetalle, SerieTecnicoDetalle } from "./types/inventoryTypes";
 import { getStockGeneral } from "./services/inventoryService";
 import { StockOverviewTab } from "./components/StockOverviewTab";
@@ -55,6 +57,7 @@ export const InventoryPage: React.FC = () => {
     | "transferencias_tecnicos"
     | "kardex"
     | "devoluciones"
+    | "cruce_inventario"
     | "proveedores"
     | "categorias";
 
@@ -68,6 +71,7 @@ export const InventoryPage: React.FC = () => {
     { id: "kardex" as InventoryTabType, label: "Kardex & Movimientos", badge: "General", icon: ArrowLeftRight, allowed: canKardex },
     { id: "equipos_generales" as InventoryTabType, label: "Equipos Generales", badge: "WIN Grid", icon: HardDrive, allowed: canStock || canKardex || canDespacho },
     { id: "devoluciones" as InventoryTabType, label: "Devoluciones de Dotación", icon: ClipboardCheck, allowed: canDevoluciones },
+    { id: "cruce_inventario" as InventoryTabType, label: "Cruce de Material & Inventario", badge: "Auditoría", icon: Scale, allowed: canDevoluciones || canStock },
     { id: "proveedores" as InventoryTabType, label: "Proveedores", icon: Building2, allowed: canProveedores },
     { id: "categorias" as InventoryTabType, label: "Categorías", icon: Tag, allowed: canCategorias },
   ], [canStock, canCompras, canDespacho, canLiquidaciones, canRecogidos, canTraspasos, canKardex, canDevoluciones, canProveedores, canCategorias]);
@@ -85,6 +89,7 @@ export const InventoryPage: React.FC = () => {
     if ((hash.includes("historial") || hash.includes("despacho")) && canDespacho) return "despacho";
     if (hash.includes("recogido") && canRecogidos) return "recogidos";
     if ((hash.includes("devolucion") || hash.includes("liquidacion_tecnico")) && canDevoluciones) return "devoluciones";
+    if ((hash.includes("cruce") || hash.includes("auditoria")) && (canDevoluciones || canStock)) return "cruce_inventario";
     if ((hash.includes("liquidaciones") || hash.includes("liquidaciones_ordenes")) && canLiquidaciones) return "liquidaciones_ordenes";
     if ((hash.includes("stock") || hash.includes("inventario") || hash.includes("producto")) && canStock) return "stock";
     return tabsDisponibles[0]?.id || "stock";
@@ -166,6 +171,7 @@ export const InventoryPage: React.FC = () => {
       else if ((hash.includes("historial") || hash.includes("despacho")) && canDespacho) setTabActiva("despacho");
       else if (hash.includes("recogido") && canRecogidos) setTabActiva("recogidos");
       else if ((hash.includes("devolucion") || hash.includes("liquidacion_tecnico")) && canDevoluciones) setTabActiva("devoluciones");
+      else if ((hash.includes("cruce") || hash.includes("auditoria")) && (canDevoluciones || canStock)) setTabActiva("cruce_inventario");
       else if ((hash.includes("liquidaciones") || hash.includes("liquidaciones_ordenes")) && canLiquidaciones) setTabActiva("liquidaciones_ordenes");
       else if ((hash.includes("stock") || hash.includes("inventario") || hash.includes("producto")) && canStock) setTabActiva("stock");
     };
@@ -316,6 +322,10 @@ export const InventoryPage: React.FC = () => {
           seriesTecnicos={seriesTecnicos}
           onRefresh={cargarDatos}
         />
+      )}
+
+      {tabActiva === "cruce_inventario" && (canDevoluciones || canStock) && (
+        <InventoryReconciliationTab />
       )}
 
       {tabActiva === "liquidaciones_ordenes" && canLiquidaciones && (
