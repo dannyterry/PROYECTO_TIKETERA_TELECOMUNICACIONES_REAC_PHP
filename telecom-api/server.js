@@ -6556,6 +6556,32 @@ app.put(['/api/almacen/equipos-generales/:id_producto_serie', '/almacen/equipos-
 });
 
 // --- 📦 1. STOCK GENERAL (ALMACÉN CENTRAL VS STOCK MÓVIL EN TÉCNICOS) ---
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🗂️  ROUTERS MODULARES — Las rutas están organizadas por módulo en /routes/
+// ═══════════════════════════════════════════════════════════════════════════════
+app.use('/api/almacen',         require('./routes/almacen'));
+app.use('/api/movilidad',       require('./routes/movilidad'));
+app.use('/api/supervision',     require('./routes/supervision'));
+app.use('/api/dashboard',       require('./routes/dashboard'));
+app.use('/api/looker',          require('./routes/dashboard'));   // mismo router
+app.use('/api/win-audit',       require('./routes/dashboard'));   // mismo router
+app.use('/api/empleados',       require('./routes/empleados'));
+app.use('/api/roles',           require('./routes/empleados'));   // mismo router
+app.use('/api/areas',           require('./routes/empleados'));
+app.use('/api/subcontratas',    require('./routes/empleados'));
+app.use('/api/permisos',        require('./routes/empleados'));
+app.use('/api/cuadrillas',      require('./routes/empleados'));
+app.use('/api/configuracion',   require('./routes/configuracion'));
+app.use('/api/motivos',         require('./routes/configuracion'));
+app.use('/api/tipos-trabajo',   require('./routes/configuracion'));
+app.use('/api/asistencias',     require('./routes/asistencias'));
+app.use('/api/correos',         require('./routes/correos'));
+app.use('/api/pagos',           require('./routes/pagos'));
+app.use('/api/inventario',      require('./routes/inventario'));
+app.use('/api/auditoria',       require('./routes/auditoria'));
+app.use('/api/chat',            require('./routes/auditoria'));   // mismo router
+
 app.get('/api/almacen/stock-general', async (req, res) => {
   try {
     // 1. Productos con su stock en almacén central
@@ -6792,9 +6818,19 @@ app.get('/api/almacen/stock-general', async (req, res) => {
         ? Math.max(totalDespachadoNonSer, stockActualNonSer + totalGastadoNonSer + totalDevueltoNonSer)
         : (stockActualNonSer + totalGastadoNonSer + totalDevueltoNonSer);
 
+      // Detectar si es ACTA/TALONARIO/GUÍA — estas se descargan en orden_liquidacion_detalle,
+      // no cambian estado en trabajador_series → usar total_gastado_ordenes
+      const esActaItem =
+        (st.producto_nombre || '').toUpperCase().includes('ACTA') ||
+        (st.producto_nombre || '').toUpperCase().includes('TALONARIO') ||
+        (st.producto_codigo || '').toUpperCase().includes('ACT') ||
+        (st.categoria || '').toUpperCase().includes('ACTA') ||
+        st.id_producto === 65;
+
       const totalEnCarro = seriesDelItem.length > 0 ? seriesDisponibles.length : stockActualNonSer;
       const cantAsignada = seriesDelItem.length > 0 ? seriesDelItem.length : totalAsignadoNonSer;
-      const cantGastada = seriesDelItem.length > 0 ? seriesUsadas.length : totalGastadoNonSer;
+      // Para ACTAS: siempre usar total_gastado_ordenes (las actas no marcan "Usada" en trabajador_series)
+      const cantGastada = (seriesDelItem.length > 0 && !esActaItem) ? seriesUsadas.length : totalGastadoNonSer;
       const cantDevuelta = totalDevueltoNonSer;
 
       return {
@@ -6876,7 +6912,12 @@ app.get('/api/almacen/descargas-tecnico-detalle', async (req, res) => {
 
     // 2. Series/Equipos/Actas liquidadas desde trabajador_series
     let paramsSeries = [id_trabajador];
-    let whereSeries = "WHERE ts.id_trabajador = ? AND (ts.estado = 'Usada' OR ts.estado = 'Liquidada')";
+    // Excluir ACTAS/TALONARIOS de la query de series — se rastrean por orden_liquidacion_detalle
+    let whereSeries = `WHERE ts.id_trabajador = ? AND (ts.estado = 'Usada' OR ts.estado = 'Liquidada')
+      AND ts.id_producto NOT IN (
+        SELECT p2.id_producto FROM productos p2 
+        WHERE p2.id_producto = 65 OR UPPER(p2.codigo) LIKE '%ACT%' OR UPPER(p2.nombre) LIKE '%ACTA%'
+      )`;
     if (id_producto) {
       whereSeries += " AND ts.id_producto = ?";
       paramsSeries.push(id_producto);

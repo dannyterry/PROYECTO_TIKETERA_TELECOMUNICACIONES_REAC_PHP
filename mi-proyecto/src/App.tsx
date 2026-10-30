@@ -1,5 +1,14 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { OrdersPage } from "./modules/orders/OrdersPage";
+import React, { useState, useEffect, useCallback, useRef, Suspense } from "react";
+
+// ── Lazy-loaded page modules (code-splitting) ────────────────────────────────
+const OrdersPage = React.lazy(() => import("./modules/orders/OrdersPage").then(m => ({ default: m.OrdersPage })));
+const MobilityPage = React.lazy(() => import("./modules/mobility/MobilityPage").then(m => ({ default: m.MobilityPage })));
+const InventoryPage = React.lazy(() => import("./modules/inventory/InventoryPage").then(m => ({ default: m.InventoryPage })));
+const ExecutiveDashboardPage = React.lazy(() => import("./modules/dashboard/ExecutiveDashboardPage").then(m => ({ default: m.ExecutiveDashboardPage })));
+const SettingsPage = React.lazy(() => import("./modules/settings/SettingsPage").then(m => ({ default: m.SettingsPage })));
+const PaymentsPage = React.lazy(() => import("./modules/payments/PaymentsPage").then(m => ({ default: m.PaymentsPage })));
+const SupervisionPage = React.lazy(() => import("./modules/supervision/SupervisionPage").then(m => ({ default: m.SupervisionPage })));
+const TechnicianOrdersPortal = React.lazy(() => import("./modules/orders/components/TechnicianOrdersPortal").then(m => ({ default: m.TechnicianOrdersPortal })));
 import { EmployeeList } from "./components/employee/EmployeeList";
 import Dashboard from "./pages/Dashboard";
 import { getEmpleados } from "./services/employeeService";
@@ -28,20 +37,14 @@ import {
   MessageSquare,
   Search,
 } from "lucide-react";
-import { MobilityPage } from "./modules/mobility/MobilityPage";
-import { InventoryPage } from "./modules/inventory/InventoryPage";
-import { TechnicianOrdersPortal } from "./modules/orders/components/TechnicianOrdersPortal";
-import { ExecutiveDashboardPage } from "./modules/dashboard/ExecutiveDashboardPage";
-import { SettingsPage } from "./modules/settings/SettingsPage";
-import { PaymentsPage } from "./modules/payments/PaymentsPage";
 import { RolesTab } from "./modules/employee/components/RolesTab";
 import { AttendanceTab } from "./modules/employee/components/AttendanceTab";
-import { SupervisionPage } from "./modules/supervision/SupervisionPage";
 import { OnlineChatDropdown } from "./components/chat/OnlineChatDropdown";
 import { authService, AuthUser } from "./services/authService";
 import { LoginPage } from "./pages/LoginPage";
 import { API_URL } from "./config/api";
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
+import { resolveModule } from "./lib/viewRouter";
 
 export default function App() {
   // ── ESTADO DE AUTENTICACIÓN CENTRALIZADO ──
@@ -223,108 +226,21 @@ export default function App() {
   const rolNombre = currentUser.rol || "Usuario";
 
   // Identificación de Vistas
-  const isTechnicianPortal = currentView === "portal-tecnico";
   const esTecnico =
     userRol === "2" ||
     Boolean(rolNombre && (rolNombre.toUpperCase().includes("TECNICO") || rolNombre.toUpperCase().includes("TÉCNICO")));
 
-  const isExecutiveDashboard =
-    currentView === "dashboard" ||
-    currentView === "inicio" ||
-    currentView === "reportes" ||
-    currentView === "auditoria" ||
-    currentView === "torre-control";
-
-  const isPersonalView =
-    currentView === "personal" ||
-    currentView === "empleados" ||
-    currentView === "general" ||
-    currentView === "roles" ||
-    currentView === "rol" ||
-    currentView === "asistencia" ||
-    currentView === "asistencias";
-
-  const isMobilityView =
-    currentView === "movilidad" ||
-    currentView === "vehiculos" ||
-    currentView === "combustibles" ||
-    currentView === "combustible" ||
-    currentView === "flota" ||
-    currentView === "inspecciones" ||
-    currentView === "checklist-tecnico";
-
-  const isInventoryView =
-    currentView === "almacen" ||
-    currentView === "inventario" ||
-    currentView === "equipos_generales" ||
-    currentView === "equipos-generales" ||
-    currentView === "equipos" ||
-    currentView === "equiposgenerales" ||
-    currentView.includes("equipo") ||
-    currentView === "stock" ||
-    currentView === "kardex" ||
-    currentView === "movimientos" ||
-    currentView === "kardex-movimientos" ||
-    currentView === "kardex_movimientos" ||
-    currentView === "kardex-general" ||
-    currentView === "transferencias_tecnicos" ||
-    currentView === "transferencias-tecnicos" ||
-    currentView === "transferencias" ||
-    currentView === "transferencia" ||
-    currentView === "traspasos" ||
-    currentView === "traspaso" ||
-    currentView === "traspasos_tecnicos" ||
-    currentView === "traspasos-tecnicos" ||
-    currentView === "compras" ||
-    currentView === "despacho" ||
-    currentView === "historial_despachos" ||
-    currentView === "historial-despachos" ||
-    currentView === "historial" ||
-    currentView === "recogidos" ||
-    currentView === "devolucion" ||
-    currentView === "devoluciones" ||
-    currentView === "cruce_inventario" ||
-    currentView === "cruce-inventario" ||
-    currentView === "cruce" ||
-    currentView.includes("cruce") ||
-    currentView === "liquidacion" ||
-    currentView === "liquidaciones" ||
-    currentView === "liquidaciones_ordenes" ||
-    currentView === "liquidaciones-ordenes" ||
-    currentView === "productos" ||
-    currentView === "categorias" ||
-    currentView === "proveedores";
-
-  const isSettingsView =
-    currentView === "configuracion" ||
-    currentView === "motivos" ||
-    currentView === "tipos-trabajo" ||
-    currentView === "tipo_trabajo" ||
-    currentView === "sistema" ||
-    currentView === "permisos" ||
-    currentView === "correos" ||
-    currentView === "email";
-
-  const isPaymentsView =
-    currentView === "pagos" ||
-    currentView === "pago" ||
-    currentView === "finanzas" ||
-    currentView === "liquidaciones-tecnicos";
-
-  const isSupervisionView =
-    currentView === "supervision" ||
-    currentView === "calidad" ||
-    currentView === "auditoria-calidad";
-
-  const isOrdersView =
-    !isPersonalView &&
-    !isMobilityView &&
-    !isInventoryView &&
-    !isSettingsView &&
-    !isPaymentsView &&
-    !isSupervisionView &&
-    !isExecutiveDashboard &&
-    !isTechnicianPortal;
+  // ── ROUTER: Módulo activo según el hash ──────────────────────────────────────
+  const activeModule = resolveModule(currentView);
+  const isExecutiveDashboard = activeModule === 'executive';
+  const isInventoryView      = activeModule === 'inventory';
+  const isMobilityView       = activeModule === 'mobility';
+  const isPersonalView       = activeModule === 'personal';
+  const isSettingsView       = activeModule === 'settings';
+  const isPaymentsView       = activeModule === 'payments';
+  const isSupervisionView    = activeModule === 'supervision';
+  const isTechnicianPortal   = activeModule === 'portal';
+  const isOrdersView         = activeModule === 'orders';
 
   // 🛡️ Ocultar Chat completamente a Técnicos y en módulos con barra integrada (Órdenes, Dashboard/Análisis, Personal, etc.)
   const ocultarBarraChat = Boolean(
@@ -560,6 +476,14 @@ export default function App() {
             VISTAS DE LOS MÓDULOS DE REACT (CON PROTECCIÓN DE RUTAS)
         ───────────────────────────────────────────────────────────── */}
         <main className="flex-1 overflow-hidden flex flex-col min-h-0 bg-slate-100/70">
+          <Suspense fallback={
+            <div className="flex-1 flex items-center justify-center">
+              <div className="flex flex-col items-center gap-3 text-slate-400">
+                <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs font-bold">Cargando módulo...</span>
+              </div>
+            </div>
+          }>
           {!isCurrentViewAllowed() ? (
             <div className="flex-1 flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-200">
               <div className="w-16 h-16 rounded-3xl bg-rose-100 text-rose-600 flex items-center justify-center mb-4 shadow-lg shadow-rose-600/10">
@@ -842,6 +766,7 @@ export default function App() {
               )}
             </>
           )}
+          </Suspense>
         </main>
       </div>
     </div>
